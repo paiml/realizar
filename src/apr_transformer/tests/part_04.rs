@@ -17,8 +17,8 @@ fn create_test_transformer(
     let config = AprTransformerConfig {
         hidden_dim,
         num_layers,
-        num_heads: hidden_dim / 8.max(1), // Ensure at least 1 head
-        num_kv_heads: hidden_dim / 8.max(1),
+        num_heads: hidden_dim / 8, // Ensure at least 1 head
+        num_kv_heads: hidden_dim / 8,
         vocab_size,
         intermediate_dim: hidden_dim * 2,
         context_length: 128,
@@ -261,7 +261,7 @@ fn test_generate_with_cache_basic() {
         ..Default::default()
     };
     let result = t.generate_with_cache(&[1], &config).unwrap();
-    assert!(result.len() >= 1, "should at least have prompt");
+    assert!(!result.is_empty(), "should at least have prompt");
     assert!(result.len() <= 4, "prompt(1) + max 3 generated");
 }
 
@@ -284,7 +284,7 @@ fn test_generate_with_cache_nonzero_temperature() {
         ..Default::default()
     };
     let result = t.generate_with_cache(&[1], &config).unwrap();
-    assert!(result.len() >= 1);
+    assert!(!result.is_empty());
 }
 
 #[test]

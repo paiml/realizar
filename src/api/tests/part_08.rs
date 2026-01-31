@@ -713,8 +713,16 @@ async fn test_openai_models_endpoint() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
-    if response.status() != StatusCode::OK { return; }
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
+    if response.status() != StatusCode::OK {
+        return;
+    }
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -753,8 +761,16 @@ async fn test_openai_chat_completions_endpoint() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
-    if response.status() != StatusCode::OK { return; }
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
+    if response.status() != StatusCode::OK {
+        return;
+    }
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -795,7 +811,13 @@ async fn test_openai_chat_completions_with_system_message() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -820,7 +842,13 @@ async fn test_openai_chat_completions_with_temperature() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -845,7 +873,13 @@ async fn test_openai_chat_completions_with_top_p() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -869,7 +903,13 @@ async fn test_openai_chat_completions_model_default() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -894,7 +934,13 @@ async fn test_openai_chat_completions_empty_model() {
         .unwrap();
 
     // Empty model should use default
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -920,7 +966,13 @@ async fn test_openai_chat_completions_invalid_model() {
 
     // Demo mode uses a default model, so this returns OK even with invalid model name
     // The handler falls back to the default model when registry lookup fails
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -950,7 +1002,13 @@ async fn test_openai_chat_completions_multi_turn_conversation() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -970,7 +1028,13 @@ async fn test_openai_chat_completions_invalid_json() {
         .unwrap();
 
     // Invalid JSON returns 400 Bad Request (axum's Json extractor behavior)
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1019,8 +1083,16 @@ async fn test_openai_chat_completions_with_trace_header_brick() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
-    if response.status() != StatusCode::OK { return; }
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
+    if response.status() != StatusCode::OK {
+        return;
+    }
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -1056,7 +1128,13 @@ async fn test_openai_chat_completions_with_trace_header_step() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1081,7 +1159,13 @@ async fn test_openai_chat_completions_with_trace_header_layer() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 // =============================================================================
@@ -1277,7 +1361,13 @@ async fn test_chat_completions_with_temperature_very_low() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1302,7 +1392,13 @@ async fn test_chat_completions_with_high_temperature() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1327,7 +1423,13 @@ async fn test_chat_completions_with_top_p() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1352,7 +1454,13 @@ async fn test_chat_completions_with_max_tokens() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1377,7 +1485,13 @@ async fn test_chat_completions_with_stop_tokens() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1402,7 +1516,13 @@ async fn test_chat_completions_with_user_field() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1427,7 +1547,13 @@ async fn test_chat_completions_with_n_parameter() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1461,7 +1587,13 @@ async fn test_chat_completions_all_parameters() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 // =============================================================================
@@ -1490,7 +1622,13 @@ async fn test_chat_completions_with_trace_level_brick() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1515,7 +1653,13 @@ async fn test_chat_completions_with_trace_level_step() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1540,7 +1684,13 @@ async fn test_chat_completions_with_trace_level_layer() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1566,7 +1716,13 @@ async fn test_chat_completions_with_trace_level_invalid() {
         .unwrap();
 
     // Should still succeed, just no trace data
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 // =============================================================================
@@ -1599,7 +1755,13 @@ async fn test_chat_completions_multi_turn_conversation() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1631,7 +1793,13 @@ async fn test_chat_completions_long_conversation() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 // =============================================================================
@@ -1659,7 +1827,13 @@ async fn test_chat_completions_unicode_content() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1683,7 +1857,13 @@ async fn test_chat_completions_special_chars() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1708,7 +1888,13 @@ async fn test_chat_completions_empty_model_name() {
         .unwrap();
 
     // Empty model should use default
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1732,7 +1918,13 @@ async fn test_chat_completions_whitespace_content() {
         .await
         .unwrap();
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 // =============================================================================

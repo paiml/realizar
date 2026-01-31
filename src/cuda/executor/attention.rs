@@ -1515,7 +1515,9 @@ mod tests {
 
     #[test]
     fn test_incremental_attention_async_requires_kv_cache_init() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let hidden_dim = 256usize;
 
         let q = GpuBuffer::from_host(&exec.context, &vec![1.0f32; hidden_dim]).unwrap();
@@ -1529,7 +1531,9 @@ mod tests {
 
     #[test]
     fn test_incremental_attention_into_requires_kv_cache_init() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let hidden_dim = 256usize;
 
         let q = GpuBuffer::from_host(&exec.context, &vec![1.0f32; hidden_dim]).unwrap();
@@ -1574,7 +1578,9 @@ mod tests {
 
     #[test]
     fn test_init_flash_decoding() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let n_heads = 32usize;
         let head_dim = 64usize;
         let max_seq_len = 2048usize;
@@ -1589,7 +1595,9 @@ mod tests {
 
     #[test]
     fn test_flash_decoding_disabled_by_default() {
-        let Some(exec) = create_executor() else { return; };
+        let Some(exec) = create_executor() else {
+            return;
+        };
         assert!(!exec.flash_decode_enabled);
     }
 
@@ -1599,9 +1607,11 @@ mod tests {
 
     #[test]
     fn test_tensor_core_attention_requires_aligned_dims() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         // WMMA requires dimensions to be multiples of 16
-        let seq_len = 32u32;  // Multiple of 16
+        let seq_len = 32u32; // Multiple of 16
         let head_dim = 64u32; // Multiple of 16
         let n_heads = 4u32;
         let total = (seq_len * head_dim * n_heads) as usize;
@@ -1611,16 +1621,19 @@ mod tests {
         let v = vec![1.0f32; total];
         let mut output = vec![0.0f32; total];
 
-        let result = exec.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, true);
+        let result =
+            exec.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, true);
         // May fail on non-Tensor Core GPUs but exercises the code path
         let _ = result;
     }
 
     #[test]
     fn test_tensor_core_attention_unaligned_dims_error() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         // Use dimensions not multiples of 16
-        let seq_len = 33u32;  // Not multiple of 16
+        let seq_len = 33u32; // Not multiple of 16
         let head_dim = 65u32; // Not multiple of 16
         let n_heads = 1u32;
         let total = (seq_len * head_dim * n_heads) as usize;
@@ -1630,7 +1643,8 @@ mod tests {
         let v = vec![1.0f32; total];
         let mut output = vec![0.0f32; total];
 
-        let result = exec.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, true);
+        let result =
+            exec.tensor_core_attention(&q, &k, &v, &mut output, seq_len, head_dim, n_heads, true);
         assert!(result.is_err());
     }
 
@@ -1640,7 +1654,9 @@ mod tests {
 
     #[test]
     fn test_gemm_fp16_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let m = 32u32;
         let n = 32u32;
         let k = 32u32;
@@ -1655,7 +1671,9 @@ mod tests {
 
     #[test]
     fn test_gemm_fp16_size_validation() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         // Wrong sizes
         let a = vec![1.0f32; 10];
         let b = vec![1.0f32; 10];
@@ -1758,9 +1776,13 @@ mod tests {
     #[test]
     fn test_incremental_attention_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let hidden_dim = config.num_heads * config.head_dim;
         let kv_dim = config.num_kv_heads * config.head_dim;
@@ -1778,9 +1800,13 @@ mod tests {
     #[test]
     fn test_incremental_attention_into_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let hidden_dim = config.num_heads * config.head_dim;
         let kv_dim = config.num_kv_heads * config.head_dim;
@@ -1797,16 +1823,20 @@ mod tests {
     #[test]
     fn test_flash_decoding_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Initialize flash decoding
         let result = exec.init_flash_decoding(
             config.num_heads,
             config.head_dim,
             config.max_seq_len,
-            1 // batch_size
+            1, // batch_size
         );
         assert!(result.is_ok());
         assert!(exec.flash_decode_enabled);
@@ -1815,9 +1845,13 @@ mod tests {
     #[test]
     fn test_kv_cache_scatter_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // KV cache should be properly initialized
         assert!(exec.kv_cache_max_len > 0);
@@ -1834,28 +1868,44 @@ mod tests {
     #[test]
     fn test_multi_layer_attention_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let mut config = HarnessConfig::default();
         config.num_layers = 4;
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Verify all layers have KV cache
         for layer_idx in 0..config.num_layers {
             let k_key = format!("kv_{}_k", layer_idx);
             let v_key = format!("kv_{}_v", layer_idx);
-            assert!(exec.kv_cache_gpu.contains_key(&k_key), "Missing KV cache for layer {}", layer_idx);
-            assert!(exec.kv_cache_gpu.contains_key(&v_key), "Missing KV cache for layer {}", layer_idx);
+            assert!(
+                exec.kv_cache_gpu.contains_key(&k_key),
+                "Missing KV cache for layer {}",
+                layer_idx
+            );
+            assert!(
+                exec.kv_cache_gpu.contains_key(&v_key),
+                "Missing KV cache for layer {}",
+                layer_idx
+            );
         }
     }
 
     #[test]
     fn test_attention_with_gqa_ratio() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let mut config = HarnessConfig::default();
         config.num_heads = 32;
         config.num_kv_heads = 8; // 4:1 GQA ratio
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Verify GQA ratio is correctly applied
         let gqa_ratio = exec.kv_num_heads / exec.kv_num_kv_heads;
@@ -1865,9 +1915,13 @@ mod tests {
     #[test]
     fn test_attention_rope_theta_config() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // RoPE theta should be configured
         assert!(exec.rope_theta > 0.0);

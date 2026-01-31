@@ -18,8 +18,8 @@ use crate::quantize::{
 
 // Import internal functions for direct testing
 use crate::quantize::{
-    extract_scale_min, extract_scale_min_from_slice,
-    fused_q4_0_q8_0_dot_scalar, fused_q8_0_q8_0_dot_scalar,
+    extract_scale_min, extract_scale_min_from_slice, fused_q4_0_q8_0_dot_scalar,
+    fused_q8_0_q8_0_dot_scalar,
 };
 
 // =============================================================================
@@ -57,14 +57,14 @@ fn test_f16_lut_half() {
 fn test_f16_lut_various_values() {
     // Test a range of values to ensure LUT is correctly populated
     let test_cases = [
-        (0x0000u16, 0.0f32),      // Zero
-        (0x8000, -0.0),           // Negative zero
-        (0x3C00, 1.0),            // One
-        (0x4000, 2.0),            // Two
-        (0x4200, 3.0),            // Three
-        (0x3E00, 1.5),            // 1.5
-        (0x4400, 4.0),            // Four
-        (0x4500, 5.0),            // Five
+        (0x0000u16, 0.0f32), // Zero
+        (0x8000, -0.0),      // Negative zero
+        (0x3C00, 1.0),       // One
+        (0x4000, 2.0),       // Two
+        (0x4200, 3.0),       // Three
+        (0x3E00, 1.5),       // 1.5
+        (0x4400, 4.0),       // Four
+        (0x4500, 5.0),       // Five
     ];
 
     for (bits, expected) in test_cases {
@@ -440,7 +440,8 @@ fn test_fused_q4_0_q8_0_into_success() {
     let activations = vec![1.0f32; in_dim];
     let mut output = vec![0.0f32; out_dim];
 
-    let result = fused_q4_0_q8_0_parallel_matvec_into(&weight_data, &activations, in_dim, &mut output);
+    let result =
+        fused_q4_0_q8_0_parallel_matvec_into(&weight_data, &activations, in_dim, &mut output);
     assert!(result.is_ok());
 }
 
@@ -511,7 +512,8 @@ fn test_fused_q8_0_q8_0_into_weight_too_small() {
     let activations = vec![1.0f32; 32];
     let mut output = vec![0.0f32; 1];
 
-    let result = fused_q8_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, 1, &mut output);
+    let result =
+        fused_q8_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, 1, &mut output);
     assert!(result.is_err());
 }
 
@@ -521,7 +523,8 @@ fn test_fused_q8_0_q8_0_into_activation_mismatch() {
     let activations = vec![1.0f32; 64];
     let mut output = vec![0.0f32; 1];
 
-    let result = fused_q8_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, 1, &mut output);
+    let result =
+        fused_q8_0_q8_0_parallel_matvec_into(&weight_data, &activations, 32, 1, &mut output);
     assert!(result.is_err());
 }
 
@@ -533,7 +536,13 @@ fn test_fused_q8_0_q8_0_into_success() {
     let activations = vec![1.0f32; in_dim];
     let mut output = vec![0.0f32; out_dim];
 
-    let result = fused_q8_0_q8_0_parallel_matvec_into(&weight_data, &activations, in_dim, out_dim, &mut output);
+    let result = fused_q8_0_q8_0_parallel_matvec_into(
+        &weight_data,
+        &activations,
+        in_dim,
+        out_dim,
+        &mut output,
+    );
     assert!(result.is_ok());
 }
 
@@ -548,7 +557,13 @@ fn test_fused_q8_0_q8_0_into_large() {
     let activations = vec![0.25f32; in_dim];
     let mut output = vec![0.0f32; out_dim];
 
-    let result = fused_q8_0_q8_0_parallel_matvec_into(&weight_data, &activations, in_dim, out_dim, &mut output);
+    let result = fused_q8_0_q8_0_parallel_matvec_into(
+        &weight_data,
+        &activations,
+        in_dim,
+        out_dim,
+        &mut output,
+    );
     assert!(result.is_ok());
 }
 
@@ -622,7 +637,7 @@ fn test_interleaved_q4k_varied_values() {
 
     // Set varied quantized values
     for i in 16..144 {
-        data[i] = (i as u8) & 0xFF;
+        data[i] = (i as u8);
     }
 
     let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
@@ -677,40 +692,50 @@ fn test_q4_0_matvec_with_non_zero_weights() {
 
 #[test]
 fn test_extract_scale_min_block_0() {
-    let scales: [u8; 12] = [0x3F, 0x1F, 0x0F, 0x07, 0x2A, 0x15, 0x0A, 0x05, 0x00, 0x00, 0x00, 0x00];
+    let scales: [u8; 12] = [
+        0x3F, 0x1F, 0x0F, 0x07, 0x2A, 0x15, 0x0A, 0x05, 0x00, 0x00, 0x00, 0x00,
+    ];
     let (scale, min) = extract_scale_min(&scales, 0);
     assert_eq!(scale, 63.0); // 0x3F & 63 = 63
-    assert_eq!(min, 42.0);   // 0x2A & 63 = 42
+    assert_eq!(min, 42.0); // 0x2A & 63 = 42
 }
 
 #[test]
 fn test_extract_scale_min_block_1() {
-    let scales: [u8; 12] = [0x3F, 0x1F, 0x0F, 0x07, 0x2A, 0x15, 0x0A, 0x05, 0x00, 0x00, 0x00, 0x00];
+    let scales: [u8; 12] = [
+        0x3F, 0x1F, 0x0F, 0x07, 0x2A, 0x15, 0x0A, 0x05, 0x00, 0x00, 0x00, 0x00,
+    ];
     let (scale, min) = extract_scale_min(&scales, 1);
     assert_eq!(scale, 31.0); // 0x1F & 63 = 31
-    assert_eq!(min, 21.0);   // 0x15 & 63 = 21
+    assert_eq!(min, 21.0); // 0x15 & 63 = 21
 }
 
 #[test]
 fn test_extract_scale_min_block_2() {
-    let scales: [u8; 12] = [0x3F, 0x1F, 0x0F, 0x07, 0x2A, 0x15, 0x0A, 0x05, 0x00, 0x00, 0x00, 0x00];
+    let scales: [u8; 12] = [
+        0x3F, 0x1F, 0x0F, 0x07, 0x2A, 0x15, 0x0A, 0x05, 0x00, 0x00, 0x00, 0x00,
+    ];
     let (scale, min) = extract_scale_min(&scales, 2);
     assert_eq!(scale, 15.0); // 0x0F & 63 = 15
-    assert_eq!(min, 10.0);   // 0x0A & 63 = 10
+    assert_eq!(min, 10.0); // 0x0A & 63 = 10
 }
 
 #[test]
 fn test_extract_scale_min_block_3() {
-    let scales: [u8; 12] = [0x3F, 0x1F, 0x0F, 0x07, 0x2A, 0x15, 0x0A, 0x05, 0x00, 0x00, 0x00, 0x00];
+    let scales: [u8; 12] = [
+        0x3F, 0x1F, 0x0F, 0x07, 0x2A, 0x15, 0x0A, 0x05, 0x00, 0x00, 0x00, 0x00,
+    ];
     let (scale, min) = extract_scale_min(&scales, 3);
-    assert_eq!(scale, 7.0);  // 0x07 & 63 = 7
-    assert_eq!(min, 5.0);    // 0x05 & 63 = 5
+    assert_eq!(scale, 7.0); // 0x07 & 63 = 7
+    assert_eq!(min, 5.0); // 0x05 & 63 = 5
 }
 
 #[test]
 fn test_extract_scale_min_block_4() {
     // Block 4-7 use packed layout
-    let scales: [u8; 12] = [0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00];
+    let scales: [u8; 12] = [
+        0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x00, 0x00, 0x00,
+    ];
     let (scale, min) = extract_scale_min(&scales, 4);
     // scale = (scales[8] & 0x0F) | ((scales[0] >> 6) << 4) = (0x12 & 0x0F) | ((0xC0 >> 6) << 4) = 2 | (3 << 4) = 2 | 48 = 50
     // min = (scales[8] >> 4) | ((scales[4] >> 6) << 4) = (0x12 >> 4) | ((0 >> 6) << 4) = 1 | 0 = 1
@@ -720,7 +745,9 @@ fn test_extract_scale_min_block_4() {
 
 #[test]
 fn test_extract_scale_min_block_5() {
-    let scales: [u8; 12] = [0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x00, 0x00];
+    let scales: [u8; 12] = [
+        0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x34, 0x00, 0x00,
+    ];
     let (scale, min) = extract_scale_min(&scales, 5);
     // scale = (scales[9] & 0x0F) | ((scales[1] >> 6) << 4) = (0x34 & 0x0F) | ((0xC0 >> 6) << 4) = 4 | 48 = 52
     // min = (scales[9] >> 4) | ((scales[5] >> 6) << 4) = (0x34 >> 4) | 0 = 3
@@ -730,7 +757,9 @@ fn test_extract_scale_min_block_5() {
 
 #[test]
 fn test_extract_scale_min_block_6() {
-    let scales: [u8; 12] = [0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x56, 0x00];
+    let scales: [u8; 12] = [
+        0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x56, 0x00,
+    ];
     let (scale, min) = extract_scale_min(&scales, 6);
     // scale = (scales[10] & 0x0F) | ((scales[2] >> 6) << 4) = (0x56 & 0x0F) | ((0xC0 >> 6) << 4) = 6 | 48 = 54
     // min = (scales[10] >> 4) | ((scales[6] >> 6) << 4) = (0x56 >> 4) | 0 = 5
@@ -740,7 +769,9 @@ fn test_extract_scale_min_block_6() {
 
 #[test]
 fn test_extract_scale_min_block_7() {
-    let scales: [u8; 12] = [0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x78];
+    let scales: [u8; 12] = [
+        0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x78,
+    ];
     let (scale, min) = extract_scale_min(&scales, 7);
     // scale = (scales[11] & 0x0F) | ((scales[3] >> 6) << 4) = (0x78 & 0x0F) | ((0xC0 >> 6) << 4) = 8 | 48 = 56
     // min = (scales[11] >> 4) | ((scales[7] >> 6) << 4) = (0x78 >> 4) | 0 = 7
@@ -755,7 +786,9 @@ fn test_extract_scale_min_block_7() {
 #[test]
 fn test_extract_scale_min_from_slice_even_idx() {
     // idx = 0 (even)
-    let scales: Vec<u8> = vec![0x3F, 0x1F, 0x0F, 0x07, 0x2A, 0x15, 0x0A, 0x05, 0x00, 0x00, 0x00, 0x00];
+    let scales: Vec<u8> = vec![
+        0x3F, 0x1F, 0x0F, 0x07, 0x2A, 0x15, 0x0A, 0x05, 0x00, 0x00, 0x00, 0x00,
+    ];
     let (scale, min) = extract_scale_min_from_slice(&scales, 0);
     // scale_idx = 0, min_idx = 4
     // scale = scales[0] & 0x3F = 0x3F = 63
@@ -766,7 +799,9 @@ fn test_extract_scale_min_from_slice_even_idx() {
 
 #[test]
 fn test_extract_scale_min_from_slice_even_idx_2() {
-    let scales: Vec<u8> = vec![0x3F, 0x1F, 0x0F, 0x07, 0x2A, 0x15, 0x0A, 0x05, 0x00, 0x00, 0x00, 0x00];
+    let scales: Vec<u8> = vec![
+        0x3F, 0x1F, 0x0F, 0x07, 0x2A, 0x15, 0x0A, 0x05, 0x00, 0x00, 0x00, 0x00,
+    ];
     let (scale, min) = extract_scale_min_from_slice(&scales, 2);
     // scale_idx = 1, min_idx = 5
     // scale = scales[1] & 0x3F = 0x1F = 31
@@ -778,7 +813,9 @@ fn test_extract_scale_min_from_slice_even_idx_2() {
 #[test]
 fn test_extract_scale_min_from_slice_odd_idx() {
     // idx = 1 (odd) - uses different extraction logic
-    let scales: Vec<u8> = vec![0xC0, 0x00, 0x0F, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00];
+    let scales: Vec<u8> = vec![
+        0xC0, 0x00, 0x0F, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
     let (scale, min) = extract_scale_min_from_slice(&scales, 1);
     // scale_idx = 0, min_idx = 4
     // scale = (scales[0] >> 6) | ((scales[2] & 0x0F) << 2) = (0xC0 >> 6) | ((0x0F & 0x0F) << 2) = 3 | 60 = 63
@@ -789,7 +826,9 @@ fn test_extract_scale_min_from_slice_odd_idx() {
 
 #[test]
 fn test_extract_scale_min_from_slice_odd_idx_3() {
-    let scales: Vec<u8> = vec![0x00, 0xC0, 0x00, 0x0F, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 0x00];
+    let scales: Vec<u8> = vec![
+        0x00, 0xC0, 0x00, 0x0F, 0x00, 0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 0x00,
+    ];
     let (scale, min) = extract_scale_min_from_slice(&scales, 3);
     // scale_idx = 1, min_idx = 5
     // scale = (scales[1] >> 6) | ((scales[3] & 0x0F) << 2) = (0xC0 >> 6) | ((0x0F) << 2) = 3 | 60 = 63
@@ -977,7 +1016,9 @@ fn test_q8k_into_exact_buffer_sizes() {
 #[test]
 fn test_extract_scale_min_all_blocks() {
     // Test all 8 blocks to ensure both branches are covered
-    let scales: [u8; 12] = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+    let scales: [u8; 12] = [
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    ];
 
     for i in 0..8 {
         let (scale, min) = extract_scale_min(&scales, i);

@@ -158,7 +158,7 @@ fn test_inference_mode_mutually_exclusive() {
 #[test]
 fn test_inference_mode_hash_different() {
     use std::collections::hash_map::DefaultHasher;
-    use std::collections::HashSet;
+
     use std::hash::{Hash, Hasher};
 
     fn calculate_hash<T: Hash>(t: &T) -> u64 {
@@ -219,7 +219,7 @@ fn test_inference_mode_debug_format() {
 #[test]
 fn test_inference_mode_clone() {
     let original = InferenceMode::Decode;
-    let cloned = original.clone();
+    let cloned = original;
     assert_eq!(original, cloned);
 }
 

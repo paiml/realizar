@@ -270,7 +270,14 @@ pub async fn handle_serve(config: ServeConfig) -> Result<()> {
     if config.demo {
         super::serve_demo(&config.host, config.port).await
     } else if let Some(model_path) = config.model {
-        super::serve_model(&config.host, config.port, &model_path, config.batch, config.gpu).await
+        super::serve_model(
+            &config.host,
+            config.port,
+            &model_path,
+            config.batch,
+            config.gpu,
+        )
+        .await
     } else {
         eprintln!("Error: Either --model or --demo must be specified");
         eprintln!();
@@ -304,9 +311,10 @@ pub fn handle_list(remote: Option<&str>, format: &str) -> Result<()> {
         return Ok(());
     }
 
-    let pacha_dir = super::home_dir()
-        .map(|h| h.join(".pacha").join("models"))
-        .unwrap_or_else(|| std::path::PathBuf::from(".pacha/models"));
+    let pacha_dir = super::home_dir().map_or_else(
+        || std::path::PathBuf::from(".pacha/models"),
+        |h| h.join(".pacha").join("models"),
+    );
 
     if !pacha_dir.exists() {
         println!("No models found in local registry.");
@@ -355,14 +363,14 @@ pub fn handle_list(remote: Option<&str>, format: &str) -> Result<()> {
                     "{}",
                     serde_json::to_string_pretty(&json_models).unwrap_or_default()
                 );
-            }
+            },
             _ => {
                 println!("{:<40} {:>12}", "NAME", "SIZE");
                 println!("{}", "-".repeat(54));
                 for (name, size) in &models_found {
                     println!("{:<40} {:>12}", name, super::format_size(*size));
                 }
-            }
+            },
         }
     }
 
@@ -418,7 +426,9 @@ pub async fn handle_push(model_ref: &str, target: Option<&str>) -> Result<()> {
 }
 
 /// Parse trace configuration from CLI argument
-pub fn parse_trace_config(trace: Option<Option<String>>) -> Option<crate::inference_trace::TraceConfig> {
+pub fn parse_trace_config(
+    trace: Option<Option<String>>,
+) -> Option<crate::inference_trace::TraceConfig> {
     match trace {
         Some(Some(steps)) => {
             // --trace=step1,step2
@@ -426,13 +436,13 @@ pub fn parse_trace_config(trace: Option<Option<String>>) -> Option<crate::infere
             config.steps = crate::inference_trace::TraceConfig::parse_steps(&steps);
             config.verbose = true;
             Some(config)
-        }
+        },
         Some(None) => {
             // --trace (no value, trace all)
             let mut config = crate::inference_trace::TraceConfig::enabled();
             config.verbose = true;
             Some(config)
-        }
+        },
         None => None,
     }
 }
@@ -469,7 +479,7 @@ mod tests {
             Commands::Run { model, prompt, .. } => {
                 assert_eq!(model, "model.gguf");
                 assert_eq!(prompt, Some("hello".to_string()));
-            }
+            },
             _ => panic!("Expected Run command"),
         }
     }
@@ -480,19 +490,20 @@ mod tests {
         match cli.command {
             Commands::Serve { demo, .. } => {
                 assert!(demo);
-            }
+            },
             _ => panic!("Expected Serve command"),
         }
     }
 
     #[test]
     fn test_cli_parse_serve_with_model() {
-        let cli = Cli::try_parse_from(["realizar", "serve", "--model", "test.gguf", "--gpu"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["realizar", "serve", "--model", "test.gguf", "--gpu"]).unwrap();
         match cli.command {
             Commands::Serve { model, gpu, .. } => {
                 assert_eq!(model, Some("test.gguf".to_string()));
                 assert!(gpu);
-            }
+            },
             _ => panic!("Expected Serve command"),
         }
     }
@@ -503,7 +514,7 @@ mod tests {
         match cli.command {
             Commands::List { format, .. } => {
                 assert_eq!(format, "json");
-            }
+            },
             _ => panic!("Expected List command"),
         }
     }
@@ -514,7 +525,7 @@ mod tests {
         match cli.command {
             Commands::Bench { list, .. } => {
                 assert!(list);
-            }
+            },
             _ => panic!("Expected Bench command"),
         }
     }
@@ -526,7 +537,7 @@ mod tests {
             Commands::Viz { color, samples } => {
                 assert!(color);
                 assert_eq!(samples, 50);
-            }
+            },
             _ => panic!("Expected Viz command"),
         }
     }

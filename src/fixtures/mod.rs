@@ -496,14 +496,22 @@ impl ModelFixture {
             .ffn_hidden_dim(arch, config.intermediate_dim as u32);
 
         // Add token embedding (F32)
-        let embed_data: Vec<f32> =
-            (0..config.vocab_size * config.hidden_dim).map(|i| (i as f32) * 0.001).collect();
-        let builder =
-            builder.add_f32_tensor("token_embd.weight", &[config.hidden_dim as u64, config.vocab_size as u64], &embed_data);
+        let embed_data: Vec<f32> = (0..config.vocab_size * config.hidden_dim)
+            .map(|i| (i as f32) * 0.001)
+            .collect();
+        let builder = builder.add_f32_tensor(
+            "token_embd.weight",
+            &[config.hidden_dim as u64, config.vocab_size as u64],
+            &embed_data,
+        );
 
         // Add output norm
         let norm_data: Vec<f32> = vec![1.0; config.hidden_dim];
-        let builder = builder.add_f32_tensor("output_norm.weight", &[config.hidden_dim as u64], &norm_data);
+        let builder = builder.add_f32_tensor(
+            "output_norm.weight",
+            &[config.hidden_dim as u64],
+            &norm_data,
+        );
 
         // Add layer weights (Q4_K for compression)
         let head_dim = config.hidden_dim / config.num_heads;
@@ -554,7 +562,8 @@ impl ModelFixture {
 
             // FFN gate (for SwiGLU)
             if config.architecture == "llama" || config.architecture == "qwen2" {
-                let ffn_gate_data = Self::create_q4k_data(config.hidden_dim, config.intermediate_dim);
+                let ffn_gate_data =
+                    Self::create_q4k_data(config.hidden_dim, config.intermediate_dim);
                 final_builder = final_builder.add_q4_k_tensor(
                     &format!("blk.{}.ffn_gate.weight", layer),
                     &[config.intermediate_dim as u64, config.hidden_dim as u64],
@@ -589,8 +598,9 @@ impl ModelFixture {
         let mut builder = SafetensorsBuilder::new();
 
         // Token embedding
-        let embed_data: Vec<f32> =
-            (0..config.vocab_size * config.hidden_dim).map(|i| (i as f32) * 0.001).collect();
+        let embed_data: Vec<f32> = (0..config.vocab_size * config.hidden_dim)
+            .map(|i| (i as f32) * 0.001)
+            .collect();
         builder = builder.add_f32_tensor(
             "model.embed_tokens.weight",
             &[config.vocab_size, config.hidden_dim],
@@ -741,9 +751,7 @@ impl ModelFixture {
 
             // FFN norm
             tensor_defs.push((
-                Box::leak(
-                    format!("{prefix}.post_attention_layernorm.weight").into_boxed_str(),
-                ),
+                Box::leak(format!("{prefix}.post_attention_layernorm.weight").into_boxed_str()),
                 vec![config.hidden_dim],
                 0,
             ));
@@ -800,7 +808,7 @@ impl ModelFixture {
         // Version: 2.0
         data.push(2); // major
         data.push(0); // minor
-        // Flags: 0
+                      // Flags: 0
         data.extend_from_slice(&0u16.to_le_bytes());
         // Tensor count
         data.extend_from_slice(&(tensor_count as u32).to_le_bytes());

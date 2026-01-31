@@ -359,9 +359,7 @@ fn test_xtc_config_new() {
 
 #[test]
 fn test_xtc_config_builders() {
-    let config = XtcConfig::new(0.8)
-        .with_threshold(0.3)
-        .with_min_keep(2);
+    let config = XtcConfig::new(0.8).with_threshold(0.3).with_min_keep(2);
     assert!((config.threshold - 0.3).abs() < 1e-6);
     assert_eq!(config.min_keep, 2);
 }
@@ -382,7 +380,7 @@ fn test_apply_xtc_disabled() {
 fn test_apply_xtc_rng_above_probability() {
     let logits = Tensor::from_vec(vec![5], vec![1.0; 5]).expect("test");
     let config = XtcConfig::new(0.5); // 50% chance
-    // rng = 0.6 > 0.5, so no exclusion
+                                      // rng = 0.6 > 0.5, so no exclusion
     let result = apply_xtc(&logits, &config, 0.6);
     assert_eq!(result.data(), logits.data());
 }

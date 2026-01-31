@@ -118,64 +118,55 @@ fn test_inference_config_new() {
 
 #[test]
 fn test_inference_config_with_prompt() {
-    let config = InferenceConfig::new("test.gguf")
-        .with_prompt("Hello, world!");
+    let config = InferenceConfig::new("test.gguf").with_prompt("Hello, world!");
     assert_eq!(config.prompt, Some("Hello, world!".to_string()));
 }
 
 #[test]
 fn test_inference_config_with_input_tokens() {
-    let config = InferenceConfig::new("test.gguf")
-        .with_input_tokens(vec![1, 2, 3, 4, 5]);
+    let config = InferenceConfig::new("test.gguf").with_input_tokens(vec![1, 2, 3, 4, 5]);
     assert_eq!(config.input_tokens, Some(vec![1, 2, 3, 4, 5]));
 }
 
 #[test]
 fn test_inference_config_with_max_tokens() {
-    let config = InferenceConfig::new("test.gguf")
-        .with_max_tokens(100);
+    let config = InferenceConfig::new("test.gguf").with_max_tokens(100);
     assert_eq!(config.max_tokens, 100);
 }
 
 #[test]
 fn test_inference_config_with_temperature() {
-    let config = InferenceConfig::new("test.gguf")
-        .with_temperature(0.7);
+    let config = InferenceConfig::new("test.gguf").with_temperature(0.7);
     assert!((config.temperature - 0.7).abs() < 0.001);
 }
 
 #[test]
 fn test_inference_config_with_top_k() {
-    let config = InferenceConfig::new("test.gguf")
-        .with_top_k(40);
+    let config = InferenceConfig::new("test.gguf").with_top_k(40);
     assert_eq!(config.top_k, 40);
 }
 
 #[test]
 fn test_inference_config_without_gpu() {
-    let config = InferenceConfig::new("test.gguf")
-        .without_gpu();
+    let config = InferenceConfig::new("test.gguf").without_gpu();
     assert!(config.no_gpu);
 }
 
 #[test]
 fn test_inference_config_with_verbose() {
-    let config = InferenceConfig::new("test.gguf")
-        .with_verbose(true);
+    let config = InferenceConfig::new("test.gguf").with_verbose(true);
     assert!(config.verbose);
 }
 
 #[test]
 fn test_inference_config_with_trace() {
-    let config = InferenceConfig::new("test.gguf")
-        .with_trace(true);
+    let config = InferenceConfig::new("test.gguf").with_trace(true);
     assert!(config.trace);
 }
 
 #[test]
 fn test_inference_config_with_trace_output() {
-    let config = InferenceConfig::new("test.gguf")
-        .with_trace_output("trace.json");
+    let config = InferenceConfig::new("test.gguf").with_trace_output("trace.json");
     assert_eq!(config.trace_output, Some(PathBuf::from("trace.json")));
 }
 
@@ -274,30 +265,30 @@ fn test_inference_result_clone() {
 
 #[test]
 fn test_inference_config_empty_prompt() {
-    let config = InferenceConfig::new("test.gguf")
-        .with_prompt("");
-    assert_eq!(config.prompt, Some("".to_string()));
+    let config = InferenceConfig::new("test.gguf").with_prompt("");
+    assert_eq!(config.prompt, Some(String::new()));
 }
 
 #[test]
 fn test_inference_config_zero_max_tokens() {
-    let config = InferenceConfig::new("test.gguf")
-        .with_max_tokens(0);
+    let config = InferenceConfig::new("test.gguf").with_max_tokens(0);
     assert_eq!(config.max_tokens, 0);
 }
 
 #[test]
 fn test_inference_config_negative_temperature_equivalent() {
     // Temperature should generally be non-negative, but the API accepts any f32
-    let config = InferenceConfig::new("test.gguf")
-        .with_temperature(-0.1);
+    let config = InferenceConfig::new("test.gguf").with_temperature(-0.1);
     assert!((config.temperature - (-0.1)).abs() < 0.001);
 }
 
 #[test]
 fn test_inference_config_path_with_spaces() {
     let config = InferenceConfig::new("/path/with spaces/model.gguf");
-    assert_eq!(config.model_path, PathBuf::from("/path/with spaces/model.gguf"));
+    assert_eq!(
+        config.model_path,
+        PathBuf::from("/path/with spaces/model.gguf")
+    );
 }
 
 #[test]
@@ -309,7 +300,7 @@ fn test_inference_config_unicode_path() {
 #[test]
 fn test_inference_result_empty_tokens() {
     let result = InferenceResult {
-        text: "".to_string(),
+        text: String::new(),
         tokens: vec![],
         input_token_count: 0,
         generated_token_count: 0,

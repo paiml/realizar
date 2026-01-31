@@ -13,8 +13,8 @@
 use crate::quantize::{
     dequantize_q8_blocks, detect_simd_backend, fused_q4_0_q8_0_parallel_matvec,
     fused_q4_0_q8_0_parallel_matvec_into, fused_q8_0_q8_0_parallel_matvec,
-    fused_q8_0_q8_0_parallel_matvec_into, quantize_activations_q8k_into, quantize_to_q8_blocks,
-    DequantStats, InterleavedQ4K, Q8KSuperBlock, Q8_0Block, SimdBackend, BLOCK_SIZE, QK_K,
+    quantize_activations_q8k_into, quantize_to_q8_blocks, DequantStats, InterleavedQ4K,
+    Q8KSuperBlock, Q8_0Block, SimdBackend, BLOCK_SIZE, QK_K,
 };
 
 // These are pub(crate), available within the crate

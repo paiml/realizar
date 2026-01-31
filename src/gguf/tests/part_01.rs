@@ -7,7 +7,7 @@
 //! - IMP-101: RoPE and Causal Attention Tests
 //! - IMP-105: Grouped Query Attention (GQA) Tests
 
-use crate::gguf::test_helpers::{create_q4k_test_data, create_test_model_with_config};
+use crate::gguf::test_helpers::create_test_model_with_config;
 use crate::gguf::*;
 
 // ============================================================

@@ -419,7 +419,7 @@ impl GgufToAprQ4KConverter {
             match s.as_str() {
                 "none" | "linear" => return 0, // NORM style
                 "yarn" | "neox" => return 2,   // NEOX style
-                _ => {}
+                _ => {},
             }
         }
 
@@ -649,9 +649,12 @@ impl GgufToAprQ4KConverter {
                 13 => 13u8, // Q5_K (GGML type 13)
                 14 => 14u8, // Q6_K (GGML type 14)
                 other => {
-                    eprintln!("WARN: Unknown GGML dtype {other} for tensor '{}', writing as F32", tensor.name);
+                    eprintln!(
+                        "WARN: Unknown GGML dtype {other} for tensor '{}', writing as F32",
+                        tensor.name
+                    );
                     0u8
-                }
+                },
             };
             tensor_index_bytes.push(apr_dtype);
 

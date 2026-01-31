@@ -731,7 +731,6 @@ mod inference_coverage {
 
     #[test]
     fn test_inference_functions_are_thread_safe() {
-        use std::sync::Arc;
         use std::thread;
 
         let handles: Vec<_> = (0..4)

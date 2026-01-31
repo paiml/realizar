@@ -176,7 +176,11 @@ fn test_forward_single_with_cache_first_token() {
     );
 
     // Cache should have been populated
-    assert_eq!(cache.len(), 1, "Cache should have 1 position after first token");
+    assert_eq!(
+        cache.len(),
+        1,
+        "Cache should have 1 position after first token"
+    );
 }
 
 #[test]
@@ -275,7 +279,10 @@ fn test_forward_single_phi_style_layernorm_gelu() {
 fn test_forward_single_with_lm_head_bias() {
     // Test that lm_head_bias is applied correctly
     let model = create_phi_style_model();
-    assert!(model.lm_head_bias.is_some(), "phi model should have lm_head_bias");
+    assert!(
+        model.lm_head_bias.is_some(),
+        "phi model should have lm_head_bias"
+    );
 
     let mut cache = OwnedQuantizedKVCache::from_config(&model.config, 128);
     let logits = model

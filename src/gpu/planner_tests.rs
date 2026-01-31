@@ -286,18 +286,42 @@ fn test_sampling_strategy_default_and_variants() {
 #[test]
 fn test_plan_sampling_invalid_params() {
     assert_eq!(plan_sampling(None, Some(0), None), SamplingStrategy::Greedy);
-    assert_eq!(plan_sampling(None, Some(usize::MAX), None), SamplingStrategy::Greedy);
-    assert_eq!(plan_sampling(None, None, Some(1.0)), SamplingStrategy::Greedy);
-    assert_eq!(plan_sampling(None, None, Some(0.0)), SamplingStrategy::Greedy);
-    assert_eq!(plan_sampling(Some(-0.5), None, None), SamplingStrategy::Greedy);
-    assert_eq!(plan_sampling(Some(0.0), Some(0), Some(1.0)), SamplingStrategy::Greedy);
+    assert_eq!(
+        plan_sampling(None, Some(usize::MAX), None),
+        SamplingStrategy::Greedy
+    );
+    assert_eq!(
+        plan_sampling(None, None, Some(1.0)),
+        SamplingStrategy::Greedy
+    );
+    assert_eq!(
+        plan_sampling(None, None, Some(0.0)),
+        SamplingStrategy::Greedy
+    );
+    assert_eq!(
+        plan_sampling(Some(-0.5), None, None),
+        SamplingStrategy::Greedy
+    );
+    assert_eq!(
+        plan_sampling(Some(0.0), Some(0), Some(1.0)),
+        SamplingStrategy::Greedy
+    );
 }
 
 #[test]
 fn test_plan_sampling_boundary_values() {
-    assert_eq!(plan_sampling(None, None, Some(0.999)), SamplingStrategy::TopP { p: 0.999 });
-    assert_eq!(plan_sampling(None, None, Some(0.001)), SamplingStrategy::TopP { p: 0.001 });
-    assert_eq!(plan_sampling(None, Some(1), None), SamplingStrategy::TopK { k: 1 });
+    assert_eq!(
+        plan_sampling(None, None, Some(0.999)),
+        SamplingStrategy::TopP { p: 0.999 }
+    );
+    assert_eq!(
+        plan_sampling(None, None, Some(0.001)),
+        SamplingStrategy::TopP { p: 0.001 }
+    );
+    assert_eq!(
+        plan_sampling(None, Some(1), None),
+        SamplingStrategy::TopK { k: 1 }
+    );
     assert_eq!(
         plan_sampling(None, Some(usize::MAX - 1), None),
         SamplingStrategy::TopK { k: usize::MAX - 1 }
@@ -312,12 +336,18 @@ fn test_plan_sampling_boundary_values() {
 fn test_plan_lm_head_path_boundaries() {
     // At vocab threshold
     assert_eq!(plan_lm_head_path(8192, 768, 100_000_000), LmHeadPath::Gpu);
-    assert_eq!(plan_lm_head_path(8193, 768, 100_000_000), LmHeadPath::CpuTransposed);
+    assert_eq!(
+        plan_lm_head_path(8193, 768, 100_000_000),
+        LmHeadPath::CpuTransposed
+    );
 
     // Buffer limit
     let limit = 5000 * 768;
     assert_eq!(plan_lm_head_path(5000, 768, limit), LmHeadPath::Gpu);
-    assert_eq!(plan_lm_head_path(5000, 768, limit - 1), LmHeadPath::CpuTransposed);
+    assert_eq!(
+        plan_lm_head_path(5000, 768, limit - 1),
+        LmHeadPath::CpuTransposed
+    );
 }
 
 #[test]
@@ -336,8 +366,13 @@ fn test_lm_head_path_variants() {
 fn test_generation_step_variants_and_eq() {
     let steps = [
         GenerationStep::ProcessPrompt { tokens: vec![1, 2] },
-        GenerationStep::GenerateToken { tokens: vec![1], use_greedy_optimization: true },
-        GenerationStep::Done { tokens: vec![1, 2, 3] },
+        GenerationStep::GenerateToken {
+            tokens: vec![1],
+            use_greedy_optimization: true,
+        },
+        GenerationStep::Done {
+            tokens: vec![1, 2, 3],
+        },
     ];
     for s in &steps {
         assert_eq!(&s.clone(), s);

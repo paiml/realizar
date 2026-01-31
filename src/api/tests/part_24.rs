@@ -17,10 +17,10 @@ mod potemkin_village {
     };
     use tower::ServiceExt;
 
-    use crate::api::{create_router, AppState};
     use crate::api::gpu_handlers::{
         BatchConfig, GpuBatchRequest, GpuBatchResponse, GpuStatusResponse, GpuWarmupResponse,
     };
+    use crate::api::{create_router, AppState};
     use crate::gguf::{GGUFConfig, OwnedQuantizedModelCachedSync};
 
     /// Create the Potemkin Village - AppState with mock GPU that deceives handlers
@@ -47,8 +47,8 @@ mod potemkin_village {
         let cached_model = OwnedQuantizedModelCachedSync::new(mock_model);
 
         // Create AppState that *thinks* it has GPU capability
-        let state = AppState::with_cached_model(cached_model)
-            .expect("Failed to create Potemkin AppState");
+        let state =
+            AppState::with_cached_model(cached_model).expect("Failed to create Potemkin AppState");
 
         create_router(state)
     }
@@ -249,15 +249,15 @@ mod potemkin_village {
     fn test_batch_config_should_process() {
         let config = BatchConfig::default();
         assert!(!config.should_process(31)); // Below optimal
-        assert!(config.should_process(32));  // At optimal
-        assert!(config.should_process(64));  // Above optimal
+        assert!(config.should_process(32)); // At optimal
+        assert!(config.should_process(64)); // Above optimal
     }
 
     #[test]
     fn test_batch_config_meets_minimum() {
         let config = BatchConfig::default();
         assert!(!config.meets_minimum(3)); // Below min
-        assert!(config.meets_minimum(4));  // At min
+        assert!(config.meets_minimum(4)); // At min
         assert!(config.meets_minimum(10)); // Above min
     }
 
@@ -277,7 +277,7 @@ mod potemkin_village {
         let json = serde_json::to_string(&response).unwrap();
         let parsed: GpuWarmupResponse = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(parsed.success, true);
+        assert!(parsed.success);
         assert_eq!(parsed.memory_bytes, 1024 * 1024);
         assert_eq!(parsed.num_layers, 12);
     }
@@ -294,7 +294,7 @@ mod potemkin_village {
         let json = serde_json::to_string(&response).unwrap();
         let parsed: GpuStatusResponse = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(parsed.cache_ready, true);
+        assert!(parsed.cache_ready);
         assert_eq!(parsed.batch_threshold, 32);
     }
 
@@ -340,7 +340,7 @@ mod potemkin_village {
         let parsed: GpuBatchResponse = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed.results.len(), 1);
-        assert_eq!(parsed.stats.gpu_used, true);
+        assert!(parsed.stats.gpu_used);
     }
 
     // =========================================================================

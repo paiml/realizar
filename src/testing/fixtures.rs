@@ -3,13 +3,12 @@
 //! Concrete fixture implementations for each model format.
 //! Inspired by PyTorch's `ModuleInfo` / `ModuleInput` pattern.
 
+use super::{
+    generators::{ModelWeights, SyntheticWeightGenerator},
+    ConstructorInput, Device, ModelConfig, ModelFormat, QuantType,
+};
 use crate::error::RealizarError;
 use crate::Result;
-use super::{
-    Device, ModelConfig, ModelFormat, QuantType,
-    ConstructorInput, ForwardInput, ModelTestCase,
-    generators::{SyntheticWeightGenerator, ModelWeights, TokenGenerator},
-};
 
 /// Trait for model fixtures that can be tested
 pub trait ModelFixture: Send + Sync {
@@ -137,40 +136,54 @@ impl ModelFixture for GgufFixture {
 
         // Add key metadata
         // num_heads
-        write_gguf_kv(&mut bytes, "llama.attention.head_count", self.config.num_heads as u32);
+        write_gguf_kv(
+            &mut bytes,
+            "llama.attention.head_count",
+            self.config.num_heads as u32,
+        );
         // num_kv_heads
-        write_gguf_kv(&mut bytes, "llama.attention.head_count_kv", self.config.num_kv_heads as u32);
+        write_gguf_kv(
+            &mut bytes,
+            "llama.attention.head_count_kv",
+            self.config.num_kv_heads as u32,
+        );
         // hidden_dim
-        write_gguf_kv(&mut bytes, "llama.embedding_length", self.config.hidden_dim as u32);
+        write_gguf_kv(
+            &mut bytes,
+            "llama.embedding_length",
+            self.config.hidden_dim as u32,
+        );
         // num_layers
-        write_gguf_kv(&mut bytes, "llama.block_count", self.config.num_layers as u32);
+        write_gguf_kv(
+            &mut bytes,
+            "llama.block_count",
+            self.config.num_layers as u32,
+        );
         // vocab_size
-        write_gguf_kv(&mut bytes, "llama.vocab_size", self.config.vocab_size as u32);
+        write_gguf_kv(
+            &mut bytes,
+            "llama.vocab_size",
+            self.config.vocab_size as u32,
+        );
 
         Ok(bytes)
     }
 
     fn convert_to(&self, target: ModelFormat) -> Result<Box<dyn ModelFixture>> {
         match target {
-            ModelFormat::APR => {
-                Ok(Box::new(AprFixture::from_gguf(self)?))
-            }
-            ModelFormat::Safetensors => {
-                Ok(Box::new(SafetensorsFixture::from_gguf(self)?))
-            }
+            ModelFormat::APR => Ok(Box::new(AprFixture::from_gguf(self)?)),
+            ModelFormat::Safetensors => Ok(Box::new(SafetensorsFixture::from_gguf(self)?)),
             ModelFormat::GGUF => {
                 // Clone self
                 Ok(Box::new(GgufFixture {
                     config: self.config.clone(),
                     weights: self.weights.clone(),
                 }))
-            }
-            ModelFormat::PyTorch => {
-                Err(RealizarError::UnsupportedOperation {
-                    operation: "convert_to".to_string(),
-                    reason: "GGUF to PyTorch conversion not supported".to_string(),
-                })
-            }
+            },
+            ModelFormat::PyTorch => Err(RealizarError::UnsupportedOperation {
+                operation: "convert_to".to_string(),
+                reason: "GGUF to PyTorch conversion not supported".to_string(),
+            }),
         }
     }
 
@@ -271,11 +284,10 @@ impl ModelFixture for AprFixture {
             "intermediate_size": self.config.intermediate_dim,
             "rope_theta": self.config.rope_theta,
         });
-        let metadata_bytes = serde_json::to_vec(&metadata).map_err(|e| {
-            RealizarError::FormatError {
+        let metadata_bytes =
+            serde_json::to_vec(&metadata).map_err(|e| RealizarError::FormatError {
                 reason: format!("APR metadata serialization failed: {}", e),
-            }
-        })?;
+            })?;
 
         // Metadata offset and size
         bytes.extend_from_slice(&64u64.to_le_bytes()); // offset
@@ -294,30 +306,22 @@ impl ModelFixture for AprFixture {
 
     fn convert_to(&self, target: ModelFormat) -> Result<Box<dyn ModelFixture>> {
         match target {
-            ModelFormat::GGUF => {
-                Ok(Box::new(GgufFixture {
-                    config: self.config.clone(),
-                    weights: self.weights.clone(),
-                }))
-            }
-            ModelFormat::Safetensors => {
-                Ok(Box::new(SafetensorsFixture {
-                    config: self.config.clone(),
-                    weights: self.weights.clone(),
-                }))
-            }
-            ModelFormat::APR => {
-                Ok(Box::new(AprFixture {
-                    config: self.config.clone(),
-                    weights: self.weights.clone(),
-                }))
-            }
-            ModelFormat::PyTorch => {
-                Err(RealizarError::UnsupportedOperation {
-                    operation: "convert_to".to_string(),
-                    reason: "APR to PyTorch conversion not supported".to_string(),
-                })
-            }
+            ModelFormat::GGUF => Ok(Box::new(GgufFixture {
+                config: self.config.clone(),
+                weights: self.weights.clone(),
+            })),
+            ModelFormat::Safetensors => Ok(Box::new(SafetensorsFixture {
+                config: self.config.clone(),
+                weights: self.weights.clone(),
+            })),
+            ModelFormat::APR => Ok(Box::new(AprFixture {
+                config: self.config.clone(),
+                weights: self.weights.clone(),
+            })),
+            ModelFormat::PyTorch => Err(RealizarError::UnsupportedOperation {
+                operation: "convert_to".to_string(),
+                reason: "APR to PyTorch conversion not supported".to_string(),
+            }),
         }
     }
 
@@ -430,10 +434,8 @@ impl ModelFixture for SafetensorsFixture {
             }
         });
 
-        let header_bytes = serde_json::to_vec(&header).map_err(|e| {
-            RealizarError::FormatError {
-                reason: format!("Safetensors header serialization failed: {}", e),
-            }
+        let header_bytes = serde_json::to_vec(&header).map_err(|e| RealizarError::FormatError {
+            reason: format!("Safetensors header serialization failed: {}", e),
         })?;
         let header_len = header_bytes.len() as u64;
 
@@ -447,30 +449,22 @@ impl ModelFixture for SafetensorsFixture {
 
     fn convert_to(&self, target: ModelFormat) -> Result<Box<dyn ModelFixture>> {
         match target {
-            ModelFormat::GGUF => {
-                Ok(Box::new(GgufFixture {
-                    config: self.config.clone(),
-                    weights: self.weights.clone(),
-                }))
-            }
-            ModelFormat::APR => {
-                Ok(Box::new(AprFixture {
-                    config: self.config.clone(),
-                    weights: self.weights.clone(),
-                }))
-            }
-            ModelFormat::Safetensors => {
-                Ok(Box::new(SafetensorsFixture {
-                    config: self.config.clone(),
-                    weights: self.weights.clone(),
-                }))
-            }
-            ModelFormat::PyTorch => {
-                Err(RealizarError::UnsupportedOperation {
-                    operation: "convert_to".to_string(),
-                    reason: "Safetensors to PyTorch conversion not supported".to_string(),
-                })
-            }
+            ModelFormat::GGUF => Ok(Box::new(GgufFixture {
+                config: self.config.clone(),
+                weights: self.weights.clone(),
+            })),
+            ModelFormat::APR => Ok(Box::new(AprFixture {
+                config: self.config.clone(),
+                weights: self.weights.clone(),
+            })),
+            ModelFormat::Safetensors => Ok(Box::new(SafetensorsFixture {
+                config: self.config.clone(),
+                weights: self.weights.clone(),
+            })),
+            ModelFormat::PyTorch => Err(RealizarError::UnsupportedOperation {
+                operation: "convert_to".to_string(),
+                reason: "Safetensors to PyTorch conversion not supported".to_string(),
+            }),
         }
     }
 

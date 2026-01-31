@@ -9,10 +9,8 @@
 //! - Popper, K. "The Logic of Scientific Discovery." Routledge, 1959
 
 use super::{
+    fixtures::{AprFixture, GgufFixture, ModelFixture, SafetensorsFixture},
     Device, ModelConfig, ModelFormat, ModelTestCase, QuantType,
-    ConstructorInput, ForwardInput, Tolerances,
-    fixtures::{ModelFixture, GgufFixture, AprFixture, SafetensorsFixture, create_fixture},
-    generators::TokenGenerator,
 };
 
 /// Generate combinatorial test matrix
@@ -23,7 +21,11 @@ use super::{
 /// - Multiple configs (tiny, small)
 /// - Multiple GQA ratios
 pub fn generate_combinatorial_tests() -> Vec<ModelTestCase> {
-    let formats = [ModelFormat::GGUF, ModelFormat::APR, ModelFormat::Safetensors];
+    let formats = [
+        ModelFormat::GGUF,
+        ModelFormat::APR,
+        ModelFormat::Safetensors,
+    ];
     let devices = [Device::Cpu, Device::Cuda(0)];
     let configs = [ModelConfig::tiny(), ModelConfig::small()];
     let gqa_ratios: [(usize, usize); 4] = [(4, 4), (4, 2), (8, 2), (8, 1)];
@@ -33,7 +35,9 @@ pub fn generate_combinatorial_tests() -> Vec<ModelTestCase> {
     // Conversion tests: source → target
     for source in &formats {
         for target in &formats {
-            if source == target { continue; }
+            if source == target {
+                continue;
+            }
 
             for device in &devices {
                 for base_config in &configs {
@@ -90,7 +94,9 @@ pub fn generate_quant_tests() -> Vec<ModelTestCase> {
 
     for quant in &quant_types {
         for format in &formats {
-            if !quant.supported_by(*format) { continue; }
+            if !quant.supported_by(*format) {
+                continue;
+            }
 
             for device in &devices {
                 tests.push(
@@ -99,7 +105,8 @@ pub fn generate_quant_tests() -> Vec<ModelTestCase> {
                         ModelConfig::tiny(),
                         *format,
                         *device,
-                    ).with_quant(*quant)
+                    )
+                    .with_quant(*quant),
                 );
             }
         }
@@ -174,7 +181,8 @@ fn test_f007_gqa_num_kv_heads_preserved() {
     let original_kv_heads = original.config().num_kv_heads;
 
     // GGUF → APR → GGUF round-trip
-    let apr = original.convert_to(ModelFormat::APR)
+    let apr = original
+        .convert_to(ModelFormat::APR)
         .expect("GGUF→APR conversion should succeed");
 
     assert_eq!(
@@ -183,7 +191,8 @@ fn test_f007_gqa_num_kv_heads_preserved() {
         "FALSIFICATION F007 (2 points): num_kv_heads must be preserved in APR"
     );
 
-    let back = apr.convert_to(ModelFormat::GGUF)
+    let back = apr
+        .convert_to(ModelFormat::GGUF)
         .expect("APR→GGUF conversion should succeed");
 
     assert_eq!(
@@ -281,7 +290,10 @@ fn test_f017_softmax_sum() {
     // Apply softmax
     let max_logit = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let exp_sum: f32 = logits.iter().map(|x| (x - max_logit).exp()).sum();
-    let probs: Vec<f32> = logits.iter().map(|x| (x - max_logit).exp() / exp_sum).collect();
+    let probs: Vec<f32> = logits
+        .iter()
+        .map(|x| (x - max_logit).exp() / exp_sum)
+        .collect();
 
     let prob_sum: f32 = probs.iter().sum();
     assert!(
@@ -337,7 +349,10 @@ fn test_f031_gguf_apr_gguf_config_roundtrip() {
     assert_eq!(back.config().num_heads, original.config().num_heads);
     assert_eq!(back.config().num_kv_heads, original.config().num_kv_heads);
     assert_eq!(back.config().vocab_size, original.config().vocab_size);
-    assert_eq!(back.config().intermediate_dim, original.config().intermediate_dim);
+    assert_eq!(
+        back.config().intermediate_dim,
+        original.config().intermediate_dim
+    );
 }
 
 /// F032: Safetensors→GGUF preserves tensors
@@ -371,7 +386,11 @@ fn test_f034_conversion_preserves_shape() {
 
 #[test]
 fn test_all_format_conversions() {
-    let formats = [ModelFormat::GGUF, ModelFormat::APR, ModelFormat::Safetensors];
+    let formats = [
+        ModelFormat::GGUF,
+        ModelFormat::APR,
+        ModelFormat::Safetensors,
+    ];
 
     for source in &formats {
         let fixture: Box<dyn ModelFixture> = match source {
@@ -382,7 +401,9 @@ fn test_all_format_conversions() {
         };
 
         for target in &formats {
-            if source == target { continue; }
+            if source == target {
+                continue;
+            }
 
             let result = fixture.convert_to(*target);
 
@@ -395,7 +416,8 @@ fn test_all_format_conversions() {
             assert!(
                 result.is_ok(),
                 "Conversion {:?} -> {:?} should succeed",
-                source, target
+                source,
+                target
             );
 
             let converted = result.unwrap();
@@ -406,7 +428,8 @@ fn test_all_format_conversions() {
                 converted.config().num_heads,
                 fixture.config().num_heads,
                 "num_heads not preserved in {:?} -> {:?}",
-                source, target
+                source,
+                target
             );
         }
     }
@@ -415,10 +438,10 @@ fn test_all_format_conversions() {
 #[test]
 fn test_all_gqa_ratios() {
     let gqa_configs = [
-        (4, 4, "MHA"),       // Multi-head attention (no GQA)
-        (4, 2, "GQA-2:1"),   // 2:1 GQA ratio
-        (8, 2, "GQA-4:1"),   // 4:1 GQA ratio
-        (8, 1, "MQA"),       // Multi-query attention
+        (4, 4, "MHA"),     // Multi-head attention (no GQA)
+        (4, 2, "GQA-2:1"), // 2:1 GQA ratio
+        (8, 2, "GQA-4:1"), // 4:1 GQA ratio
+        (8, 1, "MQA"),     // Multi-query attention
     ];
 
     for (heads, kv_heads, desc) in &gqa_configs {
@@ -466,7 +489,9 @@ fn test_forward_determinism() {
         assert!(
             (a - b).abs() < 1e-6,
             "Forward pass must be deterministic, element {} differs: {} vs {}",
-            i, a, b
+            i,
+            a,
+            b
         );
     }
 }
@@ -518,6 +543,12 @@ fn test_combinatorial_coverage_report() {
     println!("  CUDA: {} tests", cuda_tests);
 
     // Verify we have good coverage
-    assert!(tests.len() >= 50, "Should have at least 50 conversion tests");
-    assert!(quant_tests.len() >= 20, "Should have at least 20 quant tests");
+    assert!(
+        tests.len() >= 50,
+        "Should have at least 50 conversion tests"
+    );
+    assert!(
+        quant_tests.len() >= 20,
+        "Should have at least 20 quant tests"
+    );
 }

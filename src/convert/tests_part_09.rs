@@ -202,7 +202,7 @@ proptest! {
             Just("gpt2".to_string()),
             Just("mistral".to_string()),
             Just("falcon".to_string()),
-            Just("".to_string()),
+            Just(String::new()),
             "[a-z]{0,50}",
             "[\\x00-\\xff]{0,20}",
         ]

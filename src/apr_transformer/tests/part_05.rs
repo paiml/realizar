@@ -9,7 +9,11 @@ use crate::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransforme
 // Helper: Create minimal test transformer
 // ============================================================================
 
-fn create_test_transformer(hidden_dim: usize, vocab_size: usize, num_layers: usize) -> AprTransformer {
+fn create_test_transformer(
+    hidden_dim: usize,
+    vocab_size: usize,
+    num_layers: usize,
+) -> AprTransformer {
     let num_heads = 4;
     let num_kv_heads = 4;
     let config = AprTransformerConfig {
@@ -242,7 +246,20 @@ fn test_layer_num_parameters_with_all_biases() {
     };
     let params = layer.num_parameters();
     // Should include all weights and biases
-    let expected_min = 64 + 64 + 64*192 + 192 + 64*64 + 64 + 256*64 + 256 + 256*64 + 256 + 64*256 + 64 + 64 + 64;
+    let expected_min = 64
+        + 64
+        + 64 * 192
+        + 192
+        + 64 * 64
+        + 64
+        + 256 * 64
+        + 256
+        + 256 * 64
+        + 256
+        + 64 * 256
+        + 64
+        + 64
+        + 64;
     assert!(params >= expected_min);
 }
 

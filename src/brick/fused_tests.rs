@@ -63,7 +63,8 @@ mod tests {
 
     #[test]
     fn coalesced_dp4a_forward_timed() {
-        let brick = CoalescedDp4aBrick::new(256, 4).with_budget(TokenBudget::from_latency(100_000.0));
+        let brick =
+            CoalescedDp4aBrick::new(256, 4).with_budget(TokenBudget::from_latency(100_000.0));
 
         let input_q8: Vec<i8> = vec![1; 256];
         let input_scale = 1.0f32;
@@ -532,7 +533,10 @@ mod tests {
             .forward_timed(&input_q8, input_scale, &weights_q4, &weight_scales)
             .unwrap();
 
-        assert!(result.budget_met, "Budget should be met with lenient budget");
+        assert!(
+            result.budget_met,
+            "Budget should be met with lenient budget"
+        );
     }
 
     #[test]
@@ -549,6 +553,9 @@ mod tests {
             .forward_timed(&input, &gate_proj, &up_proj, &down_proj)
             .unwrap();
 
-        assert!(result.budget_met, "Budget should be met with lenient budget");
+        assert!(
+            result.budget_met,
+            "Budget should be met with lenient budget"
+        );
     }
 }

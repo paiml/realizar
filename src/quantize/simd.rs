@@ -809,7 +809,10 @@ mod tests {
         apply_rope_rotation_simd(&mut x, &freqs_cos, &freqs_sin, head_dim);
 
         // Verify rotation was applied (values changed)
-        let changed = x.iter().zip(x_orig.iter()).any(|(a, b)| (a - b).abs() > 1e-5);
+        let changed = x
+            .iter()
+            .zip(x_orig.iter())
+            .any(|(a, b)| (a - b).abs() > 1e-5);
         assert!(changed, "rotation should modify values");
     }
 

@@ -2029,8 +2029,8 @@ mod tests {
 
         let reqs = vec![PendingRequest::new(0, vec![1], 10, 1.0, 50)];
         let batch2 = RequestBatch::new(reqs);
-        // avg_wait_time should be positive
-        assert!(batch2.avg_wait_time().as_nanos() >= 0);
+        // avg_wait_time should be accessible
+        let _ = batch2.avg_wait_time();
     }
 
     // ============================================================================

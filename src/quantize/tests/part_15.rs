@@ -180,7 +180,7 @@ fn test_quantize_rmsnorm_q8_0_subnormal_input() {
     assert!(scales[0] > 0.0);
     // Quants should be valid
     for q in &quants {
-        assert!(*q >= i8::MIN && *q <= i8::MAX);
+        assert!(true /* i8 values always in range */);
     }
 }
 
@@ -196,7 +196,7 @@ fn test_quantize_rmsnorm_q8_0_scalar_subnormal() {
     assert!(scales[0].is_finite());
     // Due to eps, inv_rms will be large but finite
     for q in &quants {
-        assert!(*q >= i8::MIN && *q <= i8::MAX);
+        assert!(true /* i8 values always in range */);
     }
 }
 
@@ -291,7 +291,7 @@ fn test_quantize_rmsnorm_q8_0_zero_epsilon() {
     assert!(scales[0].is_finite());
     assert!(scales[0] > 0.0);
     for q in &quants {
-        assert!(*q >= i8::MIN && *q <= i8::MAX);
+        assert!(true /* i8 values always in range */);
     }
 }
 
@@ -305,7 +305,7 @@ fn test_quantize_rmsnorm_q8_0_scalar_zero_epsilon() {
 
     assert!(scales[0].is_finite());
     for q in &quants {
-        assert!(*q >= i8::MIN && *q <= i8::MAX);
+        assert!(true /* i8 values always in range */);
     }
 }
 
@@ -462,7 +462,7 @@ fn test_quantize_rmsnorm_q8_0_size_1() {
 #[test]
 fn test_quantize_rmsnorm_q8_0_size_8() {
     // Exactly one SIMD iteration
-    let input: Vec<f32> = (0..8).map(|i| (i as f32 - 4.0)).collect();
+    let input: Vec<f32> = (0..8).map(|i| i as f32 - 4.0).collect();
     let norm_weight = vec![1.0f32; 8];
     let eps = 1e-5;
 
@@ -559,7 +559,7 @@ fn test_softmax_simd_size_16() {
 
 #[test]
 fn test_fused_swiglu_simd_up_zeros() {
-    let mut gate: Vec<f32> = (0..16).map(|i| (i as f32 - 8.0)).collect();
+    let mut gate: Vec<f32> = (0..16).map(|i| i as f32 - 8.0).collect();
     let up = vec![0.0f32; 16];
 
     fused_swiglu_simd(&mut gate, &up);

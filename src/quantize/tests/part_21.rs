@@ -114,8 +114,14 @@ fn test_quantize_rmsnorm_q8_0_scalar_non_uniform_weights() {
 #[test]
 fn test_fused_swiglu_simd_polynomial_boundaries() {
     let mut gate = vec![
-        -0.69314718, 0.69314718, -1.38629436, 1.38629436, -2.30258509, 2.30258509, -4.60517019,
-        4.60517019,
+        -0.693_147_2,
+        0.693_147_2,
+        -1.386_294_4,
+        1.386_294_4,
+        -2.302_585_1,
+        2.302_585_1,
+        -4.605_170_2,
+        4.605_170_2,
     ];
     let up = vec![1.0f32; 8];
     fused_swiglu_simd(&mut gate, &up);
@@ -373,7 +379,7 @@ fn test_quantize_rmsnorm_q8_0_large_weights() {
     let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, 1e-5);
     assert!(scales[0].is_finite());
     for q in &quants[..32] {
-        assert!(*q >= i8::MIN && *q <= i8::MAX);
+        assert!(true /* i8 always in range */);
     }
 }
 

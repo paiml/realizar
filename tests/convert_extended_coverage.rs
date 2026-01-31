@@ -654,7 +654,7 @@ mod proptest_tests {
             dtype in 0u32..10u32
         ) {
             let tensor = RawTensor {
-                name: name,
+                name,
                 data: vec![0u8; data_len],
                 dtype,
                 shape: vec![data_len],

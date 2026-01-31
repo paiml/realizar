@@ -779,7 +779,10 @@ impl GpuModel {
                 qkv.iter().map(|x| x * x).sum::<f32>().sqrt()
             );
             // F-REGR-231 DEBUG: Show Q values after bias
-            eprintln!("[PHASE21] Q after bias first 5: {:?}", &qkv[..5.min(qkv.len())]);
+            eprintln!(
+                "[PHASE21] Q after bias first 5: {:?}",
+                &qkv[..5.min(qkv.len())]
+            );
         }
 
         // Get current position BEFORE caching (Phase 21)
@@ -811,7 +814,10 @@ impl GpuModel {
 
         // F-REGR-231 DEBUG: Show K and V values after bias and RoPE
         if debug_this_call {
-            eprintln!("[PHASE21] K after RoPE first 5: {:?}", &k_new[..5.min(k_new.len())]);
+            eprintln!(
+                "[PHASE21] K after RoPE first 5: {:?}",
+                &k_new[..5.min(k_new.len())]
+            );
             eprintln!("[PHASE21] V first 5: {:?}", &v_new[..5.min(v_new.len())]);
         }
 
@@ -2720,7 +2726,7 @@ mod tests {
     #[test]
     fn test_weight_type_clone() {
         let wt = WeightType::Output;
-        let cloned = wt.clone();
+        let cloned = wt;
         assert!(matches!(cloned, WeightType::Output));
     }
 

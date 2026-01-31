@@ -7,8 +7,8 @@
 
 use crate::gguf::test_helpers::create_test_model_with_config;
 use crate::gguf::{
-    ContiguousKVCache, DispatchMetrics, GGUFConfig, OwnedQuantizedKVCache,
-    OwnedQuantizedModelCached, OwnedQuantizedModelCachedSync, QuantizedGenerateConfig,
+    DispatchMetrics, GGUFConfig, OwnedQuantizedKVCache, OwnedQuantizedModelCached,
+    OwnedQuantizedModelCachedSync, QuantizedGenerateConfig,
 };
 
 // ========================================================================

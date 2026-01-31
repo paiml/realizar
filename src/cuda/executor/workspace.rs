@@ -250,13 +250,17 @@ mod tests {
 
     #[test]
     fn test_has_workspace_initial_false() {
-        let Some(exec) = create_executor() else { return; };
+        let Some(exec) = create_executor() else {
+            return;
+        };
         assert!(!exec.has_workspace());
     }
 
     #[test]
     fn test_init_workspace_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let result = exec.init_workspace(256, 1024);
         assert!(result.is_ok());
@@ -265,7 +269,9 @@ mod tests {
 
     #[test]
     fn test_init_workspace_dimensions() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let hidden_dim = 512;
         let intermediate_dim = 2048;
@@ -279,7 +285,9 @@ mod tests {
 
     #[test]
     fn test_clear_workspace() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         exec.init_workspace(256, 1024).unwrap();
         assert!(exec.has_workspace());
@@ -294,7 +302,9 @@ mod tests {
 
     #[test]
     fn test_init_batched_workspace_m4() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let result = exec.init_batched_workspace(256, 1024, 4);
         assert!(result.is_ok());
@@ -304,7 +314,9 @@ mod tests {
 
     #[test]
     fn test_init_batched_workspace_m8() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let result = exec.init_batched_workspace(512, 2048, 8);
         assert!(result.is_ok());
@@ -313,7 +325,9 @@ mod tests {
 
     #[test]
     fn test_init_batched_workspace_m32() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let result = exec.init_batched_workspace(256, 1024, 32);
         assert!(result.is_ok());
@@ -322,7 +336,9 @@ mod tests {
 
     #[test]
     fn test_init_batched_workspace_invalid_zero() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let result = exec.init_batched_workspace(256, 1024, 0);
         assert!(result.is_err());
@@ -330,7 +346,9 @@ mod tests {
 
     #[test]
     fn test_init_batched_workspace_invalid_too_large() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let result = exec.init_batched_workspace(256, 1024, 33);
         assert!(result.is_err());
@@ -342,13 +360,17 @@ mod tests {
 
     #[test]
     fn test_has_decode_graph_initial_false() {
-        let Some(exec) = create_executor() else { return; };
+        let Some(exec) = create_executor() else {
+            return;
+        };
         assert!(!exec.has_decode_graph());
     }
 
     #[test]
     fn test_clear_decode_graph() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         exec.clear_decode_graph();
         assert!(!exec.has_decode_graph());
@@ -361,7 +383,9 @@ mod tests {
 
     #[test]
     fn test_gemv_buffer_stats_initial() {
-        let Some(exec) = create_executor() else { return; };
+        let Some(exec) = create_executor() else {
+            return;
+        };
 
         let (input_bytes, output_bytes) = exec.gemv_buffer_stats();
         assert_eq!(input_bytes, 0);
@@ -370,7 +394,9 @@ mod tests {
 
     #[test]
     fn test_ensure_gemv_input_buffer() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let size = 256;
         let result = exec.ensure_gemv_input_buffer(size);
@@ -382,7 +408,9 @@ mod tests {
 
     #[test]
     fn test_ensure_gemv_output_buffer() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let size = 128;
         let result = exec.ensure_gemv_output_buffer(size);
@@ -394,7 +422,9 @@ mod tests {
 
     #[test]
     fn test_gemv_buffer_reuse() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         // First allocation
         let ptr1 = exec.ensure_gemv_input_buffer(256).unwrap();
@@ -413,7 +443,9 @@ mod tests {
 
     #[test]
     fn test_clear_gemv_buffers() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         exec.ensure_gemv_input_buffer(256).unwrap();
         exec.ensure_gemv_output_buffer(128).unwrap();
@@ -427,7 +459,9 @@ mod tests {
 
     #[test]
     fn test_copy_to_gemv_input() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let input: Vec<f32> = (0..256).map(|i| i as f32 * 0.1).collect();
 
@@ -438,7 +472,9 @@ mod tests {
 
     #[test]
     fn test_copy_from_gemv_output() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let size = 128;
         exec.ensure_gemv_output_buffer(size).unwrap();

@@ -239,7 +239,7 @@ pub(crate) fn validate_model_path(path: &std::path::Path) -> Result<()> {
     let extension = path
         .extension()
         .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase())
+        .map(str::to_lowercase)
         .unwrap_or_default();
 
     if !VALID_MODEL_EXTENSIONS.contains(&extension.as_str()) {
@@ -682,18 +682,29 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
                         let eos_id = 151645u32; // Qwen2 EOS
                         let tokens = cuda_model
                             .generate_cuda(&input_tokens, config.max_tokens.min(128), eos_id)
-                            .map_err(|e| RealizarError::InferenceError(format!("GPU generation failed: {}", e)))?;
+                            .map_err(|e| {
+                                RealizarError::InferenceError(format!(
+                                    "GPU generation failed: {}",
+                                    e
+                                ))
+                            })?;
 
                         let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
 
                         // Decode output tokens
                         let generated_tokens = &tokens[input_token_count..];
-                        let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
+                        let text = if let Some(tokenizer) =
+                            AprV2Model::load_tokenizer(&config.model_path)
+                        {
                             tokenizer.decode(generated_tokens)
-                        } else if let Some(tokenizer) = find_fallback_tokenizer(&config.model_path) {
+                        } else if let Some(tokenizer) = find_fallback_tokenizer(&config.model_path)
+                        {
                             tokenizer.decode(generated_tokens)
                         } else {
-                            format!("[{} tokens generated, tokenizer not found]", generated_tokens.len())
+                            format!(
+                                "[{} tokens generated, tokenizer not found]",
+                                generated_tokens.len()
+                            )
                         };
 
                         let text = clean_model_output(&text);
@@ -715,12 +726,12 @@ fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
                             format: "APR".to_string(),
                             used_gpu: true,
                         });
-                    }
+                    },
                     Err(e) => {
                         if config.verbose {
                             eprintln!("Backend: CPU (GPU init failed: {})", e);
                         }
-                    }
+                    },
                 }
             } else if config.verbose {
                 eprintln!("Backend: CPU (model lacks transformer config)");
@@ -883,7 +894,9 @@ fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult
                 let eos_id = 151645u32; // Qwen2 EOS
                 let tokens = cuda_model
                     .generate(&input_tokens, config.max_tokens.min(128), eos_id)
-                    .map_err(|e| RealizarError::InferenceError(format!("GPU generation failed: {}", e)))?;
+                    .map_err(|e| {
+                        RealizarError::InferenceError(format!("GPU generation failed: {}", e))
+                    })?;
 
                 let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
 
@@ -894,7 +907,10 @@ fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult
                 } else if let Some(tokenizer) = find_fallback_tokenizer(&config.model_path) {
                     tokenizer.decode(generated_tokens)
                 } else {
-                    format!("[{} tokens generated, tokenizer not found]", generated_tokens.len())
+                    format!(
+                        "[{} tokens generated, tokenizer not found]",
+                        generated_tokens.len()
+                    )
                 };
 
                 let text = clean_model_output(&text);
@@ -916,12 +932,12 @@ fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult
                     format: "SafeTensors".to_string(),
                     used_gpu: true,
                 });
-            }
+            },
             Err(e) => {
                 if config.verbose {
                     eprintln!("Backend: CPU (GPU init failed: {})", e);
                 }
-            }
+            },
         }
     }
 

@@ -225,7 +225,9 @@ mod tests {
 
     #[test]
     fn test_fused_ffn_swiglu_gpu_path_selection() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         // Test path: hidden_dim % 256 != 0 should use q4k_gemv_cached_async
         let hidden_dim = 512u32; // 512 % 256 == 0, aligned
@@ -237,7 +239,9 @@ mod tests {
         }
 
         // Create input
-        let input: Vec<f32> = (0..hidden_dim as usize).map(|i| (i as f32) * 0.001).collect();
+        let input: Vec<f32> = (0..hidden_dim as usize)
+            .map(|i| (i as f32) * 0.001)
+            .collect();
         let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
 
         // Execute FFN (may fail due to kernel issues, but exercises path selection)
@@ -256,7 +260,9 @@ mod tests {
 
     #[test]
     fn test_fused_ffn_swiglu_gpu_unaligned() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         // Test path: hidden_dim % 256 != 0 (unaligned)
         // This should use the fallback q4k_gemv_cached_async path
@@ -293,7 +299,9 @@ mod tests {
 
     #[test]
     fn test_fused_ffn_chunk_threshold() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         // Test CHUNK_THRESHOLD behavior
         // hidden_dim > 8192 should use non-dp4a path
@@ -321,7 +329,9 @@ mod tests {
 
     #[test]
     fn test_fused_ffn_swiglu_gpu_true_dp4a() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         // Test the TRUE_DP4A path directly
         let hidden_dim = 256u32;
@@ -331,7 +341,9 @@ mod tests {
             return;
         }
 
-        let input: Vec<f32> = (0..hidden_dim as usize).map(|i| (i as f32) * 0.001).collect();
+        let input: Vec<f32> = (0..hidden_dim as usize)
+            .map(|i| (i as f32) * 0.001)
+            .collect();
         let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
 
         // Call the true_dp4a variant directly
@@ -355,9 +367,13 @@ mod tests {
     #[test]
     fn test_ffn_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let input: Vec<f32> = vec![0.1f32; config.hidden_dim];
         let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
@@ -377,10 +393,14 @@ mod tests {
     #[test]
     fn test_ffn_different_layers() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let mut config = HarnessConfig::default();
         config.num_layers = 4;
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         for layer_idx in 0..config.num_layers {
             let input: Vec<f32> = vec![0.1f32; config.hidden_dim];
@@ -402,15 +422,21 @@ mod tests {
     #[test]
     fn test_ffn_varying_inputs() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Test with different input patterns
         let inputs = [
             vec![0.0f32; config.hidden_dim],
             vec![1.0f32; config.hidden_dim],
-            (0..config.hidden_dim).map(|i| (i as f32 / 1000.0).sin()).collect::<Vec<_>>(),
+            (0..config.hidden_dim)
+                .map(|i| (i as f32 / 1000.0).sin())
+                .collect::<Vec<_>>(),
         ];
 
         for input in inputs {
@@ -432,9 +458,13 @@ mod tests {
     #[test]
     fn test_ffn_true_dp4a_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let input: Vec<f32> = (0..config.hidden_dim).map(|i| (i as f32) * 0.001).collect();
         let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
@@ -455,10 +485,14 @@ mod tests {
     #[test]
     fn test_ffn_larger_intermediate_dim() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let mut config = HarnessConfig::default();
-        config.intermediate_dim = 2048;  // Larger intermediate
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        config.intermediate_dim = 2048; // Larger intermediate
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let input: Vec<f32> = vec![0.1f32; config.hidden_dim];
         let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
@@ -478,9 +512,13 @@ mod tests {
     #[test]
     fn test_ffn_output_dimensions() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let input: Vec<f32> = vec![0.1f32; config.hidden_dim];
         let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
@@ -499,7 +537,11 @@ mod tests {
         if let Ok(output_buf) = result {
             let mut output = vec![0.0f32; config.hidden_dim];
             output_buf.copy_to_host(&mut output).expect("copy");
-            assert_eq!(output.len(), config.hidden_dim, "FFN output should match hidden_dim");
+            assert_eq!(
+                output.len(),
+                config.hidden_dim,
+                "FFN output should match hidden_dim"
+            );
         }
     }
 }

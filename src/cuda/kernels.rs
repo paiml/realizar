@@ -1613,7 +1613,11 @@ mod tests {
 
     #[test]
     fn test_kernel_type_gemm_naive() {
-        let kernel = KernelType::GemmNaive { m: 64, n: 64, k: 64 };
+        let kernel = KernelType::GemmNaive {
+            m: 64,
+            n: 64,
+            k: 64,
+        };
         let debug_str = format!("{:?}", kernel);
         assert!(debug_str.contains("GemmNaive"));
         assert!(debug_str.contains("64"));
@@ -1883,7 +1887,11 @@ mod tests {
     #[test]
     fn test_kernel_name_gemm_tensor_core() {
         let kernels = CudaKernels::new();
-        let kernel = KernelType::GemmTensorCore { m: 16, n: 16, k: 16 };
+        let kernel = KernelType::GemmTensorCore {
+            m: 16,
+            n: 16,
+            k: 16,
+        };
         assert_eq!(kernels.kernel_name(&kernel), "gemm_tensor_core");
     }
 
@@ -1983,7 +1991,11 @@ mod tests {
     #[test]
     fn test_kernel_name_quantized_gemm() {
         let kernels = CudaKernels::new();
-        let kernel = KernelType::QuantizedGemm { m: 1, n: 4096, k: 4096 };
+        let kernel = KernelType::QuantizedGemm {
+            m: 1,
+            n: 4096,
+            k: 4096,
+        };
         assert_eq!(kernels.kernel_name(&kernel), "q4k_gemm_fused");
     }
 
@@ -2119,6 +2131,9 @@ mod tests {
             n_kv_heads: 4,
             indirect: true,
         };
-        assert_eq!(kernels.kernel_name(&kernel), "incremental_attention_indirect");
+        assert_eq!(
+            kernels.kernel_name(&kernel),
+            "incremental_attention_indirect"
+        );
     }
 }

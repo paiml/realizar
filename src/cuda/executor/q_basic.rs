@@ -546,7 +546,9 @@ mod tests {
 
     #[test]
     fn test_q8_0_gemv_into_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         // K=256, N=64: 64 output rows, 8 blocks per row (32 elements/block)
         let k = 256u32;
@@ -571,7 +573,9 @@ mod tests {
 
     #[test]
     fn test_q8_0_gemv_into_large() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let k = 512u32;
         let n = 128u32;
@@ -594,7 +598,9 @@ mod tests {
 
     #[test]
     fn test_q5_0_gemv_into_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let k = 256u32;
         let n = 64u32;
@@ -613,7 +619,9 @@ mod tests {
 
     #[test]
     fn test_q5_0_gemv_into_large() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let k = 512u32;
         let n = 128u32;
@@ -636,7 +644,9 @@ mod tests {
 
     #[test]
     fn test_q4_0_gemv_into_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let k = 256u32;
         let n = 64u32;
@@ -655,7 +665,9 @@ mod tests {
 
     #[test]
     fn test_q4_0_gemv_into_single_row() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let k = 256u32;
         let n = 1u32;
@@ -678,7 +690,9 @@ mod tests {
 
     #[test]
     fn test_q4_1_gemv_into_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         // Q4_1 has same block count as Q4_0 but 20 bytes per block instead of 18
         let k = 256u32;
@@ -704,7 +718,9 @@ mod tests {
 
     #[test]
     fn test_q5k_gemv_into_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         // Q5_K: 176 bytes per 256 elements (super-block format)
         let k = 256u32;
@@ -730,7 +746,9 @@ mod tests {
 
     #[test]
     fn test_q6k_gemv_into_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         // Q6_K: 210 bytes per 256 elements
         let k = 256u32;
@@ -750,7 +768,9 @@ mod tests {
 
     #[test]
     fn test_coalesced_q6k_gemv_into_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let k = 256u32;
         let n = 64u32;
@@ -763,7 +783,8 @@ mod tests {
         let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
         let output_buf = GpuBuffer::from_host(&exec.context, &output).unwrap();
 
-        let result = exec.coalesced_q6k_gemv_into(weight_buf.as_ptr(), &input_buf, &output_buf, n, k);
+        let result =
+            exec.coalesced_q6k_gemv_into(weight_buf.as_ptr(), &input_buf, &output_buf, n, k);
         let _ = result;
     }
 
@@ -773,7 +794,9 @@ mod tests {
 
     #[test]
     fn test_batched_q6k_gemv_into_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let m = 4u32; // batch size
         let k = 256u32;
@@ -789,13 +812,16 @@ mod tests {
         let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
         let output_buf = GpuBuffer::from_host(&exec.context, &output).unwrap();
 
-        let result = exec.batched_q6k_gemv_into(weight_buf.as_ptr(), &input_buf, &output_buf, m, n, k);
+        let result =
+            exec.batched_q6k_gemv_into(weight_buf.as_ptr(), &input_buf, &output_buf, m, n, k);
         let _ = result;
     }
 
     #[test]
     fn test_batched_q6k_gemv_into_m8() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let m = 8u32;
         let k = 256u32;
@@ -809,7 +835,8 @@ mod tests {
         let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
         let output_buf = GpuBuffer::from_host(&exec.context, &output).unwrap();
 
-        let result = exec.batched_q6k_gemv_into(weight_buf.as_ptr(), &input_buf, &output_buf, m, n, k);
+        let result =
+            exec.batched_q6k_gemv_into(weight_buf.as_ptr(), &input_buf, &output_buf, m, n, k);
         let _ = result;
     }
 }

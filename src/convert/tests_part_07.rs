@@ -8,8 +8,7 @@
 //! Target: convert/mod.rs (~50% coverage)
 
 use super::*;
-use crate::apr::{ALIGNMENT, HEADER_SIZE, MAGIC};
-use crate::error::RealizarError;
+use crate::apr::{HEADER_SIZE, MAGIC};
 
 // ============================================================================
 // Maimed Pygmy: APR Header Corruption
@@ -95,7 +94,10 @@ fn test_maimed_apr_invalid_tensor_index_json() {
     data[idx..idx + invalid_json.len()].copy_from_slice(invalid_json);
 
     let result = GgufToAprConverter::from_apr_bytes(&data);
-    assert!(result.is_err(), "Should fail with invalid tensor index JSON");
+    assert!(
+        result.is_err(),
+        "Should fail with invalid tensor index JSON"
+    );
     let err_str = format!("{:?}", result.unwrap_err());
     assert!(
         err_str.contains("tensor index") || err_str.contains("parse"),
@@ -147,7 +149,8 @@ fn test_maimed_apr_missing_weights_tensor() {
 #[test]
 fn test_maimed_apr_truncated_tensor_data() {
     // Tensor index claims size is 10000 bytes (way more than file has)
-    let tensor_index = r#"[{"name":"weights","dtype":"json","shape":[10000],"offset":0,"size":10000}]"#;
+    let tensor_index =
+        r#"[{"name":"weights","dtype":"json","shape":[10000],"offset":0,"size":10000}]"#;
     let tensor_index_len = tensor_index.len();
 
     let index_offset = HEADER_SIZE + 64; // metadata at 64, padded
@@ -155,7 +158,7 @@ fn test_maimed_apr_truncated_tensor_data() {
 
     // File is only 300 bytes but tensor claims 10000
     let mut data = vec![0u8; data_offset + 50]; // way less than 10000
-    // Valid APR magic
+                                                // Valid APR magic
     data[0..4].copy_from_slice(&MAGIC);
     data[4] = 2;
     data[5] = 0;
@@ -213,7 +216,9 @@ fn test_maimed_apr_invalid_weights_json() {
     assert!(result.is_err(), "Should fail with invalid weights JSON");
     let err_str = format!("{:?}", result.unwrap_err());
     assert!(
-        err_str.contains("deserialize") || err_str.contains("transformer") || err_str.contains("Failed"),
+        err_str.contains("deserialize")
+            || err_str.contains("transformer")
+            || err_str.contains("Failed"),
         "Error should mention deserialization failure: {}",
         err_str
     );
@@ -260,8 +265,8 @@ fn test_maimed_gguf_to_apr_zero_tensors() {
     let result = GgufToAprConverter::convert(&data);
     // May succeed (empty model) or fail - either exercises code
     match result {
-        Ok(_) => {} // Empty model converted
-        Err(_) => {} // Failed as expected
+        Ok(_) => {},  // Empty model converted
+        Err(_) => {}, // Failed as expected
     }
 }
 

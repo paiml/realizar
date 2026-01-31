@@ -4278,7 +4278,7 @@ mod tests {
         let mut token_to_id = HashMap::new();
         token_to_id.insert("a".to_string(), 0);
         let result = bpe_encode("a\u{00A9}", &token_to_id, &[], &HashMap::new()); // a + copyright symbol
-                                                                 // Non-ASCII gets encoded as bytes
+                                                                                  // Non-ASCII gets encoded as bytes
         assert!(!result.is_empty() || result.is_empty()); // Just verify no panic
     }
 
@@ -4287,7 +4287,7 @@ mod tests {
         let token_to_id: HashMap<String, u32> = HashMap::new();
         // Test with unicode characters
         let result = bpe_encode("\u{1F600}", &token_to_id, &[], &HashMap::new()); // Emoji
-                                                                 // Should not panic, may return empty if no tokens match
+                                                                                  // Should not panic, may return empty if no tokens match
         assert!(result.is_empty());
     }
 
@@ -5297,18 +5297,18 @@ mod tests {
         let dtypes = [
             (0u8, "F32"),
             (1, "F16"),
-            (2, "Q4_0"),   // GGML type 2
-            (3, "Q4_1"),   // GGML type 3
-            (6, "Q5_0"),   // GGML type 6
-            (7, "Q5_1"),   // GGML type 7
-            (8, "Q8_0"),   // GGML type 8
-            (9, "Q8_1"),   // GGML type 9
-            (10, "Q2_K"),  // GGML type 10
-            (11, "Q3_K"),  // GGML type 11
-            (12, "Q4_K"),  // GGML type 12
-            (13, "Q5_K"),  // GGML type 13
-            (14, "Q6_K"),  // GGML type 14
-            (30, "BF16"),  // GGML type 30
+            (2, "Q4_0"),  // GGML type 2
+            (3, "Q4_1"),  // GGML type 3
+            (6, "Q5_0"),  // GGML type 6
+            (7, "Q5_1"),  // GGML type 7
+            (8, "Q8_0"),  // GGML type 8
+            (9, "Q8_1"),  // GGML type 9
+            (10, "Q2_K"), // GGML type 10
+            (11, "Q3_K"), // GGML type 11
+            (12, "Q4_K"), // GGML type 12
+            (13, "Q5_K"), // GGML type 13
+            (14, "Q6_K"), // GGML type 14
+            (30, "BF16"), // GGML type 30
         ];
 
         for (dtype_byte, expected_dtype) in dtypes {
@@ -5598,8 +5598,8 @@ mod tests {
             "rms_norm_eps": 0.000001
         }"#;
 
-        let metadata: AprMetadata = serde_json::from_str(metadata_json)
-            .expect("AprMetadata should parse valid JSON");
+        let metadata: AprMetadata =
+            serde_json::from_str(metadata_json).expect("AprMetadata should parse valid JSON");
 
         assert_eq!(
             metadata.num_heads,
@@ -5618,7 +5618,10 @@ mod tests {
             "hidden_size not parsed correctly"
         );
 
-        println!("✅ AprMetadata correctly parses num_kv_heads={:?}", metadata.num_kv_heads);
+        println!(
+            "✅ AprMetadata correctly parses num_kv_heads={:?}",
+            metadata.num_kv_heads
+        );
     }
 
     /// FALSIFICATION TEST: Verify AprMetadata handles extra fields gracefully
@@ -5662,7 +5665,10 @@ mod tests {
             "Extra fields should be captured in 'extra' map"
         );
 
-        println!("✅ AprMetadata handles extra fields correctly, num_kv_heads={:?}", metadata.num_kv_heads);
+        println!(
+            "✅ AprMetadata handles extra fields correctly, num_kv_heads={:?}",
+            metadata.num_kv_heads
+        );
     }
 
     /// PMAT-107: Falsification test with REAL APR file
@@ -5682,8 +5688,7 @@ mod tests {
         }
 
         // Load the model
-        let model = AprV2Model::load(apr_path)
-            .expect("Should load APR file");
+        let model = AprV2Model::load(apr_path).expect("Should load APR file");
 
         println!("=== REAL APR FILE METADATA ===");
         println!("  num_heads: {:?}", model.metadata.num_heads);
@@ -5707,7 +5712,10 @@ mod tests {
             model.metadata.num_kv_heads
         );
 
-        println!("✅ Real APR file has correct num_kv_heads={:?}", model.metadata.num_kv_heads);
+        println!(
+            "✅ Real APR file has correct num_kv_heads={:?}",
+            model.metadata.num_kv_heads
+        );
     }
 
     /// PMAT-107: Falsification test for GQA dimensions in CUDA executor
@@ -5728,12 +5736,15 @@ mod tests {
         }
 
         // Load the model
-        let model = AprV2Model::load(apr_path)
-            .expect("Should load APR file");
+        let model = AprV2Model::load(apr_path).expect("Should load APR file");
 
         // Verify metadata first
         assert_eq!(model.metadata.num_heads, Some(12), "num_heads should be 12");
-        assert_eq!(model.metadata.num_kv_heads, Some(2), "num_kv_heads should be 2 (GQA)");
+        assert_eq!(
+            model.metadata.num_kv_heads,
+            Some(2),
+            "num_kv_heads should be 2 (GQA)"
+        );
 
         // Create CUDA model
         use crate::apr::AprV2ModelCuda;
@@ -5743,7 +5754,7 @@ mod tests {
             Err(e) => {
                 eprintln!("⚠️ CUDA not available: {e}");
                 return;
-            }
+            },
         };
 
         // Access the executor's GQA dimensions
@@ -5751,13 +5762,23 @@ mod tests {
         // The executor is private but we can check via the metadata pass-through
 
         println!("=== CUDA EXECUTOR GQA CONFIG ===");
-        println!("  model.metadata.num_heads: {:?}", cuda_model.inner().metadata.num_heads);
-        println!("  model.metadata.num_kv_heads: {:?}", cuda_model.inner().metadata.num_kv_heads);
+        println!(
+            "  model.metadata.num_heads: {:?}",
+            cuda_model.inner().metadata.num_heads
+        );
+        println!(
+            "  model.metadata.num_kv_heads: {:?}",
+            cuda_model.inner().metadata.num_kv_heads
+        );
 
         // The critical check: if CUDA model was initialized correctly, the GQA ratio should be 6:1
         // (12 Q heads / 2 KV heads = 6x repeat factor for GQA)
         let num_heads = cuda_model.inner().metadata.num_heads.unwrap_or(1);
-        let num_kv_heads = cuda_model.inner().metadata.num_kv_heads.unwrap_or(num_heads);
+        let num_kv_heads = cuda_model
+            .inner()
+            .metadata
+            .num_kv_heads
+            .unwrap_or(num_heads);
         let gqa_ratio = num_heads / num_kv_heads;
 
         assert_eq!(
@@ -5767,7 +5788,9 @@ mod tests {
             gqa_ratio, num_heads, num_kv_heads
         );
 
-        println!("✅ CUDA model has correct GQA ratio: {} ({}:{} heads:kv_heads)",
-            gqa_ratio, num_heads, num_kv_heads);
+        println!(
+            "✅ CUDA model has correct GQA ratio: {} ({}:{} heads:kv_heads)",
+            gqa_ratio, num_heads, num_kv_heads
+        );
     }
 }

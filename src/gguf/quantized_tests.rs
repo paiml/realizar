@@ -20,7 +20,12 @@ fn create_test_data(size: usize) -> Vec<u8> {
 }
 
 /// Create a QuantizedTensorRef with given parameters
-fn tensor_ref(offset: usize, byte_size: usize, num_elements: usize, qtype: u32) -> QuantizedTensorRef {
+fn tensor_ref(
+    offset: usize,
+    byte_size: usize,
+    num_elements: usize,
+    qtype: u32,
+) -> QuantizedTensorRef {
     QuantizedTensorRef {
         offset,
         byte_size,
@@ -67,7 +72,11 @@ fn test_owned_qkv_weights_from_borrowed_separate() {
 
     // Verify Separate variant was created
     match owned {
-        OwnedQKVWeights::Separate { ref q, ref k, ref v } => {
+        OwnedQKVWeights::Separate {
+            ref q,
+            ref k,
+            ref v,
+        } => {
             // Check Q tensor
             assert_eq!(q.in_dim, hidden_dim);
             assert_eq!(q.out_dim, hidden_dim); // q_dim = num_elements / hidden_dim

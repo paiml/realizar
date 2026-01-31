@@ -90,11 +90,8 @@ fn test_capacity_factor_router_both_top_experts_at_capacity() {
     let scores = vec![0.1, 0.9, 0.8, 0.2];
     let result = router.route(&scores);
 
-    match result {
-        Ok(expert_id) => {
-            assert!(expert_id < 4, "Expert ID should be valid");
-        },
-        Err(_) => {},
+    if let Ok(expert_id) = result {
+        assert!(expert_id < 4, "Expert ID should be valid");
     }
 }
 

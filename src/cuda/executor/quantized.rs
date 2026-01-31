@@ -1644,7 +1644,9 @@ mod tests {
 
     #[test]
     fn test_tiled_q4k_gemv_cached_async_weight_not_found() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
         let result = exec.tiled_q4k_gemv_cached_async("nonexistent", &input, 128, 256, 4);
         assert!(result.is_err());
@@ -1652,7 +1654,9 @@ mod tests {
 
     #[test]
     fn test_tiled_q4k_gemv_small_k() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
         // K=256 < MAX_TILED_K, uses standard tiled kernel
         let result = exec.tiled_q4k_gemv_cached_async("test", &input, 128, 256, 4);
@@ -1665,7 +1669,9 @@ mod tests {
 
     #[test]
     fn test_chunked_tiled_q4k_gemv_cached_async_weight_not_found() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
         let result = exec.chunked_tiled_q4k_gemv_cached_async("nonexistent", &input, 128, 256, 4);
         assert!(result.is_err());
@@ -1677,7 +1683,9 @@ mod tests {
 
     #[test]
     fn test_dp4a_q4k_gemv_cached_async_weight_not_found() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
         let result = exec.dp4a_q4k_gemv_cached_async("nonexistent", &input, 128, 256);
         assert!(result.is_err());
@@ -1711,7 +1719,9 @@ mod tests {
 
     #[test]
     fn test_q4k_q8_gemv_async_weight_not_found() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let q8_input = GpuBuffer::<u8>::new(&exec.context, 288).unwrap();
         let result = exec.q4k_q8_gemv_async("nonexistent", &q8_input, 128, 256);
         assert!(result.is_err());
@@ -1723,7 +1733,9 @@ mod tests {
 
     #[test]
     fn test_true_dp4a_q4k_gemv_async_weight_not_found() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
         let result = exec.true_dp4a_q4k_gemv_async("nonexistent", &input, 128, 256);
         assert!(result.is_err());
@@ -1735,7 +1747,9 @@ mod tests {
 
     #[test]
     fn test_packed_dp4a_q4k_q8_gemv_async_weight_not_found() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let q8_input = GpuBuffer::<u8>::new(&exec.context, 288).unwrap();
         let result = exec.packed_dp4a_q4k_q8_gemv_async("nonexistent", &q8_input, 128, 256);
         assert!(result.is_err());
@@ -1743,7 +1757,9 @@ mod tests {
 
     #[test]
     fn test_packed_dp4a_full_async_weight_not_found() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
         let result = exec.packed_dp4a_full_async("nonexistent", &input, 128, 256);
         assert!(result.is_err());
@@ -1755,7 +1771,9 @@ mod tests {
 
     #[test]
     fn test_q5k_gemv_cached_weight_not_found() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = vec![1.0f32; 256];
         let mut output = vec![0.0f32; 128];
         let result = exec.q5k_gemv_cached("nonexistent", &input, &mut output, 128, 256);
@@ -1764,7 +1782,9 @@ mod tests {
 
     #[test]
     fn test_q6k_gemv_cached_weight_not_found() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = vec![1.0f32; 256];
         let mut output = vec![0.0f32; 128];
         let result = exec.q6k_gemv_cached("nonexistent", &input, &mut output, 128, 256);
@@ -1777,7 +1797,9 @@ mod tests {
 
     #[test]
     fn test_gelu_gpu_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = vec![0.0f32, 1.0, -1.0, 2.0];
         let buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
         let result = exec.gelu_gpu(&buf, 4);
@@ -1786,7 +1808,9 @@ mod tests {
 
     #[test]
     fn test_gelu_gpu_larger() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = vec![1.0f32; 256];
         let buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
         let result = exec.gelu_gpu(&buf, 256);
@@ -1799,7 +1823,9 @@ mod tests {
 
     #[test]
     fn test_layer_norm_gpu_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 32]).unwrap();
         let output = GpuBuffer::<f32>::new(&exec.context, 32).unwrap();
         let gamma = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 32]).unwrap();
@@ -1814,7 +1840,9 @@ mod tests {
 
     #[test]
     fn test_rmsnorm_gpu_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 32]).unwrap();
         let gamma = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 32]).unwrap();
         let result = exec.rmsnorm_gpu(&input, &gamma, 32, 1e-5);
@@ -1825,7 +1853,9 @@ mod tests {
 
     #[test]
     fn test_rmsnorm_into_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 32]).unwrap();
         let gamma = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 32]).unwrap();
         let output = GpuBuffer::<f32>::new(&exec.context, 32).unwrap();
@@ -1835,7 +1865,9 @@ mod tests {
 
     #[test]
     fn test_rmsnorm_host_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = vec![1.0f32; 32];
         let gamma = vec![1.0f32; 32];
         let mut output = vec![0.0f32; 32];
@@ -1851,7 +1883,9 @@ mod tests {
 
     #[test]
     fn test_batched_rmsnorm_into_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         // M=4 sequences, hidden=32
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 4 * 32]).unwrap();
         let gamma = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 32]).unwrap();
@@ -1866,7 +1900,9 @@ mod tests {
 
     #[test]
     fn test_residual_add_gpu_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input1 = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 32]).unwrap();
         let input2 = GpuBuffer::from_host(&exec.context, &vec![2.0f32; 32]).unwrap();
         let result = exec.residual_add_gpu(&input1, &input2, 32);
@@ -1875,7 +1911,9 @@ mod tests {
 
     #[test]
     fn test_residual_add_into_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input1 = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 32]).unwrap();
         let input2 = GpuBuffer::from_host(&exec.context, &vec![2.0f32; 32]).unwrap();
         let output = GpuBuffer::<f32>::new(&exec.context, 32).unwrap();
@@ -1885,7 +1923,9 @@ mod tests {
 
     #[test]
     fn test_residual_add_host_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input1 = vec![1.0f32; 32];
         let input2 = vec![2.0f32; 32];
         let mut output = vec![0.0f32; 32];
@@ -1899,7 +1939,9 @@ mod tests {
 
     #[test]
     fn test_fused_residual_rmsnorm_gpu_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let residual = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 32]).unwrap();
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 32]).unwrap();
         let gamma = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 32]).unwrap();
@@ -1909,7 +1951,9 @@ mod tests {
 
     #[test]
     fn test_fused_residual_rmsnorm_host_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let residual = vec![1.0f32; 32];
         let input = vec![1.0f32; 32];
         let gamma = vec![1.0f32; 32];
@@ -1924,7 +1968,9 @@ mod tests {
 
     #[test]
     fn test_batched_rope_into_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         // M=4 sequences, num_heads=4, head_dim=32
         let size = 4 * 4 * 32;
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; size]).unwrap();
@@ -1936,7 +1982,9 @@ mod tests {
 
     #[test]
     fn test_batched_residual_add_into_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         // M=4 sequences, n=32 elements each
         let size = 4 * 32;
         let input1 = GpuBuffer::from_host(&exec.context, &vec![1.0f32; size]).unwrap();
@@ -1948,7 +1996,9 @@ mod tests {
 
     #[test]
     fn test_batched_swiglu_into_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         // M=4 sequences, n=32 elements each
         let size = 4 * 32;
         let gate = GpuBuffer::from_host(&exec.context, &vec![1.0f32; size]).unwrap();
@@ -1965,9 +2015,13 @@ mod tests {
     #[test]
     fn test_rmsnorm_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Create gamma buffer directly (avoid borrow conflict with cache)
         let gamma = GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).unwrap();
@@ -1979,9 +2033,13 @@ mod tests {
     #[test]
     fn test_rmsnorm_into_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Create gamma buffer directly
         let gamma = GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).unwrap();
@@ -1994,40 +2052,65 @@ mod tests {
     #[test]
     fn test_batched_rmsnorm_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Create gamma buffer directly
         let gamma = GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).unwrap();
         let m = 4u32;
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; (m as usize) * config.hidden_dim]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, (m as usize) * config.hidden_dim).unwrap();
-        let result = exec.batched_rmsnorm_into(&input, &gamma, &output, config.hidden_dim as u32, m, 1e-5);
+        let input = GpuBuffer::from_host(
+            &exec.context,
+            &vec![1.0f32; (m as usize) * config.hidden_dim],
+        )
+        .unwrap();
+        let output =
+            GpuBuffer::<f32>::new(&exec.context, (m as usize) * config.hidden_dim).unwrap();
+        let result =
+            exec.batched_rmsnorm_into(&input, &gamma, &output, config.hidden_dim as u32, m, 1e-5);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_fused_residual_rmsnorm_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Create gamma buffer directly
         let gamma = GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).unwrap();
-        let residual = GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).unwrap();
+        let residual =
+            GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).unwrap();
         let input = GpuBuffer::from_host(&exec.context, &vec![0.5f32; config.hidden_dim]).unwrap();
-        let result = exec.fused_residual_rmsnorm_gpu(&residual, &input, &gamma, config.hidden_dim as u32, 1e-5);
+        let result = exec.fused_residual_rmsnorm_gpu(
+            &residual,
+            &input,
+            &gamma,
+            config.hidden_dim as u32,
+            1e-5,
+        );
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_batched_rope_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let m = 4u32;
         let total_dim = (m as usize) * config.num_heads * config.head_dim;
@@ -2050,9 +2133,13 @@ mod tests {
     #[test]
     fn test_batched_swiglu_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let m = 4u32;
         let size = (m as usize) * config.intermediate_dim;
@@ -2060,16 +2147,21 @@ mod tests {
         let up = GpuBuffer::from_host(&exec.context, &vec![2.0f32; size]).unwrap();
         let output = GpuBuffer::<f32>::new(&exec.context, size).unwrap();
 
-        let result = exec.batched_swiglu_into(&gate, &up, &output, config.intermediate_dim as u32, m);
+        let result =
+            exec.batched_swiglu_into(&gate, &up, &output, config.intermediate_dim as u32, m);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_batched_residual_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let m = 4u32;
         let size = (m as usize) * config.hidden_dim;
@@ -2077,7 +2169,8 @@ mod tests {
         let input2 = GpuBuffer::from_host(&exec.context, &vec![0.5f32; size]).unwrap();
         let output = GpuBuffer::<f32>::new(&exec.context, size).unwrap();
 
-        let result = exec.batched_residual_add_into(&input1, &input2, &output, config.hidden_dim as u32, m);
+        let result =
+            exec.batched_residual_add_into(&input1, &input2, &output, config.hidden_dim as u32, m);
         assert!(result.is_ok());
     }
 }

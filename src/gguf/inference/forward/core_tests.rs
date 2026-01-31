@@ -184,10 +184,15 @@ fn test_forward_llama_single_token() {
     let model = create_llama_style_model(100, 64, 128, 4, 4, 1);
     let token_ids = [42u32];
 
-    let logits = model.forward(&token_ids).expect("Forward pass should succeed");
+    let logits = model
+        .forward(&token_ids)
+        .expect("Forward pass should succeed");
 
     assert_eq!(logits.len(), 100, "Logits should have vocab_size elements");
-    assert!(logits.iter().all(|x| x.is_finite()), "All logits should be finite");
+    assert!(
+        logits.iter().all(|x| x.is_finite()),
+        "All logits should be finite"
+    );
 }
 
 #[test]
@@ -195,10 +200,15 @@ fn test_forward_llama_multiple_tokens() {
     let model = create_llama_style_model(100, 64, 128, 4, 4, 1);
     let token_ids = [1u32, 2, 3, 4, 5];
 
-    let logits = model.forward(&token_ids).expect("Forward pass should succeed");
+    let logits = model
+        .forward(&token_ids)
+        .expect("Forward pass should succeed");
 
     assert_eq!(logits.len(), 100, "Logits should have vocab_size elements");
-    assert!(logits.iter().all(|x| x.is_finite()), "All logits should be finite");
+    assert!(
+        logits.iter().all(|x| x.is_finite()),
+        "All logits should be finite"
+    );
 }
 
 #[test]
@@ -207,7 +217,9 @@ fn test_forward_llama_gqa_config() {
     let model = create_llama_style_model(100, 64, 128, 8, 2, 1);
     let token_ids = [10u32, 20, 30];
 
-    let logits = model.forward(&token_ids).expect("Forward pass should succeed");
+    let logits = model
+        .forward(&token_ids)
+        .expect("Forward pass should succeed");
 
     assert_eq!(logits.len(), 100);
     assert!(logits.iter().all(|x| x.is_finite()));
@@ -218,7 +230,9 @@ fn test_forward_llama_multi_layer() {
     let model = create_llama_style_model(100, 64, 128, 4, 4, 3);
     let token_ids = [5u32, 10, 15];
 
-    let logits = model.forward(&token_ids).expect("Forward pass should succeed");
+    let logits = model
+        .forward(&token_ids)
+        .expect("Forward pass should succeed");
 
     assert_eq!(logits.len(), 100);
     assert!(logits.iter().all(|x| x.is_finite()));
@@ -233,7 +247,9 @@ fn test_forward_phi2_single_token() {
     let model = create_phi2_style_model(100, 64, 128, 4, 1);
     let token_ids = [42u32];
 
-    let logits = model.forward(&token_ids).expect("Forward pass should succeed");
+    let logits = model
+        .forward(&token_ids)
+        .expect("Forward pass should succeed");
 
     assert_eq!(logits.len(), 100);
     assert!(logits.iter().all(|x| x.is_finite()));
@@ -244,7 +260,9 @@ fn test_forward_phi2_multiple_tokens() {
     let model = create_phi2_style_model(100, 64, 128, 4, 1);
     let token_ids = [1u32, 2, 3, 4, 5];
 
-    let logits = model.forward(&token_ids).expect("Forward pass should succeed");
+    let logits = model
+        .forward(&token_ids)
+        .expect("Forward pass should succeed");
 
     assert_eq!(logits.len(), 100);
     assert!(logits.iter().all(|x| x.is_finite()));
@@ -256,7 +274,9 @@ fn test_forward_phi2_with_biases() {
     let model = create_phi2_style_model(100, 64, 128, 4, 2);
     let token_ids = [50u32];
 
-    let logits = model.forward(&token_ids).expect("Forward pass should succeed");
+    let logits = model
+        .forward(&token_ids)
+        .expect("Forward pass should succeed");
 
     assert_eq!(logits.len(), 100);
     assert!(logits.iter().all(|x| x.is_finite()));
@@ -424,8 +444,14 @@ fn test_architecture_detection_llama() {
 
     // LLaMA detection: ffn_gate_weight.is_some() && attn_norm_bias.is_none()
     let layer = &model.layers[0];
-    assert!(layer.ffn_gate_weight.is_some(), "LLaMA should have gate weight");
-    assert!(layer.attn_norm_bias.is_none(), "LLaMA should not have norm bias");
+    assert!(
+        layer.ffn_gate_weight.is_some(),
+        "LLaMA should have gate weight"
+    );
+    assert!(
+        layer.attn_norm_bias.is_none(),
+        "LLaMA should not have norm bias"
+    );
 }
 
 #[test]
@@ -434,8 +460,14 @@ fn test_architecture_detection_phi2() {
 
     // phi-2 detection: ffn_gate_weight.is_none() || attn_norm_bias.is_some()
     let layer = &model.layers[0];
-    assert!(layer.ffn_gate_weight.is_none(), "phi-2 should not have gate weight");
-    assert!(layer.attn_norm_bias.is_some(), "phi-2 should have norm bias");
+    assert!(
+        layer.ffn_gate_weight.is_none(),
+        "phi-2 should not have gate weight"
+    );
+    assert!(
+        layer.attn_norm_bias.is_some(),
+        "phi-2 should have norm bias"
+    );
 }
 
 // =============================================================================
@@ -450,10 +482,18 @@ fn test_kv_cache_grows_correctly() {
     assert_eq!(cache.len(), 0, "Cache should start empty");
 
     model.forward_cached(10, &mut cache, 0).unwrap();
-    assert_eq!(cache.len(), 1, "Cache should have 1 entry after first token");
+    assert_eq!(
+        cache.len(),
+        1,
+        "Cache should have 1 entry after first token"
+    );
 
     model.forward_cached(20, &mut cache, 1).unwrap();
-    assert_eq!(cache.len(), 2, "Cache should have 2 entries after second token");
+    assert_eq!(
+        cache.len(),
+        2,
+        "Cache should have 2 entries after second token"
+    );
 }
 
 #[test]

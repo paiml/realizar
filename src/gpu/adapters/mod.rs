@@ -19,10 +19,10 @@
 mod apr;
 #[cfg(feature = "cuda")]
 mod apr_q4;
-#[cfg(test)]
-mod tests;
 #[cfg(all(test, feature = "cuda"))]
 mod apr_q4_tests;
+#[cfg(test)]
+mod tests;
 
 pub use apr::{transpose_matrix, AprF32ToGpuAdapter, AprGpuError, AprToGpuAdapter};
 #[cfg(feature = "cuda")]

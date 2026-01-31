@@ -361,7 +361,7 @@ mod tests {
             token_to_id,
             id_to_token: vec!["h", "e", "l", "o", "he", "ll"]
                 .iter()
-                .map(|s| s.to_string())
+                .map(|s| (*s).to_string())
                 .collect(),
             merge_rules: vec![
                 ("h".to_string(), "e".to_string()),

@@ -423,13 +423,19 @@ mod tests {
     #[test]
     fn test_flash_attention_kernel_name_causal() {
         let backend = CudaBackend::new(1, 4096, 4096, 64);
-        assert_eq!(backend.flash_attention_kernel_name(true), "flash_attention_causal");
+        assert_eq!(
+            backend.flash_attention_kernel_name(true),
+            "flash_attention_causal"
+        );
     }
 
     #[test]
     fn test_flash_attention_kernel_name_non_causal() {
         let backend = CudaBackend::new(1, 4096, 4096, 64);
-        assert_eq!(backend.flash_attention_kernel_name(false), "flash_attention");
+        assert_eq!(
+            backend.flash_attention_kernel_name(false),
+            "flash_attention"
+        );
     }
 
     #[test]

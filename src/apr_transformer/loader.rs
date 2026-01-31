@@ -819,16 +819,29 @@ mod tests {
 
     #[test]
     fn test_quant_type_from_byte() {
-        assert_eq!(AprQuantizationType::from_byte(0), Some(AprQuantizationType::F32));
-        assert_eq!(AprQuantizationType::from_byte(1), Some(AprQuantizationType::Q4_K));
-        assert_eq!(AprQuantizationType::from_byte(2), Some(AprQuantizationType::Q8_0));
+        assert_eq!(
+            AprQuantizationType::from_byte(0),
+            Some(AprQuantizationType::F32)
+        );
+        assert_eq!(
+            AprQuantizationType::from_byte(1),
+            Some(AprQuantizationType::Q4_K)
+        );
+        assert_eq!(
+            AprQuantizationType::from_byte(2),
+            Some(AprQuantizationType::Q8_0)
+        );
         assert_eq!(AprQuantizationType::from_byte(3), None);
         assert_eq!(AprQuantizationType::from_byte(255), None);
     }
 
     #[test]
     fn test_quant_type_roundtrip() {
-        for qt in [AprQuantizationType::F32, AprQuantizationType::Q4_K, AprQuantizationType::Q8_0] {
+        for qt in [
+            AprQuantizationType::F32,
+            AprQuantizationType::Q4_K,
+            AprQuantizationType::Q8_0,
+        ] {
             assert_eq!(AprQuantizationType::from_byte(qt.to_byte()), Some(qt));
         }
     }
@@ -916,29 +929,34 @@ mod tests {
 
     #[test]
     fn test_quantized_transformer_calculate_quantized_bytes_f32() {
-        let bytes = QuantizedAprTransformer::calculate_quantized_bytes(100, AprQuantizationType::F32);
+        let bytes =
+            QuantizedAprTransformer::calculate_quantized_bytes(100, AprQuantizationType::F32);
         assert_eq!(bytes, 400); // 100 * 4 bytes
     }
 
     #[test]
     fn test_quantized_transformer_calculate_quantized_bytes_q4k() {
         // 256 values = 1 block = 144 bytes
-        let bytes = QuantizedAprTransformer::calculate_quantized_bytes(256, AprQuantizationType::Q4_K);
+        let bytes =
+            QuantizedAprTransformer::calculate_quantized_bytes(256, AprQuantizationType::Q4_K);
         assert_eq!(bytes, 144);
 
         // 257 values = 2 blocks = 288 bytes
-        let bytes = QuantizedAprTransformer::calculate_quantized_bytes(257, AprQuantizationType::Q4_K);
+        let bytes =
+            QuantizedAprTransformer::calculate_quantized_bytes(257, AprQuantizationType::Q4_K);
         assert_eq!(bytes, 288);
     }
 
     #[test]
     fn test_quantized_transformer_calculate_quantized_bytes_q8_0() {
         // 32 values = 1 block = 36 bytes
-        let bytes = QuantizedAprTransformer::calculate_quantized_bytes(32, AprQuantizationType::Q8_0);
+        let bytes =
+            QuantizedAprTransformer::calculate_quantized_bytes(32, AprQuantizationType::Q8_0);
         assert_eq!(bytes, 36);
 
         // 33 values = 2 blocks = 72 bytes
-        let bytes = QuantizedAprTransformer::calculate_quantized_bytes(33, AprQuantizationType::Q8_0);
+        let bytes =
+            QuantizedAprTransformer::calculate_quantized_bytes(33, AprQuantizationType::Q8_0);
         assert_eq!(bytes, 72);
     }
 
@@ -1046,7 +1064,11 @@ mod tests {
 
     #[test]
     fn test_quantized_transformer_roundtrip_all_types() {
-        for quant_type in [AprQuantizationType::F32, AprQuantizationType::Q4_K, AprQuantizationType::Q8_0] {
+        for quant_type in [
+            AprQuantizationType::F32,
+            AprQuantizationType::Q4_K,
+            AprQuantizationType::Q8_0,
+        ] {
             let config = make_test_config();
             let qt = QuantizedAprTransformer::new(config.clone(), quant_type);
             let bytes = qt.to_bytes().unwrap();

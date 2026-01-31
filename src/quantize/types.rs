@@ -549,7 +549,12 @@ mod tests {
         // Verify roundtrip is approximate
         for (orig, deq) in values.iter().zip(dequantized.iter()) {
             let diff = (orig - deq).abs();
-            assert!(diff < block.scale * 2.0, "diff={} scale={}", diff, block.scale);
+            assert!(
+                diff < block.scale * 2.0,
+                "diff={} scale={}",
+                diff,
+                block.scale
+            );
         }
     }
 

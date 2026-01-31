@@ -1933,7 +1933,7 @@ mod tests {
             config.trace_output,
             Some(PathBuf::from("/trace/output.json"))
         );
-        assert_eq!(config.trace_steps.as_ref().map(|s| s.len()), Some(3));
+        assert_eq!(config.trace_steps.as_ref().map(std::vec::Vec::len), Some(3));
     }
 
     #[test]
@@ -2878,12 +2878,12 @@ mod tests {
 
     #[test]
     fn test_clean_model_output_complex_conversation() {
-        let raw = r#"<|im_start|>system
+        let raw = r"<|im_start|>system
 You are a helpful assistant.<|im_end|>
 <|im_start|>user
 Hello!<|im_end|>
 <|im_start|>assistant
-Hi there! How can I help?<|im_end|><|endoftext|>"#;
+Hi there! How can I help?<|im_end|><|endoftext|>";
         let cleaned = clean_model_output(raw);
         // All markers removed, content preserved
         assert!(!cleaned.contains("<|im_start|>"));
@@ -3010,7 +3010,7 @@ fn main() {
         assert!(config.trace);
         assert!(config.trace_verbose);
         assert_eq!(config.trace_output, Some(PathBuf::from("/tmp/trace.json")));
-        assert_eq!(config.trace_steps.as_ref().map(|s| s.len()), Some(2));
+        assert_eq!(config.trace_steps.as_ref().map(std::vec::Vec::len), Some(2));
     }
 
     // --- no_gpu flag tests ---

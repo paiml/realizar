@@ -788,14 +788,28 @@ impl CudaExecutor {
                     self.stream.synchronize()?;
                     let mut all_logits = vec![0.0f32; vocab_size as usize];
                     logits_gpu.copy_to_host(&mut all_logits)?;
-                    eprintln!("[GQA-DEBUG] Q8_0 LM head logits[0..20]: {:?}", &all_logits[..20]);
+                    eprintln!(
+                        "[GQA-DEBUG] Q8_0 LM head logits[0..20]: {:?}",
+                        &all_logits[..20]
+                    );
                     // Find global argmax
-                    let (argmax_idx, argmax_val) = all_logits.iter().enumerate()
-                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                        .map(|(i, v)| (i, *v)).expect("empty logits");
-                    eprintln!("[GQA-DEBUG] Q8_0 argmax: idx={}, val={:.4}", argmax_idx, argmax_val);
+                    let (argmax_idx, argmax_val) = all_logits
+                        .iter()
+                        .enumerate()
+                        .max_by(|(_, a), (_, b)| {
+                            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                        .map(|(i, v)| (i, *v))
+                        .expect("empty logits");
+                    eprintln!(
+                        "[GQA-DEBUG] Q8_0 argmax: idx={}, val={:.4}",
+                        argmax_idx, argmax_val
+                    );
                     // Digit logits (check indices for Qwen tokenizer)
-                    eprintln!("[GQA-DEBUG] Token 19='4' logit = {:.4}", all_logits.get(19).unwrap_or(&0.0));
+                    eprintln!(
+                        "[GQA-DEBUG] Token 19='4' logit = {:.4}",
+                        all_logits.get(19).unwrap_or(&0.0)
+                    );
                 }
             },
             WeightQuantType::Q5_0 => {
@@ -860,7 +874,9 @@ mod tests {
 
     #[test]
     fn test_forward_all_layers_gpu_missing_attn_norm() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let input = vec![0.1f32; 256];
         let mut output = vec![0.0f32; 256];
@@ -869,11 +885,11 @@ mod tests {
         let result = exec.forward_all_layers_gpu(
             &input,
             &mut output,
-            0,     // position
-            1,     // num_layers
-            256,   // hidden_dim
-            1024,  // intermediate_dim
-            1e-5,  // epsilon
+            0,    // position
+            1,    // num_layers
+            256,  // hidden_dim
+            1024, // intermediate_dim
+            1e-5, // epsilon
         );
 
         assert!(result.is_err());
@@ -884,7 +900,9 @@ mod tests {
 
     #[test]
     fn test_forward_all_layers_gpu_missing_ffn_norm() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         // Cache attn_norm but not ffn_norm
         let gamma: Vec<f32> = vec![1.0; 256];
@@ -893,15 +911,7 @@ mod tests {
         let input = vec![0.1f32; 256];
         let mut output = vec![0.0f32; 256];
 
-        let result = exec.forward_all_layers_gpu(
-            &input,
-            &mut output,
-            0,
-            1,
-            256,
-            1024,
-            1e-5,
-        );
+        let result = exec.forward_all_layers_gpu(&input, &mut output, 0, 1, 256, 1024, 1e-5);
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -915,7 +925,9 @@ mod tests {
 
     #[test]
     fn test_forward_to_logits_missing_attn_norm() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let input = vec![0.1f32; 256];
         let mut logits = vec![0.0f32; 1024];
@@ -923,12 +935,12 @@ mod tests {
         let result = exec.forward_all_layers_gpu_to_logits(
             &input,
             &mut logits,
-            0,     // position
-            1,     // num_layers
-            256,   // hidden_dim
-            1024,  // intermediate_dim
-            1024,  // vocab_size
-            1e-5,  // epsilon
+            0,    // position
+            1,    // num_layers
+            256,  // hidden_dim
+            1024, // intermediate_dim
+            1024, // vocab_size
+            1e-5, // epsilon
         );
 
         assert!(result.is_err());
@@ -939,7 +951,9 @@ mod tests {
 
     #[test]
     fn test_forward_to_logits_missing_output_norm() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         // Cache layer norms but not output_norm
         let gamma: Vec<f32> = vec![1.0; 256];
@@ -951,16 +965,8 @@ mod tests {
 
         // This will pass validation but fail later due to missing output_norm.gamma
         // We use workspace_unused path which requires output_norm.gamma
-        let result = exec.forward_all_layers_gpu_to_logits(
-            &input,
-            &mut logits,
-            0,
-            1,
-            256,
-            1024,
-            1024,
-            1e-5,
-        );
+        let result =
+            exec.forward_all_layers_gpu_to_logits(&input, &mut logits, 0, 1, 256, 1024, 1024, 1e-5);
 
         // Will error due to missing output_norm.gamma or lm_head
         assert!(result.is_err());
@@ -968,7 +974,9 @@ mod tests {
 
     #[test]
     fn test_forward_to_logits_zero_layers() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         // Cache output norm only (no layer norms needed for 0 layers)
         let gamma: Vec<f32> = vec![1.0; 256];
@@ -982,7 +990,7 @@ mod tests {
             &input,
             &mut logits,
             0,
-            0,     // 0 layers
+            0, // 0 layers
             256,
             1024,
             1024,
@@ -1001,7 +1009,9 @@ mod tests {
     fn test_forward_with_harness_multiple_positions() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
 
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let config = HarnessConfig::default();
         if setup_executor_harness(&mut exec, &config).is_err() {
@@ -1029,7 +1039,9 @@ mod tests {
     fn test_forward_to_logits_with_harness_sequence() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
 
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let config = HarnessConfig::default();
         if setup_executor_harness(&mut exec, &config).is_err() {
@@ -1061,9 +1073,13 @@ mod tests {
     #[test]
     fn test_forward_all_layers_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let input = vec![0.1f32; config.hidden_dim];
         let mut output = vec![0.0f32; config.hidden_dim];
@@ -1083,9 +1099,13 @@ mod tests {
     #[test]
     fn test_forward_to_logits_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let input = vec![0.1f32; config.hidden_dim];
         let mut logits = vec![0.0f32; config.vocab_size];
@@ -1106,9 +1126,13 @@ mod tests {
     #[test]
     fn test_forward_different_epsilon_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Test with different epsilon values
         for epsilon in [1e-5, 1e-6, 1e-4] {
@@ -1131,11 +1155,15 @@ mod tests {
     #[test]
     fn test_forward_different_hidden_dims() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let mut config = HarnessConfig::default();
         config.hidden_dim = 512;
         config.intermediate_dim = 1024;
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let input = vec![0.1f32; config.hidden_dim];
         let mut output = vec![0.0f32; config.hidden_dim];
@@ -1155,10 +1183,14 @@ mod tests {
     #[test]
     fn test_forward_larger_vocab_size() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let mut config = HarnessConfig::default();
         config.vocab_size = 32000;
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let input = vec![0.1f32; config.hidden_dim];
         let mut logits = vec![0.0f32; config.vocab_size];
@@ -1179,10 +1211,14 @@ mod tests {
     #[test]
     fn test_forward_multi_layer_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let mut config = HarnessConfig::default();
         config.num_layers = 4;
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let input = vec![0.1f32; config.hidden_dim];
         let mut output = vec![0.0f32; config.hidden_dim];
@@ -1202,9 +1238,13 @@ mod tests {
     #[test]
     fn test_forward_kv_cache_populated() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Run forward at position 0
         let input = vec![0.1f32; config.hidden_dim];
@@ -1233,9 +1273,13 @@ mod tests {
     #[test]
     fn test_forward_sequential_positions() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Simulate autoregressive: position 0, 1, 2, 3, ...
         for position in 0..5 {
@@ -1258,9 +1302,13 @@ mod tests {
     #[test]
     fn test_forward_to_logits_sequential() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         for position in 0..3 {
             let input = vec![0.5f32; config.hidden_dim];
@@ -1283,15 +1331,21 @@ mod tests {
     #[test]
     fn test_forward_with_varying_inputs() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Test with different input patterns
         let inputs = [
             vec![0.0f32; config.hidden_dim],
             vec![1.0f32; config.hidden_dim],
-            (0..config.hidden_dim).map(|i| (i as f32 / 1000.0).sin()).collect::<Vec<_>>(),
+            (0..config.hidden_dim)
+                .map(|i| (i as f32 / 1000.0).sin())
+                .collect::<Vec<_>>(),
         ];
 
         for input in inputs {
@@ -1312,12 +1366,16 @@ mod tests {
     #[test]
     fn test_forward_gqa_heads_config() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let mut config = HarnessConfig::default();
         // Configure GQA: 32 heads, 8 KV heads (4:1 ratio)
         config.num_heads = 32;
         config.num_kv_heads = 8;
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let input = vec![0.1f32; config.hidden_dim];
         let mut output = vec![0.0f32; config.hidden_dim];
@@ -1337,9 +1395,13 @@ mod tests {
     #[test]
     fn test_forward_to_logits_output_check() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let input = vec![0.1f32; config.hidden_dim];
         let mut logits = vec![-999.0f32; config.vocab_size];
@@ -1366,9 +1428,13 @@ mod tests {
     #[test]
     fn test_forward_workspace_path() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Ensure workspace is set up
         let has_workspace = exec.has_workspace();

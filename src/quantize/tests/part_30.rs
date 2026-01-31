@@ -154,10 +154,7 @@ fn test_q8_blocks_roundtrip_multi_block() {
     let dequantized = dequantize_q8_blocks(&blocks);
     assert_eq!(dequantized.len(), 96);
     for (orig, deq) in original.iter().zip(dequantized.iter()) {
-        assert!(
-            (orig - deq).abs() < 0.1,
-            "orig={orig}, deq={deq}"
-        );
+        assert!((orig - deq).abs() < 0.1, "orig={orig}, deq={deq}");
     }
 }
 
@@ -203,7 +200,7 @@ fn test_interleaved_q4k_single_superblock() {
     // Set dmin (f16)
     data[2] = 0x00;
     data[3] = 0x38; // 0.5 in f16
-    // Scales (12 bytes at offset 4)
+                    // Scales (12 bytes at offset 4)
     for i in 4..16 {
         data[i] = 1;
     }

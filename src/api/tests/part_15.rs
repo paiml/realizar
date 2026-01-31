@@ -12,7 +12,7 @@ use axum::{
 };
 use tower::util::ServiceExt;
 
-use crate::api::{create_router, AppState, ChatCompletionRequest, ChatMessage, ErrorResponse};
+use crate::api::{create_router, AppState};
 
 #[cfg(feature = "gpu")]
 use crate::api::test_helpers::create_test_quantized_model;
@@ -26,8 +26,7 @@ use crate::api::test_helpers::create_test_quantized_model;
 #[tokio::test]
 #[cfg(feature = "gpu")]
 async fn test_quantized_model_chat_completions_routing() {
-    use crate::gguf::{GGUFConfig, OwnedQuantizedModel};
-    use std::sync::Arc;
+    use crate::gguf::GGUFConfig;
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
@@ -408,7 +407,6 @@ async fn test_gpu_model_streaming_path() {
 #[cfg(feature = "gpu")]
 async fn test_gpu_model_tokenizer_missing_error() {
     use crate::gpu::{GpuModel, GpuModelConfig};
-    use std::sync::Arc;
 
     // Create GPU model with empty vocab to trigger tokenizer issues
     let config = GpuModelConfig {
@@ -448,7 +446,8 @@ async fn test_gpu_model_tokenizer_missing_error() {
     let status = response.status();
     assert!(
         status == StatusCode::OK
-            || status == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || status == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
             || status == StatusCode::BAD_REQUEST,
         "Should handle gracefully, got {}",
         status
@@ -642,7 +641,13 @@ async fn test_registry_fallback_path() {
         .expect("send");
 
     // Should hit registry path and succeed
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 /// Test registry model streaming fallback
@@ -671,7 +676,13 @@ async fn test_registry_streaming_fallback() {
         .expect("send");
 
     // Should hit registry streaming path and succeed
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 // =============================================================================

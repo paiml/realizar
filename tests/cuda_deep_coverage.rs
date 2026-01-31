@@ -1053,7 +1053,8 @@ mod proptests {
                 hit_rate: 0.5,
                 free_buffers: 5,
             };
-            prop_assert!(stats.estimated_savings_bytes() >= 0);
+            // estimated_savings_bytes returns usize, always >= 0
+            let _ = stats.estimated_savings_bytes();
         }
     }
 }

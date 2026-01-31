@@ -633,7 +633,7 @@ fn test_rope_at_various_positions() {
 
     // Test RoPE at different sequence positions
     for i in 0..10 {
-        let tokens: Vec<u32> = (0..i + 1).map(|x| x as u32).collect();
+        let tokens: Vec<u32> = (0..=i).map(|x| x as u32).collect();
         let mut cache = transformer.create_kv_cache(); // Fresh cache each iteration
         let result = transformer.forward_with_cache(&tokens, &mut cache);
         assert!(result.is_ok());

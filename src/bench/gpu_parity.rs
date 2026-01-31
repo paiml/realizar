@@ -1092,7 +1092,10 @@ mod tests {
 
     #[test]
     fn test_fused_op_type_eq() {
-        assert_eq!(FusedOpType::GemmBiasActivation, FusedOpType::GemmBiasActivation);
+        assert_eq!(
+            FusedOpType::GemmBiasActivation,
+            FusedOpType::GemmBiasActivation
+        );
         assert_ne!(FusedOpType::FusedFfn, FusedOpType::FusedAttention);
     }
 
@@ -1221,8 +1224,7 @@ mod tests {
 
     #[test]
     fn test_imp900_result_achieves_m3() {
-        let result = Imp900Result::from_baseline(13.1)
-            .with_gemm_improvement(4.0);
+        let result = Imp900Result::from_baseline(13.1).with_gemm_improvement(4.0);
         // 13.1 * 4 = 52.4 tok/s, gap = 240/52.4 = 4.6x
         assert!(result.achieves_m3());
     }

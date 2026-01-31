@@ -9,8 +9,6 @@ use axum::{
 use tower::util::ServiceExt;
 
 use crate::api::test_helpers::create_test_app_shared;
-#[cfg(feature = "gpu")]
-use crate::api::test_helpers::create_test_quantized_model;
 use crate::api::*;
 
 #[test]
@@ -236,7 +234,13 @@ async fn test_batch_tokenize_empty_array_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -256,7 +260,13 @@ async fn test_batch_tokenize_valid_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -276,7 +286,13 @@ async fn test_batch_generate_empty_prompts_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -296,7 +312,13 @@ async fn test_batch_generate_valid_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -316,7 +338,13 @@ async fn test_generate_invalid_strategy_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -336,7 +364,13 @@ async fn test_generate_top_p_strategy_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -356,7 +390,13 @@ async fn test_generate_top_k_strategy_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -373,8 +413,16 @@ async fn test_openai_models_endpoint_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
-    if response.status() != StatusCode::OK { return; }
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
+    if response.status() != StatusCode::OK {
+        return;
+    }
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -403,7 +451,13 @@ async fn test_openai_chat_completions_empty_messages_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -423,7 +477,13 @@ async fn test_openai_chat_completions_valid_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -443,7 +503,13 @@ async fn test_openai_chat_completions_stream_empty_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -463,7 +529,13 @@ async fn test_openai_chat_completions_stream_valid_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[test]
@@ -627,7 +699,13 @@ async fn test_stream_generate_invalid_strategy_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -723,7 +801,10 @@ async fn test_apr_predict_no_apr_model_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::NOT_FOUND);
+    assert!(
+        response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::NOT_FOUND
+    );
 }
 
 #[test]
@@ -790,7 +871,13 @@ async fn test_batch_generate_invalid_strategy_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -810,7 +897,13 @@ async fn test_realize_generate_endpoint_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -830,7 +923,13 @@ async fn test_realize_batch_endpoint_more_cov() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -943,7 +1042,10 @@ async fn test_deep_apicov_completions_endpoint_cpu_fallback() {
 
     // Demo model can't generate - returns 500 (error handling path)
     // This still exercises the CPU fallback code path
-    assert!(response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND);
+    assert!(
+        response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
+    );
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("test");
@@ -971,7 +1073,13 @@ async fn test_deep_apicov_completions_empty_prompt_error() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -991,7 +1099,13 @@ async fn test_deep_apicov_completions_with_top_p() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1012,7 +1126,13 @@ async fn test_deep_apicov_chat_completions_empty_messages() {
         .expect("test");
 
     // Empty messages should result in BAD_REQUEST
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1032,7 +1152,13 @@ async fn test_deep_apicov_chat_completions_with_top_p() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1052,7 +1178,13 @@ async fn test_deep_apicov_stream_generate_valid_request() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1072,7 +1204,13 @@ async fn test_deep_apicov_stream_generate_empty_prompt() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1092,7 +1230,13 @@ async fn test_deep_apicov_stream_generate_top_k_strategy() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1112,7 +1256,13 @@ async fn test_deep_apicov_stream_generate_top_p_strategy() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1132,7 +1282,13 @@ async fn test_deep_apicov_chat_completions_stream_endpoint() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1152,7 +1308,13 @@ async fn test_deep_apicov_chat_completions_stream_empty_messages() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1191,7 +1353,13 @@ async fn test_deep_apicov_realize_model_endpoint() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("test");
@@ -1219,7 +1387,13 @@ async fn test_deep_apicov_realize_embed_default_model() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("test");
@@ -1249,7 +1423,13 @@ async fn test_deep_apicov_openai_embeddings_endpoint() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1266,7 +1446,13 @@ async fn test_deep_apicov_models_endpoint() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("test");
@@ -1293,7 +1479,10 @@ async fn test_deep_apicov_gpu_warmup_no_model() {
         .expect("test");
 
     // Should return SERVICE_UNAVAILABLE when no GPU model
-    assert!(response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::NOT_FOUND);
+    assert!(
+        response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::NOT_FOUND
+    );
 }
 
 #[tokio::test]
@@ -1310,7 +1499,13 @@ async fn test_deep_apicov_gpu_status_no_model() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("test");
@@ -1338,7 +1533,13 @@ async fn test_deep_apicov_apr_explain_empty_features() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -1597,7 +1798,13 @@ async fn test_deep_apicov_batch_tokenize_multiple_texts() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("test");
@@ -1657,7 +1864,10 @@ async fn test_deep_apicov_dispatch_metrics_no_gpu_503() {
         .expect("test");
 
     // Demo app has no dispatch metrics, should return 503
-    assert!(response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::NOT_FOUND);
+    assert!(
+        response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::NOT_FOUND
+    );
 }
 
 #[tokio::test]

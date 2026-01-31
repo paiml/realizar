@@ -382,10 +382,7 @@ async fn test_metrics_endpoint() {
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
-    assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::NOT_FOUND,
-    );
+    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND,);
 }
 
 #[tokio::test]
@@ -398,10 +395,7 @@ async fn test_native_models_endpoint() {
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
-    assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::NOT_FOUND,
-    );
+    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND,);
 }
 
 #[tokio::test]
@@ -510,9 +504,7 @@ async fn test_v1_predict_endpoint() {
         .method("POST")
         .uri("/v1/predict")
         .header("content-type", "application/json")
-        .body(Body::from(
-            r#"{"input":[1.0, 2.0, 3.0]}"#,
-        ))
+        .body(Body::from(r#"{"input":[1.0, 2.0, 3.0]}"#))
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
@@ -531,9 +523,7 @@ async fn test_v1_explain_endpoint() {
         .method("POST")
         .uri("/v1/explain")
         .header("content-type", "application/json")
-        .body(Body::from(
-            r#"{"input":[1.0, 2.0, 3.0]}"#,
-        ))
+        .body(Body::from(r#"{"input":[1.0, 2.0, 3.0]}"#))
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
@@ -555,10 +545,7 @@ async fn test_v1_metrics_endpoint() {
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
-    assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::NOT_FOUND,
-    );
+    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND,);
 }
 
 #[tokio::test]

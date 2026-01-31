@@ -37,17 +37,21 @@ mod artifact_falsification {
 
         let result = inference::run_gguf_inference(
             path,
-            &[],  // Empty - forces mmap path
+            &[], // Empty - forces mmap path
             "Hello",
-            5,    // max_tokens
-            0.0,  // temperature (greedy)
+            5,   // max_tokens
+            0.0, // temperature (greedy)
             "text",
             false, // verbose
             false, // show_probs
             false, // debug
         );
 
-        assert!(result.is_ok(), "GGUF CLI inference failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "GGUF CLI inference failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -67,7 +71,11 @@ mod artifact_falsification {
             false,
         );
 
-        assert!(result.is_ok(), "GGUF JSON format failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "GGUF JSON format failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -82,12 +90,16 @@ mod artifact_falsification {
             2,
             0.0,
             "text",
-            true,  // verbose
+            true, // verbose
             false,
             false,
         );
 
-        assert!(result.is_ok(), "GGUF verbose mode failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "GGUF verbose mode failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -100,14 +112,18 @@ mod artifact_falsification {
             &[],
             "Temperature test",
             3,
-            0.7,  // non-zero temperature
+            0.7, // non-zero temperature
             "text",
             false,
             false,
             false,
         );
 
-        assert!(result.is_ok(), "GGUF with temperature failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "GGUF with temperature failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -144,18 +160,14 @@ mod artifact_falsification {
         let (file, data) = create_apr_artifact();
         let path = file.path().to_str().unwrap();
 
-        let result = inference::run_apr_inference(
-            path,
-            &data,
-            "Hello",
-            5,
-            0.0,
-            "text",
-            false,
-            false,
-        );
+        let result =
+            inference::run_apr_inference(path, &data, "Hello", 5, 0.0, "text", false, false);
 
-        assert!(result.is_ok(), "APR CLI inference failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "APR CLI inference failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -163,16 +175,8 @@ mod artifact_falsification {
         let (file, data) = create_apr_artifact();
         let path = file.path().to_str().unwrap();
 
-        let result = inference::run_apr_inference(
-            path,
-            &data,
-            "JSON test",
-            3,
-            0.0,
-            "json",
-            false,
-            false,
-        );
+        let result =
+            inference::run_apr_inference(path, &data, "JSON test", 3, 0.0, "json", false, false);
 
         assert!(result.is_ok(), "APR JSON format failed: {:?}", result.err());
     }
@@ -183,17 +187,15 @@ mod artifact_falsification {
         let path = file.path().to_str().unwrap();
 
         let result = inference::run_apr_inference(
-            path,
-            &data,
-            "Verbose",
-            2,
-            0.0,
-            "text",
-            true,  // verbose
+            path, &data, "Verbose", 2, 0.0, "text", true, // verbose
             false,
         );
 
-        assert!(result.is_ok(), "APR verbose mode failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "APR verbose mode failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -201,18 +203,14 @@ mod artifact_falsification {
         let (file, data) = create_apr_artifact();
         let path = file.path().to_str().unwrap();
 
-        let result = inference::run_apr_inference(
-            path,
-            &data,
-            "Temp test",
-            3,
-            0.8,
-            "text",
-            false,
-            false,
-        );
+        let result =
+            inference::run_apr_inference(path, &data, "Temp test", 3, 0.8, "text", false, false);
 
-        assert!(result.is_ok(), "APR with temperature failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "APR with temperature failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -243,7 +241,11 @@ mod artifact_falsification {
         let data = std::fs::read(file.path()).unwrap();
 
         let result = crate::cli::display_model_info(path, &data);
-        assert!(result.is_ok(), "display_model_info GGUF failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "display_model_info GGUF failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -252,7 +254,11 @@ mod artifact_falsification {
         let path = file.path().to_str().unwrap();
 
         let result = crate::cli::display_model_info(path, &data);
-        assert!(result.is_ok(), "display_model_info APR failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "display_model_info APR failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -281,9 +287,8 @@ mod artifact_falsification {
         let file = create_gguf_artifact();
         let path = file.path().to_str().unwrap();
 
-        let result = inference::run_gguf_inference(
-            path, &[], "Test", 0, 0.0, "text", false, false, false,
-        );
+        let result =
+            inference::run_gguf_inference(path, &[], "Test", 0, 0.0, "text", false, false, false);
         // Should handle gracefully (either Ok with empty output or specific error)
         let _ = result; // Don't assert - just ensure no panic
     }
@@ -293,9 +298,8 @@ mod artifact_falsification {
         let (file, data) = create_apr_artifact();
         let path = file.path().to_str().unwrap();
 
-        let result = inference::run_apr_inference(
-            path, &data, "Test", 0, 0.0, "text", false, false,
-        );
+        let result =
+            inference::run_apr_inference(path, &data, "Test", 0, 0.0, "text", false, false);
         let _ = result;
     }
 
@@ -304,9 +308,8 @@ mod artifact_falsification {
         let file = create_gguf_artifact();
         let path = file.path().to_str().unwrap();
 
-        let result = inference::run_gguf_inference(
-            path, &[], "", 5, 0.0, "text", false, false, false,
-        );
+        let result =
+            inference::run_gguf_inference(path, &[], "", 5, 0.0, "text", false, false, false);
         // Empty prompt should be handled
         let _ = result;
     }
@@ -316,9 +319,7 @@ mod artifact_falsification {
         let (file, data) = create_apr_artifact();
         let path = file.path().to_str().unwrap();
 
-        let result = inference::run_apr_inference(
-            path, &data, "", 5, 0.0, "text", false, false,
-        );
+        let result = inference::run_apr_inference(path, &data, "", 5, 0.0, "text", false, false);
         let _ = result;
     }
 
@@ -328,7 +329,15 @@ mod artifact_falsification {
         let path = file.path().to_str().unwrap();
 
         let result = inference::run_gguf_inference(
-            path, &[], "High temp", 3, 2.0, "text", false, false, false,
+            path,
+            &[],
+            "High temp",
+            3,
+            2.0,
+            "text",
+            false,
+            false,
+            false,
         );
         assert!(result.is_ok(), "High temperature should work");
     }
@@ -370,7 +379,11 @@ mod artifact_falsification {
             false,
         );
 
-        assert!(result.is_ok(), "Subdirectory inference failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Subdirectory inference failed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -394,7 +407,11 @@ mod artifact_falsification {
             false,
         );
 
-        assert!(result.is_ok(), "APR subdirectory inference failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "APR subdirectory inference failed: {:?}",
+            result.err()
+        );
     }
 
     // =========================================================================
@@ -511,8 +528,15 @@ mod artifact_falsification {
         let path = file.path().to_str().unwrap();
 
         let result = inference::run_gguf_inference(
-            path, &[], "Test", 3, 0.0, "text",
-            false, true, false, // show_probs=true
+            path,
+            &[],
+            "Test",
+            3,
+            0.0,
+            "text",
+            false,
+            true,
+            false, // show_probs=true
         );
         assert!(result.is_ok());
     }
@@ -523,8 +547,15 @@ mod artifact_falsification {
         let path = file.path().to_str().unwrap();
 
         let result = inference::run_gguf_inference(
-            path, &[], "Debug test", 2, 0.0, "text",
-            false, false, true, // debug=true
+            path,
+            &[],
+            "Debug test",
+            2,
+            0.0,
+            "text",
+            false,
+            false,
+            true, // debug=true
         );
         assert!(result.is_ok());
     }
@@ -535,8 +566,15 @@ mod artifact_falsification {
         let path = file.path().to_str().unwrap();
 
         let result = inference::run_gguf_inference(
-            path, &[], "All options", 3, 0.5, "json",
-            true, true, true, // verbose, show_probs, debug all true
+            path,
+            &[],
+            "All options",
+            3,
+            0.5,
+            "json",
+            true,
+            true,
+            true, // verbose, show_probs, debug all true
         );
         assert!(result.is_ok());
     }

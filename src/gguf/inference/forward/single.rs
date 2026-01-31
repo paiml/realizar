@@ -65,21 +65,31 @@ impl OwnedQuantizedModel {
             let rms = (sq_sum / hidden.len() as f32).sqrt();
             eprintln!(
                 "[GQA-DEBUG-CPU-EMBED] Embedding before L0: first 5 = {:?}, sum={:.4}, rms={:.4}",
-                &hidden[..5.min(hidden.len())], embed_sum, rms
+                &hidden[..5.min(hidden.len())],
+                embed_sum,
+                rms
             );
         }
 
         // PMAT-114: Embedding trace for Five-Whys comparison with APR
         if std::env::var("APR_TRACE_LAYERS").is_ok() {
             // PMAT-114: Trace token ID being processed
-            eprintln!("[PMAT-114-GGUF] Token ID: {}, position: {}", token_id, position);
+            eprintln!(
+                "[PMAT-114-GGUF] Token ID: {}, position: {}",
+                token_id, position
+            );
 
             let sum: f32 = hidden.iter().sum();
             let mean = sum / hidden_dim as f32;
             let min = hidden.iter().cloned().fold(f32::INFINITY, f32::min);
             let max = hidden.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-            eprintln!("[PMAT-114-GGUF] After embed: mean={:.6}, min={:.6}, max={:.6}, first5={:?}",
-                mean, min, max, &hidden[..5.min(hidden.len())]);
+            eprintln!(
+                "[PMAT-114-GGUF] After embed: mean={:.6}, min={:.6}, max={:.6}, first5={:?}",
+                mean,
+                min,
+                max,
+                &hidden[..5.min(hidden.len())]
+            );
         }
 
         // 2. Process through transformer layers
@@ -130,11 +140,18 @@ impl OwnedQuantizedModel {
             // PMAT-114: Trace QKV for layer 0 (before RoPE)
             if std::env::var("APR_TRACE_LAYERS").is_ok() && layer_idx == 0 {
                 // Check if bias exists
-                eprintln!("[PMAT-114-GGUF] L0 has_qkv_bias={}", layer.qkv_bias.is_some());
+                eprintln!(
+                    "[PMAT-114-GGUF] L0 has_qkv_bias={}",
+                    layer.qkv_bias.is_some()
+                );
                 if let Some(ref bias) = layer.qkv_bias {
                     let k_bias = &bias[hidden_dim..hidden_dim + kv_dim];
                     let k_bias_mean: f32 = k_bias.iter().sum::<f32>() / kv_dim as f32;
-                    eprintln!("[PMAT-114-GGUF] L0 K bias mean={:.6}, first5={:?}", k_bias_mean, &k_bias[..5.min(kv_dim)]);
+                    eprintln!(
+                        "[PMAT-114-GGUF] L0 K bias mean={:.6}, first5={:?}",
+                        k_bias_mean,
+                        &k_bias[..5.min(kv_dim)]
+                    );
                 }
 
                 let q = &qkv[0..hidden_dim];
@@ -326,18 +343,28 @@ impl OwnedQuantizedModel {
                 let rms = (sq_sum / hidden.len() as f32).sqrt();
                 eprintln!(
                     "[GQA-DEBUG-CPU-L0] After layer 0: first 5 = {:?}, sum={:.4}, rms={:.4}",
-                    &hidden[..5.min(hidden.len())], hidden_sum, rms
+                    &hidden[..5.min(hidden.len())],
+                    hidden_sum,
+                    rms
                 );
             }
 
             // PMAT-114: Layer tracing for Five-Whys comparison with APR
-            if std::env::var("APR_TRACE_LAYERS").is_ok() && (layer_idx < 2 || layer_idx == self.layers.len() - 1) {
+            if std::env::var("APR_TRACE_LAYERS").is_ok()
+                && (layer_idx < 2 || layer_idx == self.layers.len() - 1)
+            {
                 let sum: f32 = hidden.iter().sum();
                 let mean = sum / hidden_dim as f32;
                 let min = hidden.iter().cloned().fold(f32::INFINITY, f32::min);
                 let max = hidden.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                eprintln!("[PMAT-114-GGUF] After layer {}: mean={:.6}, min={:.6}, max={:.6}, first5={:?}",
-                    layer_idx, mean, min, max, &hidden[..5.min(hidden.len())]);
+                eprintln!(
+                    "[PMAT-114-GGUF] After layer {}: mean={:.6}, min={:.6}, max={:.6}, first5={:?}",
+                    layer_idx,
+                    mean,
+                    min,
+                    max,
+                    &hidden[..5.min(hidden.len())]
+                );
             }
         }
 

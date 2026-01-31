@@ -45,7 +45,10 @@ mod tests {
     fn test_format_size_gigabytes() {
         assert_eq!(format_size(1024 * 1024 * 1024), "1.0 GB");
         assert_eq!(format_size(5 * 1024 * 1024 * 1024), "5.0 GB");
-        assert_eq!(format_size(7 * 1024 * 1024 * 1024 + 512 * 1024 * 1024), "7.5 GB");
+        assert_eq!(
+            format_size(7 * 1024 * 1024 * 1024 + 512 * 1024 * 1024),
+            "7.5 GB"
+        );
     }
 
     #[test]
@@ -321,7 +324,11 @@ mod tests {
     fn test_benchmark_suites_descriptions_not_empty() {
         for (name, description) in BENCHMARK_SUITES {
             assert!(!name.is_empty(), "Suite name should not be empty");
-            assert!(!description.is_empty(), "Suite '{}' description should not be empty", name);
+            assert!(
+                !description.is_empty(),
+                "Suite '{}' description should not be empty",
+                name
+            );
         }
     }
 

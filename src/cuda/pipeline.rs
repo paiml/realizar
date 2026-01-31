@@ -526,7 +526,10 @@ mod tests {
 
     #[test]
     fn test_register_tiling_clone_copy() {
-        let tiling = RegisterTiling { width: 3, height: 5 };
+        let tiling = RegisterTiling {
+            width: 3,
+            height: 5,
+        };
         let cloned = tiling;
         assert_eq!(cloned.width, 3);
         assert_eq!(cloned.height, 5);
@@ -534,7 +537,10 @@ mod tests {
 
     #[test]
     fn test_register_tiling_eq() {
-        let a = RegisterTiling { width: 4, height: 4 };
+        let a = RegisterTiling {
+            width: 4,
+            height: 4,
+        };
         let b = RegisterTiling::medium();
         assert_eq!(a, b);
     }
@@ -750,7 +756,7 @@ mod tests {
                 assert_eq!(seq_len, 512);
                 assert_eq!(head_dim, 128);
                 assert!(causal);
-            }
+            },
             _ => panic!("Expected Attention kernel"),
         }
     }
@@ -764,7 +770,7 @@ mod tests {
                 assert_eq!(n, 11008);
                 assert_eq!(k, 4096);
                 assert_eq!(tile_size, 32);
-            }
+            },
             _ => panic!("Expected GemmTiled kernel"),
         }
     }
@@ -777,7 +783,7 @@ mod tests {
                 assert_eq!(m, 4);
                 assert_eq!(n, 4096);
                 assert_eq!(k, 4096);
-            }
+            },
             _ => panic!("Expected QuantizedGemm kernel"),
         }
     }
@@ -790,7 +796,7 @@ mod tests {
                 assert_eq!(m, 1);
                 assert_eq!(n, 4096);
                 assert_eq!(k, 256);
-            }
+            },
             _ => panic!("Expected QuantizedGemmGgml kernel"),
         }
     }
@@ -807,7 +813,7 @@ mod tests {
                 assert_eq!(hidden_size, 4096);
                 assert!((epsilon - 1e-6).abs() < 1e-10);
                 assert!(!affine);
-            }
+            },
             _ => panic!("Expected LayerNorm kernel"),
         }
     }
@@ -826,7 +832,7 @@ mod tests {
                 assert_eq!(head_dim, 64);
                 assert_eq!(n_heads, 16);
                 assert!(causal);
-            }
+            },
             _ => panic!("Expected MultiHeadAttention kernel"),
         }
     }
@@ -845,7 +851,7 @@ mod tests {
                 assert_eq!(head_dim, 80); // phi-2 specific
                 assert_eq!(n_heads, 32); // phi-2 specific
                 assert!(causal);
-            }
+            },
             _ => panic!("Expected MultiHeadAttention kernel"),
         }
     }
@@ -864,7 +870,7 @@ mod tests {
                 assert_eq!(head_dim, 128);
                 assert_eq!(n_heads, 32);
                 assert!(causal);
-            }
+            },
             _ => panic!("Expected AttentionTensorCore kernel"),
         }
     }
@@ -883,7 +889,7 @@ mod tests {
                 assert_eq!(head_dim, 128); // Llama specific
                 assert_eq!(n_heads, 32); // Llama specific
                 assert!(causal);
-            }
+            },
             _ => panic!("Expected AttentionTensorCore kernel"),
         }
     }

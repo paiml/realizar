@@ -166,7 +166,11 @@ mod tests {
     fn test_cuda_scheduler_new() {
         // CudaScheduler::new() should succeed on RTX 4090
         let scheduler = CudaScheduler::new();
-        assert!(scheduler.is_ok(), "CudaScheduler::new() failed: {:?}", scheduler.err());
+        assert!(
+            scheduler.is_ok(),
+            "CudaScheduler::new() failed: {:?}",
+            scheduler.err()
+        );
     }
 
     #[test]
@@ -294,7 +298,13 @@ mod tests {
         assert!(result.is_ok());
         let output = result.unwrap();
         for (i, &expected) in v.iter().enumerate() {
-            assert!((output[i] - expected).abs() < 0.01, "idx={} got={} expected={}", i, output[i], expected);
+            assert!(
+                (output[i] - expected).abs() < 0.01,
+                "idx={} got={} expected={}",
+                i,
+                output[i],
+                expected
+            );
         }
     }
 }

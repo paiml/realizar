@@ -94,8 +94,7 @@ impl SafeTensorsCudaModel {
 
             // Copy Q row (hidden_dim elements)
             let q_src = row * hidden_dim;
-            qkv[dst_start..dst_start + hidden_dim]
-                .copy_from_slice(&q_t[q_src..q_src + hidden_dim]);
+            qkv[dst_start..dst_start + hidden_dim].copy_from_slice(&q_t[q_src..q_src + hidden_dim]);
 
             // Copy K row (kv_dim elements)
             let k_src = row * kv_dim;
@@ -198,7 +197,8 @@ impl SafeTensorsCudaModel {
         let json_config = SafetensorsConfig::load_from_sibling(model_path).ok_or_else(|| {
             RealizarError::UnsupportedOperation {
                 operation: "safetensors_cuda_load".to_string(),
-                reason: "config.json not found (required for SafeTensors GPU inference)".to_string(),
+                reason: "config.json not found (required for SafeTensors GPU inference)"
+                    .to_string(),
             }
         })?;
 
@@ -206,12 +206,11 @@ impl SafeTensorsCudaModel {
         let config = Self::extract_config(&json_config)?;
 
         // 4. Initialize CUDA executor (F-CUDA-011)
-        let mut executor = CudaExecutor::new(device_ordinal).map_err(|e| {
-            RealizarError::UnsupportedOperation {
+        let mut executor =
+            CudaExecutor::new(device_ordinal).map_err(|e| RealizarError::UnsupportedOperation {
                 operation: "CudaExecutor::new".to_string(),
                 reason: format!("CUDA initialization failed: {e}"),
-            }
-        })?;
+            })?;
 
         let device_name = executor
             .device_name()
@@ -324,12 +323,12 @@ impl SafeTensorsCudaModel {
         // Output norm - upload to rmsnorm_cache AND keep CPU copy
         let output_norm = st_model.get_tensor_auto("model.norm.weight")?;
         gamma_cache.insert("output".to_string(), output_norm.clone());
-        executor
-            .preload_output_norm(&output_norm)
-            .map_err(|e| RealizarError::UnsupportedOperation {
+        executor.preload_output_norm(&output_norm).map_err(|e| {
+            RealizarError::UnsupportedOperation {
                 operation: "preload_output_norm".to_string(),
                 reason: format!("Failed to upload output_norm: {e}"),
-            })?;
+            }
+        })?;
 
         // LM head (may be tied to embeddings) - use gemm_b_cached (B is weight)
         // PMAT-120 FIX: Use actual transpose for GEMM (not SafetensorsToAprConverter::transpose_weight which is a no-op)
@@ -339,19 +338,20 @@ impl SafeTensorsCudaModel {
         } else {
             Self::transpose_for_gemm(&embedding, vocab_size, hidden_dim)
         };
-        executor
-            .load_weights("lm_head", &lm_head)
-            .map_err(|e| RealizarError::UnsupportedOperation {
+        executor.load_weights("lm_head", &lm_head).map_err(|e| {
+            RealizarError::UnsupportedOperation {
                 operation: "load_weights".to_string(),
                 reason: format!("Failed to upload lm_head: {e}"),
-            })?;
+            }
+        })?;
 
         // Per-layer weights (F-LOAD-057, F-LOAD-061, F-LOAD-062)
         for layer_idx in 0..num_layers {
             let prefix = format!("model.layers.{layer_idx}");
 
             // Attention norm - upload to rmsnorm_cache AND keep CPU copy
-            let attn_norm = st_model.get_tensor_auto(&format!("{prefix}.input_layernorm.weight"))?;
+            let attn_norm =
+                st_model.get_tensor_auto(&format!("{prefix}.input_layernorm.weight"))?;
             gamma_cache.insert(format!("attn.{layer_idx}"), attn_norm.clone());
             let attn_norm_key = format!("blk.{layer_idx}.attn_norm.gamma");
             executor
@@ -403,7 +403,8 @@ impl SafeTensorsCudaModel {
                 })?;
 
             // PMAT-120 FIX: Load o_proj bias (if present)
-            if let Ok(o_bias) = st_model.get_tensor_auto(&format!("{prefix}.self_attn.o_proj.bias")) {
+            if let Ok(o_bias) = st_model.get_tensor_auto(&format!("{prefix}.self_attn.o_proj.bias"))
+            {
                 o_bias_cache.insert(format!("o_bias.{layer_idx}"), o_bias);
             }
 
@@ -571,11 +572,11 @@ impl SafeTensorsCudaModel {
         self.executor
             .gemm_b_cached(
                 "lm_head",
-                &hidden, // A: [1, hidden_dim] row vector
-                &mut logits, // C: [1, vocab_size]
-                1,                         // m = 1 (single token)
-                vocab_size as u32,         // n = vocab_size
-                hidden_dim as u32,         // k = hidden_dim
+                &hidden,           // A: [1, hidden_dim] row vector
+                &mut logits,       // C: [1, vocab_size]
+                1,                 // m = 1 (single token)
+                vocab_size as u32, // n = vocab_size
+                hidden_dim as u32, // k = hidden_dim
             )
             .map_err(|e| RealizarError::UnsupportedOperation {
                 operation: "lm_head".to_string(),
@@ -589,11 +590,7 @@ impl SafeTensorsCudaModel {
     /// Forward pass for a single transformer layer.
     ///
     /// PMAT-120 FIX: RoPE is now applied explicitly here (not in incremental_attention_gpu).
-    fn forward_layer(
-        &mut self,
-        layer_idx: usize,
-        hidden: &[f32],
-    ) -> Result<Vec<f32>> {
+    fn forward_layer(&mut self, layer_idx: usize, hidden: &[f32]) -> Result<Vec<f32>> {
         let hidden_dim = self.config.hidden_dim;
         let num_heads = self.config.num_heads;
         let num_kv_heads = self.config.num_kv_heads;
@@ -678,13 +675,7 @@ impl SafeTensorsCudaModel {
         // 5. Attention with KV cache (GPU)
         let mut attn_output = vec![0.0f32; hidden_dim];
         self.executor
-            .incremental_attention_gpu(
-                layer_idx,
-                &q,
-                &k,
-                &v,
-                &mut attn_output,
-            )
+            .incremental_attention_gpu(layer_idx, &q, &k, &v, &mut attn_output)
             .map_err(|e| RealizarError::UnsupportedOperation {
                 operation: "attention".to_string(),
                 reason: format!("Layer {layer_idx} attention failed: {e}"),
@@ -794,12 +785,13 @@ impl SafeTensorsCudaModel {
         let rms = (sum_sq / x.len() as f32 + self.epsilon).sqrt();
 
         // Get output gamma from cache
-        let gamma = self.gamma_cache.get("output").ok_or_else(|| {
-            RealizarError::UnsupportedOperation {
-                operation: "rms_norm".to_string(),
-                reason: "Output gamma not found in cache".to_string(),
-            }
-        })?;
+        let gamma =
+            self.gamma_cache
+                .get("output")
+                .ok_or_else(|| RealizarError::UnsupportedOperation {
+                    operation: "rms_norm".to_string(),
+                    reason: "Output gamma not found in cache".to_string(),
+                })?;
 
         // Apply normalization with gamma scaling
         Ok(x.iter()
@@ -811,7 +803,12 @@ impl SafeTensorsCudaModel {
     /// Apply RMS normalization for a specific layer with gamma weights.
     ///
     /// RMS norm formula: (x / sqrt(mean(x^2) + eps)) * gamma
-    fn apply_rms_norm_layer_cpu(&self, x: &[f32], layer_idx: usize, norm_type: &str) -> Result<Vec<f32>> {
+    fn apply_rms_norm_layer_cpu(
+        &self,
+        x: &[f32],
+        layer_idx: usize,
+        norm_type: &str,
+    ) -> Result<Vec<f32>> {
         // RMS norm: x / sqrt(mean(x^2) + eps) * gamma
         let sum_sq: f32 = x.iter().map(|v| v * v).sum();
         let rms = (sum_sq / x.len() as f32 + self.epsilon).sqrt();
@@ -881,10 +878,10 @@ mod tests {
             num_attention_heads: Some(12),
             num_key_value_heads: None, // Will default to num_attention_heads
             vocab_size: Some(50257),
-            intermediate_size: None, // Will default to 4 * hidden_dim
+            intermediate_size: None,       // Will default to 4 * hidden_dim
             max_position_embeddings: None, // Will default to 2048
-            rope_theta: None, // Will default to 10000.0
-            rms_norm_eps: None, // Will default to 1e-6
+            rope_theta: None,              // Will default to 10000.0
+            rms_norm_eps: None,            // Will default to 1e-6
             architectures: None,
             model_type: None,
             bos_token_id: None,
@@ -1044,7 +1041,9 @@ mod tests {
     fn test_concat_qkv_transposed_simple() {
         // Simplest case: 2 heads, head_dim=2, kv_heads=1
         // hidden_dim = 4, kv_dim = 2
-        let q = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0]; // 4x4
+        let q = vec![
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+        ]; // 4x4
         let k = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]; // 2x4
         let v = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]; // 2x4
 

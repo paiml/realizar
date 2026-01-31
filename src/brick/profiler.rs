@@ -115,7 +115,11 @@ impl ProfileReport {
 
     /// Get operations sorted by total time (descending)
     pub fn sorted_by_time(&self) -> Vec<(&str, &OpStats)> {
-        let mut sorted: Vec<_> = self.operations.iter().map(|(k, v)| (k.as_str(), v)).collect();
+        let mut sorted: Vec<_> = self
+            .operations
+            .iter()
+            .map(|(k, v)| (k.as_str(), v))
+            .collect();
         sorted.sort_by(|a, b| {
             b.1.total_us
                 .partial_cmp(&a.1.total_us)
@@ -257,7 +261,8 @@ impl BrickProfiler {
             if let Some(stats) = self.stats.get_mut(operation) {
                 stats.add(elapsed_us);
             } else {
-                self.stats.insert(operation.to_string(), OpStats::new(elapsed_us));
+                self.stats
+                    .insert(operation.to_string(), OpStats::new(elapsed_us));
             }
         }
     }
@@ -271,7 +276,8 @@ impl BrickProfiler {
         if let Some(stats) = self.stats.get_mut(operation) {
             stats.add(time_us);
         } else {
-            self.stats.insert(operation.to_string(), OpStats::new(time_us));
+            self.stats
+                .insert(operation.to_string(), OpStats::new(time_us));
         }
     }
 

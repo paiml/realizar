@@ -1704,9 +1704,13 @@ mod tests {
     #[test]
     fn test_activations_with_harness_silu() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Test SiLU with hidden_dim sized tensor
         let input = vec![0.5f32; config.hidden_dim];
@@ -1718,35 +1722,53 @@ mod tests {
         output_buf.copy_to_host(&mut output).unwrap();
 
         // SiLU(0.5) ≈ 0.311
-        assert!((output[0] - 0.311).abs() < 0.02, "SiLU(0.5) = {}", output[0]);
+        assert!(
+            (output[0] - 0.311).abs() < 0.02,
+            "SiLU(0.5) = {}",
+            output[0]
+        );
     }
 
     #[test]
     fn test_activations_with_harness_gelu() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Test GELU with hidden_dim sized tensor
         let input = vec![0.5f32; config.hidden_dim];
         let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
-        let output_buf = exec.gelu_async(&input_buf, config.hidden_dim as u32).unwrap();
+        let output_buf = exec
+            .gelu_async(&input_buf, config.hidden_dim as u32)
+            .unwrap();
 
         exec.stream.synchronize().unwrap();
         let mut output = vec![0.0f32; config.hidden_dim];
         output_buf.copy_to_host(&mut output).unwrap();
 
         // GELU(0.5) ≈ 0.345
-        assert!((output[0] - 0.345).abs() < 0.02, "GELU(0.5) = {}", output[0]);
+        assert!(
+            (output[0] - 0.345).abs() < 0.02,
+            "GELU(0.5) = {}",
+            output[0]
+        );
     }
 
     #[test]
     fn test_activations_with_harness_rope() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let total_dim = config.num_heads * config.head_dim;
         let input = vec![1.0f32; total_dim];
@@ -1769,9 +1791,13 @@ mod tests {
     #[test]
     fn test_activations_with_harness_swiglu() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Test SwiGLU with intermediate_dim sized tensor
         let gate = vec![1.0f32; config.intermediate_dim];
@@ -1779,7 +1805,9 @@ mod tests {
 
         let buf_gate = GpuBuffer::from_host(&exec.context, &gate).unwrap();
         let buf_up = GpuBuffer::from_host(&exec.context, &up).unwrap();
-        let output_buf = exec.fused_swiglu_gpu(&buf_gate, &buf_up, config.intermediate_dim as u32).unwrap();
+        let output_buf = exec
+            .fused_swiglu_gpu(&buf_gate, &buf_up, config.intermediate_dim as u32)
+            .unwrap();
 
         exec.stream.synchronize().unwrap();
         let mut output = vec![0.0f32; config.intermediate_dim];
@@ -1792,9 +1820,13 @@ mod tests {
     #[test]
     fn test_activations_with_harness_residual_add() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let output_data = vec![1.0f32; config.hidden_dim];
         let input_data = vec![10.0f32; config.hidden_dim];
@@ -1802,7 +1834,8 @@ mod tests {
         let buf_output = GpuBuffer::from_host(&exec.context, &output_data).unwrap();
         let buf_input = GpuBuffer::from_host(&exec.context, &input_data).unwrap();
 
-        exec.add_residual_gpu(&buf_output, &buf_input, config.hidden_dim as u32).unwrap();
+        exec.add_residual_gpu(&buf_output, &buf_input, config.hidden_dim as u32)
+            .unwrap();
 
         exec.stream.synchronize().unwrap();
         let mut result = vec![0.0f32; config.hidden_dim];
@@ -1815,13 +1848,19 @@ mod tests {
     #[test]
     fn test_activations_with_harness_large_tensor() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let mut config = HarnessConfig::default();
         config.hidden_dim = 4096; // Larger tensor
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Test SiLU with large tensor
-        let input: Vec<f32> = (0..config.hidden_dim).map(|i| (i as f32 - 2048.0) / 1000.0).collect();
+        let input: Vec<f32> = (0..config.hidden_dim)
+            .map(|i| (i as f32 - 2048.0) / 1000.0)
+            .collect();
         let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
         let output_buf = exec.silu_gpu(&input_buf, config.hidden_dim as u32).unwrap();
 
@@ -1838,16 +1877,22 @@ mod tests {
     #[test]
     fn test_activations_with_harness_elementwise_mul() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let a = vec![2.0f32; config.hidden_dim];
         let b = vec![3.0f32; config.hidden_dim];
 
         let buf_a = GpuBuffer::from_host(&exec.context, &a).unwrap();
         let buf_b = GpuBuffer::from_host(&exec.context, &b).unwrap();
-        let output_buf = exec.elementwise_mul_gpu(&buf_a, &buf_b, config.hidden_dim as u32).unwrap();
+        let output_buf = exec
+            .elementwise_mul_gpu(&buf_a, &buf_b, config.hidden_dim as u32)
+            .unwrap();
 
         exec.stream.synchronize().unwrap();
         let mut output = vec![0.0f32; config.hidden_dim];

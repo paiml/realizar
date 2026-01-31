@@ -44,8 +44,10 @@ async fn test_chat_completions_stream_true() {
     let response = app.oneshot(request).await.unwrap();
     // With no model loaded, should return error
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -68,8 +70,10 @@ async fn test_chat_completions_stream_false() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -99,8 +103,10 @@ async fn test_chat_completions_temperature_zero_greedy() {
     let response = app.oneshot(request).await.unwrap();
     // Temperature 0.0 should trigger top_k=1 branch
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -125,8 +131,10 @@ async fn test_chat_completions_temperature_creative() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -155,9 +163,11 @@ async fn test_chat_completions_max_tokens_zero() {
     let response = app.oneshot(request).await.unwrap();
     // max_tokens=0 might produce empty response or error
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
             || response.status() == StatusCode::BAD_REQUEST
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -182,8 +192,10 @@ async fn test_chat_completions_max_tokens_large() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -310,9 +322,11 @@ async fn test_chat_completions_empty_messages() {
     let response = app.oneshot(request).await.unwrap();
     // Empty messages should trigger prompt_ids.is_empty() branch
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
             || response.status() == StatusCode::BAD_REQUEST
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -340,9 +354,11 @@ async fn test_chat_completions_nonexistent_model() {
     let response = app.oneshot(request).await.unwrap();
     // Non-existent model should fall through model branches
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -366,8 +382,10 @@ async fn test_chat_completions_empty_model_string() {
     let response = app.oneshot(request).await.unwrap();
     // Empty model string triggers request.model.is_empty() branch
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -399,8 +417,10 @@ async fn test_chat_completions_multi_turn() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -425,8 +445,10 @@ async fn test_chat_completions_system_only() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -456,8 +478,10 @@ async fn test_chat_completions_with_top_p() {
     let response = app.oneshot(request).await.unwrap();
     // top_p should trigger request.top_p.is_some() branch
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -481,8 +505,10 @@ async fn test_chat_completions_top_p_one() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -509,9 +535,11 @@ async fn test_chat_completions_no_content_type() {
     let response = app.oneshot(request).await.unwrap();
     // Should still work or return appropriate error
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
             || response.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -534,9 +562,11 @@ async fn test_chat_completions_wrong_content_type() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
             || response.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -639,10 +669,12 @@ async fn test_chat_completions_invalid_role() {
     let response = app.oneshot(request).await.unwrap();
     // Invalid role might be accepted or rejected depending on strictness
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
             || response.status() == StatusCode::BAD_REQUEST
             || response.status() == StatusCode::UNPROCESSABLE_ENTITY
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -672,8 +704,10 @@ async fn test_combo_stream_greedy_min_tokens() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -699,8 +733,10 @@ async fn test_combo_no_stream_creative_mid_tokens() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -726,8 +762,10 @@ async fn test_combo_stream_default_params() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -806,9 +844,11 @@ async fn test_chat_completions_large_content() {
     let response = app.oneshot(request).await.unwrap();
     // Large content should be handled
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
             || response.status() == StatusCode::PAYLOAD_TOO_LARGE
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -832,9 +872,11 @@ async fn test_chat_completions_empty_content() {
     let response = app.oneshot(request).await.unwrap();
     // Empty content should trigger empty prompt handling
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
             || response.status() == StatusCode::BAD_REQUEST
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -861,8 +903,10 @@ async fn test_chat_completions_unicode_content() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -885,8 +929,10 @@ async fn test_chat_completions_multiline_content() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -919,8 +965,10 @@ async fn test_chat_completions_all_optional_params() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -945,9 +993,11 @@ async fn test_chat_completions_negative_temperature() {
     let response = app.oneshot(request).await.unwrap();
     // Negative temperature might be rejected or clamped
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
             || response.status() == StatusCode::BAD_REQUEST
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -975,8 +1025,10 @@ async fn test_chat_completions_trace_header() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -1033,8 +1085,10 @@ async fn test_stream_handler_model_not_found() {
     // Non-existent model should return NOT_FOUND or fall back to default
     assert!(
         response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -1059,9 +1113,11 @@ async fn test_stream_handler_whitespace_content() {
     let response = app.oneshot(request).await.unwrap();
     // Whitespace-only content might be rejected or processed
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
             || response.status() == StatusCode::BAD_REQUEST
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -1086,8 +1142,10 @@ async fn test_stream_handler_with_top_p() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -1113,9 +1171,11 @@ async fn test_stream_handler_extreme_top_p() {
 
     let response = app.oneshot(request).await.unwrap();
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
             || response.status() == StatusCode::BAD_REQUEST
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -1141,9 +1201,11 @@ async fn test_stream_handler_zero_max_tokens() {
     let response = app.oneshot(request).await.unwrap();
     // Zero max_tokens might return empty or error
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
             || response.status() == StatusCode::BAD_REQUEST
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -1244,17 +1306,24 @@ async fn test_registry_multiple_failures_no_state_leak() {
 
     // Both should fail gracefully with same behavior (no state corruption)
     assert!(
-        (status1 == StatusCode::NOT_FOUND || status1 == StatusCode::OK || status1 == StatusCode::INTERNAL_SERVER_ERROR),
+        (status1 == StatusCode::NOT_FOUND
+            || status1 == StatusCode::OK
+            || status1 == StatusCode::INTERNAL_SERVER_ERROR),
         "First request should fail gracefully"
     );
     assert!(
-        (status2 == StatusCode::NOT_FOUND || status2 == StatusCode::OK || status2 == StatusCode::INTERNAL_SERVER_ERROR),
+        (status2 == StatusCode::NOT_FOUND
+            || status2 == StatusCode::OK
+            || status2 == StatusCode::INTERNAL_SERVER_ERROR),
         "Second request should fail gracefully"
     );
 
     // If both fail, they should fail the same way (consistent behavior)
     if status1 != StatusCode::OK && status2 != StatusCode::OK {
-        assert_eq!(status1, status2, "Consecutive failures should have consistent status");
+        assert_eq!(
+            status1, status2,
+            "Consecutive failures should have consistent status"
+        );
     }
 }
 
@@ -1298,8 +1367,10 @@ async fn test_stream_resource_boundedness() {
     let response = result.unwrap().unwrap();
     // Must return a response, not hang
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
             || response.status() == StatusCode::BAD_REQUEST,
         "Stream must return valid status, not hang indefinitely"
     );

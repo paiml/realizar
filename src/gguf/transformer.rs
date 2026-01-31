@@ -445,18 +445,53 @@ mod tests {
             attn_norm_weight: vec![1.0; 32],
             attn_norm_bias: Some(vec![0.0; 32]),
             qkv_weight: QKVWeights::Separate {
-                q: QuantizedTensorRef { offset: 0, byte_size: 50, num_elements: 32, qtype: GGUF_TYPE_Q4_0 },
-                k: QuantizedTensorRef { offset: 50, byte_size: 50, num_elements: 32, qtype: GGUF_TYPE_Q4_0 },
-                v: QuantizedTensorRef { offset: 100, byte_size: 50, num_elements: 32, qtype: GGUF_TYPE_Q4_0 },
+                q: QuantizedTensorRef {
+                    offset: 0,
+                    byte_size: 50,
+                    num_elements: 32,
+                    qtype: GGUF_TYPE_Q4_0,
+                },
+                k: QuantizedTensorRef {
+                    offset: 50,
+                    byte_size: 50,
+                    num_elements: 32,
+                    qtype: GGUF_TYPE_Q4_0,
+                },
+                v: QuantizedTensorRef {
+                    offset: 100,
+                    byte_size: 50,
+                    num_elements: 32,
+                    qtype: GGUF_TYPE_Q4_0,
+                },
             },
             qkv_bias: Some(vec![0.0; 96]),
-            attn_output_weight: QuantizedTensorRef { offset: 0, byte_size: 50, num_elements: 32, qtype: GGUF_TYPE_Q4_0 },
+            attn_output_weight: QuantizedTensorRef {
+                offset: 0,
+                byte_size: 50,
+                num_elements: 32,
+                qtype: GGUF_TYPE_Q4_0,
+            },
             attn_output_bias: Some(vec![0.0; 32]),
-            ffn_up_weight: QuantizedTensorRef { offset: 0, byte_size: 100, num_elements: 128, qtype: GGUF_TYPE_Q4_0 },
+            ffn_up_weight: QuantizedTensorRef {
+                offset: 0,
+                byte_size: 100,
+                num_elements: 128,
+                qtype: GGUF_TYPE_Q4_0,
+            },
             ffn_up_bias: Some(vec![0.0; 128]),
-            ffn_down_weight: QuantizedTensorRef { offset: 0, byte_size: 50, num_elements: 32, qtype: GGUF_TYPE_Q4_0 },
+            ffn_down_weight: QuantizedTensorRef {
+                offset: 0,
+                byte_size: 50,
+                num_elements: 32,
+                qtype: GGUF_TYPE_Q4_0,
+            },
             ffn_down_bias: Some(vec![0.0; 32]),
-            ffn_gate_weight: Some(QuantizedTensorRef { offset: 0, byte_size: 100, num_elements: 128, qtype: GGUF_TYPE_Q4_0 }),
+            ffn_gate_weight: Some(QuantizedTensorRef {
+                offset: 0,
+                byte_size: 100,
+                num_elements: 128,
+                qtype: GGUF_TYPE_Q4_0,
+            }),
             ffn_gate_bias: Some(vec![0.0; 128]),
             ffn_norm_weight: Some(vec![1.0; 32]),
             ffn_norm_bias: Some(vec![0.0; 32]),
@@ -479,7 +514,11 @@ mod tests {
         let model = GGUFModel::from_bytes(&gguf_data).expect("Failed to parse GGUF");
         let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data);
 
-        assert!(transformer.is_ok(), "Failed to load transformer: {:?}", transformer.err());
+        assert!(
+            transformer.is_ok(),
+            "Failed to load transformer: {:?}",
+            transformer.err()
+        );
         let transformer = transformer.unwrap();
 
         assert_eq!(transformer.config.hidden_dim, 64);
@@ -495,7 +534,11 @@ mod tests {
         let model = GGUFModel::from_bytes(&gguf_data).expect("Failed to parse GGUF");
         let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data);
 
-        assert!(transformer.is_ok(), "Failed to load transformer: {:?}", transformer.err());
+        assert!(
+            transformer.is_ok(),
+            "Failed to load transformer: {:?}",
+            transformer.err()
+        );
         let transformer = transformer.unwrap();
 
         assert_eq!(transformer.config.hidden_dim, 64);
@@ -559,12 +602,12 @@ mod tests {
         match &layer.qkv_weight {
             QKVWeights::Fused(ref tensor) => {
                 assert!(tensor.num_elements > 0);
-            }
+            },
             QKVWeights::Separate { q, k, v } => {
                 assert!(q.num_elements > 0);
                 assert!(k.num_elements > 0);
                 assert!(v.num_elements > 0);
-            }
+            },
         }
     }
 

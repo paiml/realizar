@@ -7,7 +7,8 @@ use realizar::apr_transformer::AprTransformer;
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let gguf_path = "/home/noah/src/HF-Advanced-Fine-Tuning/corpus/models/qwen2-0.5b-instruct-q4_0.gguf";
+    let gguf_path =
+        "/home/noah/src/HF-Advanced-Fine-Tuning/corpus/models/qwen2-0.5b-instruct-q4_0.gguf";
     let apr_path = "/tmp/qwen2-test6.apr";
 
     // Check if files exist
@@ -23,17 +24,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading GGUF model: {}", gguf_path);
     let mapped = MappedGGUFModel::from_path(gguf_path)?;
     let gguf_model = OwnedQuantizedModel::from_mapped(&mapped)?;
-    println!("GGUF config: hidden_dim={}, num_layers={}, vocab_size={}",
-        gguf_model.config.hidden_dim,
-        gguf_model.config.num_layers,
-        gguf_model.config.vocab_size);
+    println!(
+        "GGUF config: hidden_dim={}, num_layers={}, vocab_size={}",
+        gguf_model.config.hidden_dim, gguf_model.config.num_layers, gguf_model.config.vocab_size
+    );
 
     println!("\nLoading APR model: {}", apr_path);
     let apr_model = AprTransformer::from_apr_file(apr_path)?;
-    println!("APR config: hidden_dim={}, num_layers={}, vocab_size={}",
-        apr_model.config.hidden_dim,
-        apr_model.config.num_layers,
-        apr_model.config.vocab_size);
+    println!(
+        "APR config: hidden_dim={}, num_layers={}, vocab_size={}",
+        apr_model.config.hidden_dim, apr_model.config.num_layers, apr_model.config.vocab_size
+    );
 
     // Compare embeddings
     println!("\n=== Comparing Embeddings ===");
@@ -54,7 +55,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
         .map(|(i, _)| i)
         .unwrap();
-    println!("GGUF argmax: {} logit={:.4}", gguf_argmax, gguf_logits[gguf_argmax]);
+    println!(
+        "GGUF argmax: {} logit={:.4}",
+        gguf_argmax, gguf_logits[gguf_argmax]
+    );
     println!("GGUF first 10 logits: {:?}", &gguf_logits[..10]);
 
     // APR forward
@@ -65,7 +69,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
         .map(|(i, _)| i)
         .unwrap();
-    println!("\nAPR argmax: {} logit={:.4}", apr_argmax, apr_logits[apr_argmax]);
+    println!(
+        "\nAPR argmax: {} logit={:.4}",
+        apr_argmax, apr_logits[apr_argmax]
+    );
     println!("APR first 10 logits: {:?}", &apr_logits[..10]);
 
     // Compare logits
@@ -85,11 +92,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cov / (var_a.sqrt() * var_b.sqrt())
     };
 
-    let mean_diff: f32 = gguf_logits.iter().zip(apr_logits.iter())
+    let mean_diff: f32 = gguf_logits
+        .iter()
+        .zip(apr_logits.iter())
         .map(|(a, b)| (a - b).abs())
-        .sum::<f32>() / gguf_logits.len() as f32;
+        .sum::<f32>()
+        / gguf_logits.len() as f32;
 
-    let max_diff: f32 = gguf_logits.iter().zip(apr_logits.iter())
+    let max_diff: f32 = gguf_logits
+        .iter()
+        .zip(apr_logits.iter())
         .map(|(a, b)| (a - b).abs())
         .fold(0.0f32, f32::max);
 

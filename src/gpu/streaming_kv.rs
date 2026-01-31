@@ -458,7 +458,7 @@ mod tests {
     fn test_streaming_kv_cache_circular_buffer() {
         // Test that cache wraps around when full
         let mut cache = StreamingKVCache::new(1, 4, 1, 2);
-        let kv_dim = 1 * 2;
+        let kv_dim = 2;
 
         // Fill cache
         for i in 0..4 {
@@ -654,7 +654,7 @@ mod tests {
     #[test]
     fn test_streaming_kv_cache_fp16_circular_buffer() {
         let mut cache = StreamingKVCacheFp16::new(1, 4, 1, 2);
-        let kv_dim = 1 * 2;
+        let kv_dim = 2;
 
         // Fill cache
         for i in 0..4 {

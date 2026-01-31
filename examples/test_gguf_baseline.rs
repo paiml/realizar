@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Tokens: {:?}", tokens);
 
     // Forward pass
-    let mut generated = tokens.clone();
+    let mut generated = tokens;
     for i in 0..10 {
         let logits = model.forward(&generated)?;
         let (argmax_idx, argmax_val) = logits

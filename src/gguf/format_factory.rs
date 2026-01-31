@@ -33,9 +33,8 @@ use std::collections::BTreeMap;
 
 // Re-export GGUFBuilder from test_factory
 pub use super::test_factory::{
-    build_minimal_llama_gguf, build_minimal_phi2_gguf, create_f32_embedding_data,
-    create_f32_norm_weights, create_q4_0_data, create_q4_k_data, create_q5_k_data,
-    create_q6_k_data, create_q8_0_data, GGUFBuilder,
+    build_minimal_llama_gguf, create_f32_embedding_data, create_f32_norm_weights, create_q4_0_data,
+    create_q8_0_data, GGUFBuilder,
 };
 
 // =============================================================================

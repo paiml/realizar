@@ -299,7 +299,7 @@ mod tests {
         match result.unwrap_err() {
             RealizarError::InvalidShape { reason } => {
                 assert!(reason.contains("zero"));
-            }
+            },
             _ => panic!("Expected InvalidShape error"),
         }
     }
@@ -319,10 +319,14 @@ mod tests {
         let result = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0, 5.0]);
         assert!(result.is_err());
         match result.unwrap_err() {
-            RealizarError::DataShapeMismatch { data_size, expected, .. } => {
+            RealizarError::DataShapeMismatch {
+                data_size,
+                expected,
+                ..
+            } => {
                 assert_eq!(data_size, 5);
                 assert_eq!(expected, 4);
-            }
+            },
             _ => panic!("Expected DataShapeMismatch error"),
         }
     }
@@ -333,10 +337,14 @@ mod tests {
         let result = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0]);
         assert!(result.is_err());
         match result.unwrap_err() {
-            RealizarError::DataShapeMismatch { data_size, expected, .. } => {
+            RealizarError::DataShapeMismatch {
+                data_size,
+                expected,
+                ..
+            } => {
                 assert_eq!(data_size, 3);
                 assert_eq!(expected, 4);
-            }
+            },
             _ => panic!("Expected DataShapeMismatch error"),
         }
     }
@@ -353,7 +361,8 @@ mod tests {
 
     #[test]
     fn test_serde_roundtrip() {
-        let original = Tensor::from_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("test");
+        let original =
+            Tensor::from_vec(vec![2, 3], vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).expect("test");
         let serialized = serde_json::to_string(&original).expect("serialize");
         let deserialized: Tensor<f64> = serde_json::from_str(&serialized).expect("deserialize");
         assert_eq!(original.shape(), deserialized.shape());

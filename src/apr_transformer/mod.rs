@@ -246,8 +246,8 @@ impl AprTransformer {
             .get("architecture")
             .or_else(|| metadata.get("model_type"))
             .and_then(serde_json::Value::as_str)
-            .map(|s| s.to_lowercase())
-            .filter(|s| s != "auto" && !s.is_empty())  // "Auto" is not a valid architecture
+            .map(str::to_lowercase)
+            .filter(|s| s != "auto" && !s.is_empty()) // "Auto" is not a valid architecture
             .unwrap_or_else(|| "unknown".to_string());
 
         let config = AprTransformerConfig {
@@ -442,7 +442,9 @@ impl AprTransformer {
             eprintln!("[DEBUG] Available tensor names (first 10):");
             for (i, (name, (offset, size, dims, dtype))) in tensors.iter().enumerate() {
                 if i < 10 {
-                    eprintln!("  {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
+                    eprintln!(
+                        "  {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}"
+                    );
                 }
             }
         }
@@ -544,10 +546,14 @@ impl AprTransformer {
             let has_nan = first_embed.iter().any(|x| x.is_nan());
             let has_inf = first_embed.iter().any(|x| x.is_infinite());
             if all_zero {
-                eprintln!("[APR-LOAD] WARNING: Token 0 embedding is all zeros - possible load failure");
+                eprintln!(
+                    "[APR-LOAD] WARNING: Token 0 embedding is all zeros - possible load failure"
+                );
             }
             if has_nan || has_inf {
-                eprintln!("[APR-LOAD] ERROR: Token 0 embedding contains NaN/Inf - data corruption!");
+                eprintln!(
+                    "[APR-LOAD] ERROR: Token 0 embedding contains NaN/Inf - data corruption!"
+                );
             }
             eprintln!(
                 "[APR-LOAD] Token 0 embedding sample: [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
@@ -585,8 +591,8 @@ impl AprTransformer {
 
         // Load LM head
         // For tied embeddings (common in Qwen, LLaMA models), use embed_tokens as fallback
-        let lm_head_raw = get_f32_tensor("lm_head.weight")
-            .or_else(|| get_f32_tensor("output.weight"));
+        let lm_head_raw =
+            get_f32_tensor("lm_head.weight").or_else(|| get_f32_tensor("output.weight"));
         let (lm_head_raw, used_tied_weights) = if let Some(lm_head) = lm_head_raw {
             (lm_head, false)
         } else {
@@ -624,9 +630,15 @@ impl AprTransformer {
             get_q6k_raw_bytes("lm_head.weight").or_else(|| get_q6k_raw_bytes("output.weight"));
         // GH-187: Always log quantization path for lm_head
         if let Some(ref bytes) = lm_head_weight_q4k {
-            eprintln!("[APR-LOAD] LM head using Q4K fused kernel ({} bytes)", bytes.len());
+            eprintln!(
+                "[APR-LOAD] LM head using Q4K fused kernel ({} bytes)",
+                bytes.len()
+            );
         } else if let Some(ref bytes) = lm_head_weight_q6k {
-            eprintln!("[APR-LOAD] LM head using Q6K fused kernel ({} bytes)", bytes.len());
+            eprintln!(
+                "[APR-LOAD] LM head using Q6K fused kernel ({} bytes)",
+                bytes.len()
+            );
         } else {
             eprintln!("[APR-LOAD] LM head using F32 matmul (no Q4K/Q6K found)");
         }
@@ -686,7 +698,9 @@ impl AprTransformer {
 
             // Get Q/K/V biases (optional, for Qwen models)
             // PMAT-114 FIX: Also check for fused QKV bias from APR converter
-            let qkv_bias = if let Some(fused_bias) = get_f32_tensor(&format!("{hf_prefix}.self_attn.qkv_proj.bias")) {
+            let qkv_bias = if let Some(fused_bias) =
+                get_f32_tensor(&format!("{hf_prefix}.self_attn.qkv_proj.bias"))
+            {
                 // Fused QKV bias from APR converter - use directly
                 Some(fused_bias)
             } else {
@@ -916,15 +930,23 @@ impl AprTransformer {
             let offset = (token_id as usize) * hidden_dim;
             if offset + hidden_dim <= self.token_embedding.len() {
                 if debug && token_id < 10 {
-                    eprintln!("[DEBUG] embed token {}: offset={}, first 5: {:?}",
-                        token_id, offset, &self.token_embedding[offset..offset+5.min(hidden_dim)]);
+                    eprintln!(
+                        "[DEBUG] embed token {}: offset={}, first 5: {:?}",
+                        token_id,
+                        offset,
+                        &self.token_embedding[offset..offset + 5.min(hidden_dim)]
+                    );
                 }
                 embeddings.extend_from_slice(&self.token_embedding[offset..offset + hidden_dim]);
             } else {
                 // Out of vocab - return zeros
                 if debug {
-                    eprintln!("[DEBUG] embed token {}: OUT OF VOCAB (offset {} > {})",
-                        token_id, offset, self.token_embedding.len());
+                    eprintln!(
+                        "[DEBUG] embed token {}: OUT OF VOCAB (offset {} > {})",
+                        token_id,
+                        offset,
+                        self.token_embedding.len()
+                    );
                 }
                 embeddings.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
@@ -1332,12 +1354,7 @@ impl AprTransformer {
                         output
                     } else {
                         // AUDIT-301: Use already-bound _gate_weight instead of expect()
-                        self.matmul(
-                            &ffn_input,
-                            _gate_weight,
-                            hidden_dim,
-                            intermediate_dim,
-                        )
+                        self.matmul(&ffn_input, _gate_weight, hidden_dim, intermediate_dim)
                     };
 
                 // PMAT-103: Check for Q4K up weight
@@ -1888,24 +1905,14 @@ impl AprTransformer {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using F32 fallback (slow!)");
                         }
                         // AUDIT-301: Use already-bound _gate_weight instead of expect()
-                        self.matmul(
-                            &ffn_input,
-                            _gate_weight,
-                            hidden_dim,
-                            intermediate_dim,
-                        )
+                        self.matmul(&ffn_input, _gate_weight, hidden_dim, intermediate_dim)
                     }
                 } else {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using F32 (APR_FORCE_F32)");
                     }
                     // AUDIT-301: Use already-bound _gate_weight instead of expect()
-                    self.matmul(
-                        &ffn_input,
-                        _gate_weight,
-                        hidden_dim,
-                        intermediate_dim,
-                    )
+                    self.matmul(&ffn_input, _gate_weight, hidden_dim, intermediate_dim)
                 };
 
                 // PMAT-103: Check for Q4K/Q6K up weight
@@ -2038,7 +2045,8 @@ impl AprTransformer {
             if trace_enabled && layer_idx < 2 && position == 0 {
                 eprintln!(
                     "[TRACE-CACHE] After layer {}: hidden[0..5] = {:?}",
-                    layer_idx, &hidden[..5.min(hidden.len())]
+                    layer_idx,
+                    &hidden[..5.min(hidden.len())]
                 );
             }
         }

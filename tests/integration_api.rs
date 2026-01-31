@@ -11,7 +11,6 @@ use std::time::Duration;
 
 use reqwest::Client;
 use serde_json::{json, Value};
-use tokio::time::timeout;
 
 /// Get a random available port
 fn get_random_port() -> u16 {
@@ -116,15 +115,11 @@ async fn test_real_server_generate_endpoint() {
                 "Unexpected status: {}",
                 status
             );
-        }
+        },
         Err(e) => {
             // Timeout or connection error is acceptable for demo mode
-            assert!(
-                e.is_timeout() || e.is_connect(),
-                "Unexpected error: {}",
-                e
-            );
-        }
+            assert!(e.is_timeout() || e.is_connect(), "Unexpected error: {}", e);
+        },
     }
 
     handle.abort();
@@ -154,8 +149,8 @@ async fn test_real_server_generate_with_options() {
             let status = r.status();
             // Success, service unavailable, or internal error all exercise code
             assert!(status.as_u16() >= 200 && status.as_u16() < 600);
-        }
-        Err(_) => {} // Timeouts acceptable
+        },
+        Err(_) => {}, // Timeouts acceptable
     }
 
     handle.abort();
@@ -179,12 +174,9 @@ async fn test_real_server_tokenize_endpoint() {
         .send()
         .await;
 
-    match resp {
-        Ok(r) => {
-            let status = r.status();
-            assert!(status.as_u16() >= 200 && status.as_u16() < 600);
-        }
-        Err(_) => {}
+    if let Ok(r) = resp {
+        let status = r.status();
+        assert!(status.as_u16() >= 200 && status.as_u16() < 600);
     }
 
     handle.abort();
@@ -234,13 +226,10 @@ async fn test_real_server_chat_completions() {
         .send()
         .await;
 
-    match resp {
-        Ok(r) => {
-            let status = r.status();
-            // Any response exercises the handler
-            assert!(status.as_u16() >= 200 && status.as_u16() < 600);
-        }
-        Err(_) => {}
+    if let Ok(r) = resp {
+        let status = r.status();
+        // Any response exercises the handler
+        assert!(status.as_u16() >= 200 && status.as_u16() < 600);
     }
 
     handle.abort();
@@ -265,12 +254,9 @@ async fn test_real_server_batch_generate() {
         .send()
         .await;
 
-    match resp {
-        Ok(r) => {
-            let status = r.status();
-            assert!(status.as_u16() >= 200 && status.as_u16() < 600);
-        }
-        Err(_) => {}
+    if let Ok(r) = resp {
+        let status = r.status();
+        assert!(status.as_u16() >= 200 && status.as_u16() < 600);
     }
 
     handle.abort();
@@ -291,13 +277,10 @@ async fn test_real_server_gpu_status() {
         .send()
         .await;
 
-    match resp {
-        Ok(r) => {
-            let status = r.status();
-            // 200 if GPU available, 503 if not - both exercise code
-            assert!(status == 200 || status == 503);
-        }
-        Err(_) => {}
+    if let Ok(r) = resp {
+        let status = r.status();
+        // 200 if GPU available, 503 if not - both exercise code
+        assert!(status == 200 || status == 503);
     }
 
     handle.abort();
@@ -314,13 +297,10 @@ async fn test_real_server_gpu_warmup() {
         .send()
         .await;
 
-    match resp {
-        Ok(r) => {
-            let status = r.status();
-            // Success or service unavailable
-            assert!(status == 200 || status == 500 || status == 503);
-        }
-        Err(_) => {}
+    if let Ok(r) = resp {
+        let status = r.status();
+        // Success or service unavailable
+        assert!(status == 200 || status == 500 || status == 503);
     }
 
     handle.abort();
@@ -345,7 +325,11 @@ async fn test_real_server_invalid_json() {
         .expect("request");
 
     // Should return 4xx error (400 Bad Request or 422 Unprocessable)
-    assert!(resp.status().is_client_error(), "Expected client error, got {}", resp.status());
+    assert!(
+        resp.status().is_client_error(),
+        "Expected client error, got {}",
+        resp.status()
+    );
 
     handle.abort();
 }

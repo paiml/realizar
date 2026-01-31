@@ -6,7 +6,6 @@
 #[cfg(test)]
 mod tests {
     use crate::apr::*;
-    use std::collections::HashMap;
 
     // =========================================================================
     // Helper functions
@@ -159,7 +158,7 @@ mod tests {
         use tempfile::NamedTempFile;
 
         // Create APR with one tensor
-        let metadata = r#"{}"#;
+        let metadata = r"{}";
         let metadata_bytes = metadata.as_bytes();
         let tensor_entry = create_binary_tensor_entry("test.weight", 0, &[4, 4], 0, 64);
         let tensor_index_offset = 128u64;
@@ -317,7 +316,7 @@ mod tests {
         q4k_data[2] = 0x00;
         q4k_data[3] = 0x00; // dmin = 0.0
 
-        let metadata = r#"{}"#;
+        let metadata = r"{}";
         let metadata_bytes = metadata.as_bytes();
         let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
 
@@ -357,7 +356,7 @@ mod tests {
         q6k_data[208] = 0x00;
         q6k_data[209] = 0x3C; // d = 1.0 in f16
 
-        let metadata = r#"{}"#;
+        let metadata = r"{}";
         let metadata_bytes = metadata.as_bytes();
         let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
 

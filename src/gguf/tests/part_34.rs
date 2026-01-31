@@ -70,16 +70,20 @@ fn arb_metadata_count() -> impl Strategy<Value = u64> {
 
 /// Generate a minimal GGUF header with arbitrary values
 fn arb_gguf_header() -> impl Strategy<Value = Vec<u8>> {
-    (arb_magic(), arb_version(), arb_tensor_count(), arb_metadata_count()).prop_map(
-        |(magic, version, tensor_count, metadata_count)| {
+    (
+        arb_magic(),
+        arb_version(),
+        arb_tensor_count(),
+        arb_metadata_count(),
+    )
+        .prop_map(|(magic, version, tensor_count, metadata_count)| {
             let mut data = Vec::with_capacity(24);
             data.extend_from_slice(&magic.to_le_bytes());
             data.extend_from_slice(&version.to_le_bytes());
             data.extend_from_slice(&tensor_count.to_le_bytes());
             data.extend_from_slice(&metadata_count.to_le_bytes());
             data
-        },
-    )
+        })
 }
 
 // ============================================================================
@@ -343,7 +347,7 @@ proptest! {
         match meta_type {
             8 => { // STRING
                 data.extend_from_slice(&(value_len as u64).to_le_bytes());
-                data.extend(std::iter::repeat(b'x').take(value_len));
+                data.extend(std::iter::repeat_n(b'x', value_len));
             }
             9 => { // ARRAY
                 data.extend_from_slice(&4u32.to_le_bytes()); // Element type: UINT32
@@ -409,7 +413,7 @@ proptest! {
 
         // Tensor with generated name
         data.extend_from_slice(&(name_len as u64).to_le_bytes());
-        data.extend(std::iter::repeat(name_byte).take(name_len));
+        data.extend(std::iter::repeat_n(name_byte, name_len));
 
         data.extend_from_slice(&1u32.to_le_bytes()); // n_dims
         data.extend_from_slice(&4u64.to_le_bytes()); // dim
@@ -622,7 +626,7 @@ fn test_bounds_check_excessive_n_dims() {
     data.extend_from_slice(&(name.len() as u64).to_le_bytes());
     data.extend_from_slice(name.as_bytes());
     data.extend_from_slice(&100u32.to_le_bytes()); // n_dims = 100, exceeds MAX_DIMS (8)
-    // Don't need actual dimensions since it should fail at n_dims check
+                                                   // Don't need actual dimensions since it should fail at n_dims check
 
     let result = GGUFModel::from_bytes(&data);
     assert!(result.is_err());

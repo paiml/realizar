@@ -290,13 +290,34 @@ mod tests {
 
     #[test]
     fn test_weight_quant_type_from_ggml_type() {
-        assert_eq!(WeightQuantType::from_ggml_type(2), Some(WeightQuantType::Q4_0));
-        assert_eq!(WeightQuantType::from_ggml_type(3), Some(WeightQuantType::Q4_1));
-        assert_eq!(WeightQuantType::from_ggml_type(6), Some(WeightQuantType::Q5_0));
-        assert_eq!(WeightQuantType::from_ggml_type(8), Some(WeightQuantType::Q8_0));
-        assert_eq!(WeightQuantType::from_ggml_type(12), Some(WeightQuantType::Q4K));
-        assert_eq!(WeightQuantType::from_ggml_type(13), Some(WeightQuantType::Q5K));
-        assert_eq!(WeightQuantType::from_ggml_type(14), Some(WeightQuantType::Q6K));
+        assert_eq!(
+            WeightQuantType::from_ggml_type(2),
+            Some(WeightQuantType::Q4_0)
+        );
+        assert_eq!(
+            WeightQuantType::from_ggml_type(3),
+            Some(WeightQuantType::Q4_1)
+        );
+        assert_eq!(
+            WeightQuantType::from_ggml_type(6),
+            Some(WeightQuantType::Q5_0)
+        );
+        assert_eq!(
+            WeightQuantType::from_ggml_type(8),
+            Some(WeightQuantType::Q8_0)
+        );
+        assert_eq!(
+            WeightQuantType::from_ggml_type(12),
+            Some(WeightQuantType::Q4K)
+        );
+        assert_eq!(
+            WeightQuantType::from_ggml_type(13),
+            Some(WeightQuantType::Q5K)
+        );
+        assert_eq!(
+            WeightQuantType::from_ggml_type(14),
+            Some(WeightQuantType::Q6K)
+        );
         assert_eq!(WeightQuantType::from_ggml_type(99), None);
         assert_eq!(WeightQuantType::from_ggml_type(0), None);
     }

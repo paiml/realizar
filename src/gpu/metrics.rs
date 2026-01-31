@@ -1300,7 +1300,7 @@ mod tests {
     #[test]
     fn test_compute_backend_clone() {
         let backend = ComputeBackend::Gpu;
-        let cloned = backend.clone();
+        let cloned = backend;
         assert_eq!(backend, cloned);
     }
 

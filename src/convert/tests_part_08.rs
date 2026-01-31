@@ -474,11 +474,11 @@ fn test_divergent_llama_no_layers() {
     match result {
         Ok(_) => {
             // If it succeeds, the converter is lenient
-        }
+        },
         Err(e) => {
             // Expected failure
             let _ = e;
-        }
+        },
     }
 }
 
@@ -489,10 +489,10 @@ fn test_divergent_gpt2_with_llama_tensors() {
 
     // Architecture mismatch should be handled
     match result {
-        Ok(_) => {}
+        Ok(_) => {},
         Err(e) => {
             let _ = e;
-        }
+        },
     }
 }
 
@@ -506,10 +506,10 @@ fn test_divergent_dimension_mismatch() {
         Ok(apr) => {
             // Check if config was inferred from tensors or metadata
             assert!(apr.config.hidden_dim > 0);
-        }
+        },
         Err(e) => {
             let _ = e;
-        }
+        },
     }
 }
 
@@ -523,16 +523,19 @@ fn test_divergent_unknown_architecture() {
         Ok(apr) => {
             // May use default config
             assert!(!apr.config.architecture.is_empty());
-        }
+        },
         Err(e) => {
             // Error may mention architecture or missing config fields
             let msg = e.to_string().to_lowercase();
             assert!(
-                msg.contains("architecture") || msg.contains("unsupported") || msg.contains("unknown") || msg.contains("missing"),
+                msg.contains("architecture")
+                    || msg.contains("unsupported")
+                    || msg.contains("unknown")
+                    || msg.contains("missing"),
                 "Error should mention architecture or config issue: {}",
                 msg
             );
-        }
+        },
     }
 }
 
@@ -546,10 +549,10 @@ fn test_divergent_empty_architecture() {
         Ok(apr) => {
             // Some default was used
             let _ = apr;
-        }
+        },
         Err(e) => {
             let _ = e;
-        }
+        },
     }
 }
 
@@ -559,10 +562,7 @@ fn test_divergent_metadata_heavy() {
     let result = GgufToAprConverter::convert(&data);
 
     // Should handle lots of metadata without crashing
-    match result {
-        Ok(_) => {}
-        Err(_) => {}
-    }
+    if let Ok(_) = result {}
 }
 
 #[test]
@@ -575,10 +575,10 @@ fn test_divergent_conflicting_heads() {
         Ok(apr) => {
             // Config was determined somehow
             assert!(apr.config.num_heads > 0);
-        }
+        },
         Err(e) => {
             let _ = e;
-        }
+        },
     }
 }
 
@@ -592,10 +592,10 @@ fn test_divergent_zero_vocab() {
         Ok(apr) => {
             // Vocab was inferred from tensor
             assert!(apr.config.vocab_size > 0);
-        }
+        },
         Err(e) => {
             let _ = e;
-        }
+        },
     }
 }
 
@@ -608,10 +608,10 @@ fn test_divergent_signed_as_unsigned() {
     match result {
         Ok(_) => {
             // Converter accepted it somehow
-        }
+        },
         Err(e) => {
             let _ = e;
-        }
+        },
     }
 }
 
@@ -649,10 +649,10 @@ fn test_converter_just_header_no_tensors() {
     match result {
         Ok(apr) => {
             assert_eq!(apr.layers.len(), 0);
-        }
+        },
         Err(e) => {
             let _ = e;
-        }
+        },
     }
 }
 
@@ -721,10 +721,10 @@ fn test_divergent_mixed_quant_types() {
 
     // Different quantization types
     let tensors = [
-        ("tensor_f32", 0u32, 64),   // F32
-        ("tensor_f16", 1u32, 64),   // F16
-        ("tensor_q4_0", 2u32, 32),  // Q4_0
-        ("tensor_q8_0", 7u32, 32),  // Q8_0
+        ("tensor_f32", 0u32, 64),  // F32
+        ("tensor_f16", 1u32, 64),  // F16
+        ("tensor_q4_0", 2u32, 32), // Q4_0
+        ("tensor_q8_0", 7u32, 32), // Q8_0
     ];
 
     let mut offset = 0u64;
@@ -738,10 +738,10 @@ fn test_divergent_mixed_quant_types() {
 
         // Rough size estimate
         let byte_size = match qtype {
-            0 => size * 4,      // F32: 4 bytes per element
-            1 => size * 2,      // F16: 2 bytes per element
+            0 => size * 4,       // F32: 4 bytes per element
+            1 => size * 2,       // F16: 2 bytes per element
             2 => (size / 2) + 2, // Q4_0: ~0.5 bytes per element + scale
-            7 => size + 4,      // Q8_0: 1 byte per element + scale
+            7 => size + 4,       // Q8_0: 1 byte per element + scale
             _ => size * 4,
         };
         offset += byte_size as u64;

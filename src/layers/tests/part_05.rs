@@ -1,5 +1,3 @@
-/// IMP-046: Cache-aligned tensor storage
-use crate::layers::*;
 #[test]
 fn test_imp_046_cache_aligned_storage() {
     use crate::gpu::CacheAlignedBuffer;

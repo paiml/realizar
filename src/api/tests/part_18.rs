@@ -15,7 +15,7 @@ use axum::{
 use tower::util::ServiceExt;
 
 use crate::api::test_helpers::create_test_app_shared;
-use crate::api::{create_router, AppState};
+use crate::api::AppState;
 
 // ============================================================================
 // B2: GPU Handler Struct Serde Round-Trips
@@ -286,10 +286,7 @@ async fn test_models_endpoint() {
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
-    assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::NOT_FOUND,
-    );
+    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND,);
 }
 
 #[tokio::test]
@@ -563,10 +560,7 @@ async fn test_realize_model_endpoint() {
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
-    assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::NOT_FOUND,
-    );
+    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND,);
 }
 
 #[tokio::test]
@@ -640,10 +634,7 @@ async fn test_openai_models_endpoint() {
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
-    assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::NOT_FOUND,
-    );
+    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND,);
 }
 
 #[tokio::test]

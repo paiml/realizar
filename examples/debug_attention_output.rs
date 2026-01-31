@@ -219,12 +219,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Correlation: {:.6}", correlation(&apr_proj, &gguf_proj));
 
     // Add residual connection (embed + attn_output)
-    let mut apr_hidden: Vec<f32> = embed
+    let apr_hidden: Vec<f32> = embed
         .iter()
         .zip(apr_proj.iter())
         .map(|(e, p)| e + p)
         .collect();
-    let mut gguf_hidden: Vec<f32> = embed
+    let gguf_hidden: Vec<f32> = embed
         .iter()
         .zip(gguf_proj.iter())
         .map(|(e, p)| e + p)

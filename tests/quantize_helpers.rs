@@ -726,7 +726,7 @@ fn test_dequant_stats_clone() {
         bytes_processed: 1000,
         simd_backend: SimdBackend::Avx2,
     };
-    let cloned = stats.clone();
+    let cloned = stats;
     assert_eq!(cloned.blocks_processed, 100);
     assert_eq!(cloned.bytes_processed, 1000);
     assert_eq!(cloned.simd_backend, SimdBackend::Avx2);

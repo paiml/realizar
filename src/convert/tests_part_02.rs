@@ -10,8 +10,8 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::convert::*;
     use crate::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
+    use crate::convert::*;
 
     // =========================================================================
     // GgufToAprConverter::convert with GGUFBuilder
@@ -20,7 +20,7 @@ mod tests {
     #[test]
     fn test_convert_minimal_gguf() {
         use crate::gguf::test_factory::{
-            GGUFBuilder, create_f32_embedding_data, create_f32_norm_weights,
+            create_f32_embedding_data, create_f32_norm_weights, GGUFBuilder,
         };
 
         let vocab = 32;
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn test_from_gguf_transformer_preserves_config() {
         use crate::gguf::test_factory::{
-            GGUFBuilder, create_f32_embedding_data, create_f32_norm_weights,
+            create_f32_embedding_data, create_f32_norm_weights, GGUFBuilder,
         };
         use crate::gguf::{GGUFModel, GGUFTransformer};
 
@@ -345,7 +345,10 @@ mod tests {
         let gguf_model = GGUFModel::from_bytes(&gguf_data).unwrap();
         let gguf_transformer = GGUFTransformer::from_gguf(&gguf_model, &gguf_data).unwrap();
         let apr = GgufToAprConverter::from_gguf_transformer(&gguf_transformer);
-        assert_eq!(apr.config.architecture, gguf_transformer.config.architecture);
+        assert_eq!(
+            apr.config.architecture,
+            gguf_transformer.config.architecture
+        );
         assert_eq!(apr.config.hidden_dim, gguf_transformer.config.hidden_dim);
         assert_eq!(apr.layers.len(), gguf_transformer.layers.len());
     }

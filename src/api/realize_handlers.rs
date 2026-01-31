@@ -680,7 +680,7 @@ pub async fn openai_completions_handler(
             temperature,
             top_k: if temperature == 0.0 { 1 } else { 40 },
             stop_tokens: Vec::new(),
-        trace: false,
+            trace: false,
         };
 
         // IMP-126: Use adaptive generation when dispatch_metrics available
@@ -802,7 +802,7 @@ pub async fn openai_completions_handler(
             temperature,
             top_k: if temperature == 0.0 { 1 } else { 40 },
             stop_tokens: Vec::new(),
-        trace: false,
+            trace: false,
         };
 
         // Generate with KV cache for O(n) per-token decoding (IMP-102b)
@@ -1184,13 +1184,11 @@ mod tests {
     #[test]
     fn test_context_window_manager_estimate_total_tokens() {
         let manager = ContextWindowManager::default_manager();
-        let messages = vec![
-            ChatMessage {
-                role: "user".to_string(),
-                content: "Hello world".to_string(), // ~11 chars = ~3 tokens + 10 overhead = ~13
-                name: None,
-            },
-        ];
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Hello world".to_string(), // ~11 chars = ~3 tokens + 10 overhead = ~13
+            name: None,
+        }];
         let tokens = manager.estimate_total_tokens(&messages);
         assert!(tokens > 0);
         assert!(tokens < 100); // Reasonable upper bound
@@ -1199,13 +1197,11 @@ mod tests {
     #[test]
     fn test_context_window_manager_needs_truncation_false() {
         let manager = ContextWindowManager::default_manager();
-        let messages = vec![
-            ChatMessage {
-                role: "user".to_string(),
-                content: "Short message".to_string(),
-                name: None,
-            },
-        ];
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Short message".to_string(),
+            name: None,
+        }];
         assert!(!manager.needs_truncation(&messages));
     }
 
@@ -1214,26 +1210,22 @@ mod tests {
         let config = ContextWindowConfig::new(50); // Very small window
         let manager = ContextWindowManager::new(config);
         let long_content = "x".repeat(1000);
-        let messages = vec![
-            ChatMessage {
-                role: "user".to_string(),
-                content: long_content,
-                name: None,
-            },
-        ];
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: long_content,
+            name: None,
+        }];
         assert!(manager.needs_truncation(&messages));
     }
 
     #[test]
     fn test_context_window_manager_truncate_messages_no_truncation() {
         let manager = ContextWindowManager::default_manager();
-        let messages = vec![
-            ChatMessage {
-                role: "user".to_string(),
-                content: "Hello".to_string(),
-                name: None,
-            },
-        ];
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Hello".to_string(),
+            name: None,
+        }];
         let (result, truncated) = manager.truncate_messages(&messages);
         assert!(!truncated);
         assert_eq!(result.len(), 1);
@@ -1679,7 +1671,7 @@ mod tests {
         let messages: Vec<ChatMessage> = vec![];
         let result = format_chat_messages(&messages, None);
         // Should handle empty gracefully
-        assert!(result.is_empty() || result.len() > 0); // Just shouldn't panic
+        assert!(result.is_empty() || !result.is_empty()); // Just shouldn't panic
     }
 
     #[test]

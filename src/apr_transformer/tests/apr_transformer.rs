@@ -407,7 +407,7 @@ fn test_generate_basic() {
 #[test]
 fn test_generate_stops_at_eos() {
     let config = create_test_config();
-    let mut transformer = AprTransformer::new(config.clone());
+    let transformer = AprTransformer::new(config.clone());
 
     // Set lm_head to output EOS token (2) as argmax
     // This requires setting up weights such that token 2 has highest logit

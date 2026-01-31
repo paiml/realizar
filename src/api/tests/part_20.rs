@@ -160,7 +160,10 @@ fn test_context_window_manager_needs_truncation() {
     let long: Vec<ChatMessage> = (0..500)
         .map(|i| ChatMessage {
             role: "user".to_string(),
-            content: format!("Long message number {} with content that takes many tokens to fill the window", i),
+            content: format!(
+                "Long message number {} with content that takes many tokens to fill the window",
+                i
+            ),
             name: None,
         })
         .collect();

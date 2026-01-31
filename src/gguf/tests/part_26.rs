@@ -368,7 +368,11 @@ fn test_transformer_from_gguf_minimal() {
 
     let model = GGUFModel::from_bytes(&data).unwrap();
     let transformer = GGUFTransformer::from_gguf(&model, &data);
-    assert!(transformer.is_ok(), "from_gguf failed: {:?}", transformer.err());
+    assert!(
+        transformer.is_ok(),
+        "from_gguf failed: {:?}",
+        transformer.err()
+    );
     let t = transformer.unwrap();
     assert_eq!(t.config.hidden_dim, hidden);
     assert_eq!(t.config.num_layers, 1);

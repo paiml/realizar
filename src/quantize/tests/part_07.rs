@@ -603,7 +603,7 @@ fn test_fused_q4k_q8k_dot_scalar_simd_equivalence_many_blocks() {
 #[test]
 fn test_fused_q4k_dot_large_scale() {
     // Very large scale value
-    let mut q4k_data = create_q4k_test_block(1000.0, 500.0);
+    let q4k_data = create_q4k_test_block(1000.0, 500.0);
     // Ensure d is a valid f16 representation of ~1000
     // f16 max is 65504, so 1000 is fine
     let activations = vec![1.0f32; QK_K];

@@ -18,7 +18,6 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
-    use std::io::Write;
 
     // =========================================================================
     // run_visualization
@@ -71,11 +70,7 @@ mod tests {
     fn test_run_convoy_test_with_output() {
         let dir = tempfile::tempdir().unwrap();
         let output_path = dir.path().join("convoy_results.json");
-        let result = run_convoy_test(
-            None,
-            None,
-            Some(output_path.to_string_lossy().to_string()),
-        );
+        let result = run_convoy_test(None, None, Some(output_path.to_string_lossy().to_string()));
         assert!(result.is_ok());
         assert!(output_path.exists());
         let contents = std::fs::read_to_string(&output_path).unwrap();
@@ -120,11 +115,8 @@ mod tests {
     fn test_run_saturation_test_with_output() {
         let dir = tempfile::tempdir().unwrap();
         let output_path = dir.path().join("saturation_results.json");
-        let result = run_saturation_test(
-            None,
-            None,
-            Some(output_path.to_string_lossy().to_string()),
-        );
+        let result =
+            run_saturation_test(None, None, Some(output_path.to_string_lossy().to_string()));
         assert!(result.is_ok());
         assert!(output_path.exists());
         let contents = std::fs::read_to_string(&output_path).unwrap();
@@ -248,12 +240,35 @@ mod tests {
             sampling: SamplingConfig::default(),
             thermal: ThermalInfo::default(),
             results: BenchmarkResults {
-                ttft_ms: TtftResults { p50: 7.0, p95: 9.0, p99: 10.0, p999: 12.0 },
-                itl_ms: ItlResults { median: 10.0, std_dev: 2.0, p99: 15.0 },
-                throughput_tok_s: ThroughputResults { median: 100.0, ci_95: (95.0, 105.0) },
-                memory_mb: MemoryResults { model_mb: 512, peak_rss_mb: 1024, kv_waste_pct: 3.0 },
-                energy: EnergyResults { total_joules: 50.0, token_joules: 0.5, idle_watts: 8.0 },
-                cold_start_ms: ColdStartResults { median: 100.0, p99: 150.0 },
+                ttft_ms: TtftResults {
+                    p50: 7.0,
+                    p95: 9.0,
+                    p99: 10.0,
+                    p999: 12.0,
+                },
+                itl_ms: ItlResults {
+                    median: 10.0,
+                    std_dev: 2.0,
+                    p99: 15.0,
+                },
+                throughput_tok_s: ThroughputResults {
+                    median: 100.0,
+                    ci_95: (95.0, 105.0),
+                },
+                memory_mb: MemoryResults {
+                    model_mb: 512,
+                    peak_rss_mb: 1024,
+                    kv_waste_pct: 3.0,
+                },
+                energy: EnergyResults {
+                    total_joules: 50.0,
+                    token_joules: 0.5,
+                    idle_watts: 8.0,
+                },
+                cold_start_ms: ColdStartResults {
+                    median: 100.0,
+                    p99: 150.0,
+                },
             },
             quality: QualityValidation {
                 kl_divergence_vs_fp32: 0.03,
@@ -277,11 +292,7 @@ mod tests {
         std::fs::write(&file1, &json).unwrap();
         std::fs::write(&file2, &json).unwrap();
 
-        let result = run_bench_compare(
-            &file1.to_string_lossy(),
-            &file2.to_string_lossy(),
-            5.0,
-        );
+        let result = run_bench_compare(&file1.to_string_lossy(), &file2.to_string_lossy(), 5.0);
         assert!(result.is_ok());
     }
 
@@ -299,11 +310,7 @@ mod tests {
         std::fs::write(&file1, "not valid json").unwrap();
         std::fs::write(&file2, "also bad").unwrap();
 
-        let result = run_bench_compare(
-            &file1.to_string_lossy(),
-            &file2.to_string_lossy(),
-            5.0,
-        );
+        let result = run_bench_compare(&file1.to_string_lossy(), &file2.to_string_lossy(), 5.0);
         assert!(result.is_err());
     }
 
@@ -317,11 +324,7 @@ mod tests {
         std::fs::write(&file1, &json).unwrap();
         std::fs::write(&file2, "not json").unwrap();
 
-        let result = run_bench_compare(
-            &file1.to_string_lossy(),
-            &file2.to_string_lossy(),
-            5.0,
-        );
+        let result = run_bench_compare(&file1.to_string_lossy(), &file2.to_string_lossy(), 5.0);
         assert!(result.is_err());
     }
 
@@ -335,11 +338,7 @@ mod tests {
         std::fs::write(&file1, &json).unwrap();
         std::fs::write(&file2, &json).unwrap();
 
-        let result = run_bench_compare(
-            &file1.to_string_lossy(),
-            &file2.to_string_lossy(),
-            0.0,
-        );
+        let result = run_bench_compare(&file1.to_string_lossy(), &file2.to_string_lossy(), 0.0);
         assert!(result.is_ok());
     }
 
@@ -387,7 +386,11 @@ mod tests {
 
     #[test]
     fn test_run_bench_regression_nonexistent() {
-        let result = run_bench_regression("/nonexistent/baseline.json", "/nonexistent/current.json", false);
+        let result = run_bench_regression(
+            "/nonexistent/baseline.json",
+            "/nonexistent/current.json",
+            false,
+        );
         assert!(result.is_err());
     }
 
@@ -550,7 +553,7 @@ mod tests {
     #[test]
     fn test_load_apr_model_too_small() {
         let result = load_apr_model(&[0x41, 0x50, 0x52, 0x00]); // Just "APR\0" - 4 bytes
-        // May succeed or fail depending on format detection
+                                                                // May succeed or fail depending on format detection
         let _ = result;
     }
 

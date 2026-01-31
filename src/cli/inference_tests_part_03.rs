@@ -169,7 +169,11 @@ mod active_pygmy_inference {
         let apr_data = build_executable_pygmy_apr();
 
         // Both should be < 20KB (Active Pygmy property)
-        assert!(gguf_data.len() < 20_000, "GGUF too large: {}", gguf_data.len());
+        assert!(
+            gguf_data.len() < 20_000,
+            "GGUF too large: {}",
+            gguf_data.len()
+        );
         assert!(apr_data.len() < 10_000, "APR too large: {}", apr_data.len());
     }
 }

@@ -360,7 +360,11 @@ impl OwnedQuantizedModel {
             let rms = (sq_sum / hidden.len() as f32).sqrt();
             eprintln!(
                 "[GQA-DEBUG-CPU-EMBED] Token {} at pos {}: first 5 = {:?}, sum={:.4}, rms={:.4}",
-                token_id, position, &hidden[..5.min(hidden.len())], embed_sum, rms
+                token_id,
+                position,
+                &hidden[..5.min(hidden.len())],
+                embed_sum,
+                rms
             );
         }
 
@@ -432,10 +436,14 @@ impl OwnedQuantizedModel {
             );
 
             // GQA-DEBUG: Print normed input for CPU/GPU comparison
-            if std::env::var("CPU_DEBUG").is_ok() && (layer_idx == 0 || layer_idx == 1) && position == 0 {
+            if std::env::var("CPU_DEBUG").is_ok()
+                && (layer_idx == 0 || layer_idx == 1)
+                && position == 0
+            {
                 eprintln!(
                     "[GQA-DEBUG-CPU-L{}] Normed input (after attn_norm): first 5 = {:?}",
-                    layer_idx, &normed[..5.min(normed.len())]
+                    layer_idx,
+                    &normed[..5.min(normed.len())]
                 );
             }
 
@@ -463,7 +471,10 @@ impl OwnedQuantizedModel {
             let v = qkv[q_dim + k_dim..q_dim + k_dim + v_dim].to_vec();
 
             // GQA-DEBUG: Print K before RoPE for CPU/GPU comparison
-            if std::env::var("CPU_DEBUG").is_ok() && (layer_idx == 0 || layer_idx == 1) && position == 0 {
+            if std::env::var("CPU_DEBUG").is_ok()
+                && (layer_idx == 0 || layer_idx == 1)
+                && position == 0
+            {
                 // Print K weight info for debugging
                 eprintln!(
                     "[GQA-DEBUG-CPU-L{}] K weight info: qkv_type={:?}, q_dim={}, k_dim={}, v_dim={}",
@@ -476,7 +487,8 @@ impl OwnedQuantizedModel {
                 );
                 eprintln!(
                     "[GQA-DEBUG-CPU-L{}] K after bias (before RoPE): first 5 = {:?}",
-                    layer_idx, &k[..5.min(k.len())]
+                    layer_idx,
+                    &k[..5.min(k.len())]
                 );
             }
 
@@ -485,10 +497,14 @@ impl OwnedQuantizedModel {
             self.apply_rope(&mut k, position, self.config.num_kv_heads);
 
             // GQA-DEBUG: Print K after RoPE for CPU/GPU comparison
-            if std::env::var("CPU_DEBUG").is_ok() && (layer_idx == 0 || layer_idx == 1) && position == 0 {
+            if std::env::var("CPU_DEBUG").is_ok()
+                && (layer_idx == 0 || layer_idx == 1)
+                && position == 0
+            {
                 eprintln!(
                     "[GQA-DEBUG-CPU-L{}] K after RoPE: first 5 = {:?}",
-                    layer_idx, &k[..5.min(k.len())]
+                    layer_idx,
+                    &k[..5.min(k.len())]
                 );
             }
 
@@ -604,7 +620,10 @@ impl OwnedQuantizedModel {
             }
 
             // GQA-DEBUG: Print hidden state after layer 0 for CPU/GPU comparison
-            if std::env::var("CPU_DEBUG").is_ok() && layer_idx == 0 && (position == 0 || position == 4) {
+            if std::env::var("CPU_DEBUG").is_ok()
+                && layer_idx == 0
+                && (position == 0 || position == 4)
+            {
                 let hidden_sum: f32 = hidden.iter().sum();
                 let sq_sum: f32 = hidden.iter().map(|x| x * x).sum();
                 let rms = (sq_sum / hidden.len() as f32).sqrt();
@@ -678,14 +697,27 @@ impl OwnedQuantizedModel {
             let sum: f32 = normed.iter().sum();
             let sq_sum: f32 = normed.iter().map(|x| x * x).sum();
             let rms = (sq_sum / normed.len() as f32).sqrt();
-            eprintln!("[GQA-DEBUG-CPU] Normed hidden: first 5 = {:?}, sum={:.4}, rms={:.4}",
-                &normed[..5.min(normed.len())], sum, rms);
+            eprintln!(
+                "[GQA-DEBUG-CPU] Normed hidden: first 5 = {:?}, sum={:.4}, rms={:.4}",
+                &normed[..5.min(normed.len())],
+                sum,
+                rms
+            );
 
-            let (argmax_idx, argmax_val) = logits.iter().enumerate()
+            let (argmax_idx, argmax_val) = logits
+                .iter()
+                .enumerate()
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(i, v)| (i, *v)).expect("empty logits");
-            eprintln!("[GQA-DEBUG-CPU] Logits argmax: idx={}, val={:.4}", argmax_idx, argmax_val);
-            eprintln!("[GQA-DEBUG-CPU] Logits[0..20]: {:?}", &logits[..20.min(logits.len())]);
+                .map(|(i, v)| (i, *v))
+                .expect("empty logits");
+            eprintln!(
+                "[GQA-DEBUG-CPU] Logits argmax: idx={}, val={:.4}",
+                argmax_idx, argmax_val
+            );
+            eprintln!(
+                "[GQA-DEBUG-CPU] Logits[0..20]: {:?}",
+                &logits[..20.min(logits.len())]
+            );
         }
 
         Ok(logits)

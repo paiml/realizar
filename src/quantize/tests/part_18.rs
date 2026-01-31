@@ -810,7 +810,7 @@ fn test_swiglu_simd_zero_elements() {
 /// Test rope with head_dim=0 (degenerate case)
 #[test]
 fn test_rope_simd_zero_head_dim() {
-    let mut x: Vec<f32> = vec![1.0, 2.0];
+    let x: Vec<f32> = vec![1.0, 2.0];
     let freqs_cos: Vec<f32> = vec![];
     let freqs_sin: Vec<f32> = vec![];
 

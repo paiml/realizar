@@ -278,7 +278,7 @@ proptest! {
     fn prop_batch_request_sizes(n in 1usize..10) {
         let prompts: Vec<String> = (0..n).map(|i| format!("prompt_{}", i)).collect();
         let req = BatchGenerateRequest {
-            prompts: prompts,
+            prompts,
             max_tokens: 10,
             temperature: 1.0,
             strategy: "greedy".to_string(),

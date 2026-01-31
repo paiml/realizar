@@ -59,11 +59,11 @@ pub(crate) mod test_factory;
 #[cfg(feature = "cuda")]
 pub use cuda::AprV2ModelCuda;
 #[cfg(feature = "cuda")]
+use helpers::apply_rope_norm;
+#[cfg(feature = "cuda")]
 use helpers::transpose_matrix;
 pub use helpers::{detect_format, is_apr_file, simd_dot};
 use helpers::{matmul, rms_norm, simple_attention};
-#[cfg(feature = "cuda")]
-use helpers::apply_rope_norm;
 use tokenizer::bpe_encode;
 pub use tokenizer::{byte_to_bpe_char, BpeTokenizer, SimpleTokenizer};
 
@@ -797,7 +797,7 @@ impl TensorEntry {
             _ => {
                 eprintln!("WARN: Unknown APR dtype byte {dtype_byte}, treating as F32");
                 "F32"
-            }
+            },
         }
         .to_string();
 
@@ -1652,11 +1652,13 @@ impl AprV2Model {
         let hidden = rms_norm(&hidden, &final_norm, eps);
 
         // 4. LM head (last token only for generation)
+        // BUG-APR-001: Add token_embd.weight for GGUF weight tying
         let lm_head_name = self.find_tensor_name(&[
             "lm_head.weight",
             "output.weight",
             "model.embed_tokens.weight", // Tied embeddings
             "embed_tokens.weight",       // SafeTensors tied embeddings
+            "token_embd.weight",         // GGUF tied embeddings
         ])?;
         let lm_head = self.get_tensor_f32(&lm_head_name)?;
 
@@ -1843,7 +1845,10 @@ impl AprV2Model {
     pub fn encode_text(model_path: &Path, text: &str) -> Option<Vec<u32>> {
         // Validate model path exists
         if !model_path.exists() {
-            eprintln!("[PMAT-172] Error: Model file not found: {}", model_path.display());
+            eprintln!(
+                "[PMAT-172] Error: Model file not found: {}",
+                model_path.display()
+            );
             return None;
         }
 
@@ -1854,21 +1859,24 @@ impl AprV2Model {
                     match model.load_embedded_bpe_tokenizer() {
                         Some(tokenizer) => {
                             return Some(tokenizer.encode(text));
-                        }
+                        },
                         None => {
                             // PMAT-172: FAIL FAST - Do not fall back to external tokenizers
                             eprintln!("\n[PMAT-172] ERROR: APR file missing embedded tokenizer.");
                             eprintln!("           APR format requires self-contained tokenizer.");
-                            eprintln!("           Re-convert with: apr convert <source>.gguf -o {}", model_path.display());
+                            eprintln!(
+                                "           Re-convert with: apr convert <source>.gguf -o {}",
+                                model_path.display()
+                            );
                             eprintln!("           Or use the original GGUF file directly.\n");
                             return None;
-                        }
+                        },
                     }
-                }
+                },
                 Err(e) => {
                     eprintln!("[PMAT-172] Error loading APR file: {}", e);
                     return None;
-                }
+                },
             }
         }
 
@@ -1876,9 +1884,17 @@ impl AprV2Model {
         // NO fallback to HuggingFace cache (PMAT-172: removed Silent Failure Recovery)
         let tokenizer_path = model_path.with_file_name("tokenizer.json");
         if !tokenizer_path.exists() {
-            eprintln!("\n[PMAT-172] ERROR: No tokenizer found for {}.", model_path.display());
-            eprintln!("           Expected sibling file: {}", tokenizer_path.display());
-            eprintln!("           For SafeTensors models, tokenizer.json must be in same directory.\n");
+            eprintln!(
+                "\n[PMAT-172] ERROR: No tokenizer found for {}.",
+                model_path.display()
+            );
+            eprintln!(
+                "           Expected sibling file: {}",
+                tokenizer_path.display()
+            );
+            eprintln!(
+                "           For SafeTensors models, tokenizer.json must be in same directory.\n"
+            );
             return None;
         }
 
@@ -1887,7 +1903,7 @@ impl AprV2Model {
             Err(e) => {
                 eprintln!("[PMAT-172] Error reading tokenizer.json: {}", e);
                 return None;
-            }
+            },
         };
 
         let json: serde_json::Value = match serde_json::from_str(&content) {
@@ -1895,7 +1911,7 @@ impl AprV2Model {
             Err(e) => {
                 eprintln!("[PMAT-172] Error parsing tokenizer.json: {}", e);
                 return None;
-            }
+            },
         };
 
         // Extract vocabulary (token -> id)
@@ -2121,7 +2137,9 @@ pub type AprModelType = ();
 /// Special tokens like `<|im_start|>`, `<|im_end|>` must be tokenized atomically,
 /// not split character-by-character. This function scans the vocabulary for
 /// common special token patterns used by Qwen, ChatML, LLaMA, and other models.
-pub fn extract_special_tokens_from_vocab(token_to_id: &HashMap<String, u32>) -> HashMap<String, u32> {
+pub fn extract_special_tokens_from_vocab(
+    token_to_id: &HashMap<String, u32>,
+) -> HashMap<String, u32> {
     let mut special_tokens = HashMap::new();
 
     // Common special token patterns across model families

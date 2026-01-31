@@ -21,7 +21,6 @@
 
 #![allow(dead_code)]
 
-use std::time::Instant;
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
@@ -135,12 +134,12 @@ fn benchmark_realizar_native_cv() -> Vec<f64> {
     let _max_samples = 30;
     let _cv_threshold = 0.10;
 
-    let latencies = Vec::new();
+    
 
     // NOTE: Uses placeholder since GGUFTransformer is a weight container.
     // See OwnedQuantizedModel for the inference API.
 
-    latencies
+    Vec::new()
 }
 
 /// Calculate coefficient of variation

@@ -5158,7 +5158,7 @@ fn test_cov010_profiler_summary() {
 
     let summary = executor.profiler_summary();
     // Summary should be a string (might be empty if no profiling data)
-    assert!(summary.is_empty() || summary.len() > 0);
+    assert!(summary.is_empty() || !summary.is_empty());
 }
 
 #[test]
@@ -5297,7 +5297,7 @@ fn test_cov010_tile_summary() {
 
     let summary = executor.tile_summary();
     // Summary should be a string
-    assert!(summary.is_empty() || summary.len() > 0);
+    assert!(summary.is_empty() || !summary.is_empty());
 }
 
 #[test]
@@ -5310,7 +5310,7 @@ fn test_cov010_tile_stats_json() {
 
     let json = executor.tile_stats_json();
     // JSON should be a valid string
-    assert!(json.starts_with('{') || json.starts_with('[') || json.is_empty() || json.len() > 0);
+    assert!(json.starts_with('{') || json.starts_with('[') || json.is_empty() || !json.is_empty());
 }
 
 #[test]
@@ -9937,7 +9937,7 @@ fn test_cov025_num_devices() {
     let count = CudaExecutor::num_devices();
     // On a system with CUDA, count should be >= 1
     // We don't assert on the count since it depends on hardware
-    assert!(count >= 0, "num_devices should return >= 0");
+    let _ = count; // Verify the function is callable
 }
 
 #[test]

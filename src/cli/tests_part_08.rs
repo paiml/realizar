@@ -309,7 +309,7 @@ fn test_load_safetensors_empty() {
 fn test_load_safetensors_invalid_json() {
     // Header says 16 bytes of metadata, but data is invalid JSON
     let mut data = vec![0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]; // 16-byte metadata
-    data.extend(b"not valid json!!");  // 16 bytes of invalid JSON
+    data.extend(b"not valid json!!"); // 16 bytes of invalid JSON
     let result = load_safetensors_model(&data);
     assert!(result.is_err());
 }
@@ -376,13 +376,21 @@ fn test_bench_compare_invalid_threshold_high() {
 
 #[test]
 fn test_bench_regression_nonexistent_baseline() {
-    let result = run_bench_regression("/nonexistent/baseline.json", "/nonexistent/current.json", false);
+    let result = run_bench_regression(
+        "/nonexistent/baseline.json",
+        "/nonexistent/current.json",
+        false,
+    );
     assert!(result.is_err());
 }
 
 #[test]
 fn test_bench_regression_strict_mode() {
-    let result = run_bench_regression("/nonexistent/baseline.json", "/nonexistent/current.json", true);
+    let result = run_bench_regression(
+        "/nonexistent/baseline.json",
+        "/nonexistent/current.json",
+        true,
+    );
     assert!(result.is_err());
 }
 

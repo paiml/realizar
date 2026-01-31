@@ -592,7 +592,10 @@ fn test_kv_cache_consecutive_generations_isolated() {
     let (gen2_k, gen2_v) = cache.get(0);
 
     // Verify both generations are identical
-    assert_eq!(gen1_len, gen2_len, "Cache lengths differ between generations");
+    assert_eq!(
+        gen1_len, gen2_len,
+        "Cache lengths differ between generations"
+    );
     assert_eq!(gen1_k_copy.len(), gen2_k.len(), "K cache sizes differ");
     assert_eq!(gen1_v_copy.len(), gen2_v.len(), "V cache sizes differ");
 

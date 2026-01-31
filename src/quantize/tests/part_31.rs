@@ -36,7 +36,10 @@ fn test_q4_0_q8_0_matvec_weight_too_small() {
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("too small") || err.contains("need"), "got: {err}");
+    assert!(
+        err.contains("too small") || err.contains("need"),
+        "got: {err}"
+    );
 }
 
 #[test]
@@ -50,7 +53,10 @@ fn test_q4_0_q8_0_matvec_activation_mismatch() {
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("match") || err.contains("length"), "got: {err}");
+    assert!(
+        err.contains("match") || err.contains("length"),
+        "got: {err}"
+    );
 }
 
 #[test]
@@ -156,7 +162,10 @@ fn test_q8_0_q8_0_matvec_weight_too_small() {
     let result = fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("too small") || err.contains("need"), "got: {err}");
+    assert!(
+        err.contains("too small") || err.contains("need"),
+        "got: {err}"
+    );
 }
 
 #[test]
@@ -264,7 +273,10 @@ fn test_q8_0_q8_0_matvec_into_output_too_small() {
     );
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("too small") || err.contains("need"), "got: {err}");
+    assert!(
+        err.contains("too small") || err.contains("need"),
+        "got: {err}"
+    );
 }
 
 // ============================================================================

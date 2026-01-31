@@ -634,8 +634,7 @@ mod tests {
 
     #[test]
     fn test_coalesced_dp4a_with_budget() {
-        let brick = CoalescedDp4aBrick::new(256, 128)
-            .with_budget(TokenBudget::from_latency(100.0));
+        let brick = CoalescedDp4aBrick::new(256, 128).with_budget(TokenBudget::from_latency(100.0));
         assert!((brick.budget().us_per_token - 100.0).abs() < 0.01);
     }
 
@@ -803,8 +802,7 @@ mod tests {
 
     #[test]
     fn test_fused_ffn_with_budget() {
-        let brick = FusedFfnBrick::new(128, 512)
-            .with_budget(TokenBudget::from_latency(50.0));
+        let brick = FusedFfnBrick::new(128, 512).with_budget(TokenBudget::from_latency(50.0));
         assert!((brick.budget().us_per_token - 50.0).abs() < 0.01);
     }
 
@@ -850,7 +848,7 @@ mod tests {
         let brick = FusedFfnBrick::new(2, 2);
         let input = vec![1.0, 0.0];
         let gate_proj = vec![1.0, 0.0, 0.0, 1.0]; // Identity
-        let up_proj = vec![1.0, 0.0, 0.0, 1.0];   // Identity
+        let up_proj = vec![1.0, 0.0, 0.0, 1.0]; // Identity
         let down_proj = vec![1.0, 0.0, 0.0, 1.0]; // Identity
 
         let result = brick.forward(&input, &gate_proj, &up_proj, &down_proj);

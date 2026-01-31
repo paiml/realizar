@@ -186,8 +186,8 @@ proptest! {
 
         prop_assert_eq!(tensor.data.len(), expected_bytes);
 
-        // Verify we can interpret dimensions correctly
-        prop_assert!(tensor.in_dim * tensor.out_dim >= 0);  // No overflow
+        // Verify dimensions are accessible (usize is always >= 0)
+        let _product = tensor.in_dim.checked_mul(tensor.out_dim);
     }
 }
 
@@ -276,7 +276,7 @@ proptest! {
         in_dim in 32usize..=256,
         out_dim in 32usize..=256,
     ) {
-        let original = QuantizedAprTensorQ4::new(data.clone(), in_dim, out_dim);
+        let original = QuantizedAprTensorQ4::new(data, in_dim, out_dim);
         let cloned = original.clone();
 
         prop_assert_eq!(original.data, cloned.data);

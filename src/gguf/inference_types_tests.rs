@@ -6,8 +6,8 @@
 //! - ContiguousKVCache: edge cases (out-of-bounds layer, full sequence)
 //! - DispatchMetrics: latency stats, percentiles, variance, CV, speedup
 
-use super::inference_types::*;
 use super::config::GGUFConfig;
+use super::inference_types::*;
 use std::time::Duration;
 
 // ============================================================================
@@ -213,7 +213,11 @@ fn test_kv_cache_layer_stride() {
     let cache = ContiguousKVCache::new(2, 64, 8);
     // layer_stride should be aligned to 16 floats (64 bytes)
     let stride = cache.layer_stride();
-    assert!(stride % 16 == 0, "stride {} should be multiple of 16", stride);
+    assert!(
+        stride.is_multiple_of(16),
+        "stride {} should be multiple of 16",
+        stride
+    );
 }
 
 #[test]
@@ -473,9 +477,9 @@ fn test_dispatch_metrics_histogram_buckets() {
     // Bucket boundaries: [100, 500, 1000, 5000]
     // <100, 100-500, 500-1000, 1000-5000, >=5000
 
-    m.record_cpu_latency(Duration::from_micros(50));   // bucket 0
-    m.record_cpu_latency(Duration::from_micros(200));  // bucket 1
-    m.record_cpu_latency(Duration::from_micros(700));  // bucket 2
+    m.record_cpu_latency(Duration::from_micros(50)); // bucket 0
+    m.record_cpu_latency(Duration::from_micros(200)); // bucket 1
+    m.record_cpu_latency(Duration::from_micros(700)); // bucket 2
     m.record_cpu_latency(Duration::from_micros(2000)); // bucket 3
     m.record_cpu_latency(Duration::from_micros(8000)); // bucket 4
 

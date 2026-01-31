@@ -16,11 +16,11 @@ use tempfile::NamedTempFile;
 /// Create a minimal synthetic GGUF file on disk
 fn create_pygmy_gguf() -> NamedTempFile {
     let gguf_data = build_minimal_llama_gguf(
-        32,   // vocab_size (tiny)
-        64,   // hidden_dim
-        128,  // intermediate_dim
-        4,    // num_heads
-        4,    // num_kv_heads
+        32,  // vocab_size (tiny)
+        64,  // hidden_dim
+        128, // intermediate_dim
+        4,   // num_heads
+        4,   // num_kv_heads
     );
 
     let mut file = NamedTempFile::with_suffix(".gguf").unwrap();
@@ -31,7 +31,9 @@ fn create_pygmy_gguf() -> NamedTempFile {
 
 /// Create an even smaller GGUF (just metadata, minimal tensors)
 fn create_micro_gguf() -> NamedTempFile {
-    use crate::gguf::test_factory::{create_f32_embedding_data, create_f32_norm_weights, create_q4_k_data};
+    use crate::gguf::test_factory::{
+        create_f32_embedding_data, create_f32_norm_weights, create_q4_k_data,
+    };
 
     let vocab_size = 16;
     let hidden_dim = 32;
@@ -58,16 +60,48 @@ fn create_micro_gguf() -> NamedTempFile {
         .rope_freq_base("llama", 10000.0)
         .rms_epsilon("llama", 1e-5)
         .ffn_hidden_dim("llama", intermediate_dim as u32)
-        .add_f32_tensor("token_embd.weight", &[vocab_size as u64, hidden_dim as u64], &embed_data)
+        .add_f32_tensor(
+            "token_embd.weight",
+            &[vocab_size as u64, hidden_dim as u64],
+            &embed_data,
+        )
         .add_f32_tensor("blk.0.attn_norm.weight", &[hidden_dim as u64], &norm_data)
-        .add_q4_k_tensor("blk.0.attn_q.weight", &[hidden_dim as u64, hidden_dim as u64], &q_data)
-        .add_q4_k_tensor("blk.0.attn_k.weight", &[hidden_dim as u64, kv_dim as u64], &k_data)
-        .add_q4_k_tensor("blk.0.attn_v.weight", &[hidden_dim as u64, kv_dim as u64], &v_data)
-        .add_q4_k_tensor("blk.0.attn_output.weight", &[hidden_dim as u64, hidden_dim as u64], &attn_out_data)
+        .add_q4_k_tensor(
+            "blk.0.attn_q.weight",
+            &[hidden_dim as u64, hidden_dim as u64],
+            &q_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.attn_k.weight",
+            &[hidden_dim as u64, kv_dim as u64],
+            &k_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.attn_v.weight",
+            &[hidden_dim as u64, kv_dim as u64],
+            &v_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.attn_output.weight",
+            &[hidden_dim as u64, hidden_dim as u64],
+            &attn_out_data,
+        )
         .add_f32_tensor("blk.0.ffn_norm.weight", &[hidden_dim as u64], &norm_data)
-        .add_q4_k_tensor("blk.0.ffn_up.weight", &[hidden_dim as u64, intermediate_dim as u64], &ffn_up_data)
-        .add_q4_k_tensor("blk.0.ffn_down.weight", &[intermediate_dim as u64, hidden_dim as u64], &ffn_down_data)
-        .add_q4_k_tensor("blk.0.ffn_gate.weight", &[hidden_dim as u64, intermediate_dim as u64], &ffn_gate_data)
+        .add_q4_k_tensor(
+            "blk.0.ffn_up.weight",
+            &[hidden_dim as u64, intermediate_dim as u64],
+            &ffn_up_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.ffn_down.weight",
+            &[intermediate_dim as u64, hidden_dim as u64],
+            &ffn_down_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.ffn_gate.weight",
+            &[hidden_dim as u64, intermediate_dim as u64],
+            &ffn_gate_data,
+        )
         .add_f32_tensor("output_norm.weight", &[hidden_dim as u64], &norm_data)
         .build();
 
@@ -88,10 +122,10 @@ fn test_pygmy_gguf_inference_basic() {
 
     let result = inference::run_gguf_inference(
         path.to_str().unwrap(),
-        &[],  // file_data unused (mmap used)
+        &[], // file_data unused (mmap used)
         "Hello",
-        2,    // max_tokens
-        0.0,  // greedy
+        2,   // max_tokens
+        0.0, // greedy
         "text",
         false,
         false,
@@ -113,10 +147,10 @@ fn test_pygmy_gguf_inference_verbose() {
         &[],
         "Test prompt",
         2,
-        0.5,  // temperature sampling
+        0.5, // temperature sampling
         "text",
         false,
-        true,   // verbose - exercises eprintln! paths
+        true, // verbose - exercises eprintln! paths
         false,
     );
 
@@ -134,7 +168,7 @@ fn test_pygmy_gguf_inference_json_format() {
         "JSON test",
         2,
         0.0,
-        "json",  // JSON output format
+        "json", // JSON output format
         false,
         false,
         false,
@@ -157,7 +191,7 @@ fn test_pygmy_gguf_inference_with_trace() {
         "text",
         false,
         false,
-        true,   // trace enabled
+        true, // trace enabled
     );
 
     let _ = result;
@@ -191,7 +225,7 @@ fn test_pygmy_gguf_empty_prompt() {
     let result = inference::run_gguf_inference(
         path.to_str().unwrap(),
         &[],
-        "",  // empty prompt
+        "", // empty prompt
         2,
         0.0,
         "text",
@@ -213,7 +247,7 @@ fn test_pygmy_gguf_high_temperature() {
         &[],
         "High temp",
         3,
-        2.0,  // very high temperature
+        2.0, // very high temperature
         "text",
         false,
         false,
@@ -261,8 +295,8 @@ fn test_pygmy_gguf_force_gpu_flag() {
         2,
         0.0,
         "text",
-        true,   // force_gpu
-        true,   // verbose
+        true, // force_gpu
+        true, // verbose
         false,
     );
 
@@ -325,9 +359,9 @@ fn test_pygmy_gguf_all_flags() {
         2,
         0.5,
         "json",
-        true,  // force_gpu
-        true,  // verbose
-        true,  // trace
+        true, // force_gpu
+        true, // verbose
+        true, // trace
     );
 
     let _ = result;
@@ -348,7 +382,7 @@ fn test_pygmy_gguf_temperature_at_threshold() {
         &[],
         "Threshold",
         2,
-        0.01,  // exactly at threshold
+        0.01, // exactly at threshold
         "text",
         false,
         false,
@@ -424,8 +458,10 @@ fn test_pygmy_gguf_parses_correctly() {
 
 #[test]
 fn test_micro_gguf_parses_correctly() {
+    use crate::gguf::test_factory::{
+        create_f32_embedding_data, create_f32_norm_weights, create_q4_k_data,
+    };
     use crate::gguf::GGUFModel;
-    use crate::gguf::test_factory::{create_f32_embedding_data, create_f32_norm_weights, create_q4_k_data};
 
     let vocab_size = 16;
     let hidden_dim = 32;
@@ -452,16 +488,48 @@ fn test_micro_gguf_parses_correctly() {
         .rope_freq_base("llama", 10000.0)
         .rms_epsilon("llama", 1e-5)
         .ffn_hidden_dim("llama", intermediate_dim as u32)
-        .add_f32_tensor("token_embd.weight", &[vocab_size as u64, hidden_dim as u64], &embed_data)
+        .add_f32_tensor(
+            "token_embd.weight",
+            &[vocab_size as u64, hidden_dim as u64],
+            &embed_data,
+        )
         .add_f32_tensor("blk.0.attn_norm.weight", &[hidden_dim as u64], &norm_data)
-        .add_q4_k_tensor("blk.0.attn_q.weight", &[hidden_dim as u64, hidden_dim as u64], &q_data)
-        .add_q4_k_tensor("blk.0.attn_k.weight", &[hidden_dim as u64, kv_dim as u64], &k_data)
-        .add_q4_k_tensor("blk.0.attn_v.weight", &[hidden_dim as u64, kv_dim as u64], &v_data)
-        .add_q4_k_tensor("blk.0.attn_output.weight", &[hidden_dim as u64, hidden_dim as u64], &attn_out_data)
+        .add_q4_k_tensor(
+            "blk.0.attn_q.weight",
+            &[hidden_dim as u64, hidden_dim as u64],
+            &q_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.attn_k.weight",
+            &[hidden_dim as u64, kv_dim as u64],
+            &k_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.attn_v.weight",
+            &[hidden_dim as u64, kv_dim as u64],
+            &v_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.attn_output.weight",
+            &[hidden_dim as u64, hidden_dim as u64],
+            &attn_out_data,
+        )
         .add_f32_tensor("blk.0.ffn_norm.weight", &[hidden_dim as u64], &norm_data)
-        .add_q4_k_tensor("blk.0.ffn_up.weight", &[hidden_dim as u64, intermediate_dim as u64], &ffn_up_data)
-        .add_q4_k_tensor("blk.0.ffn_down.weight", &[intermediate_dim as u64, hidden_dim as u64], &ffn_down_data)
-        .add_q4_k_tensor("blk.0.ffn_gate.weight", &[hidden_dim as u64, intermediate_dim as u64], &ffn_gate_data)
+        .add_q4_k_tensor(
+            "blk.0.ffn_up.weight",
+            &[hidden_dim as u64, intermediate_dim as u64],
+            &ffn_up_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.ffn_down.weight",
+            &[intermediate_dim as u64, hidden_dim as u64],
+            &ffn_down_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.ffn_gate.weight",
+            &[hidden_dim as u64, intermediate_dim as u64],
+            &ffn_gate_data,
+        )
         .add_f32_tensor("output_norm.weight", &[hidden_dim as u64], &norm_data)
         .build();
 

@@ -10,10 +10,9 @@
 //! Refs: T-COV-001
 
 use crate::quantize::{
-    fused_q4_0_q8_0_parallel_matvec, fused_q4_0_q8_0_parallel_matvec_into,
+    dequantize_q8_blocks, fused_q4_0_q8_0_parallel_matvec, fused_q4_0_q8_0_parallel_matvec_into,
     fused_q8_0_q8_0_parallel_matvec, fused_q8_0_q8_0_parallel_matvec_into,
-    quantize_activations_q8k_into, quantize_to_q8_blocks, dequantize_q8_blocks,
-    InterleavedQ4K,
+    quantize_activations_q8k_into, quantize_to_q8_blocks, InterleavedQ4K,
 };
 
 // =============================================================================
@@ -26,11 +25,17 @@ fn test_interleaved_q4k_from_q4k_invalid_length() {
     // Q4_K super-block is 144 bytes; test with misaligned data
     let invalid_data = vec![0u8; 143]; // One byte short
     let result = InterleavedQ4K::from_q4k(&invalid_data);
-    assert!(result.is_err(), "Should fail with 143 bytes (not multiple of 144)");
+    assert!(
+        result.is_err(),
+        "Should fail with 143 bytes (not multiple of 144)"
+    );
 
     let err_msg = format!("{:?}", result.unwrap_err());
-    assert!(err_msg.contains("multiple") || err_msg.contains("144"),
-            "Error should mention super-block size: {}", err_msg);
+    assert!(
+        err_msg.contains("multiple") || err_msg.contains("144"),
+        "Error should mention super-block size: {}",
+        err_msg
+    );
 }
 
 /// Test InterleavedQ4K::from_q4k with partial super-block
@@ -67,8 +72,11 @@ fn test_interleaved_q4k_dot_dimension_mismatch() {
     assert!(result.is_err());
 
     let err_msg = format!("{:?}", result.unwrap_err());
-    assert!(err_msg.contains("128") || err_msg.contains("256"),
-            "Error should mention dimension mismatch: {}", err_msg);
+    assert!(
+        err_msg.contains("128") || err_msg.contains("256"),
+        "Error should mention dimension mismatch: {}",
+        err_msg
+    );
 }
 
 /// Test InterleavedQ4K::dot with extra activations
@@ -147,9 +155,8 @@ fn test_fused_q4_0_q8_0_parallel_matvec_into_activation_mismatch() {
     let activations = vec![1.0f32; in_dim + 1]; // One extra element
     let mut output = vec![0.0f32; out_dim];
 
-    let result = fused_q4_0_q8_0_parallel_matvec_into(
-        &weight_data, &activations, in_dim, &mut output
-    );
+    let result =
+        fused_q4_0_q8_0_parallel_matvec_into(&weight_data, &activations, in_dim, &mut output);
     assert!(result.is_err());
 }
 
@@ -164,9 +171,8 @@ fn test_fused_q4_0_q8_0_parallel_matvec_into_success() {
     let activations = vec![1.0f32; in_dim];
     let mut output = vec![0.0f32; out_dim];
 
-    let result = fused_q4_0_q8_0_parallel_matvec_into(
-        &weight_data, &activations, in_dim, &mut output
-    );
+    let result =
+        fused_q4_0_q8_0_parallel_matvec_into(&weight_data, &activations, in_dim, &mut output);
     assert!(result.is_ok());
 }
 
@@ -233,7 +239,11 @@ fn test_fused_q8_0_q8_0_parallel_matvec_into_output_small() {
     let mut output = vec![0.0f32; out_dim - 1];
 
     let result = fused_q8_0_q8_0_parallel_matvec_into(
-        &weight_data, &activations, in_dim, out_dim, &mut output
+        &weight_data,
+        &activations,
+        in_dim,
+        out_dim,
+        &mut output,
     );
     assert!(result.is_err());
 }
@@ -250,7 +260,11 @@ fn test_fused_q8_0_q8_0_parallel_matvec_into_success() {
     let mut output = vec![0.0f32; out_dim];
 
     let result = fused_q8_0_q8_0_parallel_matvec_into(
-        &weight_data, &activations, in_dim, out_dim, &mut output
+        &weight_data,
+        &activations,
+        in_dim,
+        out_dim,
+        &mut output,
     );
     assert!(result.is_ok());
 }
@@ -352,7 +366,12 @@ fn test_q8_block_round_trip() {
     // Check reconstruction is reasonable (quantization introduces error)
     for (orig, recon) in original.iter().zip(reconstructed.iter()) {
         let diff = (orig - recon).abs();
-        assert!(diff < 0.5, "Round-trip error too large: {} -> {}", orig, recon);
+        assert!(
+            diff < 0.5,
+            "Round-trip error too large: {} -> {}",
+            orig,
+            recon
+        );
     }
 }
 
@@ -467,8 +486,8 @@ fn test_below_parallel_threshold() {
 /// Test scalar dot product handles block boundary correctly
 #[test]
 fn test_scalar_dot_block_boundary() {
-    use crate::quantize::fused_q4_0_q8_0_dot_scalar;
     use crate::quantize::activation::quantize_activations_q8_0;
+    use crate::quantize::fused_q4_0_q8_0_dot_scalar;
 
     // Create exactly 3 blocks (96 elements)
     let in_dim = 96;
@@ -484,8 +503,8 @@ fn test_scalar_dot_block_boundary() {
 /// Test scalar dot product with truncated data
 #[test]
 fn test_scalar_dot_truncated_data() {
-    use crate::quantize::fused_q4_0_q8_0_dot_scalar;
     use crate::quantize::activation::quantize_activations_q8_0;
+    use crate::quantize::fused_q4_0_q8_0_dot_scalar;
 
     let in_dim = 64;
     // Provide less data than needed - scalar should handle gracefully

@@ -59,10 +59,8 @@ proptest! {
         let values_arr: [f32; 32] = values.try_into().unwrap();
         let block = Q8_0Block::quantize(&values_arr);
 
-        // All quants should be in [-128, 127]
-        for &q in &block.quants {
-            prop_assert!(q >= -128 && q <= 127);
-        }
+        // All quants are i8, range is type-guaranteed
+        prop_assert!(!block.quants.is_empty());
     }
 }
 
@@ -352,13 +350,8 @@ proptest! {
         }
 
         // Quants should be bounded
-        for (i, &q) in quants.iter().enumerate() {
-            prop_assert!(
-                q >= -128 && q <= 127,
-                "Quant at {} was out of bounds: {}",
-                i, q
-            );
-        }
+        // Quants are i8, range is type-guaranteed
+        prop_assert!(!quants.is_empty(), "Should have quantized values");
     }
 }
 
