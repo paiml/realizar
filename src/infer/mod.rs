@@ -1290,3 +1290,8 @@ mod infer_tests_mock;
 #[cfg(test)]
 #[path = "tests_part_06.rs"]
 mod infer_tests_part_06;
+
+// T-COV-95 Synthetic Falsification (Part 07 - qtype all arms, InferenceConfig/Result fields)
+#[cfg(test)]
+#[path = "tests_part_07.rs"]
+mod infer_tests_part_07;
