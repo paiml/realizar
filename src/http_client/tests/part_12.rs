@@ -1,3 +1,4 @@
+use crate::http_client::tests::part_11::SimdBackend;
 use crate::http_client::*;
 // ==================== IMP-306: Trueno wgpu GPU Backend ====================
 // Per spec: 10x speedup for 4096x4096 matmul via GPU

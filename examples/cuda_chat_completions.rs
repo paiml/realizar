@@ -176,6 +176,7 @@ fn main() {
         temperature: 0.7,
         top_k: 40,
         stop_tokens: vec![151645], // <|im_end|> for Qwen models
+        trace: false,
     };
 
     // Generate with GPU

@@ -1,4 +1,4 @@
-use crate::http_client::*;
+use crate::http_client::tests::part_08::BenchEnvironment;
 // ================================================================================
 
 /// Benchmark version information

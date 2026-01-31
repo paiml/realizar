@@ -1,3 +1,4 @@
+use crate::http_client::tests::part_02::LatencyPercentiles;
 use crate::http_client::*;
 // =========================================================================
 // Per spec QA-016: Cold start latency < 5 seconds for 7B model

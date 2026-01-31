@@ -1374,27 +1374,43 @@ mod tests {
 
     #[test]
     fn test_fused_ffn_swiglu_gpu_weight_not_cached() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
         let result = exec.fused_ffn_swiglu_gpu(
-            &input, "nonexistent_gate", "nonexistent_up", "nonexistent_down", 256, 512
+            &input,
+            "nonexistent_gate",
+            "nonexistent_up",
+            "nonexistent_down",
+            256,
+            512,
         );
         assert!(result.is_err());
     }
 
     #[test]
     fn test_fused_ffn_swiglu_gpu_true_dp4a_weight_not_cached() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
         let result = exec.fused_ffn_swiglu_gpu_true_dp4a(
-            &input, "nonexistent_gate", "nonexistent_up", "nonexistent_down", 256, 512
+            &input,
+            "nonexistent_gate",
+            "nonexistent_up",
+            "nonexistent_down",
+            256,
+            512,
         );
         assert!(result.is_err());
     }
 
     #[test]
     fn test_fused_ffn_swiglu_indexed_gpu_creates_output() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
         // Using zero pointers will fail kernel but tests function interface
         let result = exec.fused_ffn_swiglu_indexed_gpu(&input, 0, 0, 0, 256, 512);
@@ -1403,11 +1419,19 @@ mod tests {
 
     #[test]
     fn test_fused_ffn_swiglu_host_weight_not_cached() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = vec![1.0f32; 256];
         let mut output = vec![0.0f32; 256];
         let result = exec.fused_ffn_swiglu_host(
-            &input, &mut output, "nonexistent_gate", "nonexistent_up", "nonexistent_down", 256, 512
+            &input,
+            &mut output,
+            "nonexistent_gate",
+            "nonexistent_up",
+            "nonexistent_down",
+            256,
+            512,
         );
         assert!(result.is_err());
     }
@@ -1418,7 +1442,9 @@ mod tests {
 
     #[test]
     fn test_fused_ffn_swiglu_indexed_gpu_creates_output_buffer() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
         // Using zero pointers will fail kernel but tests function interface
         let result = exec.fused_ffn_swiglu_indexed_gpu(&input, 0, 0, 0, 256, 512);
@@ -1489,7 +1515,9 @@ mod tests {
 
     #[test]
     fn test_flash_attention_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let seq_len = 4usize;
         let head_dim = 32usize;
         // flash_attention uses single head only (seq_len * head_dim)
@@ -1502,7 +1530,16 @@ mod tests {
 
         let scale = 1.0 / (head_dim as f32).sqrt();
         let causal = true;
-        let result = exec.flash_attention(&q, &k, &v, &mut output, seq_len as u32, head_dim as u32, scale, causal);
+        let result = exec.flash_attention(
+            &q,
+            &k,
+            &v,
+            &mut output,
+            seq_len as u32,
+            head_dim as u32,
+            scale,
+            causal,
+        );
         // May fail due to PTX issues but exercises the code path
         let _ = result;
     }
@@ -1541,7 +1578,9 @@ mod tests {
 
     #[test]
     fn test_flash_attention_multi_head_basic() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let seq_len = 4usize;
         let head_dim = 32usize;
         let n_heads = 2usize;
@@ -1554,7 +1593,14 @@ mod tests {
 
         let causal = true;
         let result = exec.flash_attention_multi_head(
-            &q, &k, &v, &mut output, seq_len as u32, head_dim as u32, n_heads as u32, causal
+            &q,
+            &k,
+            &v,
+            &mut output,
+            seq_len as u32,
+            head_dim as u32,
+            n_heads as u32,
+            causal,
         );
         let _ = result;
     }
@@ -1572,7 +1618,8 @@ mod tests {
         // Test memory calculation for flash attention
         let seq_len = 1024u32;
         let head_dim = 64u32;
-        let (compute_mem, _peak_mem) = CudaExecutor::flash_attention_memory_bytes(seq_len, head_dim);
+        let (compute_mem, _peak_mem) =
+            CudaExecutor::flash_attention_memory_bytes(seq_len, head_dim);
         assert!(compute_mem > 0);
     }
 
@@ -1611,9 +1658,13 @@ mod tests {
     #[test]
     fn test_fused_ffn_swiglu_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
         // Now we have weights loaded - use indexed pointers from layer 0
@@ -1633,9 +1684,13 @@ mod tests {
     #[test]
     fn test_flash_attention_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let seq_len = 4usize;
         let total = seq_len * config.head_dim;
@@ -1646,7 +1701,14 @@ mod tests {
         let scale = 1.0 / (config.head_dim as f32).sqrt();
 
         let result = exec.flash_attention(
-            &q, &k, &v, &mut output, seq_len as u32, config.head_dim as u32, scale, true
+            &q,
+            &k,
+            &v,
+            &mut output,
+            seq_len as u32,
+            config.head_dim as u32,
+            scale,
+            true,
         );
         let _ = result;
     }
@@ -1654,9 +1716,13 @@ mod tests {
     #[test]
     fn test_flash_attention_multi_head_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         let seq_len = 4usize;
         let total = seq_len * config.head_dim * config.num_heads;
@@ -1666,11 +1732,14 @@ mod tests {
         let mut output = vec![0.0f32; total];
 
         let result = exec.flash_attention_multi_head(
-            &q, &k, &v, &mut output,
+            &q,
+            &k,
+            &v,
+            &mut output,
             seq_len as u32,
             config.head_dim as u32,
             config.num_heads as u32,
-            true
+            true,
         );
         let _ = result;
     }
@@ -1678,9 +1747,13 @@ mod tests {
     #[test]
     fn test_transformer_layer_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Verify indexed weights were built (workspace is managed internally)
         assert_eq!(exec.indexed_layer_weights.len(), config.num_layers);
@@ -1689,10 +1762,14 @@ mod tests {
     #[test]
     fn test_batched_attention_workspace_setup() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let mut config = HarnessConfig::default();
         config.num_layers = 2;
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // KV cache should be initialized
         assert!(exec.kv_cache_max_len > 0);
@@ -1703,11 +1780,15 @@ mod tests {
     #[test]
     fn test_gqa_configuration_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let mut config = HarnessConfig::default();
         config.num_heads = 32;
         config.num_kv_heads = 8; // GQA with 4:1 ratio
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // Verify GQA configuration
         assert_eq!(exec.kv_num_heads, config.num_heads);
@@ -1717,9 +1798,13 @@ mod tests {
     #[test]
     fn test_rmsnorm_cache_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // RMSNorm gamma should be cached for each layer
         let key = "blk.0.attn_norm.gamma".to_string();
@@ -1729,9 +1814,13 @@ mod tests {
     #[test]
     fn test_lm_head_with_harness() {
         use crate::cuda::executor::test_fixtures::{setup_executor_harness, HarnessConfig};
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let config = HarnessConfig::default();
-        if setup_executor_harness(&mut exec, &config).is_err() { return; }
+        if setup_executor_harness(&mut exec, &config).is_err() {
+            return;
+        }
 
         // LM head should be loaded
         assert!(exec.lm_head_ptr != 0);

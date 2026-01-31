@@ -537,7 +537,7 @@ fn test_generate_with_cache_single_prompt_token() {
     let result = transformer.generate_with_cache(&[0], &gen_config);
     assert!(result.is_ok());
     let tokens = result.unwrap();
-    assert!(tokens.len() >= 1); // At least prompt
+    assert!(!tokens.is_empty()); // At least prompt
 }
 
 #[test]
@@ -668,7 +668,7 @@ fn test_generate_stops_early_on_eos_2() {
     // by setting one weight high
     let hidden_dim = config.hidden_dim;
     let eos_token = 2;
-    let vocab_size = config.vocab_size;
+    let _vocab_size = config.vocab_size;
 
     // Set weight for token 2 to be very high
     for i in 0..hidden_dim {

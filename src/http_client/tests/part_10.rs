@@ -1,4 +1,4 @@
-use crate::http_client::*;
+use crate::http_client::tests::part_09::{BenchRuntime, RuntimeBenchResult};
 // ==================== IMP-199: APR GPU Inference Benchmark (QA-046) ====================
 // Per spec: `make bench-apr-gpu-inference` produces format comparison
 // Reference: APR vs GGUF format comparison for fair evaluation
