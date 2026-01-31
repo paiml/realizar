@@ -707,3 +707,26 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
   - Fixed broken benchmarks (GGUFTransformer → AprTransformer)
 **Latest Achievement:** CUDA monolith shattered + comprehensive lint cleanup (65 files, 2089 insertions, 1040 deletions)
 **Completed:** Weeks 1-8 + GPU parity M1-M32 + APR Q4_0 (M2) + Rayon (M3) + KV Cache (M4) + CUDA Refactor (v5.2.0)
+
+
+## Stack Documentation Search
+
+Query this component's documentation and the entire Sovereign AI Stack using batuta's RAG Oracle:
+
+```bash
+# Index all stack documentation (run once, persists to ~/.cache/batuta/rag/)
+batuta oracle --rag-index
+
+# Search across the entire stack
+batuta oracle --rag "your question here"
+
+# Examples
+batuta oracle --rag "SIMD matrix multiplication"
+batuta oracle --rag "how to train a model"
+batuta oracle --rag "tokenization for BERT"
+
+# Check index status
+batuta oracle --rag-stats
+```
+
+The RAG index includes CLAUDE.md, README.md, and source files from all stack components plus Python ground truth corpora for cross-language pattern matching.
