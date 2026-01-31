@@ -791,3 +791,8 @@ mod convert_tests_part_02;
 #[cfg(test)]
 #[path = "tests_part_03.rs"]
 mod convert_tests_part_03;
+
+// T-COV-95 Coverage Bridge (Part 04 - ConversionStats, to_apr_bytes, from_apr_bytes)
+#[cfg(test)]
+#[path = "tests_part_04.rs"]
+mod convert_tests_part_04;
