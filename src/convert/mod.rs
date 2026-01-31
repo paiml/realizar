@@ -796,3 +796,8 @@ mod convert_tests_part_03;
 #[cfg(test)]
 #[path = "tests_part_04.rs"]
 mod convert_tests_part_04;
+
+// T-COV-95 Extended Coverage (Part 05 - RawTensor, dtypes, edge cases)
+#[cfg(test)]
+#[path = "tests_part_05.rs"]
+mod convert_tests_part_05;
