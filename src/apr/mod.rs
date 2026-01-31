@@ -2156,6 +2156,7 @@ pub type AprModelType = ();
 /// Special tokens like `<|im_start|>`, `<|im_end|>` must be tokenized atomically,
 /// not split character-by-character. This function scans the vocabulary for
 /// common special token patterns used by Qwen, ChatML, LLaMA, and other models.
+#[allow(clippy::implicit_hasher)]
 pub fn extract_special_tokens_from_vocab(
     token_to_id: &HashMap<String, u32>,
 ) -> HashMap<String, u32> {

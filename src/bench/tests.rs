@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[allow(unexpected_cfgs)]
 mod tests {
     use crate::bench::*;
 

@@ -378,6 +378,7 @@ pub fn handle_list(remote: Option<&str>, format: &str) -> Result<()> {
 }
 
 /// Handle the pull command
+#[allow(clippy::unused_async)]
 pub async fn handle_pull(model_ref: &str, force: bool, quantize: Option<&str>) -> Result<()> {
     println!("Pulling model: {model_ref}");
     if force {
@@ -413,6 +414,7 @@ pub async fn handle_pull(model_ref: &str, force: bool, quantize: Option<&str>) -
 }
 
 /// Handle the push command
+#[allow(clippy::unused_async)]
 pub async fn handle_push(model_ref: &str, target: Option<&str>) -> Result<()> {
     println!("Pushing model: {model_ref}");
     if let Some(t) = target {

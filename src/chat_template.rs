@@ -1501,7 +1501,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn test_special_tokens_sanitized_in_content() {
         // SECURITY (F-SEC-220): Special tokens in user content MUST be sanitized
         // to prevent prompt injection attacks

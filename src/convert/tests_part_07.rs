@@ -264,10 +264,8 @@ fn test_maimed_gguf_to_apr_zero_tensors() {
 
     let result = GgufToAprConverter::convert(&data);
     // May succeed (empty model) or fail - either exercises code
-    match result {
-        Ok(_) => {},  // Empty model converted
-        Err(_) => {}, // Failed as expected
-    }
+    // May succeed (empty model) or fail - either exercises code
+    let _ = result;
 }
 
 // ============================================================================

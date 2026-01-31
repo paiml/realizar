@@ -1698,7 +1698,7 @@ impl AprV2ModelCuda {
 
             let lm_head_for_gemm = if is_tied_embedding && lm_head.len() == hidden_dim * vocab_size {
                 // Tied embedding: already [hidden_dim, vocab_size], use as-is
-                lm_head.to_vec()
+                lm_head.clone()
             } else {
                 // Regular lm_head: [vocab_size, hidden_dim], need transpose to [hidden_dim, vocab_size]
                 transpose_matrix(&lm_head, vocab_size, hidden_dim)

@@ -1764,6 +1764,7 @@ fn test_quantize_activations_q8k_into_zeros_cov() {
 /// GGUF candle layout for Q4_1:
 /// - Positions 0-15: low nibbles (byte & 0xF) from bytes 0-15
 /// - Positions 16-31: high nibbles (byte >> 4) from bytes 0-15
+///
 /// Formula: value = scale * nibble + min
 #[test]
 fn test_q4_1_candle_layout_correctness() {
@@ -1912,6 +1913,7 @@ fn test_q4_1_scale_and_min_correctness() {
 /// GGUF candle layout for Q5_0:
 /// - Positions 0-15: (low nibble | (qh bit << 4)) - 16
 /// - Positions 16-31: (high nibble | (qh bit << 4)) - 16
+///
 /// Formula: value = scale * ((nibble | high_bit) - 16)
 #[test]
 fn test_q5_0_candle_layout_correctness() {

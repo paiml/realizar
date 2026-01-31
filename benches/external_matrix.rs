@@ -21,7 +21,6 @@
 
 #![allow(dead_code)]
 
-
 use criterion::{criterion_group, criterion_main, Criterion};
 
 #[cfg(feature = "bench-http")]
@@ -133,8 +132,6 @@ fn benchmark_realizar_native_cv() -> Vec<f64> {
     let _min_samples = 5;
     let _max_samples = 30;
     let _cv_threshold = 0.10;
-
-    
 
     // NOTE: Uses placeholder since GGUFTransformer is a weight container.
     // See OwnedQuantizedModel for the inference API.

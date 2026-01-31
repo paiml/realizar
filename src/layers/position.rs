@@ -1276,7 +1276,7 @@ mod tests {
         assert_eq!(bias.shape(), &[256, 256, 8]);
         // Check a corner case: (0, 255) should be -slope * 255
         let data = bias.data();
-        let idx = (255 * 8) + 0; // (0, 255, head=0)
+        let idx = 255 * 8; // (0, 255, head=0)
         let expected = -alibi.slopes()[0] * 255.0;
         assert!((data[idx] - expected).abs() < 1e-4);
     }

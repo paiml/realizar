@@ -88,6 +88,7 @@ impl Device {
 
 /// Quantization type for weights
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(non_camel_case_types)]
 pub enum QuantType {
     /// 32-bit floating point
     F32,

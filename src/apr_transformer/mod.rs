@@ -1330,7 +1330,7 @@ impl AprTransformer {
             // 2g. FFN projection (SwiGLU or standard GELU)
             // PMAT-103: Use Q4K fused kernel when available for FFN
             let seq_len = token_ids.len();
-            let ffn_output = if let Some(ref _gate_weight) = layer.ffn_gate_weight {
+            let ffn_output = if let Some(ref gate_weight) = layer.ffn_gate_weight {
                 // SwiGLU: down(SiLU(gate(x)) * up(x))
                 // PMAT-103: Check for Q4K gate weight
                 let gate =
@@ -1354,7 +1354,7 @@ impl AprTransformer {
                         output
                     } else {
                         // AUDIT-301: Use already-bound _gate_weight instead of expect()
-                        self.matmul(&ffn_input, _gate_weight, hidden_dim, intermediate_dim)
+                        self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim)
                     };
 
                 // PMAT-103: Check for Q4K up weight
@@ -1891,7 +1891,7 @@ impl AprTransformer {
             // 2h. FFN projection (SwiGLU or standard GELU)
             // PMAT-103 FIX: Use Q4K/Q6K fused kernels when available (single token path)
             let intermediate_dim = self.config.intermediate_dim;
-            let ffn_output = if let Some(ref _gate_weight) = layer.ffn_gate_weight {
+            let ffn_output = if let Some(ref gate_weight) = layer.ffn_gate_weight {
                 // SwiGLU: down(SiLU(gate(x)) * up(x))
                 // PMAT-103: Check for Q4K gate weight
                 let gate = if !force_f32 {
@@ -1905,14 +1905,14 @@ impl AprTransformer {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using F32 fallback (slow!)");
                         }
                         // AUDIT-301: Use already-bound _gate_weight instead of expect()
-                        self.matmul(&ffn_input, _gate_weight, hidden_dim, intermediate_dim)
+                        self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim)
                     }
                 } else {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using F32 (APR_FORCE_F32)");
                     }
                     // AUDIT-301: Use already-bound _gate_weight instead of expect()
-                    self.matmul(&ffn_input, _gate_weight, hidden_dim, intermediate_dim)
+                    self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim)
                 };
 
                 // PMAT-103: Check for Q4K/Q6K up weight
