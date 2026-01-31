@@ -30,12 +30,12 @@ use crate::api::gpu_handlers::ContinuousBatchResponse;
 fn test_batch_config_extreme_values() {
     // Test with minimum values
     let config = BatchConfig {
-        window_ms: 1,      // 1ms window
-        min_batch: 1,      // Minimum batch of 1
-        optimal_batch: 1,  // Optimal of 1
-        max_batch: 1,      // Max of 1
-        queue_size: 1,     // Tiny queue
-        gpu_threshold: 1,  // GPU at 1
+        window_ms: 1,     // 1ms window
+        min_batch: 1,     // Minimum batch of 1
+        optimal_batch: 1, // Optimal of 1
+        max_batch: 1,     // Max of 1
+        queue_size: 1,    // Tiny queue
+        gpu_threshold: 1, // GPU at 1
     };
 
     assert!(config.should_process(1));
@@ -47,12 +47,12 @@ fn test_batch_config_extreme_values() {
 #[test]
 fn test_batch_config_huge_values() {
     let config = BatchConfig {
-        window_ms: 60_000,       // 60 second window
-        min_batch: 1000,         // Huge minimum
-        optimal_batch: 10_000,   // Huge optimal
-        max_batch: 100_000,      // Huge max
-        queue_size: 1_000_000,   // Million entry queue
-        gpu_threshold: 50_000,   // Huge GPU threshold
+        window_ms: 60_000,     // 60 second window
+        min_batch: 1000,       // Huge minimum
+        optimal_batch: 10_000, // Huge optimal
+        max_batch: 100_000,    // Huge max
+        queue_size: 1_000_000, // Million entry queue
+        gpu_threshold: 50_000, // Huge GPU threshold
     };
 
     assert!(!config.should_process(9999));
@@ -172,7 +172,7 @@ fn test_gpu_batch_request_empty_prompts() {
 #[test]
 fn test_gpu_batch_request_single_empty_prompt() {
     let request = GpuBatchRequest {
-        prompts: vec!["".to_string()],
+        prompts: vec![String::new()],
         max_tokens: 100,
         temperature: 1.0,
         top_k: 40,
@@ -351,7 +351,7 @@ fn test_gpu_batch_result_empty_tokens() {
     let result = GpuBatchResult {
         index: 0,
         token_ids: vec![],
-        text: "".to_string(),
+        text: String::new(),
         num_generated: 0,
     };
 

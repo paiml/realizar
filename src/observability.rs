@@ -2596,7 +2596,7 @@ mod tests {
         }
 
         let mut ids: Vec<u64> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        ids.sort();
+        ids.sort_unstable();
 
         // All IDs should be unique (0-9)
         for (i, id) in ids.iter().enumerate() {

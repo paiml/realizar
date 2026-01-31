@@ -515,7 +515,10 @@ mod tests {
     fn test_format_size_exact_boundaries() {
         assert_eq!(format_size(0), "0 B");
         assert_eq!(format_size(1), "1 B");
-        assert_eq!(format_size(u64::MAX), format!("{:.1} GB", u64::MAX as f64 / (1024.0 * 1024.0 * 1024.0)));
+        assert_eq!(
+            format_size(u64::MAX),
+            format!("{:.1} GB", u64::MAX as f64 / (1024.0 * 1024.0 * 1024.0))
+        );
     }
 
     #[test]
@@ -760,11 +763,7 @@ mod tests {
         let mut f2 = std::fs::File::create(&file2).unwrap();
         f2.write_all(b"also not valid").unwrap();
 
-        let result = run_bench_compare(
-            file1.to_str().unwrap(),
-            file2.to_str().unwrap(),
-            5.0,
-        );
+        let result = run_bench_compare(file1.to_str().unwrap(), file2.to_str().unwrap(), 5.0);
         assert!(result.is_err());
 
         let _ = std::fs::remove_file(&file1);

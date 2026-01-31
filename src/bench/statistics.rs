@@ -616,7 +616,10 @@ mod tests {
     fn test_measurement_protocol_default() {
         let protocol = MeasurementProtocol::default();
         assert_eq!(protocol.latency_samples, 100);
-        assert_eq!(protocol.latency_percentiles, vec![50.0, 90.0, 95.0, 99.0, 99.9]);
+        assert_eq!(
+            protocol.latency_percentiles,
+            vec![50.0, 90.0, 95.0, 99.0, 99.9]
+        );
         assert_eq!(protocol.throughput_duration, Duration::from_secs(60));
         assert_eq!(protocol.throughput_ramp_up, Duration::from_secs(10));
         assert_eq!(protocol.memory_samples, 10);
@@ -643,8 +646,8 @@ mod tests {
 
     #[test]
     fn test_measurement_protocol_with_throughput_duration() {
-        let protocol = MeasurementProtocol::new()
-            .with_throughput_duration(Duration::from_secs(120));
+        let protocol =
+            MeasurementProtocol::new().with_throughput_duration(Duration::from_secs(120));
         assert_eq!(protocol.throughput_duration, Duration::from_secs(120));
     }
 
@@ -674,9 +677,7 @@ mod tests {
 
     #[test]
     fn test_latency_statistics_from_samples_uniform() {
-        let samples: Vec<Duration> = (1..=10)
-            .map(|i| Duration::from_millis(i * 10))
-            .collect();
+        let samples: Vec<Duration> = (1..=10).map(|i| Duration::from_millis(i * 10)).collect();
 
         let stats = LatencyStatistics::from_samples(&samples);
 
@@ -702,9 +703,7 @@ mod tests {
     #[test]
     fn test_latency_statistics_percentiles() {
         // 100 samples from 1ms to 100ms
-        let samples: Vec<Duration> = (1..=100)
-            .map(|i| Duration::from_millis(i))
-            .collect();
+        let samples: Vec<Duration> = (1..=100).map(Duration::from_millis).collect();
 
         let stats = LatencyStatistics::from_samples(&samples);
 

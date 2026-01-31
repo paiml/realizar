@@ -30,7 +30,13 @@ async fn test_completions_invalid_json() {
         )
         .await
         .expect("send");
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -64,7 +70,13 @@ async fn test_completions_empty_prompt() {
         )
         .await
         .expect("send");
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -81,7 +93,13 @@ async fn test_embeddings_error_paths() {
         )
         .await
         .expect("send");
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -202,12 +220,20 @@ async fn test_chat_completions_streaming() {
         .await
         .expect("send");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
     let ct = response
         .headers()
         .get("content-type")
         .map(|v| v.to_str().unwrap_or(""));
-    if !ct.map(|c| c.contains("text/event-stream")).unwrap_or(false) { return; } // Mock state guard
+    if !ct.is_some_and(|c| c.contains("text/event-stream")) {
+        return;
+    } // Mock state guard
 }
 
 #[tokio::test]
@@ -231,12 +257,18 @@ async fn test_chat_completions_non_streaming() {
         .await
         .expect("send");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
     let ct = response
         .headers()
         .get("content-type")
         .map(|v| v.to_str().unwrap_or(""));
-    assert!(ct.map(|c| c.contains("application/json")).unwrap_or(false));
+    assert!(ct.is_some_and(|c| c.contains("application/json")));
 }
 
 // =============================================================================
@@ -286,7 +318,8 @@ async fn test_completions_with_params() {
     assert!(
         status == StatusCode::OK
             || status == StatusCode::NOT_FOUND
-            || status == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::NOT_FOUND
+            || status == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -328,7 +361,13 @@ async fn test_realize_embed_invalid() {
         )
         .await
         .expect("send");
-    assert!(response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]

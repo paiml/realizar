@@ -29,7 +29,11 @@ fn test_get_tensor_f32_q4_0() {
         .build();
     let model = GGUFModel::from_bytes(&data).unwrap();
     let values = model.get_tensor_f32("test.weight", &data);
-    assert!(values.is_ok(), "Q4_0 get_tensor_f32 failed: {:?}", values.err());
+    assert!(
+        values.is_ok(),
+        "Q4_0 get_tensor_f32 failed: {:?}",
+        values.err()
+    );
     let v = values.unwrap();
     assert_eq!(v.len(), n);
 }
@@ -65,7 +69,11 @@ fn test_get_tensor_f32_q8_0() {
         .build();
     let model = GGUFModel::from_bytes(&data).unwrap();
     let values = model.get_tensor_f32("test.weight", &data);
-    assert!(values.is_ok(), "Q8_0 get_tensor_f32 failed: {:?}", values.err());
+    assert!(
+        values.is_ok(),
+        "Q8_0 get_tensor_f32 failed: {:?}",
+        values.err()
+    );
     assert_eq!(values.unwrap().len(), n);
 }
 
@@ -100,7 +108,11 @@ fn test_get_tensor_f32_q4_k() {
         .build();
     let model = GGUFModel::from_bytes(&data).unwrap();
     let values = model.get_tensor_f32("test.weight", &data);
-    assert!(values.is_ok(), "Q4_K get_tensor_f32 failed: {:?}", values.err());
+    assert!(
+        values.is_ok(),
+        "Q4_K get_tensor_f32 failed: {:?}",
+        values.err()
+    );
     assert_eq!(values.unwrap().len(), n);
 }
 
@@ -135,7 +147,11 @@ fn test_get_tensor_f32_q5_k() {
         .build();
     let model = GGUFModel::from_bytes(&data).unwrap();
     let values = model.get_tensor_f32("test.weight", &data);
-    assert!(values.is_ok(), "Q5_K get_tensor_f32 failed: {:?}", values.err());
+    assert!(
+        values.is_ok(),
+        "Q5_K get_tensor_f32 failed: {:?}",
+        values.err()
+    );
     assert_eq!(values.unwrap().len(), n);
 }
 
@@ -155,7 +171,11 @@ fn test_get_tensor_f32_q6_k() {
         .build();
     let model = GGUFModel::from_bytes(&data).unwrap();
     let values = model.get_tensor_f32("test.weight", &data);
-    assert!(values.is_ok(), "Q6_K get_tensor_f32 failed: {:?}", values.err());
+    assert!(
+        values.is_ok(),
+        "Q6_K get_tensor_f32 failed: {:?}",
+        values.err()
+    );
     assert_eq!(values.unwrap().len(), n);
 }
 
@@ -563,7 +583,11 @@ fn test_transformer_from_gguf_two_layers() {
 
     let model = GGUFModel::from_bytes(&data).unwrap();
     let transformer = GGUFTransformer::from_gguf(&model, &data);
-    assert!(transformer.is_ok(), "2-layer failed: {:?}", transformer.err());
+    assert!(
+        transformer.is_ok(),
+        "2-layer failed: {:?}",
+        transformer.err()
+    );
     let t = transformer.unwrap();
     assert_eq!(t.layers.len(), 2);
     assert_eq!(t.config.num_layers, 2);

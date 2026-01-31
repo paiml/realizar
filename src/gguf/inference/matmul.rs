@@ -543,10 +543,18 @@ impl OwnedQuantizedModel {
                 let normed = ops::rms_norm(input, norm_weight, eps);
 
                 // PMAT-114: Trace K weight to compare with APR
-                static ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-                if std::env::var("APR_TRACE_WEIGHTS").is_ok() && !ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    eprintln!("[PMAT-114-GGUF] K weight: in_dim={}, out_dim={}, qtype={}, data_len={}",
-                        k.in_dim, k.out_dim, k.qtype, k.data.len());
+                static ONCE: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if std::env::var("APR_TRACE_WEIGHTS").is_ok()
+                    && !ONCE.swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    eprintln!(
+                        "[PMAT-114-GGUF] K weight: in_dim={}, out_dim={}, qtype={}, data_len={}",
+                        k.in_dim,
+                        k.out_dim,
+                        k.qtype,
+                        k.data.len()
+                    );
                     // Dequantize first row completely to compare with APR
                     // Q4K: 144 bytes per super-block of 256 values, so first row = in_dim/256 super-blocks
                     let bytes_per_row = (k.in_dim.div_ceil(256)) * 144;
@@ -557,7 +565,10 @@ impl OwnedQuantizedModel {
                         let row_max = dequant.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
                         eprintln!("[PMAT-114-GGUF] K weight row 0 (dequant): mean={:.6}, min={:.6}, max={:.6}, len={}",
                             row_mean, row_min, row_max, dequant.len());
-                        eprintln!("[PMAT-114-GGUF] K weight row 0 first10={:?}", &dequant[..10.min(dequant.len())]);
+                        eprintln!(
+                            "[PMAT-114-GGUF] K weight row 0 first10={:?}",
+                            &dequant[..10.min(dequant.len())]
+                        );
                     }
                 }
 

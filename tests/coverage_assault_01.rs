@@ -3,7 +3,7 @@
 //! Target: Increase batch.rs coverage from 20.97% to >40%
 //! Focus: argmax, optimized_lm_head_argmax_transposed, simplified_attention
 
-use realizar::gpu::scheduler::{GpuModel, GpuModelConfig};
+use realizar::gpu::scheduler::GpuModelConfig;
 
 // ============================================================================
 // argmax tests

@@ -1020,10 +1020,7 @@ mod tests {
             GGUFValue::String("yarn".to_string()),
         );
         let result = GgufToAprQ4KConverter::infer_rope_type("llama", &metadata);
-        assert_eq!(
-            result, 2,
-            "yarn scaling type should override to NEOX style"
-        );
+        assert_eq!(result, 2, "yarn scaling type should override to NEOX style");
     }
 
     #[test]
@@ -2316,8 +2313,7 @@ mod tests {
         );
 
         // Step 2: Serialize to APR bytes
-        let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr)
-            .expect("Failed to serialize APR");
+        let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("Failed to serialize APR");
 
         // Step 3: Verify num_kv_heads is in the serialized JSON metadata
         // Find the metadata section and check it contains num_kv_heads
@@ -2330,8 +2326,8 @@ mod tests {
         );
 
         // Step 4: Deserialize back and verify
-        let apr_loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes)
-            .expect("Failed to load APR from bytes");
+        let apr_loaded =
+            GgufToAprConverter::from_apr_bytes(&apr_bytes).expect("Failed to load APR from bytes");
 
         assert_eq!(
             apr_loaded.config.num_heads, num_heads,
@@ -2342,10 +2338,12 @@ mod tests {
             "FALSIFICATION FAILED: num_kv_heads corrupted after APR round-trip!\n\
              Expected: {}, Got: {}\n\
              This bug causes GPU inference to hang for GQA models.",
-            num_kv_heads,
-            apr_loaded.config.num_kv_heads
+            num_kv_heads, apr_loaded.config.num_kv_heads
         );
 
-        println!("✅ FALSIFICATION TEST PASSED: num_kv_heads={} preserved through APR round-trip", num_kv_heads);
+        println!(
+            "✅ FALSIFICATION TEST PASSED: num_kv_heads={} preserved through APR round-trip",
+            num_kv_heads
+        );
     }
 }

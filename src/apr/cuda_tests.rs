@@ -443,11 +443,18 @@ mod tests {
             let prefill_result = cuda_model.forward_cuda(&prompt);
 
             // Prefill should succeed
-            assert!(prefill_result.is_ok(), "Prefill failed: {:?}", prefill_result);
+            assert!(
+                prefill_result.is_ok(),
+                "Prefill failed: {:?}",
+                prefill_result
+            );
             let prefill_logits = prefill_result.unwrap();
 
             // CRITICAL: Logits must not be all -inf or NaN
-            let max_logit = prefill_logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let max_logit = prefill_logits
+                .iter()
+                .cloned()
+                .fold(f32::NEG_INFINITY, f32::max);
             assert!(max_logit.is_finite(), "Prefill logits are all -inf or NaN");
 
             // Now test single token decode (the problematic path)
@@ -458,7 +465,10 @@ mod tests {
             let decode_logits = decode_result.unwrap();
 
             // CRITICAL: Decode logits must ALSO not be all -inf or NaN
-            let decode_max = decode_logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let decode_max = decode_logits
+                .iter()
+                .cloned()
+                .fold(f32::NEG_INFINITY, f32::max);
             assert!(
                 decode_max.is_finite(),
                 "PMAT-110 FAILURE: forward_single_cuda returns invalid logits (max={}).\n\
@@ -510,10 +520,17 @@ mod tests {
 
         // Test prefill
         let prefill_result = cuda_model.forward_cuda(&prompt);
-        assert!(prefill_result.is_ok(), "Prefill failed: {:?}", prefill_result);
+        assert!(
+            prefill_result.is_ok(),
+            "Prefill failed: {:?}",
+            prefill_result
+        );
         let prefill_logits = prefill_result.unwrap();
 
-        let prefill_max = prefill_logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let prefill_max = prefill_logits
+            .iter()
+            .cloned()
+            .fold(f32::NEG_INFINITY, f32::max);
         println!("Prefill max logit: {:.2}", prefill_max);
         assert!(prefill_max.is_finite(), "Prefill logits are -inf");
 
@@ -522,7 +539,10 @@ mod tests {
         assert!(decode_result.is_ok(), "Decode failed: {:?}", decode_result);
         let decode_logits = decode_result.unwrap();
 
-        let decode_max = decode_logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let decode_max = decode_logits
+            .iter()
+            .cloned()
+            .fold(f32::NEG_INFINITY, f32::max);
         println!("Decode max logit: {:.2}", decode_max);
 
         // THIS ASSERTION WILL FAIL - proving the bug exists

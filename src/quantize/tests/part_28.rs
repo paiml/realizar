@@ -135,8 +135,14 @@ fn test_simd_performance_speedup() {
     let speedup = scalar_duration.as_secs_f64() / simd_duration.as_secs_f64();
 
     println!("Performance Falsification Gate Results:");
-    println!("  Scalar: {:?} for {} iterations", scalar_duration, iterations);
-    println!("  SIMD:   {:?} for {} iterations", simd_duration, iterations);
+    println!(
+        "  Scalar: {:?} for {} iterations",
+        scalar_duration, iterations
+    );
+    println!(
+        "  SIMD:   {:?} for {} iterations",
+        simd_duration, iterations
+    );
     println!("  Speedup: {:.2}x", speedup);
 
     // SIMD should be at least 2x faster on this hardware (AVX-512 VNNI)
@@ -168,7 +174,10 @@ fn test_simd_feature_detection() {
         // Threadripper 7960X should have all these features
         assert!(has_avx2, "AVX2 not detected on Threadripper 7960X");
         assert!(has_avx512f, "AVX512F not detected on Threadripper 7960X");
-        assert!(has_avx512vnni, "AVX512VNNI not detected on Threadripper 7960X");
+        assert!(
+            has_avx512vnni,
+            "AVX512VNNI not detected on Threadripper 7960X"
+        );
     }
 
     #[cfg(not(target_arch = "x86_64"))]

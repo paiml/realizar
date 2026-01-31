@@ -24,12 +24,12 @@ use proptest::prelude::*;
 /// Generate arbitrary BatchConfig values
 fn arb_batch_config() -> impl Strategy<Value = BatchConfig> {
     (
-        0u64..10_000,        // window_ms
-        0usize..1000,        // min_batch
-        0usize..1000,        // optimal_batch
-        0usize..10_000,      // max_batch
-        0usize..100_000,     // queue_size
-        0usize..1000,        // gpu_threshold
+        0u64..10_000,    // window_ms
+        0usize..1000,    // min_batch
+        0usize..1000,    // optimal_batch
+        0usize..10_000,  // max_batch
+        0usize..100_000, // queue_size
+        0usize..1000,    // gpu_threshold
     )
         .prop_map(
             |(window_ms, min_batch, optimal_batch, max_batch, queue_size, gpu_threshold)| {
@@ -108,19 +108,21 @@ fn arb_prompt() -> impl Strategy<Value = String> {
 /// Generate arbitrary GpuBatchRequest
 fn arb_gpu_batch_request() -> impl Strategy<Value = GpuBatchRequest> {
     (
-        prop::collection::vec(arb_prompt(), 0..20),   // prompts
-        0usize..10000,                                // max_tokens
-        0.0f32..10.0,                                 // temperature
-        0usize..1000,                                 // top_k
-        prop::collection::vec("[a-z]{0,10}", 0..5),  // stop tokens
+        prop::collection::vec(arb_prompt(), 0..20), // prompts
+        0usize..10000,                              // max_tokens
+        0.0f32..10.0,                               // temperature
+        0usize..1000,                               // top_k
+        prop::collection::vec("[a-z]{0,10}", 0..5), // stop tokens
     )
-        .prop_map(|(prompts, max_tokens, temperature, top_k, stop)| GpuBatchRequest {
-            prompts,
-            max_tokens,
-            temperature,
-            top_k,
-            stop,
-        })
+        .prop_map(
+            |(prompts, max_tokens, temperature, top_k, stop)| GpuBatchRequest {
+                prompts,
+                max_tokens,
+                temperature,
+                top_k,
+                stop,
+            },
+        )
 }
 
 proptest! {
@@ -206,11 +208,11 @@ proptest! {
 
 fn arb_gpu_batch_stats() -> impl Strategy<Value = GpuBatchStats> {
     (
-        any::<usize>(),  // batch_size
-        any::<bool>(),   // gpu_used
-        any::<usize>(),  // total_tokens
-        0.0f64..1e10,    // processing_time_ms
-        0.0f64..1e10,    // throughput_tps
+        any::<usize>(), // batch_size
+        any::<bool>(),  // gpu_used
+        any::<usize>(), // total_tokens
+        0.0f64..1e10,   // processing_time_ms
+        0.0f64..1e10,   // throughput_tps
     )
         .prop_map(
             |(batch_size, gpu_used, total_tokens, processing_time_ms, throughput_tps)| {
@@ -277,10 +279,10 @@ proptest! {
 
 fn arb_gpu_status_response() -> impl Strategy<Value = GpuStatusResponse> {
     (
-        any::<bool>(),   // cache_ready
-        any::<usize>(),  // cache_memory_bytes
-        any::<usize>(),  // batch_threshold
-        any::<usize>(),  // recommended_min_batch
+        any::<bool>(),  // cache_ready
+        any::<usize>(), // cache_memory_bytes
+        any::<usize>(), // batch_threshold
+        any::<usize>(), // recommended_min_batch
     )
         .prop_map(
             |(cache_ready, cache_memory_bytes, batch_threshold, recommended_min_batch)| {

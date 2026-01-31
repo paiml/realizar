@@ -1764,24 +1764,27 @@ impl OwnedQuantizedModel {
             match dtype {
                 "F32" => 0,
                 "F16" => 1,
-                "BF16" => 30,   // GGML BF16 type
-                "Q4_0" => 2,    // GGML type 2
-                "Q4_1" => 3,    // GGML type 3
-                "Q5_0" => 6,    // GGML type 6
-                "Q5_1" => 7,    // GGML type 7
-                "Q8_0" => 8,    // GGML type 8
-                "Q8_1" => 9,    // GGML type 9
-                "Q2_K" => 10,   // GGML type 10
-                "Q3_K" => 11,   // GGML type 11
-                "Q4_K" => 12,   // GGML type 12
-                "Q5_K" => 13,   // GGML type 13
-                "Q6_K" => 14,   // GGML type 14
+                "BF16" => 30,    // GGML BF16 type
+                "Q4_0" => 2,     // GGML type 2
+                "Q4_1" => 3,     // GGML type 3
+                "Q5_0" => 6,     // GGML type 6
+                "Q5_1" => 7,     // GGML type 7
+                "Q8_0" => 8,     // GGML type 8
+                "Q8_1" => 9,     // GGML type 9
+                "Q2_K" => 10,    // GGML type 10
+                "Q3_K" => 11,    // GGML type 11
+                "Q4_K" => 12,    // GGML type 12
+                "Q5_K" => 13,    // GGML type 13
+                "Q6_K" => 14,    // GGML type 14
                 "IQ2_XXS" => 16, // GGML type 16
                 "IQ2_XS" => 17,  // GGML type 17
                 _ => {
-                    eprintln!("WARN: Unknown dtype '{}' in dtype_to_byte, writing as F32", dtype);
+                    eprintln!(
+                        "WARN: Unknown dtype '{}' in dtype_to_byte, writing as F32",
+                        dtype
+                    );
                     0
-                }
+                },
             }
         }
 
@@ -2081,7 +2084,7 @@ mod tests {
         let model = GGUFModel::from_bytes(&data).unwrap();
 
         // tensor_data_start should be 32-byte aligned
-        assert!(model.tensor_data_start % GGUF_ALIGNMENT == 0);
+        assert!(model.tensor_data_start.is_multiple_of(GGUF_ALIGNMENT));
     }
 
     #[test]

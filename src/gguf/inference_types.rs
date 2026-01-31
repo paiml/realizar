@@ -971,7 +971,7 @@ mod tests {
 
         // Q8K uses 256-element super-blocks
         // hidden_dim=64 -> ceil(64/256)=1 super-block -> 1 scale
-        assert!(buf.q8k_hidden_scales.len() >= 1);
+        assert!(!buf.q8k_hidden_scales.is_empty());
         assert!(buf.q8k_hidden_quants.len() >= 64);
     }
 
@@ -1133,7 +1133,7 @@ mod tests {
         let cache = ContiguousKVCache::new(2, 64, 128);
         let stride = cache.layer_stride();
         // Should be cache-line aligned
-        assert!(stride % FLOATS_PER_CACHE_LINE == 0);
+        assert!(stride.is_multiple_of(FLOATS_PER_CACHE_LINE));
     }
 
     #[test]

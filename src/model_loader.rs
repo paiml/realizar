@@ -285,12 +285,9 @@ pub fn read_apr_model_type(data: &[u8]) -> Option<String> {
         }
 
         let metadata_offset = u64::from_le_bytes([
-            data[12], data[13], data[14], data[15],
-            data[16], data[17], data[18], data[19],
+            data[12], data[13], data[14], data[15], data[16], data[17], data[18], data[19],
         ]) as usize;
-        let metadata_size = u32::from_le_bytes([
-            data[20], data[21], data[22], data[23],
-        ]) as usize;
+        let metadata_size = u32::from_le_bytes([data[20], data[21], data[22], data[23]]) as usize;
 
         if metadata_offset + metadata_size <= data.len() && metadata_size > 0 {
             let metadata_bytes = &data[metadata_offset..metadata_offset + metadata_size];

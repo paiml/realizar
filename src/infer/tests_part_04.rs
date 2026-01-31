@@ -43,8 +43,7 @@ mod tests {
 
     #[test]
     fn test_clean_model_output_multiple_markers() {
-        let output =
-            clean_model_output("<|im_start|>assistant\nContent<|im_end|><|endoftext|>");
+        let output = clean_model_output("<|im_start|>assistant\nContent<|im_end|><|endoftext|>");
         assert_eq!(output, "Content");
     }
 

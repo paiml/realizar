@@ -1905,8 +1905,8 @@ mod tests {
 
     #[test]
     fn test_stop_sequence_detector_with_stop_strings() {
-        let detector =
-            StopSequenceDetector::new().with_stop_strings(vec!["end".to_string(), "stop".to_string()]);
+        let detector = StopSequenceDetector::new()
+            .with_stop_strings(vec!["end".to_string(), "stop".to_string()]);
         assert!(detector.has_conditions());
     }
 
@@ -1947,7 +1947,7 @@ mod tests {
         let detector = StopSequenceDetector::new()
             .with_token_sequence(vec![])
             .with_string_pattern("")
-            .with_stop_strings(vec!["".to_string()]);
+            .with_stop_strings(vec![String::new()]);
         assert!(!detector.has_conditions());
     }
 
@@ -2117,7 +2117,7 @@ mod tests {
     fn test_apply_presence_frequency_penalty_frequency() {
         let logits = Tensor::from_vec(vec![4], vec![10.0, 10.0, 10.0, 10.0]).unwrap();
         let config = PresenceFrequencyPenalty::new(0.0, 0.5); // Only frequency
-        // Token 0 appears 3 times
+                                                              // Token 0 appears 3 times
         let result = apply_presence_frequency_penalty(&logits, &[0, 0, 0, 1], &config);
         let data = result.data();
         assert_eq!(data[0], 8.5); // 10.0 - 0.5 * 3
@@ -2289,8 +2289,8 @@ mod tests {
     #[test]
     fn test_advanced_generation_config_with_stop_sequences() {
         let base = GenerationConfig::default();
-        let config = AdvancedGenerationConfig::new(base)
-            .with_stop_sequences(vec!["stop".to_string()]);
+        let config =
+            AdvancedGenerationConfig::new(base).with_stop_sequences(vec!["stop".to_string()]);
         assert!(config.stop_detector.is_some());
     }
 }

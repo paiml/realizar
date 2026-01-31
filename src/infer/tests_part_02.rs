@@ -153,8 +153,8 @@ mod tests {
 
     #[test]
     fn test_clean_model_output_escaped_sequences() {
-        let raw = r#"<|im_start|>assistant
-Line with \n escaped newline<|im_end|>"#;
+        let raw = r"<|im_start|>assistant
+Line with \n escaped newline<|im_end|>";
         let cleaned = clean_model_output(raw);
         assert!(cleaned.contains(r"\n"));
     }
@@ -194,7 +194,7 @@ Line with \n escaped newline<|im_end|>"#;
         ]);
 
         let cloned = config.clone();
-        assert_eq!(cloned.trace_steps.as_ref().map(|s| s.len()), Some(3));
+        assert_eq!(cloned.trace_steps.as_ref().map(std::vec::Vec::len), Some(3));
     }
 
     #[test]
@@ -343,7 +343,7 @@ Line with \n escaped newline<|im_end|>"#;
         let data = b"APR3xxxxxxxx";
         let result = detect_format(data);
         // Should not match APR, might match SafeTensors if header size valid
-        assert!(matches!(result, Err(FormatError::UnknownFormat)) || matches!(result, Ok(_)));
+        assert!(matches!(result, Err(FormatError::UnknownFormat)) || result.is_ok());
     }
 
     // =========================================================================
@@ -547,7 +547,7 @@ Line with \n escaped newline<|im_end|>"#;
         assert!(config.trace);
         assert!(config.trace_verbose);
         assert!(config.trace_output.is_some());
-        assert_eq!(config.trace_steps.as_ref().map(|s| s.len()), Some(4));
+        assert_eq!(config.trace_steps.as_ref().map(std::vec::Vec::len), Some(4));
     }
 
     // =========================================================================

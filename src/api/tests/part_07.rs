@@ -10,9 +10,9 @@ use axum::{
 use tower::util::ServiceExt;
 
 use crate::api::realize_handlers::{
-    clean_chat_output, format_chat_messages, CompletionRequest, CompletionResponse,
-    ContextWindowConfig, ContextWindowManager, EmbeddingData, EmbeddingRequest, EmbeddingResponse,
-    EmbeddingUsage, ModelMetadataResponse, ReloadRequest,
+    clean_chat_output, format_chat_messages, CompletionRequest, ContextWindowConfig,
+    ContextWindowManager, EmbeddingData, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage,
+    ModelMetadataResponse, ReloadRequest,
 };
 use crate::api::test_helpers::create_test_app_shared;
 use crate::api::ChatMessage;

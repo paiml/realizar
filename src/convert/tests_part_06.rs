@@ -103,11 +103,17 @@ fn test_from_gguf_transformer_llama() {
 
     let apr = GgufToAprConverter::from_gguf_transformer(&gguf_transformer);
 
-    assert_eq!(apr.config.architecture, gguf_transformer.config.architecture);
+    assert_eq!(
+        apr.config.architecture,
+        gguf_transformer.config.architecture
+    );
     assert_eq!(apr.config.hidden_dim, gguf_transformer.config.hidden_dim);
     assert_eq!(apr.config.num_layers, gguf_transformer.config.num_layers);
     assert_eq!(apr.layers.len(), gguf_transformer.layers.len());
-    assert_eq!(apr.token_embedding.len(), gguf_transformer.token_embedding.len());
+    assert_eq!(
+        apr.token_embedding.len(),
+        gguf_transformer.token_embedding.len()
+    );
 }
 
 #[test]
@@ -133,7 +139,10 @@ fn test_from_gguf_transformer_preserves_weights() {
         apr.output_norm_weight.len(),
         gguf_transformer.output_norm_weight.len()
     );
-    assert_eq!(apr.lm_head_weight.len(), gguf_transformer.lm_head_weight.len());
+    assert_eq!(
+        apr.lm_head_weight.len(),
+        gguf_transformer.lm_head_weight.len()
+    );
 
     // Check first layer weights match
     if !apr.layers.is_empty() {
@@ -174,7 +183,8 @@ fn test_to_apr_bytes_header_layout() {
     // Parse header fields
     let version_major = apr_bytes[4];
     let version_minor = apr_bytes[5];
-    let tensor_count = u32::from_le_bytes([apr_bytes[8], apr_bytes[9], apr_bytes[10], apr_bytes[11]]);
+    let tensor_count =
+        u32::from_le_bytes([apr_bytes[8], apr_bytes[9], apr_bytes[10], apr_bytes[11]]);
 
     assert_eq!(version_major, 2);
     assert_eq!(version_minor, 0);
@@ -211,7 +221,11 @@ fn test_apr_round_trip_weights_preserved() {
 
     // Check embedding weights
     assert_eq!(original.token_embedding.len(), loaded.token_embedding.len());
-    for (o, l) in original.token_embedding.iter().zip(loaded.token_embedding.iter()) {
+    for (o, l) in original
+        .token_embedding
+        .iter()
+        .zip(loaded.token_embedding.iter())
+    {
         assert!((o - l).abs() < 1e-6, "Embedding mismatch: {} vs {}", o, l);
     }
 
@@ -282,16 +296,48 @@ fn test_convert_with_q4_k_tensors() {
         .rope_freq_base("llama", 10000.0)
         .rms_epsilon("llama", 1e-5)
         .ffn_hidden_dim("llama", intermediate_dim as u32)
-        .add_f32_tensor("token_embd.weight", &[vocab_size as u64, hidden_dim as u64], &embed_data)
+        .add_f32_tensor(
+            "token_embd.weight",
+            &[vocab_size as u64, hidden_dim as u64],
+            &embed_data,
+        )
         .add_f32_tensor("blk.0.attn_norm.weight", &[hidden_dim as u64], &norm_data)
-        .add_q4_k_tensor("blk.0.attn_q.weight", &[hidden_dim as u64, hidden_dim as u64], &q_data)
-        .add_q4_k_tensor("blk.0.attn_k.weight", &[hidden_dim as u64, kv_dim as u64], &k_data)
-        .add_q4_k_tensor("blk.0.attn_v.weight", &[hidden_dim as u64, kv_dim as u64], &v_data)
-        .add_q4_k_tensor("blk.0.attn_output.weight", &[hidden_dim as u64, hidden_dim as u64], &out_data)
+        .add_q4_k_tensor(
+            "blk.0.attn_q.weight",
+            &[hidden_dim as u64, hidden_dim as u64],
+            &q_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.attn_k.weight",
+            &[hidden_dim as u64, kv_dim as u64],
+            &k_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.attn_v.weight",
+            &[hidden_dim as u64, kv_dim as u64],
+            &v_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.attn_output.weight",
+            &[hidden_dim as u64, hidden_dim as u64],
+            &out_data,
+        )
         .add_f32_tensor("blk.0.ffn_norm.weight", &[hidden_dim as u64], &norm_data)
-        .add_q4_k_tensor("blk.0.ffn_up.weight", &[hidden_dim as u64, intermediate_dim as u64], &up_data)
-        .add_q4_k_tensor("blk.0.ffn_down.weight", &[intermediate_dim as u64, hidden_dim as u64], &down_data)
-        .add_q4_k_tensor("blk.0.ffn_gate.weight", &[hidden_dim as u64, intermediate_dim as u64], &gate_data)
+        .add_q4_k_tensor(
+            "blk.0.ffn_up.weight",
+            &[hidden_dim as u64, intermediate_dim as u64],
+            &up_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.ffn_down.weight",
+            &[intermediate_dim as u64, hidden_dim as u64],
+            &down_data,
+        )
+        .add_q4_k_tensor(
+            "blk.0.ffn_gate.weight",
+            &[hidden_dim as u64, intermediate_dim as u64],
+            &gate_data,
+        )
         .add_f32_tensor("output_norm.weight", &[hidden_dim as u64], &norm_data)
         .build();
 
@@ -321,16 +367,48 @@ fn test_convert_with_q8_0_tensors() {
         .rope_freq_base("llama", 10000.0)
         .rms_epsilon("llama", 1e-5)
         .ffn_hidden_dim("llama", intermediate_dim as u32)
-        .add_f32_tensor("token_embd.weight", &[vocab_size as u64, hidden_dim as u64], &embed_data)
+        .add_f32_tensor(
+            "token_embd.weight",
+            &[vocab_size as u64, hidden_dim as u64],
+            &embed_data,
+        )
         .add_f32_tensor("blk.0.attn_norm.weight", &[hidden_dim as u64], &norm_data)
-        .add_q8_0_tensor("blk.0.attn_q.weight", &[hidden_dim as u64, hidden_dim as u64], &q8_data)
-        .add_q8_0_tensor("blk.0.attn_k.weight", &[hidden_dim as u64, hidden_dim as u64], &q8_data)
-        .add_q8_0_tensor("blk.0.attn_v.weight", &[hidden_dim as u64, hidden_dim as u64], &q8_data)
-        .add_q8_0_tensor("blk.0.attn_output.weight", &[hidden_dim as u64, hidden_dim as u64], &q8_data)
+        .add_q8_0_tensor(
+            "blk.0.attn_q.weight",
+            &[hidden_dim as u64, hidden_dim as u64],
+            &q8_data,
+        )
+        .add_q8_0_tensor(
+            "blk.0.attn_k.weight",
+            &[hidden_dim as u64, hidden_dim as u64],
+            &q8_data,
+        )
+        .add_q8_0_tensor(
+            "blk.0.attn_v.weight",
+            &[hidden_dim as u64, hidden_dim as u64],
+            &q8_data,
+        )
+        .add_q8_0_tensor(
+            "blk.0.attn_output.weight",
+            &[hidden_dim as u64, hidden_dim as u64],
+            &q8_data,
+        )
         .add_f32_tensor("blk.0.ffn_norm.weight", &[hidden_dim as u64], &norm_data)
-        .add_q8_0_tensor("blk.0.ffn_up.weight", &[hidden_dim as u64, intermediate_dim as u64], &ffn_data)
-        .add_q8_0_tensor("blk.0.ffn_down.weight", &[intermediate_dim as u64, hidden_dim as u64], &ffn_data)
-        .add_q8_0_tensor("blk.0.ffn_gate.weight", &[hidden_dim as u64, intermediate_dim as u64], &ffn_data)
+        .add_q8_0_tensor(
+            "blk.0.ffn_up.weight",
+            &[hidden_dim as u64, intermediate_dim as u64],
+            &ffn_data,
+        )
+        .add_q8_0_tensor(
+            "blk.0.ffn_down.weight",
+            &[intermediate_dim as u64, hidden_dim as u64],
+            &ffn_data,
+        )
+        .add_q8_0_tensor(
+            "blk.0.ffn_gate.weight",
+            &[hidden_dim as u64, intermediate_dim as u64],
+            &ffn_data,
+        )
         .add_f32_tensor("output_norm.weight", &[hidden_dim as u64], &norm_data)
         .build();
 
@@ -359,16 +437,48 @@ fn test_convert_with_q6_k_tensors() {
         .rope_freq_base("llama", 10000.0)
         .rms_epsilon("llama", 1e-5)
         .ffn_hidden_dim("llama", intermediate_dim as u32)
-        .add_f32_tensor("token_embd.weight", &[vocab_size as u64, hidden_dim as u64], &embed_data)
+        .add_f32_tensor(
+            "token_embd.weight",
+            &[vocab_size as u64, hidden_dim as u64],
+            &embed_data,
+        )
         .add_f32_tensor("blk.0.attn_norm.weight", &[hidden_dim as u64], &norm_data)
-        .add_q6_k_tensor("blk.0.attn_q.weight", &[hidden_dim as u64, hidden_dim as u64], &q6k_data)
-        .add_q6_k_tensor("blk.0.attn_k.weight", &[hidden_dim as u64, hidden_dim as u64], &q6k_data)
-        .add_q6_k_tensor("blk.0.attn_v.weight", &[hidden_dim as u64, hidden_dim as u64], &q6k_data)
-        .add_q6_k_tensor("blk.0.attn_output.weight", &[hidden_dim as u64, hidden_dim as u64], &q6k_data)
+        .add_q6_k_tensor(
+            "blk.0.attn_q.weight",
+            &[hidden_dim as u64, hidden_dim as u64],
+            &q6k_data,
+        )
+        .add_q6_k_tensor(
+            "blk.0.attn_k.weight",
+            &[hidden_dim as u64, hidden_dim as u64],
+            &q6k_data,
+        )
+        .add_q6_k_tensor(
+            "blk.0.attn_v.weight",
+            &[hidden_dim as u64, hidden_dim as u64],
+            &q6k_data,
+        )
+        .add_q6_k_tensor(
+            "blk.0.attn_output.weight",
+            &[hidden_dim as u64, hidden_dim as u64],
+            &q6k_data,
+        )
         .add_f32_tensor("blk.0.ffn_norm.weight", &[hidden_dim as u64], &norm_data)
-        .add_q6_k_tensor("blk.0.ffn_up.weight", &[hidden_dim as u64, intermediate_dim as u64], &ffn_q6k)
-        .add_q6_k_tensor("blk.0.ffn_down.weight", &[intermediate_dim as u64, hidden_dim as u64], &ffn_q6k)
-        .add_q6_k_tensor("blk.0.ffn_gate.weight", &[hidden_dim as u64, intermediate_dim as u64], &ffn_q6k)
+        .add_q6_k_tensor(
+            "blk.0.ffn_up.weight",
+            &[hidden_dim as u64, intermediate_dim as u64],
+            &ffn_q6k,
+        )
+        .add_q6_k_tensor(
+            "blk.0.ffn_down.weight",
+            &[intermediate_dim as u64, hidden_dim as u64],
+            &ffn_q6k,
+        )
+        .add_q6_k_tensor(
+            "blk.0.ffn_gate.weight",
+            &[hidden_dim as u64, intermediate_dim as u64],
+            &ffn_q6k,
+        )
         .add_f32_tensor("output_norm.weight", &[hidden_dim as u64], &norm_data)
         .build();
 
@@ -430,16 +540,40 @@ fn test_convert_preserves_rope_theta() {
         .rope_freq_base("llama", 50000.0) // Non-default rope_theta
         .rms_epsilon("llama", 1e-5)
         .ffn_hidden_dim("llama", 128)
-        .add_f32_tensor("token_embd.weight", &[32, 64], &create_f32_embedding_data(32, 64))
-        .add_f32_tensor("blk.0.attn_norm.weight", &[64], &create_f32_norm_weights(64))
+        .add_f32_tensor(
+            "token_embd.weight",
+            &[32, 64],
+            &create_f32_embedding_data(32, 64),
+        )
+        .add_f32_tensor(
+            "blk.0.attn_norm.weight",
+            &[64],
+            &create_f32_norm_weights(64),
+        )
         .add_q4_k_tensor("blk.0.attn_q.weight", &[64, 64], &create_q4_k_data(64 * 64))
         .add_q4_k_tensor("blk.0.attn_k.weight", &[64, 64], &create_q4_k_data(64 * 64))
         .add_q4_k_tensor("blk.0.attn_v.weight", &[64, 64], &create_q4_k_data(64 * 64))
-        .add_q4_k_tensor("blk.0.attn_output.weight", &[64, 64], &create_q4_k_data(64 * 64))
+        .add_q4_k_tensor(
+            "blk.0.attn_output.weight",
+            &[64, 64],
+            &create_q4_k_data(64 * 64),
+        )
         .add_f32_tensor("blk.0.ffn_norm.weight", &[64], &create_f32_norm_weights(64))
-        .add_q4_k_tensor("blk.0.ffn_up.weight", &[64, 128], &create_q4_k_data(64 * 128))
-        .add_q4_k_tensor("blk.0.ffn_down.weight", &[128, 64], &create_q4_k_data(128 * 64))
-        .add_q4_k_tensor("blk.0.ffn_gate.weight", &[64, 128], &create_q4_k_data(64 * 128))
+        .add_q4_k_tensor(
+            "blk.0.ffn_up.weight",
+            &[64, 128],
+            &create_q4_k_data(64 * 128),
+        )
+        .add_q4_k_tensor(
+            "blk.0.ffn_down.weight",
+            &[128, 64],
+            &create_q4_k_data(128 * 64),
+        )
+        .add_q4_k_tensor(
+            "blk.0.ffn_gate.weight",
+            &[64, 128],
+            &create_q4_k_data(64 * 128),
+        )
         .add_f32_tensor("output_norm.weight", &[64], &create_f32_norm_weights(64))
         .build();
 
@@ -459,16 +593,40 @@ fn test_convert_preserves_epsilon() {
         .rope_freq_base("llama", 10000.0)
         .rms_epsilon("llama", 1e-6) // Different epsilon
         .ffn_hidden_dim("llama", 128)
-        .add_f32_tensor("token_embd.weight", &[32, 64], &create_f32_embedding_data(32, 64))
-        .add_f32_tensor("blk.0.attn_norm.weight", &[64], &create_f32_norm_weights(64))
+        .add_f32_tensor(
+            "token_embd.weight",
+            &[32, 64],
+            &create_f32_embedding_data(32, 64),
+        )
+        .add_f32_tensor(
+            "blk.0.attn_norm.weight",
+            &[64],
+            &create_f32_norm_weights(64),
+        )
         .add_q4_k_tensor("blk.0.attn_q.weight", &[64, 64], &create_q4_k_data(64 * 64))
         .add_q4_k_tensor("blk.0.attn_k.weight", &[64, 64], &create_q4_k_data(64 * 64))
         .add_q4_k_tensor("blk.0.attn_v.weight", &[64, 64], &create_q4_k_data(64 * 64))
-        .add_q4_k_tensor("blk.0.attn_output.weight", &[64, 64], &create_q4_k_data(64 * 64))
+        .add_q4_k_tensor(
+            "blk.0.attn_output.weight",
+            &[64, 64],
+            &create_q4_k_data(64 * 64),
+        )
         .add_f32_tensor("blk.0.ffn_norm.weight", &[64], &create_f32_norm_weights(64))
-        .add_q4_k_tensor("blk.0.ffn_up.weight", &[64, 128], &create_q4_k_data(64 * 128))
-        .add_q4_k_tensor("blk.0.ffn_down.weight", &[128, 64], &create_q4_k_data(128 * 64))
-        .add_q4_k_tensor("blk.0.ffn_gate.weight", &[64, 128], &create_q4_k_data(64 * 128))
+        .add_q4_k_tensor(
+            "blk.0.ffn_up.weight",
+            &[64, 128],
+            &create_q4_k_data(64 * 128),
+        )
+        .add_q4_k_tensor(
+            "blk.0.ffn_down.weight",
+            &[128, 64],
+            &create_q4_k_data(128 * 64),
+        )
+        .add_q4_k_tensor(
+            "blk.0.ffn_gate.weight",
+            &[64, 128],
+            &create_q4_k_data(64 * 128),
+        )
         .add_f32_tensor("output_norm.weight", &[64], &create_f32_norm_weights(64))
         .build();
 
@@ -498,20 +656,60 @@ fn test_convert_multi_layer() {
         .rope_freq_base("llama", 10000.0)
         .rms_epsilon("llama", 1e-5)
         .ffn_hidden_dim("llama", intermediate_dim as u32)
-        .add_f32_tensor("token_embd.weight", &[vocab_size as u64, hidden_dim as u64], &embed_data);
+        .add_f32_tensor(
+            "token_embd.weight",
+            &[vocab_size as u64, hidden_dim as u64],
+            &embed_data,
+        );
 
     // Add both layers
     for layer in 0..2 {
         builder = builder
-            .add_f32_tensor(&format!("blk.{}.attn_norm.weight", layer), &[hidden_dim as u64], &norm_data)
-            .add_q4_k_tensor(&format!("blk.{}.attn_q.weight", layer), &[hidden_dim as u64, hidden_dim as u64], &q_data)
-            .add_q4_k_tensor(&format!("blk.{}.attn_k.weight", layer), &[hidden_dim as u64, hidden_dim as u64], &q_data)
-            .add_q4_k_tensor(&format!("blk.{}.attn_v.weight", layer), &[hidden_dim as u64, hidden_dim as u64], &q_data)
-            .add_q4_k_tensor(&format!("blk.{}.attn_output.weight", layer), &[hidden_dim as u64, hidden_dim as u64], &q_data)
-            .add_f32_tensor(&format!("blk.{}.ffn_norm.weight", layer), &[hidden_dim as u64], &norm_data)
-            .add_q4_k_tensor(&format!("blk.{}.ffn_up.weight", layer), &[hidden_dim as u64, intermediate_dim as u64], &ffn_data)
-            .add_q4_k_tensor(&format!("blk.{}.ffn_down.weight", layer), &[intermediate_dim as u64, hidden_dim as u64], &ffn_data)
-            .add_q4_k_tensor(&format!("blk.{}.ffn_gate.weight", layer), &[hidden_dim as u64, intermediate_dim as u64], &ffn_data);
+            .add_f32_tensor(
+                &format!("blk.{}.attn_norm.weight", layer),
+                &[hidden_dim as u64],
+                &norm_data,
+            )
+            .add_q4_k_tensor(
+                &format!("blk.{}.attn_q.weight", layer),
+                &[hidden_dim as u64, hidden_dim as u64],
+                &q_data,
+            )
+            .add_q4_k_tensor(
+                &format!("blk.{}.attn_k.weight", layer),
+                &[hidden_dim as u64, hidden_dim as u64],
+                &q_data,
+            )
+            .add_q4_k_tensor(
+                &format!("blk.{}.attn_v.weight", layer),
+                &[hidden_dim as u64, hidden_dim as u64],
+                &q_data,
+            )
+            .add_q4_k_tensor(
+                &format!("blk.{}.attn_output.weight", layer),
+                &[hidden_dim as u64, hidden_dim as u64],
+                &q_data,
+            )
+            .add_f32_tensor(
+                &format!("blk.{}.ffn_norm.weight", layer),
+                &[hidden_dim as u64],
+                &norm_data,
+            )
+            .add_q4_k_tensor(
+                &format!("blk.{}.ffn_up.weight", layer),
+                &[hidden_dim as u64, intermediate_dim as u64],
+                &ffn_data,
+            )
+            .add_q4_k_tensor(
+                &format!("blk.{}.ffn_down.weight", layer),
+                &[intermediate_dim as u64, hidden_dim as u64],
+                &ffn_data,
+            )
+            .add_q4_k_tensor(
+                &format!("blk.{}.ffn_gate.weight", layer),
+                &[hidden_dim as u64, intermediate_dim as u64],
+                &ffn_data,
+            );
     }
 
     let gguf_data = builder

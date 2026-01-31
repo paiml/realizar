@@ -114,7 +114,7 @@ impl QuantType {
             QuantType::F32 => 32.0,
             QuantType::F16 => 16.0,
             QuantType::BF16 => 16.0,
-            QuantType::Q8_0 => 8.5,  // 8 bits + scale overhead
+            QuantType::Q8_0 => 8.5, // 8 bits + scale overhead
             QuantType::Q4_0 => 4.5,
             QuantType::Q4_K => 4.5,
             QuantType::Q5_K => 5.5,
@@ -125,10 +125,14 @@ impl QuantType {
     /// Check if supported by format
     pub fn supported_by(&self, format: ModelFormat) -> bool {
         match format {
-            ModelFormat::PyTorch => matches!(self, QuantType::F32 | QuantType::F16 | QuantType::BF16),
+            ModelFormat::PyTorch => {
+                matches!(self, QuantType::F32 | QuantType::F16 | QuantType::BF16)
+            },
             ModelFormat::GGUF => true, // GGUF supports all
             ModelFormat::APR => true,  // APR supports all
-            ModelFormat::Safetensors => matches!(self, QuantType::F32 | QuantType::F16 | QuantType::BF16),
+            ModelFormat::Safetensors => {
+                matches!(self, QuantType::F32 | QuantType::F16 | QuantType::BF16)
+            },
         }
     }
 }
@@ -173,7 +177,7 @@ impl ModelConfig {
             hidden_dim: 64,
             num_layers: 2,
             num_heads: 4,
-            num_kv_heads: 2,  // GQA: 2:1 ratio
+            num_kv_heads: 2, // GQA: 2:1 ratio
             vocab_size: 256,
             intermediate_dim: 128,
             rope_theta: 10000.0,
@@ -190,7 +194,7 @@ impl ModelConfig {
             hidden_dim: 256,
             num_layers: 4,
             num_heads: 8,
-            num_kv_heads: 2,  // GQA: 4:1 ratio
+            num_kv_heads: 2, // GQA: 4:1 ratio
             vocab_size: 1024,
             intermediate_dim: 512,
             rope_theta: 10000.0,
@@ -207,7 +211,7 @@ impl ModelConfig {
             hidden_dim: 2048,
             num_layers: 22,
             num_heads: 32,
-            num_kv_heads: 4,  // GQA: 8:1 ratio
+            num_kv_heads: 4, // GQA: 8:1 ratio
             vocab_size: 32000,
             intermediate_dim: 5632,
             rope_theta: 10000.0,
@@ -224,7 +228,7 @@ impl ModelConfig {
             hidden_dim: 1536,
             num_layers: 28,
             num_heads: 12,
-            num_kv_heads: 2,  // GQA: 6:1 ratio
+            num_kv_heads: 2, // GQA: 6:1 ratio
             vocab_size: 151936,
             intermediate_dim: 8960,
             rope_theta: 1000000.0,
@@ -335,7 +339,10 @@ pub struct ForwardInput {
 impl ForwardInput {
     /// Create simple forward input
     pub fn new(tokens: Vec<u32>) -> Self {
-        Self { tokens, position: 0 }
+        Self {
+            tokens,
+            position: 0,
+        }
     }
 
     /// Create with specific position (for KV cache testing)
@@ -375,9 +382,13 @@ impl fmt::Debug for ModelTestCase {
             .field("source_format", &self.source_format)
             .field("target_format", &self.target_format)
             .field("device", &self.device)
-            .field("config", &format!("{}L/{}H",
-                self.constructor.config.num_layers,
-                self.constructor.config.num_heads))
+            .field(
+                "config",
+                &format!(
+                    "{}L/{}H",
+                    self.constructor.config.num_layers, self.constructor.config.num_heads
+                ),
+            )
             .finish()
     }
 }
@@ -488,9 +499,9 @@ impl TestResult {
 
     /// Compute L2 norm of output
     pub fn output_l2_norm(&self) -> Option<f32> {
-        self.output.as_ref().map(|o| {
-            o.iter().map(|x| x * x).sum::<f32>().sqrt()
-        })
+        self.output
+            .as_ref()
+            .map(|o| o.iter().map(|x| x * x).sum::<f32>().sqrt())
     }
 }
 
@@ -571,7 +582,7 @@ mod tests {
     fn test_model_config_dimensions() {
         let config = ModelConfig::small();
         assert_eq!(config.q_dim(), 256); // 8 heads * 32 head_dim
-        assert_eq!(config.k_dim(), 64);  // 2 kv_heads * 32 head_dim
+        assert_eq!(config.k_dim(), 64); // 2 kv_heads * 32 head_dim
         assert_eq!(config.v_dim(), 64);
     }
 

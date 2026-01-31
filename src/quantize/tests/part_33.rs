@@ -5,8 +5,7 @@
 
 use crate::quantize::{
     dequantize_q4_0, dequantize_q4_1, dequantize_q5_0, dequantize_q5_1, dequantize_q8_0,
-    quantize_activations_q8k_into, quantize_to_q8_blocks, dequantize_q8_blocks,
-    BLOCK_SIZE, QK_K,
+    dequantize_q8_blocks, quantize_activations_q8k_into, quantize_to_q8_blocks, BLOCK_SIZE, QK_K,
 };
 
 // ============================================================================
@@ -126,7 +125,7 @@ fn test_dequant_q4_0_varied_scales() {
 fn test_dequant_q4_0_max_quant_values() {
     let mut data = vec![0u8; 18];
     data[0..2].copy_from_slice(&0x3C00u16.to_le_bytes()); // scale = 1.0
-    // Set all quant nibbles to max (0xF)
+                                                          // Set all quant nibbles to max (0xF)
     for i in 2..18 {
         data[i] = 0xFF;
     }
@@ -141,7 +140,7 @@ fn test_dequant_q4_0_max_quant_values() {
 fn test_dequant_q4_0_zero_scale() {
     let mut data = vec![0u8; 18];
     data[0..2].copy_from_slice(&0x0000u16.to_le_bytes()); // scale = 0
-    // Non-zero quants, but scale=0 should give zeros
+                                                          // Non-zero quants, but scale=0 should give zeros
     for i in 2..18 {
         data[i] = 0x55;
     }
@@ -234,7 +233,7 @@ fn test_dequant_q5_0_with_high_bits() {
     // Q5_0: 22 bytes per block
     let mut data = vec![0u8; 22];
     data[0..2].copy_from_slice(&0x3C00u16.to_le_bytes()); // scale = 1.0
-    // Set high bits
+                                                          // Set high bits
     data[2..6].copy_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]);
     // Set low quants
     for i in 6..22 {
@@ -251,7 +250,7 @@ fn test_dequant_q5_0_with_high_bits() {
 fn test_dequant_q5_0_zero_high_bits() {
     let mut data = vec![0u8; 22];
     data[0..2].copy_from_slice(&0x3C00u16.to_le_bytes()); // scale = 1.0
-    // All high bits zero
+                                                          // All high bits zero
     data[2..6].copy_from_slice(&[0x00, 0x00, 0x00, 0x00]);
 
     let result = dequantize_q5_0(&data);
@@ -268,7 +267,7 @@ fn test_dequant_q5_1_full_range() {
     let mut data = vec![0u8; 24];
     data[0..2].copy_from_slice(&0x3C00u16.to_le_bytes()); // delta = 1.0
     data[2..4].copy_from_slice(&0x4000u16.to_le_bytes()); // min = 2.0
-    // High bits
+                                                          // High bits
     data[4..8].copy_from_slice(&[0xAA, 0xAA, 0xAA, 0xAA]);
     // Low quants
     for i in 8..24 {
@@ -340,8 +339,13 @@ fn test_q8k_into_linear_ramp() {
 
     // Quants should be monotonically increasing
     for i in 1..256 {
-        assert!(quants[i] >= quants[i-1] || quants[i-1] == 127,
-            "i={}, prev={}, curr={}", i, quants[i-1], quants[i]);
+        assert!(
+            quants[i] >= quants[i - 1] || quants[i - 1] == 127,
+            "i={}, prev={}, curr={}",
+            i,
+            quants[i - 1],
+            quants[i]
+        );
     }
 }
 

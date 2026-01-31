@@ -46,7 +46,7 @@ fn test_fused_q4k_dot_invalid_block_size() {
     match err {
         RealizarError::InvalidShape { reason } => {
             assert!(reason.contains("not a multiple"));
-        }
+        },
         _ => panic!("Expected InvalidShape error"),
     }
 }
@@ -64,7 +64,7 @@ fn test_fused_q4k_dot_activation_length_mismatch() {
     match err {
         RealizarError::InvalidShape { reason } => {
             assert!(reason.contains("doesn't match"));
-        }
+        },
         _ => panic!("Expected InvalidShape error"),
     }
 }
@@ -72,7 +72,7 @@ fn test_fused_q4k_dot_activation_length_mismatch() {
 #[test]
 fn test_fused_q4k_dot_zero_scales() {
     // Create a super-block with zero d and dmin (first 4 bytes are f16 zeros)
-    let mut q4k_data = vec![0u8; Q4K_SUPER_BLOCK_BYTES];
+    let q4k_data = vec![0u8; Q4K_SUPER_BLOCK_BYTES];
     // f16 zero is 0x0000 for both d and dmin (bytes 0-3)
     // Rest of block is already zeros
 

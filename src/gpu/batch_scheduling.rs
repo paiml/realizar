@@ -1043,7 +1043,10 @@ mod tests {
     fn test_timeout_manager_check_expired() {
         let mut manager = TimeoutManager::new();
         // Already expired
-        manager.register(1, Instant::now() - Duration::from_secs(1));
+        manager.register(
+            1,
+            Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
+        );
         // Not expired
         manager.register(2, Instant::now() + Duration::from_secs(60));
 

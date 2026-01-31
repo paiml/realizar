@@ -407,7 +407,7 @@ fn test_swiglu_simd_deterministic() {
     let up = vec![1.0f32; 8];
 
     let mut result1 = gate1.clone();
-    let mut result2 = gate1.clone();
+    let mut result2 = gate1;
 
     fused_swiglu_simd(&mut result1, &up);
     fused_swiglu_simd(&mut result2, &up);

@@ -369,7 +369,8 @@ fn make_test_bench_json() -> String {
             "kl_divergence_vs_fp32": 0.01,
             "perplexity_wikitext2": null
         }
-    }).to_string()
+    })
+    .to_string()
 }
 
 #[test]
@@ -418,7 +419,11 @@ fn test_run_bench_compare_second_file_missing() {
 
 #[test]
 fn test_run_bench_regression_file_not_found() {
-    let result = run_bench_regression("/nonexistent/baseline.json", "/nonexistent/current.json", false);
+    let result = run_bench_regression(
+        "/nonexistent/baseline.json",
+        "/nonexistent/current.json",
+        false,
+    );
     assert!(result.is_err());
 }
 

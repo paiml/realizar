@@ -9,8 +9,6 @@ mod tests {
     use crate::paged_kv::PagedKvCache;
     use crate::scheduler::*;
     use std::collections::HashMap;
-    use std::thread;
-    use std::time::Duration;
 
     // ========================================================================
     // Deadline Tests
@@ -129,8 +127,7 @@ mod tests {
 
     #[test]
     fn test_dynamic_request_with_deadline() {
-        let request =
-            DynamicRequest::new(1, vec![1], 5).with_deadline(Deadline::with_target(500));
+        let request = DynamicRequest::new(1, vec![1], 5).with_deadline(Deadline::with_target(500));
         assert!(request.deadline.is_some());
         assert_eq!(request.deadline.as_ref().unwrap().target_latency_ms, 500);
     }
@@ -159,8 +156,7 @@ mod tests {
 
     #[test]
     fn test_dynamic_request_is_expired_no_hard_deadline() {
-        let request =
-            DynamicRequest::new(1, vec![1], 5).with_deadline(Deadline::with_target(500));
+        let request = DynamicRequest::new(1, vec![1], 5).with_deadline(Deadline::with_target(500));
         // No hard deadline, so never expired
         assert!(!request.is_expired());
     }
@@ -314,7 +310,12 @@ mod tests {
         let mut scheduler = DynamicPriorityScheduler::new(1024);
 
         // Add request with long target latency (will definitely be met)
-        let id = scheduler.add_request(vec![1], 5, Priority::Normal, Some(Deadline::with_target(60000)));
+        let id = scheduler.add_request(
+            vec![1],
+            5,
+            Priority::Normal,
+            Some(Deadline::with_target(60000)),
+        );
         scheduler.schedule(1);
 
         scheduler.complete_request(id);
@@ -347,7 +348,8 @@ mod tests {
 
     #[test]
     fn test_dynamic_scheduler_schedule_no_budget() {
-        let mut scheduler = DynamicPriorityScheduler::with_config(0, DynamicPriorityConfig::default());
+        let mut scheduler =
+            DynamicPriorityScheduler::with_config(0, DynamicPriorityConfig::default());
         scheduler.add_request(vec![1], 5, Priority::Normal, None);
 
         // Zero budget
@@ -598,7 +600,7 @@ mod tests {
     #[test]
     fn test_batch_token_clone() {
         let token = BatchToken::new(100, 2, 10, false);
-        let cloned = token.clone();
+        let cloned = token;
         assert_eq!(cloned.token_id, 100);
         assert_eq!(cloned.seq_idx, 2);
         assert_eq!(cloned.seq_pos, 10);

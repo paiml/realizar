@@ -2306,7 +2306,9 @@ mod tests {
 
         let q8k_scales = vec![0.1f32; 1];
         // Alternating positive and negative quants
-        let q8k_quants: Vec<i8> = (0..256).map(|i| if i % 2 == 0 { 10 } else { -10 }).collect();
+        let q8k_quants: Vec<i8> = (0..256)
+            .map(|i| if i % 2 == 0 { 10 } else { -10 })
+            .collect();
 
         let result = fused_q4k_q8k_dot(&data, &q8k_scales, &q8k_quants);
         assert!(result.is_ok());

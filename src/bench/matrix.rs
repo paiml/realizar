@@ -512,12 +512,30 @@ mod tests {
 
     #[test]
     fn test_compute_backend_type_parse() {
-        assert_eq!(ComputeBackendType::parse("cpu"), Some(ComputeBackendType::Cpu));
-        assert_eq!(ComputeBackendType::parse("wgpu"), Some(ComputeBackendType::Wgpu));
-        assert_eq!(ComputeBackendType::parse("gpu"), Some(ComputeBackendType::Wgpu));
-        assert_eq!(ComputeBackendType::parse("cuda"), Some(ComputeBackendType::Cuda));
-        assert_eq!(ComputeBackendType::parse("nvidia"), Some(ComputeBackendType::Cuda));
-        assert_eq!(ComputeBackendType::parse("CPU"), Some(ComputeBackendType::Cpu)); // case-insensitive
+        assert_eq!(
+            ComputeBackendType::parse("cpu"),
+            Some(ComputeBackendType::Cpu)
+        );
+        assert_eq!(
+            ComputeBackendType::parse("wgpu"),
+            Some(ComputeBackendType::Wgpu)
+        );
+        assert_eq!(
+            ComputeBackendType::parse("gpu"),
+            Some(ComputeBackendType::Wgpu)
+        );
+        assert_eq!(
+            ComputeBackendType::parse("cuda"),
+            Some(ComputeBackendType::Cuda)
+        );
+        assert_eq!(
+            ComputeBackendType::parse("nvidia"),
+            Some(ComputeBackendType::Cuda)
+        );
+        assert_eq!(
+            ComputeBackendType::parse("CPU"),
+            Some(ComputeBackendType::Cpu)
+        ); // case-insensitive
         assert_eq!(ComputeBackendType::parse("unknown"), None);
     }
 
@@ -672,7 +690,8 @@ mod tests {
         let hw = make_hardware_spec();
         let mut matrix = BenchmarkMatrix::new("model", hw);
 
-        let entry = MatrixBenchmarkEntry::unavailable(RuntimeType::Realizar, ComputeBackendType::Cpu);
+        let entry =
+            MatrixBenchmarkEntry::unavailable(RuntimeType::Realizar, ComputeBackendType::Cpu);
         matrix.add_entry(entry);
 
         assert_eq!(matrix.entries.len(), 1);
@@ -683,7 +702,8 @@ mod tests {
         let hw = make_hardware_spec();
         let mut matrix = BenchmarkMatrix::new("model", hw);
 
-        let entry1 = MatrixBenchmarkEntry::unavailable(RuntimeType::Realizar, ComputeBackendType::Cpu);
+        let entry1 =
+            MatrixBenchmarkEntry::unavailable(RuntimeType::Realizar, ComputeBackendType::Cpu);
         matrix.add_entry(entry1);
 
         let entry2 = MatrixBenchmarkEntry {
@@ -719,9 +739,18 @@ mod tests {
         let hw = make_hardware_spec();
         let mut matrix = BenchmarkMatrix::new("model", hw);
 
-        matrix.add_entry(MatrixBenchmarkEntry::unavailable(RuntimeType::Realizar, ComputeBackendType::Cpu));
-        matrix.add_entry(MatrixBenchmarkEntry::unavailable(RuntimeType::Realizar, ComputeBackendType::Cuda));
-        matrix.add_entry(MatrixBenchmarkEntry::unavailable(RuntimeType::Vllm, ComputeBackendType::Cuda));
+        matrix.add_entry(MatrixBenchmarkEntry::unavailable(
+            RuntimeType::Realizar,
+            ComputeBackendType::Cpu,
+        ));
+        matrix.add_entry(MatrixBenchmarkEntry::unavailable(
+            RuntimeType::Realizar,
+            ComputeBackendType::Cuda,
+        ));
+        matrix.add_entry(MatrixBenchmarkEntry::unavailable(
+            RuntimeType::Vllm,
+            ComputeBackendType::Cuda,
+        ));
 
         let realizar_entries = matrix.entries_for_runtime(RuntimeType::Realizar);
         assert_eq!(realizar_entries.len(), 2);
@@ -735,9 +764,18 @@ mod tests {
         let hw = make_hardware_spec();
         let mut matrix = BenchmarkMatrix::new("model", hw);
 
-        matrix.add_entry(MatrixBenchmarkEntry::unavailable(RuntimeType::Realizar, ComputeBackendType::Cuda));
-        matrix.add_entry(MatrixBenchmarkEntry::unavailable(RuntimeType::LlamaCpp, ComputeBackendType::Cuda));
-        matrix.add_entry(MatrixBenchmarkEntry::unavailable(RuntimeType::LlamaCpp, ComputeBackendType::Cpu));
+        matrix.add_entry(MatrixBenchmarkEntry::unavailable(
+            RuntimeType::Realizar,
+            ComputeBackendType::Cuda,
+        ));
+        matrix.add_entry(MatrixBenchmarkEntry::unavailable(
+            RuntimeType::LlamaCpp,
+            ComputeBackendType::Cuda,
+        ));
+        matrix.add_entry(MatrixBenchmarkEntry::unavailable(
+            RuntimeType::LlamaCpp,
+            ComputeBackendType::Cpu,
+        ));
 
         let cuda_entries = matrix.entries_for_backend(ComputeBackendType::Cuda);
         assert_eq!(cuda_entries.len(), 2);
@@ -775,7 +813,10 @@ mod tests {
         let hw = make_hardware_spec();
         let mut matrix = BenchmarkMatrix::new("model", hw);
 
-        matrix.add_entry(MatrixBenchmarkEntry::unavailable(RuntimeType::Realizar, ComputeBackendType::Cuda));
+        matrix.add_entry(MatrixBenchmarkEntry::unavailable(
+            RuntimeType::Realizar,
+            ComputeBackendType::Cuda,
+        ));
 
         let fastest = matrix.fastest_for_backend(ComputeBackendType::Cuda);
         assert!(fastest.is_none());
@@ -835,7 +876,10 @@ mod tests {
         let hw = make_hardware_spec();
         let mut matrix = BenchmarkMatrix::new("model", hw);
 
-        matrix.add_entry(MatrixBenchmarkEntry::unavailable(RuntimeType::Vllm, ComputeBackendType::Cuda));
+        matrix.add_entry(MatrixBenchmarkEntry::unavailable(
+            RuntimeType::Vllm,
+            ComputeBackendType::Cuda,
+        ));
 
         let md = matrix.to_markdown_table();
         assert!(md.contains("vllm"));
@@ -928,7 +972,10 @@ mod tests {
         entry2.throughput_tps = 150.0;
         matrix.add_entry(entry2);
 
-        matrix.add_entry(MatrixBenchmarkEntry::unavailable(RuntimeType::Vllm, ComputeBackendType::Cuda));
+        matrix.add_entry(MatrixBenchmarkEntry::unavailable(
+            RuntimeType::Vllm,
+            ComputeBackendType::Cuda,
+        ));
 
         let summary = matrix.summary();
         assert_eq!(summary.total_entries, 3);
@@ -940,7 +987,10 @@ mod tests {
 
         // Overall highest throughput should be llama-cpp (150 tok/s)
         assert!(summary.overall_highest_throughput.is_some());
-        assert_eq!(summary.overall_highest_throughput.as_ref().unwrap().0, "llamacpp");
+        assert_eq!(
+            summary.overall_highest_throughput.as_ref().unwrap().0,
+            "llamacpp"
+        );
     }
 
     #[test]

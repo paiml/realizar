@@ -244,7 +244,7 @@ mod tests {
             Err(RealizarError::UnsupportedOperation { operation, reason }) => {
                 assert_eq!(operation, "batch_ffn_gpu");
                 assert!(reason.contains("not cached"));
-            }
+            },
             _ => panic!("Expected UnsupportedOperation error"),
         }
     }
@@ -276,7 +276,7 @@ mod tests {
             Err(RealizarError::UnsupportedOperation { operation, reason }) => {
                 assert_eq!(operation, "batch_ffn_gpu");
                 assert!(reason.contains("Empty batch"));
-            }
+            },
             _ => panic!("Expected UnsupportedOperation error"),
         }
     }
@@ -297,7 +297,7 @@ mod tests {
             Err(RealizarError::UnsupportedOperation { operation, reason }) => {
                 assert_eq!(operation, "batch_generate_gpu");
                 assert!(reason.contains("not warmed up"));
-            }
+            },
             _ => panic!("Expected UnsupportedOperation error"),
         }
     }
@@ -348,7 +348,7 @@ mod tests {
         match result {
             Err(RealizarError::InvalidShape { reason }) => {
                 assert!(reason.contains("mismatch"));
-            }
+            },
             _ => panic!("Expected InvalidShape error"),
         }
     }

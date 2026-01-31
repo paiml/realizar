@@ -338,7 +338,7 @@ fn test_q4k_gemv_correctness_known_pattern() {
     // Expected dequant per element: 2 * 1 * 2 - 0 = 4
     // Expected sum: 256 * 4 * 1.0 (input) = 1024
     let d2_f16 = half::f16::from_f32(2.0).to_le_bytes();
-    weights[144 + 0] = d2_f16[0];
+    weights[144] = d2_f16[0];
     weights[144 + 1] = d2_f16[1];
     weights[144 + 2] = dmin_f16[0];
     weights[144 + 3] = dmin_f16[1];

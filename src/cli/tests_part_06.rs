@@ -273,7 +273,7 @@ fn test_cli_parse_pull_with_force() {
         Commands::Pull { model, force, .. } => {
             assert_eq!(model, "llama3:8b");
             assert!(force);
-        }
+        },
         _ => panic!("Expected Pull command"),
     }
 }
@@ -284,7 +284,7 @@ fn test_cli_parse_push() {
     match cli.command {
         Commands::Push { model, .. } => {
             assert_eq!(model, "my-model:v1");
-        }
+        },
         _ => panic!("Expected Push command"),
     }
 }
@@ -327,7 +327,7 @@ fn test_cli_parse_run_with_all_flags() {
             assert!(raw);
             assert!(gpu);
             assert!(verbose);
-        }
+        },
         _ => panic!("Expected Run command"),
     }
 }
@@ -340,7 +340,7 @@ fn test_cli_parse_chat_with_system() {
         Commands::Chat { model, system, .. } => {
             assert_eq!(model, "model.gguf");
             assert_eq!(system, Some("You are helpful".to_string()));
-        }
+        },
         _ => panic!("Expected Chat command"),
     }
 }
@@ -364,7 +364,7 @@ fn test_cli_parse_serve_batch_mode() {
             assert_eq!(model, Some("model.gguf".to_string()));
             assert!(batch);
             assert_eq!(port, 3000);
-        }
+        },
         _ => panic!("Expected Serve command"),
     }
 }
@@ -375,7 +375,7 @@ fn test_cli_parse_list_remote() {
     match cli.command {
         Commands::List { remote, .. } => {
             assert_eq!(remote, Some("https://example.com".to_string()));
-        }
+        },
         _ => panic!("Expected List command"),
     }
 }
@@ -385,12 +385,10 @@ fn test_cli_parse_bench_compare() {
     let cli =
         Cli::try_parse_from(["realizar", "bench-compare", "base.json", "current.json"]).unwrap();
     match cli.command {
-        Commands::BenchCompare {
-            file1, file2, ..
-        } => {
+        Commands::BenchCompare { file1, file2, .. } => {
             assert_eq!(file1, "base.json");
             assert_eq!(file2, "current.json");
-        }
+        },
         _ => panic!("Expected BenchCompare command"),
     }
 }

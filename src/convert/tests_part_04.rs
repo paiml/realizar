@@ -217,7 +217,7 @@ fn test_to_apr_bytes_creates_valid_header() {
     let bytes = result.unwrap();
     // Check APR magic
     assert_eq!(&bytes[0..4], &[0x41, 0x50, 0x52, 0x00]); // APR\0
-    // Check version
+                                                         // Check version
     assert_eq!(bytes[4], 2); // major
     assert_eq!(bytes[5], 0); // minor
 }

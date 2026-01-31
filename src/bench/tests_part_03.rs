@@ -115,8 +115,11 @@ fn test_inference_request_builder_chain() {
 
 #[test]
 fn test_inference_request_builder_multiple_stops() {
-    let req = InferenceRequest::new("test")
-        .with_stop(vec!["<|end|>".to_string(), "###".to_string(), "\n\n".to_string()]);
+    let req = InferenceRequest::new("test").with_stop(vec![
+        "<|end|>".to_string(),
+        "###".to_string(),
+        "\n\n".to_string(),
+    ]);
 
     assert_eq!(req.stop.len(), 3);
     assert!(req.stop.contains(&"<|end|>".to_string()));
@@ -339,8 +342,14 @@ fn test_backend_registry_register_single() {
 #[test]
 fn test_backend_registry_register_multiple() {
     let mut registry = BackendRegistry::new();
-    registry.register(RuntimeType::Realizar, Box::new(MockBackend::new(30.0, 140.0)));
-    registry.register(RuntimeType::LlamaCpp, Box::new(MockBackend::new(35.0, 130.0)));
+    registry.register(
+        RuntimeType::Realizar,
+        Box::new(MockBackend::new(30.0, 140.0)),
+    );
+    registry.register(
+        RuntimeType::LlamaCpp,
+        Box::new(MockBackend::new(35.0, 130.0)),
+    );
 
     let list = registry.list();
     assert_eq!(list.len(), 2);
@@ -352,8 +361,14 @@ fn test_backend_registry_register_multiple() {
 fn test_backend_registry_overwrite() {
     let mut registry = BackendRegistry::new();
 
-    registry.register(RuntimeType::Realizar, Box::new(MockBackend::new(10.0, 100.0)));
-    registry.register(RuntimeType::Realizar, Box::new(MockBackend::new(20.0, 200.0)));
+    registry.register(
+        RuntimeType::Realizar,
+        Box::new(MockBackend::new(10.0, 100.0)),
+    );
+    registry.register(
+        RuntimeType::Realizar,
+        Box::new(MockBackend::new(20.0, 200.0)),
+    );
 
     // Should only have one entry (overwritten)
     assert_eq!(registry.list().len(), 1);
@@ -367,7 +382,10 @@ fn test_backend_registry_overwrite() {
 #[test]
 fn test_backend_registry_get_inference() {
     let mut registry = BackendRegistry::new();
-    registry.register(RuntimeType::Realizar, Box::new(MockBackend::new(25.0, 100.0)));
+    registry.register(
+        RuntimeType::Realizar,
+        Box::new(MockBackend::new(25.0, 100.0)),
+    );
 
     let backend = registry.get(RuntimeType::Realizar).unwrap();
     let req = InferenceRequest::new("test").with_max_tokens(5);
@@ -503,8 +521,7 @@ fn test_llama_cpp_backend_inference_missing_model() {
 
 #[test]
 fn test_llama_cpp_backend_inference_missing_binary() {
-    let config = LlamaCppConfig::new("/nonexistent/path/to/llama-cli")
-        .with_model("test.gguf");
+    let config = LlamaCppConfig::new("/nonexistent/path/to/llama-cli").with_model("test.gguf");
     let backend = LlamaCppBackend::new(config);
     let req = InferenceRequest::new("test");
 

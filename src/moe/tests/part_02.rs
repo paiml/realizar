@@ -308,7 +308,7 @@ fn test_circuit_breaker_zero_timeout() {
 #[test]
 fn test_circuit_state_clone() {
     let state = CircuitState::HalfOpen;
-    let cloned = state.clone();
+    let cloned = state;
     assert_eq!(state, cloned);
 }
 

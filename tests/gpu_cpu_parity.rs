@@ -19,7 +19,7 @@
 
 #[cfg(all(test, feature = "cuda"))]
 mod tests {
-    use realizar::brick::{BrickTracer, TraceComparison};
+    use realizar::brick::BrickTracer;
     use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQuantizedModelCuda};
 
     /// Test GPU vs CPU parity on first token logits

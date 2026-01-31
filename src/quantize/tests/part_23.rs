@@ -25,7 +25,7 @@ use crate::quantize::simd::{
 fn test_f16_to_f32_positive_subnormals() {
     // Test various positive subnormals (exp=0, mantissa!=0, sign=0)
     let test_cases: &[(u16, f32)] = &[
-        (0x0001, (1.0 / 1024.0) * (2.0_f32).powi(-14)),   // min
+        (0x0001, (1.0 / 1024.0) * (2.0_f32).powi(-14)), // min
         (0x0200, (512.0 / 1024.0) * (2.0_f32).powi(-14)), // mid
         (0x03FF, (1023.0 / 1024.0) * (2.0_f32).powi(-14)), // max
     ];
@@ -55,7 +55,18 @@ fn test_extract_scale_min_from_slice_odd_indices() {
 
     // idx=1: scale_idx=0, min_idx=4
     let scales1: [u8; 12] = [
-        0b11_000000, 0, 0b0000_0101, 0, 0b01_000000, 0, 0b0000_0111, 0, 0, 0, 0, 0,
+        0b11_000000,
+        0,
+        0b0000_0101,
+        0,
+        0b01_000000,
+        0,
+        0b0000_0111,
+        0,
+        0,
+        0,
+        0,
+        0,
     ];
     let (s, m) = extract_scale_min_from_slice(&scales1, 1);
     assert_eq!(s, 23.0, "idx=1 scale: 3|(5<<2)");
@@ -63,7 +74,18 @@ fn test_extract_scale_min_from_slice_odd_indices() {
 
     // idx=3: scale_idx=1, min_idx=5
     let scales3: [u8; 12] = [
-        0, 0b10_000000, 0, 0b0000_0110, 0, 0b00_000000, 0, 0b0000_1000, 0, 0, 0, 0,
+        0,
+        0b10_000000,
+        0,
+        0b0000_0110,
+        0,
+        0b00_000000,
+        0,
+        0b0000_1000,
+        0,
+        0,
+        0,
+        0,
     ];
     let (s, m) = extract_scale_min_from_slice(&scales3, 3);
     assert_eq!(s, 26.0, "idx=3 scale: 2|(6<<2)");
@@ -71,7 +93,18 @@ fn test_extract_scale_min_from_slice_odd_indices() {
 
     // idx=5: scale_idx=2, min_idx=6
     let scales5: [u8; 12] = [
-        0, 0, 0b01_000000, 0, 0b0000_1010, 0, 0b11_000000, 0, 0b0000_1111, 0, 0, 0,
+        0,
+        0,
+        0b01_000000,
+        0,
+        0b0000_1010,
+        0,
+        0b11_000000,
+        0,
+        0b0000_1111,
+        0,
+        0,
+        0,
     ];
     let (s, m) = extract_scale_min_from_slice(&scales5, 5);
     assert_eq!(s, 41.0, "idx=5 scale: 1|(10<<2)");
@@ -79,7 +112,18 @@ fn test_extract_scale_min_from_slice_odd_indices() {
 
     // idx=7: scale_idx=3, min_idx=7
     let scales7: [u8; 12] = [
-        0, 0, 0, 0b11_000000, 0, 0b0000_1111, 0, 0b10_000000, 0, 0b0000_1100, 0, 0,
+        0,
+        0,
+        0,
+        0b11_000000,
+        0,
+        0b0000_1111,
+        0,
+        0b10_000000,
+        0,
+        0b0000_1100,
+        0,
+        0,
     ];
     let (s, m) = extract_scale_min_from_slice(&scales7, 7);
     assert_eq!(s, 63.0, "idx=7 scale: 3|(15<<2)");

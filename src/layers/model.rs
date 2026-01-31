@@ -798,21 +798,30 @@ mod tests {
     fn test_kv_cache_new_zero_layers_error() {
         let result = KVCache::new(0, 128, 64);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("num_layers must be > 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("num_layers must be > 0"));
     }
 
     #[test]
     fn test_kv_cache_new_zero_seq_len_error() {
         let result = KVCache::new(4, 0, 64);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("max_seq_len must be > 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("max_seq_len must be > 0"));
     }
 
     #[test]
     fn test_kv_cache_new_zero_head_dim_error() {
         let result = KVCache::new(4, 128, 0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("head_dim must be > 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("head_dim must be > 0"));
     }
 
     #[test]

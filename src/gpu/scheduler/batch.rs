@@ -666,7 +666,7 @@ mod tests {
         let hidden = vec![1.0, 1.0];
         let weight_t = vec![
             -1.0, -1.0, // Token 0: dot = -2
-            1.0, 1.0,   // Token 1: dot = 2
+            1.0, 1.0, // Token 1: dot = 2
         ];
         let bias = vec![0.0, 0.0];
 

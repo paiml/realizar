@@ -16,8 +16,8 @@
 //! - `create_test_app_shared()` - Returns shared state (for read-only tests)
 
 use super::*;
-use axum::Router;
 use axum::http::StatusCode;
+use axum::Router;
 use std::sync::OnceLock;
 
 /// Guard macro for mock state tests - returns early if NOT_FOUND

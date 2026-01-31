@@ -22,7 +22,7 @@ use crate::apr_transformer::{
 /// Test silu activation at various points
 #[test]
 fn test_silu_values() {
-    use crate::gpu::adapters::apr_q4::{gelu, silu};
+    use crate::gpu::adapters::apr_q4::silu;
 
     // Test at x=0: silu(0) = 0
     assert!((silu(0.0) - 0.0).abs() < 1e-6);
@@ -36,7 +36,10 @@ fn test_silu_values() {
 
     // Test negative values
     let silu_neg1 = silu(-1.0);
-    assert!(silu_neg1 > -0.3 && silu_neg1 < -0.2, "silu(-1) = {silu_neg1}");
+    assert!(
+        silu_neg1 > -0.3 && silu_neg1 < -0.2,
+        "silu(-1) = {silu_neg1}"
+    );
 
     // Test large values (should approach x)
     let silu_10 = silu(10.0);
@@ -50,7 +53,7 @@ fn test_silu_values() {
 /// Test gelu activation at various points
 #[test]
 fn test_gelu_values() {
-    use crate::gpu::adapters::apr_q4::{gelu, silu};
+    use crate::gpu::adapters::apr_q4::gelu;
 
     // Test at x=0
     assert!((gelu(0.0) - 0.0).abs() < 1e-6);
@@ -64,7 +67,10 @@ fn test_gelu_values() {
 
     // Test negative values
     let gelu_neg1 = gelu(-1.0);
-    assert!(gelu_neg1 > -0.2 && gelu_neg1 < -0.1, "gelu(-1) = {gelu_neg1}");
+    assert!(
+        gelu_neg1 > -0.2 && gelu_neg1 < -0.1,
+        "gelu(-1) = {gelu_neg1}"
+    );
 
     // Test large values (should approach x)
     let gelu_10 = gelu(10.0);
@@ -696,6 +702,4 @@ fn create_test_apr_model(with_gate: bool, with_ffn_norm: bool) -> QuantizedAprTr
 #[cfg(test)]
 mod tests {
     // Re-export activation functions using crate path
-    pub(crate) use crate::gpu::adapters::apr_q4::silu;
-    pub(crate) use crate::gpu::adapters::apr_q4::gelu;
 }

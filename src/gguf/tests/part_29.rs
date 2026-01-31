@@ -3,9 +3,8 @@
 //! Uses GGUFBuilder to exercise loader code paths with Pygmy Models.
 
 use crate::gguf::test_factory::{
-    build_minimal_llama_gguf, build_minimal_phi2_gguf, create_f32_embedding_data,
-    create_f32_norm_weights, create_q4_0_data, create_q4_k_data, create_q5_k_data,
-    create_q6_k_data, create_q8_0_data, GGUFBuilder,
+    build_minimal_llama_gguf, build_minimal_phi2_gguf, create_q4_0_data, create_q4_k_data,
+    create_q5_k_data, create_q6_k_data, create_q8_0_data, GGUFBuilder,
 };
 use crate::gguf::{GGUFModel, GGUFTransformer};
 
@@ -204,7 +203,11 @@ fn test_transformer_from_llama_pygmy() {
     let model = GGUFModel::from_bytes(&data).unwrap();
 
     let transformer = GGUFTransformer::from_gguf(&model, &data);
-    assert!(transformer.is_ok(), "Transformer load failed: {:?}", transformer.err());
+    assert!(
+        transformer.is_ok(),
+        "Transformer load failed: {:?}",
+        transformer.err()
+    );
 
     let transformer = transformer.unwrap();
     assert_eq!(transformer.config.num_layers, 1);
@@ -292,9 +295,7 @@ fn test_get_tensor_f32_from_q4_k() {
 
 #[test]
 fn test_get_tensor_f32_nonexistent() {
-    let data = GGUFBuilder::new()
-        .architecture("llama")
-        .build();
+    let data = GGUFBuilder::new().architecture("llama").build();
 
     let model = GGUFModel::from_bytes(&data).unwrap();
     let tensor = model.get_tensor_f32("nonexistent.tensor", &data);

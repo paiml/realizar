@@ -1,4 +1,3 @@
-use crate::http_client::*;
 // ==================== IMP-208: Softmax Sums to 1.0 (QA-005) ====================
 // Per spec: Softmax outputs sum to 1.0 within 1e-7
 

@@ -20,8 +20,8 @@
 
 use super::types::{
     GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q2_K, GGUF_TYPE_Q4_0,
-    GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K,
-    GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
+    GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K,
+    GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
 };
 
 /// Builder for creating valid GGUF v3 files in memory
@@ -281,16 +281,14 @@ impl GGUFBuilder {
     /// Add a u8 metadata value (type 0)
     #[must_use]
     pub fn add_u8(mut self, key: &str, value: u8) -> Self {
-        self.metadata
-            .push((key.to_string(), 0, vec![value]));
+        self.metadata.push((key.to_string(), 0, vec![value]));
         self
     }
 
     /// Add an i8 metadata value (type 1)
     #[must_use]
     pub fn add_i8(mut self, key: &str, value: i8) -> Self {
-        self.metadata
-            .push((key.to_string(), 1, vec![value as u8]));
+        self.metadata.push((key.to_string(), 1, vec![value as u8]));
         self
     }
 
@@ -731,14 +729,14 @@ pub fn build_executable_pygmy_gguf() -> Vec<u8> {
 
     // Create Q4_0 quantized data for weight tensors
     // Q4_0: 18 bytes per 32 elements (2 byte f16 scale + 16 bytes quants)
-    let q_data = create_q4_0_data(HIDDEN_DIM * HIDDEN_DIM);      // 32x32 = 1024 elements
-    let k_data = create_q4_0_data(HIDDEN_DIM * kv_dim);          // 32x32 = 1024 elements
-    let v_data = create_q4_0_data(HIDDEN_DIM * kv_dim);          // 32x32 = 1024 elements
+    let q_data = create_q4_0_data(HIDDEN_DIM * HIDDEN_DIM); // 32x32 = 1024 elements
+    let k_data = create_q4_0_data(HIDDEN_DIM * kv_dim); // 32x32 = 1024 elements
+    let v_data = create_q4_0_data(HIDDEN_DIM * kv_dim); // 32x32 = 1024 elements
     let attn_out_data = create_q4_0_data(HIDDEN_DIM * HIDDEN_DIM); // 32x32 = 1024 elements
 
     // FFN weights: Q4_0 quantized
     let ffn_gate_data = create_q4_0_data(HIDDEN_DIM * INTERMEDIATE_DIM); // 32x64 = 2048 elements
-    let ffn_up_data = create_q4_0_data(HIDDEN_DIM * INTERMEDIATE_DIM);   // 32x64 = 2048 elements
+    let ffn_up_data = create_q4_0_data(HIDDEN_DIM * INTERMEDIATE_DIM); // 32x64 = 2048 elements
     let ffn_down_data = create_q4_0_data(INTERMEDIATE_DIM * HIDDEN_DIM); // 64x32 = 2048 elements
 
     // LM head weight (output projection): Q4_0 quantized
@@ -1206,17 +1204,50 @@ mod tests {
         let tensor_names: Vec<_> = model.tensors.iter().map(|t| t.name.as_str()).collect();
 
         // Required tensors for forward()
-        assert!(tensor_names.contains(&"token_embd.weight"), "Missing token_embd");
-        assert!(tensor_names.contains(&"blk.0.attn_norm.weight"), "Missing attn_norm");
-        assert!(tensor_names.contains(&"blk.0.attn_q.weight"), "Missing attn_q");
-        assert!(tensor_names.contains(&"blk.0.attn_k.weight"), "Missing attn_k");
-        assert!(tensor_names.contains(&"blk.0.attn_v.weight"), "Missing attn_v");
-        assert!(tensor_names.contains(&"blk.0.attn_output.weight"), "Missing attn_output");
-        assert!(tensor_names.contains(&"blk.0.ffn_norm.weight"), "Missing ffn_norm");
-        assert!(tensor_names.contains(&"blk.0.ffn_gate.weight"), "Missing ffn_gate");
-        assert!(tensor_names.contains(&"blk.0.ffn_up.weight"), "Missing ffn_up");
-        assert!(tensor_names.contains(&"blk.0.ffn_down.weight"), "Missing ffn_down");
-        assert!(tensor_names.contains(&"output_norm.weight"), "Missing output_norm");
+        assert!(
+            tensor_names.contains(&"token_embd.weight"),
+            "Missing token_embd"
+        );
+        assert!(
+            tensor_names.contains(&"blk.0.attn_norm.weight"),
+            "Missing attn_norm"
+        );
+        assert!(
+            tensor_names.contains(&"blk.0.attn_q.weight"),
+            "Missing attn_q"
+        );
+        assert!(
+            tensor_names.contains(&"blk.0.attn_k.weight"),
+            "Missing attn_k"
+        );
+        assert!(
+            tensor_names.contains(&"blk.0.attn_v.weight"),
+            "Missing attn_v"
+        );
+        assert!(
+            tensor_names.contains(&"blk.0.attn_output.weight"),
+            "Missing attn_output"
+        );
+        assert!(
+            tensor_names.contains(&"blk.0.ffn_norm.weight"),
+            "Missing ffn_norm"
+        );
+        assert!(
+            tensor_names.contains(&"blk.0.ffn_gate.weight"),
+            "Missing ffn_gate"
+        );
+        assert!(
+            tensor_names.contains(&"blk.0.ffn_up.weight"),
+            "Missing ffn_up"
+        );
+        assert!(
+            tensor_names.contains(&"blk.0.ffn_down.weight"),
+            "Missing ffn_down"
+        );
+        assert!(
+            tensor_names.contains(&"output_norm.weight"),
+            "Missing output_norm"
+        );
     }
 
     #[test]
@@ -1232,26 +1263,26 @@ mod tests {
                     assert_eq!(tensor.dims.len(), 2);
                     assert_eq!(tensor.dims[0], 32);
                     assert_eq!(tensor.dims[1], 32);
-                }
+                },
                 "blk.0.attn_q.weight" | "blk.0.attn_output.weight" => {
                     // [hidden_dim=32, hidden_dim=32] - Q4_0 quantized
                     assert_eq!(tensor.dims.len(), 2);
                     assert_eq!(tensor.dims[0], 32);
                     assert_eq!(tensor.dims[1], 32);
-                }
+                },
                 "blk.0.ffn_gate.weight" | "blk.0.ffn_up.weight" => {
                     // [hidden_dim=32, intermediate_dim=64] - Q4_0 quantized
                     assert_eq!(tensor.dims.len(), 2);
                     assert_eq!(tensor.dims[0], 32);
                     assert_eq!(tensor.dims[1], 64);
-                }
+                },
                 "blk.0.ffn_down.weight" => {
                     // [intermediate_dim=64, hidden_dim=32] - Q4_0 quantized
                     assert_eq!(tensor.dims.len(), 2);
                     assert_eq!(tensor.dims[0], 64);
                     assert_eq!(tensor.dims[1], 32);
-                }
-                _ => {} // Other tensors checked elsewhere
+                },
+                _ => {}, // Other tensors checked elsewhere
             }
         }
     }
@@ -1265,14 +1296,16 @@ mod tests {
         for tensor in &model.tensors {
             match tensor.name.as_str() {
                 // F32 tensors: embeddings and norms
-                "token_embd.weight" | "blk.0.attn_norm.weight" |
-                "blk.0.ffn_norm.weight" | "output_norm.weight" => {
+                "token_embd.weight"
+                | "blk.0.attn_norm.weight"
+                | "blk.0.ffn_norm.weight"
+                | "output_norm.weight" => {
                     assert_eq!(
                         tensor.qtype, GGUF_TYPE_F32,
                         "Tensor {} should be F32, got qtype {}",
                         tensor.name, tensor.qtype
                     );
-                }
+                },
                 // Q4_0 tensors: weight matrices
                 _ => {
                     assert_eq!(
@@ -1280,7 +1313,7 @@ mod tests {
                         "Tensor {} should be Q4_0, got qtype {}",
                         tensor.name, tensor.qtype
                     );
-                }
+                },
             }
         }
     }

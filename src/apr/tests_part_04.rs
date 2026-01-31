@@ -14,7 +14,6 @@
 //! - Final layer norm and LM head projection
 
 use crate::apr::{AprV2Model, HEADER_SIZE, MAGIC};
-use crate::error::Result;
 
 // Note: APR v2 tensor entries are variable-size (name + dtype + shape + offset + size)
 
@@ -38,7 +37,8 @@ pub fn build_executable_pygmy_apr() -> Vec<u8> {
     let vocab_size = 10;
     let intermediate_size = 16;
 
-    let metadata = format!(r#"{{
+    let metadata = format!(
+        r#"{{
         "architecture": "llama",
         "hidden_size": {hidden_size},
         "num_layers": {num_layers},
@@ -47,7 +47,8 @@ pub fn build_executable_pygmy_apr() -> Vec<u8> {
         "vocab_size": {vocab_size},
         "intermediate_size": {intermediate_size},
         "rms_norm_eps": 1e-6
-    }}"#);
+    }}"#
+    );
     let metadata_bytes = metadata.as_bytes();
     let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
 
@@ -66,18 +67,62 @@ pub fn build_executable_pygmy_apr() -> Vec<u8> {
     // - lm_head.weight [vocab=10, hidden=8] = 80 floats
 
     let tensor_defs: Vec<(&str, Vec<u64>, usize)> = vec![
-        ("model.embed_tokens.weight", vec![vocab_size as u64, hidden_size as u64], vocab_size * hidden_size * 4),
-        ("layers.0.input_layernorm.weight", vec![hidden_size as u64], hidden_size * 4),
-        ("layers.0.self_attn.q_proj.weight", vec![hidden_size as u64, hidden_size as u64], hidden_size * hidden_size * 4),
-        ("layers.0.self_attn.k_proj.weight", vec![hidden_size as u64, hidden_size as u64], hidden_size * hidden_size * 4),
-        ("layers.0.self_attn.v_proj.weight", vec![hidden_size as u64, hidden_size as u64], hidden_size * hidden_size * 4),
-        ("layers.0.self_attn.o_proj.weight", vec![hidden_size as u64, hidden_size as u64], hidden_size * hidden_size * 4),
-        ("layers.0.post_attention_layernorm.weight", vec![hidden_size as u64], hidden_size * 4),
-        ("layers.0.mlp.gate_proj.weight", vec![intermediate_size as u64, hidden_size as u64], hidden_size * intermediate_size * 4),
-        ("layers.0.mlp.up_proj.weight", vec![intermediate_size as u64, hidden_size as u64], hidden_size * intermediate_size * 4),
-        ("layers.0.mlp.down_proj.weight", vec![hidden_size as u64, intermediate_size as u64], hidden_size * intermediate_size * 4),
+        (
+            "model.embed_tokens.weight",
+            vec![vocab_size as u64, hidden_size as u64],
+            vocab_size * hidden_size * 4,
+        ),
+        (
+            "layers.0.input_layernorm.weight",
+            vec![hidden_size as u64],
+            hidden_size * 4,
+        ),
+        (
+            "layers.0.self_attn.q_proj.weight",
+            vec![hidden_size as u64, hidden_size as u64],
+            hidden_size * hidden_size * 4,
+        ),
+        (
+            "layers.0.self_attn.k_proj.weight",
+            vec![hidden_size as u64, hidden_size as u64],
+            hidden_size * hidden_size * 4,
+        ),
+        (
+            "layers.0.self_attn.v_proj.weight",
+            vec![hidden_size as u64, hidden_size as u64],
+            hidden_size * hidden_size * 4,
+        ),
+        (
+            "layers.0.self_attn.o_proj.weight",
+            vec![hidden_size as u64, hidden_size as u64],
+            hidden_size * hidden_size * 4,
+        ),
+        (
+            "layers.0.post_attention_layernorm.weight",
+            vec![hidden_size as u64],
+            hidden_size * 4,
+        ),
+        (
+            "layers.0.mlp.gate_proj.weight",
+            vec![intermediate_size as u64, hidden_size as u64],
+            hidden_size * intermediate_size * 4,
+        ),
+        (
+            "layers.0.mlp.up_proj.weight",
+            vec![intermediate_size as u64, hidden_size as u64],
+            hidden_size * intermediate_size * 4,
+        ),
+        (
+            "layers.0.mlp.down_proj.weight",
+            vec![hidden_size as u64, intermediate_size as u64],
+            hidden_size * intermediate_size * 4,
+        ),
         ("norm.weight", vec![hidden_size as u64], hidden_size * 4),
-        ("lm_head.weight", vec![vocab_size as u64, hidden_size as u64], vocab_size * hidden_size * 4),
+        (
+            "lm_head.weight",
+            vec![vocab_size as u64, hidden_size as u64],
+            vocab_size * hidden_size * 4,
+        ),
     ];
 
     // Build tensor index entries
@@ -90,7 +135,10 @@ pub fn build_executable_pygmy_apr() -> Vec<u8> {
         current_offset += *byte_size as u64;
     }
 
-    let tensor_index: Vec<u8> = tensor_entries.iter().flat_map(|e| e.iter().copied()).collect();
+    let tensor_index: Vec<u8> = tensor_entries
+        .iter()
+        .flat_map(|e| e.iter().copied())
+        .collect();
     let tensor_count = tensor_defs.len() as u32;
     let total_data_size = current_offset as usize;
 
@@ -129,9 +177,13 @@ pub fn build_executable_pygmy_apr() -> Vec<u8> {
     // Set layernorm weights to 1.0 (they need to be non-zero for proper normalization)
     // Offsets: input_layernorm, post_attention_layernorm, norm.weight
     let norm_offsets = vec![
-        vocab_size * hidden_size * 4,  // after embed_tokens
-        vocab_size * hidden_size * 4 + hidden_size * 4 + 4 * hidden_size * hidden_size * 4,  // after o_proj
-        vocab_size * hidden_size * 4 + hidden_size * 4 + 4 * hidden_size * hidden_size * 4 + hidden_size * 4 + 3 * hidden_size * intermediate_size * 4,  // norm.weight
+        vocab_size * hidden_size * 4, // after embed_tokens
+        vocab_size * hidden_size * 4 + hidden_size * 4 + 4 * hidden_size * hidden_size * 4, // after o_proj
+        vocab_size * hidden_size * 4
+            + hidden_size * 4
+            + 4 * hidden_size * hidden_size * 4
+            + hidden_size * 4
+            + 3 * hidden_size * intermediate_size * 4, // norm.weight
     ];
 
     for offset in norm_offsets {
@@ -184,7 +236,11 @@ fn test_active_apr_pygmy_parses() {
     let data = build_executable_pygmy_apr();
     let model = AprV2Model::from_bytes(data);
 
-    assert!(model.is_ok(), "Active APR Pygmy should parse: {:?}", model.err());
+    assert!(
+        model.is_ok(),
+        "Active APR Pygmy should parse: {:?}",
+        model.err()
+    );
 
     let model = model.unwrap();
     assert!(model.metadata().is_transformer());
@@ -199,18 +255,63 @@ fn test_active_apr_pygmy_has_all_tensors() {
     let model = AprV2Model::from_bytes(data).expect("Should parse");
 
     // Check all required tensors exist
-    assert!(model.get_tensor("model.embed_tokens.weight").is_some(), "Missing embed_tokens");
-    assert!(model.get_tensor("layers.0.input_layernorm.weight").is_some(), "Missing input_layernorm");
-    assert!(model.get_tensor("layers.0.self_attn.q_proj.weight").is_some(), "Missing q_proj");
-    assert!(model.get_tensor("layers.0.self_attn.k_proj.weight").is_some(), "Missing k_proj");
-    assert!(model.get_tensor("layers.0.self_attn.v_proj.weight").is_some(), "Missing v_proj");
-    assert!(model.get_tensor("layers.0.self_attn.o_proj.weight").is_some(), "Missing o_proj");
-    assert!(model.get_tensor("layers.0.post_attention_layernorm.weight").is_some(), "Missing post_attention_layernorm");
-    assert!(model.get_tensor("layers.0.mlp.gate_proj.weight").is_some(), "Missing gate_proj");
-    assert!(model.get_tensor("layers.0.mlp.up_proj.weight").is_some(), "Missing up_proj");
-    assert!(model.get_tensor("layers.0.mlp.down_proj.weight").is_some(), "Missing down_proj");
+    assert!(
+        model.get_tensor("model.embed_tokens.weight").is_some(),
+        "Missing embed_tokens"
+    );
+    assert!(
+        model
+            .get_tensor("layers.0.input_layernorm.weight")
+            .is_some(),
+        "Missing input_layernorm"
+    );
+    assert!(
+        model
+            .get_tensor("layers.0.self_attn.q_proj.weight")
+            .is_some(),
+        "Missing q_proj"
+    );
+    assert!(
+        model
+            .get_tensor("layers.0.self_attn.k_proj.weight")
+            .is_some(),
+        "Missing k_proj"
+    );
+    assert!(
+        model
+            .get_tensor("layers.0.self_attn.v_proj.weight")
+            .is_some(),
+        "Missing v_proj"
+    );
+    assert!(
+        model
+            .get_tensor("layers.0.self_attn.o_proj.weight")
+            .is_some(),
+        "Missing o_proj"
+    );
+    assert!(
+        model
+            .get_tensor("layers.0.post_attention_layernorm.weight")
+            .is_some(),
+        "Missing post_attention_layernorm"
+    );
+    assert!(
+        model.get_tensor("layers.0.mlp.gate_proj.weight").is_some(),
+        "Missing gate_proj"
+    );
+    assert!(
+        model.get_tensor("layers.0.mlp.up_proj.weight").is_some(),
+        "Missing up_proj"
+    );
+    assert!(
+        model.get_tensor("layers.0.mlp.down_proj.weight").is_some(),
+        "Missing down_proj"
+    );
     assert!(model.get_tensor("norm.weight").is_some(), "Missing norm");
-    assert!(model.get_tensor("lm_head.weight").is_some(), "Missing lm_head");
+    assert!(
+        model.get_tensor("lm_head.weight").is_some(),
+        "Missing lm_head"
+    );
 }
 
 /// T-COV-95 CRITICAL: Test full APR forward() execution
@@ -230,7 +331,10 @@ fn test_active_apr_pygmy_forward() {
     assert_eq!(logits.len(), 10, "Logits should have vocab_size elements");
 
     // Verify logits are finite
-    assert!(logits.iter().all(|&v| v.is_finite()), "Logits contain NaN/Inf");
+    assert!(
+        logits.iter().all(|&v| v.is_finite()),
+        "Logits contain NaN/Inf"
+    );
 }
 
 #[test]
@@ -241,7 +345,11 @@ fn test_active_apr_pygmy_forward_multiple_tokens() {
     // Run forward pass with multiple tokens (simulating prefill)
     let result = model.forward(&[1, 2, 3]);
 
-    assert!(result.is_ok(), "forward() with multiple tokens failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "forward() with multiple tokens failed: {:?}",
+        result.err()
+    );
 
     let logits = result.unwrap();
     assert_eq!(logits.len(), 10);
@@ -282,10 +390,18 @@ fn test_active_apr_pygmy_size() {
     let data = build_executable_pygmy_apr();
 
     // Should be small (Active Pygmy property)
-    assert!(data.len() < 10_000, "APR Pygmy should be < 10KB, got {} bytes", data.len());
+    assert!(
+        data.len() < 10_000,
+        "APR Pygmy should be < 10KB, got {} bytes",
+        data.len()
+    );
 
     // But non-trivial
-    assert!(data.len() > 500, "APR Pygmy should be > 500 bytes, got {} bytes", data.len());
+    assert!(
+        data.len() > 500,
+        "APR Pygmy should be > 500 bytes, got {} bytes",
+        data.len()
+    );
 }
 
 #[test]

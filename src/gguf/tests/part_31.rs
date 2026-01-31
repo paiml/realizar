@@ -10,8 +10,8 @@
 
 use crate::gguf::{
     GGUFModel, GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q4_0,
-    GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K,
-    GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
+    GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K,
+    GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
 };
 
 // ============================================================================
@@ -50,10 +50,12 @@ fn build_multi_tensor_gguf(tensors: &[(&str, &[u64], u32, &[u8])]) -> Vec<u8> {
         let offset = tensor_data_sizes.iter().sum::<usize>();
         data.extend_from_slice(&(offset as u64).to_le_bytes());
 
-        tensor_data_sizes.push(tensors.iter()
-            .find(|(n, _, _, _)| n == name)
-            .map(|(_, _, _, d)| d.len())
-            .unwrap_or(0));
+        tensor_data_sizes.push(
+            tensors
+                .iter()
+                .find(|(n, _, _, _)| n == name)
+                .map_or(0, |(_, _, _, d)| d.len()),
+        );
     }
 
     // Align to 32-byte boundary for tensor data
@@ -85,9 +87,7 @@ fn build_string(s: &str) -> Vec<u8> {
 fn test_data_storm_tensor_not_found() {
     // Create GGUF with one tensor named "exists"
     let tensor_data = vec![0u8; 18]; // Q4_0 block
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("exists", &[32], GGUF_TYPE_Q4_0, &tensor_data),
-    ]);
+    let gguf_data = build_multi_tensor_gguf(&[("exists", &[32], GGUF_TYPE_Q4_0, &tensor_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
 
@@ -106,9 +106,7 @@ fn test_data_storm_f32_tensor_extraction() {
         .flat_map(|f| f.to_le_bytes())
         .collect();
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("test_f32", &[4], GGUF_TYPE_F32, &f32_data),
-    ]);
+    let gguf_data = build_multi_tensor_gguf(&[("test_f32", &[4], GGUF_TYPE_F32, &f32_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("test_f32", &gguf_data);
@@ -117,12 +115,12 @@ fn test_data_storm_f32_tensor_extraction() {
         Ok(values) => {
             assert_eq!(values.len(), 4);
             assert!((values[0] - 1.0).abs() < 1e-5);
-        }
+        },
         Err(e) => {
             // Offset calculation may be off in our builder
             let err_str = format!("{:?}", e);
             assert!(err_str.contains("range") || err_str.contains("exceeds"));
-        }
+        },
     }
 }
 
@@ -137,9 +135,7 @@ fn test_data_storm_f16_tensor_extraction() {
         0x00, 0x44, // 4.0 in f16
     ];
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("test_f16", &[4], GGUF_TYPE_F16, &f16_data),
-    ]);
+    let gguf_data = build_multi_tensor_gguf(&[("test_f16", &[4], GGUF_TYPE_F16, &f16_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("test_f16", &gguf_data);
@@ -147,7 +143,7 @@ fn test_data_storm_f16_tensor_extraction() {
     // Either succeeds or fails with offset error - both exercise code
     match result {
         Ok(values) => assert_eq!(values.len(), 4),
-        Err(_) => {} // Offset error is acceptable
+        Err(_) => {}, // Offset error is acceptable
     }
 }
 
@@ -159,16 +155,14 @@ fn test_data_storm_q4_0_tensor_extraction() {
     q4_0_data[0] = 0x00; // scale f16 low
     q4_0_data[1] = 0x3C; // scale f16 high (1.0)
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("test_q4_0", &[32], GGUF_TYPE_Q4_0, &q4_0_data),
-    ]);
+    let gguf_data = build_multi_tensor_gguf(&[("test_q4_0", &[32], GGUF_TYPE_Q4_0, &q4_0_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("test_q4_0", &gguf_data);
 
     match result {
         Ok(values) => assert_eq!(values.len(), 32),
-        Err(_) => {} // Offset error acceptable
+        Err(_) => {}, // Offset error acceptable
     }
 }
 
@@ -180,16 +174,13 @@ fn test_data_storm_q8_0_tensor_extraction() {
     q8_0_data[0] = 0x00;
     q8_0_data[1] = 0x3C; // scale = 1.0
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("test_q8_0", &[32], GGUF_TYPE_Q8_0, &q8_0_data),
-    ]);
+    let gguf_data = build_multi_tensor_gguf(&[("test_q8_0", &[32], GGUF_TYPE_Q8_0, &q8_0_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("test_q8_0", &gguf_data);
 
-    match result {
-        Ok(values) => assert_eq!(values.len(), 32),
-        Err(_) => {}
+    if let Ok(values) = result {
+        assert_eq!(values.len(), 32)
     }
 }
 
@@ -198,16 +189,13 @@ fn test_data_storm_q4_1_tensor_extraction() {
     // Q4_1 block: 20 bytes for 32 elements
     let q4_1_data = vec![0u8; 20];
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("test_q4_1", &[32], GGUF_TYPE_Q4_1, &q4_1_data),
-    ]);
+    let gguf_data = build_multi_tensor_gguf(&[("test_q4_1", &[32], GGUF_TYPE_Q4_1, &q4_1_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("test_q4_1", &gguf_data);
 
-    match result {
-        Ok(values) => assert_eq!(values.len(), 32),
-        Err(_) => {}
+    if let Ok(values) = result {
+        assert_eq!(values.len(), 32)
     }
 }
 
@@ -216,16 +204,13 @@ fn test_data_storm_q5_0_tensor_extraction() {
     // Q5_0 block: 22 bytes for 32 elements
     let q5_0_data = vec![0u8; 22];
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("test_q5_0", &[32], GGUF_TYPE_Q5_0, &q5_0_data),
-    ]);
+    let gguf_data = build_multi_tensor_gguf(&[("test_q5_0", &[32], GGUF_TYPE_Q5_0, &q5_0_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("test_q5_0", &gguf_data);
 
-    match result {
-        Ok(values) => assert_eq!(values.len(), 32),
-        Err(_) => {}
+    if let Ok(values) = result {
+        assert_eq!(values.len(), 32)
     }
 }
 
@@ -234,16 +219,13 @@ fn test_data_storm_q5_1_tensor_extraction() {
     // Q5_1 block: 24 bytes for 32 elements
     let q5_1_data = vec![0u8; 24];
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("test_q5_1", &[32], GGUF_TYPE_Q5_1, &q5_1_data),
-    ]);
+    let gguf_data = build_multi_tensor_gguf(&[("test_q5_1", &[32], GGUF_TYPE_Q5_1, &q5_1_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("test_q5_1", &gguf_data);
 
-    match result {
-        Ok(values) => assert_eq!(values.len(), 32),
-        Err(_) => {}
+    if let Ok(values) = result {
+        assert_eq!(values.len(), 32)
     }
 }
 
@@ -252,16 +234,13 @@ fn test_data_storm_q4_k_tensor_extraction() {
     // Q4_K super-block: 144 bytes for 256 elements
     let q4_k_data = vec![0u8; 144];
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("test_q4_k", &[256], GGUF_TYPE_Q4_K, &q4_k_data),
-    ]);
+    let gguf_data = build_multi_tensor_gguf(&[("test_q4_k", &[256], GGUF_TYPE_Q4_K, &q4_k_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("test_q4_k", &gguf_data);
 
-    match result {
-        Ok(values) => assert_eq!(values.len(), 256),
-        Err(_) => {}
+    if let Ok(values) = result {
+        assert_eq!(values.len(), 256)
     }
 }
 
@@ -270,16 +249,13 @@ fn test_data_storm_q5_k_tensor_extraction() {
     // Q5_K super-block: 176 bytes for 256 elements
     let q5_k_data = vec![0u8; 176];
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("test_q5_k", &[256], GGUF_TYPE_Q5_K, &q5_k_data),
-    ]);
+    let gguf_data = build_multi_tensor_gguf(&[("test_q5_k", &[256], GGUF_TYPE_Q5_K, &q5_k_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("test_q5_k", &gguf_data);
 
-    match result {
-        Ok(values) => assert_eq!(values.len(), 256),
-        Err(_) => {}
+    if let Ok(values) = result {
+        assert_eq!(values.len(), 256)
     }
 }
 
@@ -288,16 +264,13 @@ fn test_data_storm_q6_k_tensor_extraction() {
     // Q6_K super-block: 210 bytes for 256 elements
     let q6_k_data = vec![0u8; 210];
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("test_q6_k", &[256], GGUF_TYPE_Q6_K, &q6_k_data),
-    ]);
+    let gguf_data = build_multi_tensor_gguf(&[("test_q6_k", &[256], GGUF_TYPE_Q6_K, &q6_k_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("test_q6_k", &gguf_data);
 
-    match result {
-        Ok(values) => assert_eq!(values.len(), 256),
-        Err(_) => {}
+    if let Ok(values) = result {
+        assert_eq!(values.len(), 256)
     }
 }
 
@@ -310,9 +283,7 @@ fn test_data_storm_truncated_f32_data() {
     // Tensor claims 100 elements but only has 10 bytes
     let f32_data = vec![0u8; 10]; // Way too small for 100 f32s
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("truncated", &[100], GGUF_TYPE_F32, &f32_data),
-    ]);
+    let gguf_data = build_multi_tensor_gguf(&[("truncated", &[100], GGUF_TYPE_F32, &f32_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("truncated", &gguf_data);
@@ -327,9 +298,8 @@ fn test_data_storm_truncated_q4_0_data() {
     // Tensor claims 1024 elements but only has 1 block
     let q4_0_data = vec![0u8; 18]; // 1 block = 32 elements
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("truncated_q4_0", &[1024], GGUF_TYPE_Q4_0, &q4_0_data),
-    ]);
+    let gguf_data =
+        build_multi_tensor_gguf(&[("truncated_q4_0", &[1024], GGUF_TYPE_Q4_0, &q4_0_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("truncated_q4_0", &gguf_data);
@@ -342,9 +312,8 @@ fn test_data_storm_truncated_q4_k_data() {
     // Tensor claims 1024 elements but only has 1 super-block
     let q4_k_data = vec![0u8; 144]; // 1 super-block = 256 elements
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("truncated_q4_k", &[1024], GGUF_TYPE_Q4_K, &q4_k_data),
-    ]);
+    let gguf_data =
+        build_multi_tensor_gguf(&[("truncated_q4_k", &[1024], GGUF_TYPE_Q4_K, &q4_k_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("truncated_q4_k", &gguf_data);
@@ -361,9 +330,7 @@ fn test_data_storm_unsupported_qtype() {
     // Use qtype 255 which is not supported
     let data = vec![0u8; 100];
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("unsupported", &[32], 255, &data),
-    ]);
+    let gguf_data = build_multi_tensor_gguf(&[("unsupported", &[32], 255, &data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
     let result = model.get_tensor_f32("unsupported", &gguf_data);
@@ -413,9 +380,7 @@ fn test_data_storm_tensor_dimensions_2d() {
     // 2D tensor: [32, 64] = 2048 elements
     let f32_data: Vec<u8> = vec![0u8; 2048 * 4];
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("matrix", &[32, 64], GGUF_TYPE_F32, &f32_data),
-    ]);
+    let gguf_data = build_multi_tensor_gguf(&[("matrix", &[32, 64], GGUF_TYPE_F32, &f32_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
 
@@ -431,12 +396,15 @@ fn test_data_storm_tensor_dimensions_3d() {
     // 3D tensor: [4, 8, 16] = 512 elements
     let f32_data: Vec<u8> = vec![0u8; 512 * 4];
 
-    let gguf_data = build_multi_tensor_gguf(&[
-        ("tensor_3d", &[4, 8, 16], GGUF_TYPE_F32, &f32_data),
-    ]);
+    let gguf_data =
+        build_multi_tensor_gguf(&[("tensor_3d", &[4, 8, 16], GGUF_TYPE_F32, &f32_data)]);
 
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
-    let tensor = model.tensors.iter().find(|t| t.name == "tensor_3d").unwrap();
+    let tensor = model
+        .tensors
+        .iter()
+        .find(|t| t.name == "tensor_3d")
+        .unwrap();
     assert_eq!(tensor.n_dims, 3);
 }
 
@@ -458,7 +426,7 @@ fn test_data_storm_dimension_overflow() {
     // Tensor info with huge dimensions
     data.extend(build_string("huge_tensor"));
     data.extend_from_slice(&2u32.to_le_bytes()); // 2 dims
-    // Dimensions that would overflow when multiplied: u64::MAX / 2 * 3
+                                                 // Dimensions that would overflow when multiplied: u64::MAX / 2 * 3
     data.extend_from_slice(&(u64::MAX / 2).to_le_bytes());
     data.extend_from_slice(&3u64.to_le_bytes());
     data.extend_from_slice(&GGUF_TYPE_F32.to_le_bytes());
@@ -498,6 +466,6 @@ fn test_data_storm_q2_k_tensor_extraction() {
 
     match result {
         Ok(values) => assert_eq!(values.len(), 256),
-        Err(_) => {} // Offset error acceptable
+        Err(_) => {}, // Offset error acceptable
     }
 }

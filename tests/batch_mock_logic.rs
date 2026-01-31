@@ -3,8 +3,8 @@
 //! Tests gpu/scheduler/batch.rs functions using MockExecutor.
 //! These tests verify the forward pass logic without requiring CUDA hardware.
 
-use realizar::gpu::executor::{CpuExecutor, ExecutorCall, GpuExecutorTrait, MockExecutor};
-use realizar::gpu::scheduler::{BlockWeights, GpuGenerateConfig, GpuModel, GpuModelConfig};
+use realizar::gpu::executor::{CpuExecutor, MockExecutor};
+use realizar::gpu::scheduler::{GpuModel, GpuModelConfig};
 
 // Re-export batch functions for testing (they're in the scheduler module)
 use realizar::gpu::scheduler::batch::{
@@ -1060,7 +1060,7 @@ fn test_generate_gpu_multi_token_prompt() {
 
     match result {
         Ok(tokens) => {
-            assert!(tokens.len() >= prompt.len() + 1);
+            assert!(tokens.len() > prompt.len());
             // Verify prompt is preserved
             assert_eq!(&tokens[..prompt.len()], &prompt[..]);
         },

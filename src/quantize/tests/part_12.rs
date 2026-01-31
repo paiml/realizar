@@ -65,10 +65,8 @@ fn test_quantize_rmsnorm_q8_0_scalar_near_zero_max() {
     // Scale should be positive and finite (either fallback or computed)
     assert!(scales[0] > 0.0, "Scale should be positive");
     assert!(scales[0].is_finite(), "Scale should be finite");
-    // All quantized values should be valid i8 values (within range)
-    for q in quants {
-        assert!(q >= i8::MIN && q <= i8::MAX);
-    }
+    // All quantized values are i8, so range is guaranteed
+    assert!(!quants.is_empty(), "Should have quantized values");
 }
 
 #[test]

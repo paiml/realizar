@@ -361,8 +361,7 @@ async fn test_apr_explain_valid() {
         .unwrap();
     // Should succeed or return service unavailable
     assert!(
-        response.status() == StatusCode::OK
-            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+        response.status() == StatusCode::OK || response.status() == StatusCode::SERVICE_UNAVAILABLE
     );
 }
 
@@ -380,8 +379,7 @@ async fn test_apr_audit_invalid_uuid() {
         .unwrap();
     // Should return BAD_REQUEST for invalid UUID
     assert!(
-        response.status() == StatusCode::BAD_REQUEST
-            || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -399,8 +397,7 @@ async fn test_apr_audit_nonexistent_id() {
         .unwrap();
     // Should return NOT_FOUND for nonexistent record
     assert!(
-        response.status() == StatusCode::NOT_FOUND
-            || response.status() == StatusCode::BAD_REQUEST
+        response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::BAD_REQUEST
     );
 }
 

@@ -167,24 +167,21 @@ mod tests {
 
     #[test]
     fn test_run_inference_nonexistent_path() {
-        let config = InferenceConfig::new("/nonexistent/model.gguf")
-            .with_prompt("Hello");
+        let config = InferenceConfig::new("/nonexistent/model.gguf").with_prompt("Hello");
         let result = run_inference(&config);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_run_inference_traversal_attack() {
-        let config = InferenceConfig::new("/etc/../etc/passwd")
-            .with_prompt("Hello");
+        let config = InferenceConfig::new("/etc/../etc/passwd").with_prompt("Hello");
         let result = run_inference(&config);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_run_inference_wrong_extension() {
-        let config = InferenceConfig::new("/tmp/test.txt")
-            .with_prompt("Hello");
+        let config = InferenceConfig::new("/tmp/test.txt").with_prompt("Hello");
         let result = run_inference(&config);
         assert!(result.is_err());
     }
@@ -209,54 +206,44 @@ mod tests {
 
     #[test]
     fn test_inference_config_with_prompt() {
-        let config = InferenceConfig::new("model.gguf")
-            .with_prompt("Hello");
+        let config = InferenceConfig::new("model.gguf").with_prompt("Hello");
         assert_eq!(config.prompt, Some("Hello".to_string()));
     }
 
     #[test]
     fn test_inference_config_with_input_tokens() {
-        let config = InferenceConfig::new("model.gguf")
-            .with_input_tokens(vec![1, 2, 3]);
+        let config = InferenceConfig::new("model.gguf").with_input_tokens(vec![1, 2, 3]);
         assert_eq!(config.input_tokens, Some(vec![1, 2, 3]));
     }
 
     #[test]
     fn test_inference_config_with_max_tokens() {
-        let config = InferenceConfig::new("model.gguf")
-            .with_max_tokens(100);
+        let config = InferenceConfig::new("model.gguf").with_max_tokens(100);
         assert_eq!(config.max_tokens, 100);
     }
 
     #[test]
     fn test_inference_config_without_gpu() {
-        let config = InferenceConfig::new("model.gguf")
-            .without_gpu();
+        let config = InferenceConfig::new("model.gguf").without_gpu();
         assert!(config.no_gpu);
     }
 
     #[test]
     fn test_inference_config_with_verbose() {
-        let config = InferenceConfig::new("model.gguf")
-            .with_verbose(true);
+        let config = InferenceConfig::new("model.gguf").with_verbose(true);
         assert!(config.verbose);
     }
 
     #[test]
     fn test_inference_config_with_trace() {
-        let config = InferenceConfig::new("model.gguf")
-            .with_trace(true);
+        let config = InferenceConfig::new("model.gguf").with_trace(true);
         assert!(config.trace);
     }
 
     #[test]
     fn test_inference_config_with_trace_output() {
-        let config = InferenceConfig::new("model.gguf")
-            .with_trace_output("/tmp/trace.json");
-        assert_eq!(
-            config.trace_output,
-            Some(PathBuf::from("/tmp/trace.json"))
-        );
+        let config = InferenceConfig::new("model.gguf").with_trace_output("/tmp/trace.json");
+        assert_eq!(config.trace_output, Some(PathBuf::from("/tmp/trace.json")));
     }
 
     #[test]

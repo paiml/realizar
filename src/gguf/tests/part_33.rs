@@ -13,7 +13,6 @@
 //!
 //! Target: 618 missed lines in gguf/loader.rs
 
-use super::*;
 use crate::gguf::{GGUFModel, GGUF_MAGIC, GGUF_VERSION_V3};
 
 // ============================================================================
@@ -178,7 +177,7 @@ fn build_malformed_pygmy_empty_name() -> Vec<u8> {
 
     // Zero-length tensor name
     data.extend_from_slice(&0u64.to_le_bytes()); // name length = 0
-    // No name bytes
+                                                 // No name bytes
 
     data.extend_from_slice(&1u32.to_le_bytes()); // n_dims
     data.extend_from_slice(&4u64.to_le_bytes()); // dim[0]
@@ -445,10 +444,10 @@ fn test_unaligned_pygmy_odd_offset() {
             assert_eq!(model.tensors.len(), 1);
             // Tensor exists but offset is odd - may cause issues on access
             assert_eq!(model.tensors[0].offset, 17);
-        }
+        },
         Err(_) => {
             // Also acceptable - loader might reject unaligned offsets
-        }
+        },
     }
 }
 
@@ -463,10 +462,10 @@ fn test_unaligned_pygmy_overflow_offset() {
             assert_eq!(model.tensors.len(), 1);
             // Offset is beyond file
             assert!(model.tensors[0].offset > data.len() as u64);
-        }
+        },
         Err(_) => {
             // Also acceptable
-        }
+        },
     }
 }
 
@@ -484,10 +483,10 @@ fn test_malformed_pygmy_empty_name() {
         Ok(model) => {
             assert_eq!(model.tensors.len(), 1);
             assert!(model.tensors[0].name.is_empty());
-        }
+        },
         Err(_) => {
             // Rejection is fine
-        }
+        },
     }
 }
 
@@ -510,10 +509,10 @@ fn test_malformed_pygmy_invalid_type() {
         Ok(model) => {
             assert_eq!(model.tensors.len(), 1);
             // Type is stored but may fail on dequantization
-        }
+        },
         Err(_) => {
             // Rejection is also fine
-        }
+        },
     }
 }
 
@@ -528,10 +527,10 @@ fn test_malformed_pygmy_zero_dims() {
             assert_eq!(model.tensors.len(), 1);
             // Check dims
             assert_eq!(model.tensors[0].dims.len(), 0);
-        }
+        },
         Err(_) => {
             // Rejection is fine
-        }
+        },
     }
 }
 
@@ -545,10 +544,10 @@ fn test_malformed_pygmy_too_many_dims() {
         Ok(model) => {
             assert_eq!(model.tensors.len(), 1);
             assert_eq!(model.tensors[0].dims.len(), 100);
-        }
+        },
         Err(_) => {
             // Rejection is fine - 100 dims is unreasonable
-        }
+        },
     }
 }
 
@@ -565,10 +564,10 @@ fn test_malformed_pygmy_overlapping_tensors() {
             let t0_end = model.tensors[0].offset + 128; // 32 * 4 bytes
             let t1_start = model.tensors[1].offset;
             assert!(t1_start < t0_end, "Tensors should overlap");
-        }
+        },
         Err(_) => {
             // Rejection is also fine
-        }
+        },
     }
 }
 
@@ -587,15 +586,19 @@ fn test_shard_pygmy_split_metadata() {
             assert_eq!(model.metadata.len(), 3);
 
             // Verify shard metadata keys exist
-            let keys: Vec<&str> = model.metadata.keys().map(|k| k.as_str()).collect();
+            let keys: Vec<&str> = model
+                .metadata
+                .keys()
+                .map(std::string::String::as_str)
+                .collect();
             assert!(keys.contains(&"split.no"));
             assert!(keys.contains(&"split.count"));
             assert!(keys.contains(&"split.tensors.count"));
-        }
+        },
         Err(e) => {
             // Parsing may fail but that's also coverage
             let _ = e;
-        }
+        },
     }
 }
 
@@ -740,10 +743,10 @@ fn test_tensor_count_zero_with_data() {
     match result {
         Ok(model) => {
             assert_eq!(model.tensors.len(), 0);
-        }
+        },
         Err(_) => {
             // Also fine
-        }
+        },
     }
 }
 
@@ -767,11 +770,8 @@ fn test_metadata_type_string_empty() {
     data.extend_from_slice(&0u64.to_le_bytes()); // Empty string (length 0)
 
     let result = GGUFModel::from_bytes(&data);
-    match result {
-        Ok(model) => {
-            assert_eq!(model.metadata.len(), 1);
-        }
-        Err(_) => {}
+    if let Ok(model) = result {
+        assert_eq!(model.metadata.len(), 1);
     }
 }
 
@@ -792,11 +792,8 @@ fn test_metadata_type_array_empty() {
     data.extend_from_slice(&0u64.to_le_bytes()); // Array length: 0
 
     let result = GGUFModel::from_bytes(&data);
-    match result {
-        Ok(model) => {
-            assert_eq!(model.metadata.len(), 1);
-        }
-        Err(_) => {}
+    if let Ok(model) = result {
+        assert_eq!(model.metadata.len(), 1);
     }
 }
 
@@ -847,9 +844,9 @@ fn test_many_tensors_varied_types() {
     match result {
         Ok(model) => {
             assert_eq!(model.tensors.len(), 50);
-        }
+        },
         Err(_) => {
             // May fail due to type validation
-        }
+        },
     }
 }

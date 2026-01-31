@@ -860,7 +860,10 @@ mod tests {
         let input = Tensor::from_vec(vec![2], vec![1.0, 2.0]).unwrap();
         let result = rope.forward(&input, 0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Expected last dimension 4"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Expected last dimension 4"));
     }
 
     // ==================== RopeScalingType Tests ====================
@@ -897,7 +900,11 @@ mod tests {
             original_max_len: 2048,
             target_max_len: 8192,
         };
-        if let RopeScalingType::DynamicNtk { original_max_len, target_max_len } = scaling {
+        if let RopeScalingType::DynamicNtk {
+            original_max_len,
+            target_max_len,
+        } = scaling
+        {
             assert_eq!(original_max_len, 2048);
             assert_eq!(target_max_len, 8192);
         } else {
@@ -914,7 +921,13 @@ mod tests {
             beta_fast: 32.0,
             beta_slow: 1.0,
         };
-        if let RopeScalingType::Yarn { original_max_len, target_max_len, attn_factor, .. } = scaling {
+        if let RopeScalingType::Yarn {
+            original_max_len,
+            target_max_len,
+            attn_factor,
+            ..
+        } = scaling
+        {
             assert_eq!(original_max_len, 2048);
             assert_eq!(target_max_len, 8192);
             assert!((attn_factor - 1.5).abs() < 1e-6);
@@ -926,7 +939,7 @@ mod tests {
     #[test]
     fn test_rope_scaling_type_clone() {
         let scaling = RopeScalingType::Linear { scale: 2.0 };
-        let cloned = scaling.clone();
+        let cloned = scaling;
         assert_eq!(scaling, cloned);
     }
 
@@ -1148,7 +1161,10 @@ mod tests {
     fn test_alibi_new_zero_heads_error() {
         let result = ALiBi::new(0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("num_heads must be > 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("num_heads must be > 0"));
     }
 
     #[test]
@@ -1188,7 +1204,10 @@ mod tests {
         let alibi = ALiBi::new(4).unwrap();
         let result = alibi.get_bias(0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("seq_len must be > 0"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("seq_len must be > 0"));
     }
 
     #[test]
@@ -1216,12 +1235,12 @@ mod tests {
         // (0,0): 0, (0,1): -slope*1, (0,2): -slope*2
         // (1,0): -slope*1, (1,1): 0, (1,2): -slope*1
         // (2,0): -slope*2, (2,1): -slope*1, (2,2): 0
-        assert!((data[0] - 0.0).abs() < 1e-6);              // (0,0)
-        assert!((data[1] - (-slope * 1.0)).abs() < 1e-6);   // (0,1)
-        assert!((data[2] - (-slope * 2.0)).abs() < 1e-6);   // (0,2)
-        assert!((data[3] - (-slope * 1.0)).abs() < 1e-6);   // (1,0)
-        assert!((data[4] - 0.0).abs() < 1e-6);              // (1,1)
-        assert!((data[5] - (-slope * 1.0)).abs() < 1e-6);   // (1,2)
+        assert!((data[0] - 0.0).abs() < 1e-6); // (0,0)
+        assert!((data[1] - (-slope * 1.0)).abs() < 1e-6); // (0,1)
+        assert!((data[2] - (-slope * 2.0)).abs() < 1e-6); // (0,2)
+        assert!((data[3] - (-slope * 1.0)).abs() < 1e-6); // (1,0)
+        assert!((data[4] - 0.0).abs() < 1e-6); // (1,1)
+        assert!((data[5] - (-slope * 1.0)).abs() < 1e-6); // (1,2)
     }
 
     #[test]
@@ -1257,7 +1276,7 @@ mod tests {
         assert_eq!(bias.shape(), &[256, 256, 8]);
         // Check a corner case: (0, 255) should be -slope * 255
         let data = bias.data();
-        let idx = 0 * 256 * 8 + 255 * 8 + 0; // (0, 255, head=0)
+        let idx = (255 * 8) + 0; // (0, 255, head=0)
         let expected = -alibi.slopes()[0] * 255.0;
         assert!((data[idx] - expected).abs() < 1e-4);
     }

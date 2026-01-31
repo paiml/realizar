@@ -49,7 +49,7 @@ pub async fn entrypoint(cli: Cli) -> Result<()> {
                 trace,
             )
             .await
-        }
+        },
         Commands::Chat {
             model,
             system,
@@ -80,7 +80,7 @@ pub async fn entrypoint(cli: Cli) -> Result<()> {
                 gpu,
             })
             .await
-        }
+        },
         Commands::Bench {
             suite,
             list,
@@ -113,15 +113,15 @@ pub async fn entrypoint(cli: Cli) -> Result<()> {
                 std::process::exit(1);
             }
             Ok(())
-        }
+        },
         Commands::Viz { color, samples } => {
             run_visualization(color, samples);
             Ok(())
-        }
+        },
         Commands::Info => {
             print_info();
             Ok(())
-        }
+        },
     }
 }
 
@@ -181,14 +181,41 @@ async fn run_model_command(
                 messages.push(ChatMessage::system(sys));
             }
             messages.push(ChatMessage::user(prompt_text));
-            template.format_conversation(&messages).unwrap_or_else(|_| prompt_text.to_string())
+            template
+                .format_conversation(&messages)
+                .unwrap_or_else(|_| prompt_text.to_string())
         };
 
         use crate::format::{detect_format, ModelFormat};
         match detect_format(&file_data).unwrap_or(ModelFormat::Gguf) {
-            ModelFormat::Apr => run_apr_inference(model_ref, &file_data, &formatted_prompt, max_tokens, temperature, format, force_gpu, verbose)?,
-            ModelFormat::SafeTensors => run_safetensors_inference(model_ref, &formatted_prompt, max_tokens, temperature, format)?,
-            ModelFormat::Gguf => run_gguf_inference(model_ref, &file_data, &formatted_prompt, max_tokens, temperature, format, force_gpu, verbose, trace.is_some())?,
+            ModelFormat::Apr => run_apr_inference(
+                model_ref,
+                &file_data,
+                &formatted_prompt,
+                max_tokens,
+                temperature,
+                format,
+                force_gpu,
+                verbose,
+            )?,
+            ModelFormat::SafeTensors => run_safetensors_inference(
+                model_ref,
+                &formatted_prompt,
+                max_tokens,
+                temperature,
+                format,
+            )?,
+            ModelFormat::Gguf => run_gguf_inference(
+                model_ref,
+                &file_data,
+                &formatted_prompt,
+                max_tokens,
+                temperature,
+                format,
+                force_gpu,
+                verbose,
+                trace.is_some(),
+            )?,
         }
     } else {
         println!("Interactive mode - use a prompt argument");
@@ -197,10 +224,17 @@ async fn run_model_command(
 }
 
 /// Chat command handler
-async fn run_chat_command(model_ref: &str, system_prompt: Option<&str>, history_file: Option<&str>) -> Result<()> {
+async fn run_chat_command(
+    model_ref: &str,
+    system_prompt: Option<&str>,
+    history_file: Option<&str>,
+) -> Result<()> {
     use std::io::{BufRead, Write};
 
-    if !std::path::Path::new(model_ref).exists() && !model_ref.starts_with("pacha://") && !model_ref.starts_with("hf://") {
+    if !std::path::Path::new(model_ref).exists()
+        && !model_ref.starts_with("pacha://")
+        && !model_ref.starts_with("hf://")
+    {
         return Err(RealizarError::ModelNotFound(model_ref.to_string()));
     }
     if model_ref.starts_with("pacha://") || model_ref.starts_with("hf://") {
@@ -236,19 +270,27 @@ async fn run_chat_command(model_ref: &str, system_prompt: Option<&str>, history_
             Ok(0) => break,
             Ok(_) => {
                 let input = input.trim();
-                if input.is_empty() { continue; }
-                if input == "exit" || input == "/quit" { break; }
-                if input == "/clear" { history.clear(); println!("Cleared."); continue; }
+                if input.is_empty() {
+                    continue;
+                }
+                if input == "exit" || input == "/quit" {
+                    break;
+                }
+                if input == "/clear" {
+                    history.clear();
+                    println!("Cleared.");
+                    continue;
+                }
                 if input == "/history" {
                     for (i, (u, a)) in history.iter().enumerate() {
-                        println!("[{}] {}: {}", i+1, u, a);
+                        println!("[{}] {}: {}", i + 1, u, a);
                     }
                     continue;
                 }
                 let response = format!("[Echo] {}", input);
                 println!("{response}");
                 history.push((input.to_string(), response));
-            }
+            },
             Err(_) => break,
         }
     }

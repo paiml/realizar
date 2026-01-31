@@ -10,7 +10,6 @@ use axum::{
 use tower::util::ServiceExt;
 
 use crate::api::test_helpers::create_test_app_shared;
-use crate::api::{create_router, AppState};
 
 // ============================================================================
 // GPU Handlers Coverage (gpu_handlers.rs)
@@ -87,7 +86,13 @@ async fn test_openai_models_endpoint() {
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -106,7 +111,13 @@ async fn test_openai_completions_endpoint() {
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -125,7 +136,13 @@ async fn test_openai_chat_completions_endpoint() {
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -170,8 +187,11 @@ async fn test_apr_predict_endpoint() {
     let response = app.oneshot(request).await.unwrap();
     // Accept various status codes - handler is exercised either way
     let status = response.status();
-    if status != StatusCode::OK && status != StatusCode::BAD_REQUEST
-       && status != StatusCode::UNPROCESSABLE_ENTITY && status != StatusCode::NOT_IMPLEMENTED {
+    if status != StatusCode::OK
+        && status != StatusCode::BAD_REQUEST
+        && status != StatusCode::UNPROCESSABLE_ENTITY
+        && status != StatusCode::NOT_IMPLEMENTED
+    {
         return; // Mock state guard
     }
 }
@@ -257,7 +277,13 @@ async fn test_realize_model_endpoint() {
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
 }
 
 #[tokio::test]
@@ -274,7 +300,8 @@ async fn test_realize_reload_endpoint() {
     let response = app.oneshot(request).await.unwrap();
     // Reload may not be supported in demo mode
     assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
             || response.status() == StatusCode::NOT_IMPLEMENTED
             || response.status() == StatusCode::BAD_REQUEST,
         "Reload should return OK, NOT_IMPLEMENTED, or BAD_REQUEST"

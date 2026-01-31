@@ -461,7 +461,9 @@ mod tests {
 
     #[test]
     fn test_load_quantized_weights_q4_0() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         // Generate Q4_0 weights: 8 blocks = 256 elements (8 * 32)
         // For k=256, n=128: need 128 rows * 8 blocks per row = 1024 blocks
         let weights = generate_q4_0_weights(1024);
@@ -473,7 +475,9 @@ mod tests {
 
     #[test]
     fn test_load_quantized_weights_q8_0() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         // Generate Q8_0 weights: 8 blocks = 256 elements
         let weights = generate_q8_0_weights(1024);
 
@@ -483,7 +487,9 @@ mod tests {
 
     #[test]
     fn test_load_quantized_weights_with_type() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let weights = generate_q4_0_weights(256);
 
         // Load with explicit Q4_0 type (type 2)
@@ -493,7 +499,9 @@ mod tests {
 
     #[test]
     fn test_load_multiple_weights() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let weights1 = generate_q4_0_weights(256);
         let weights2 = generate_q8_0_weights(256);
 
@@ -511,7 +519,9 @@ mod tests {
 
     #[test]
     fn test_load_weights_f32() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let weights: Vec<f32> = (0..256).map(|i| i as f32 * 0.1).collect();
 
         let result = exec.load_weights("test_f32", &weights);
@@ -521,7 +531,9 @@ mod tests {
 
     #[test]
     fn test_load_weights_f32_multiple() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let weights1: Vec<f32> = (0..512).map(|i| i as f32 * 0.01).collect();
         let weights2: Vec<f32> = (0..256).map(|i| i as f32 * 0.02).collect();
 
@@ -538,7 +550,9 @@ mod tests {
 
     #[test]
     fn test_cache_rmsnorm_gamma() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let gamma: Vec<f32> = vec![1.0; 256];
 
         let result = exec.cache_rmsnorm_gamma("test_norm", &gamma);
@@ -548,18 +562,25 @@ mod tests {
 
     #[test]
     fn test_cache_rmsnorm_gamma_ptr() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let gamma: Vec<f32> = vec![1.0; 128];
 
         exec.cache_rmsnorm_gamma("norm_ptr_test", &gamma).unwrap();
-        let ptr = exec.rmsnorm_cache.get("norm_ptr_test").map(|b| b.as_ptr());
+        let ptr = exec
+            .rmsnorm_cache
+            .get("norm_ptr_test")
+            .map(trueno_gpu::driver::GpuBuffer::as_ptr);
         assert!(ptr.is_some());
         assert!(ptr.unwrap() > 0);
     }
 
     #[test]
     fn test_rmsnorm_cache_not_found() {
-        let Some(exec) = create_executor() else { return; };
+        let Some(exec) = create_executor() else {
+            return;
+        };
         let ptr = exec.rmsnorm_cache.get("nonexistent");
         assert!(ptr.is_none());
     }
@@ -570,7 +591,9 @@ mod tests {
 
     #[test]
     fn test_preload_lm_head_bias() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let bias: Vec<f32> = vec![0.1; 256];
 
         let result = exec.preload_lm_head_bias(Some(&bias));
@@ -580,7 +603,9 @@ mod tests {
 
     #[test]
     fn test_preload_lm_head_bias_none() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let result = exec.preload_lm_head_bias(None);
         assert!(result.is_ok());
@@ -590,7 +615,9 @@ mod tests {
 
     #[test]
     fn test_bias_cache_not_found() {
-        let Some(exec) = create_executor() else { return; };
+        let Some(exec) = create_executor() else {
+            return;
+        };
         let ptr = exec.bias_cache.get("nonexistent");
         assert!(ptr.is_none());
     }
@@ -601,13 +628,17 @@ mod tests {
 
     #[test]
     fn test_has_indexed_weights_initial_false() {
-        let Some(exec) = create_executor() else { return; };
+        let Some(exec) = create_executor() else {
+            return;
+        };
         assert!(!exec.has_indexed_weights());
     }
 
     #[test]
     fn test_clear_indexed_weights() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         // Clear should work even if nothing is indexed
         exec.clear_indexed_weights();
         assert!(!exec.has_indexed_weights());
@@ -621,7 +652,9 @@ mod tests {
 
     #[test]
     fn test_q4_0_gemv_with_synthetic_weights() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         // Generate Q4_0 synthetic weights
         // For K=256, N=128: need 128 rows, 8 blocks per row (32 elements/block)
@@ -632,7 +665,8 @@ mod tests {
         let weights = generate_q4_0_weights(total_blocks);
 
         // Load weights to GPU
-        exec.load_quantized_weights_with_type("synth_gemv", &weights, 2).unwrap();
+        exec.load_quantized_weights_with_type("synth_gemv", &weights, 2)
+            .unwrap();
         let weight_ptr = exec.get_quantized_weight_ptr("synth_gemv").unwrap();
 
         // Create GPU buffers for input/output
@@ -652,7 +686,9 @@ mod tests {
 
     #[test]
     fn test_q8_0_gemv_with_synthetic_weights() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
 
         let k = 256u32;
         let n = 64u32;
@@ -660,7 +696,8 @@ mod tests {
         let total_blocks = n as usize * blocks_per_row;
         let weights = generate_q8_0_weights(total_blocks);
 
-        exec.load_quantized_weights_with_type("q8_gemv", &weights, 7).unwrap();
+        exec.load_quantized_weights_with_type("q8_gemv", &weights, 7)
+            .unwrap();
         let weight_ptr = exec.get_quantized_weight_ptr("q8_gemv").unwrap();
 
         let input: Vec<f32> = vec![1.0; k as usize];
@@ -678,15 +715,27 @@ mod tests {
 
     #[test]
     fn test_weight_cache_overwrite() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let weights1 = generate_q4_0_weights(128);
         let weights2 = generate_q4_0_weights(256);
 
-        exec.load_quantized_weights("overwrite_test", &weights1).unwrap();
-        let size1 = exec.quantized_weight_cache.get("overwrite_test").unwrap().len();
+        exec.load_quantized_weights("overwrite_test", &weights1)
+            .unwrap();
+        let size1 = exec
+            .quantized_weight_cache
+            .get("overwrite_test")
+            .unwrap()
+            .len();
 
-        exec.load_quantized_weights("overwrite_test", &weights2).unwrap();
-        let size2 = exec.quantized_weight_cache.get("overwrite_test").unwrap().len();
+        exec.load_quantized_weights("overwrite_test", &weights2)
+            .unwrap();
+        let size2 = exec
+            .quantized_weight_cache
+            .get("overwrite_test")
+            .unwrap()
+            .len();
 
         // Second load should replace first
         assert!(size2 > size1);
@@ -694,11 +743,14 @@ mod tests {
 
     #[test]
     fn test_quantized_weight_types_tracking() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let weights = generate_q4_0_weights(128);
 
         // Load as Q4_0 (type 2)
-        exec.load_quantized_weights_with_type("typed_q4", &weights, 2).unwrap();
+        exec.load_quantized_weights_with_type("typed_q4", &weights, 2)
+            .unwrap();
 
         // Verify type is tracked
         assert_eq!(exec.quantized_weight_types.get("typed_q4"), Some(&2));
@@ -710,7 +762,9 @@ mod tests {
 
     #[test]
     fn test_get_quantized_weight_ptr_after_load() {
-        let Some(mut exec) = create_executor() else { return; };
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
         let weights = generate_q4_0_weights(128);
 
         exec.load_quantized_weights("ptr_test", &weights).unwrap();

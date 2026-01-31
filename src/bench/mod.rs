@@ -20,9 +20,6 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "bench-http")]
-use crate::http_client::{CompletionRequest, ModelHttpClient, OllamaOptions, OllamaRequest};
-
 // PMAT-802: Extracted modules
 mod gpu_parity;
 mod load_testing;

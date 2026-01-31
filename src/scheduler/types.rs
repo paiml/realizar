@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn test_priority_clone() {
         let p = Priority::High;
-        let cloned = p.clone();
+        let cloned = p;
         assert_eq!(p, cloned);
     }
 
@@ -138,7 +138,12 @@ mod tests {
 
     #[test]
     fn test_priority_serde_roundtrip() {
-        for priority in [Priority::Low, Priority::Normal, Priority::High, Priority::Critical] {
+        for priority in [
+            Priority::Low,
+            Priority::Normal,
+            Priority::High,
+            Priority::Critical,
+        ] {
             let json = serde_json::to_string(&priority).expect("serialize");
             let restored: Priority = serde_json::from_str(&json).expect("deserialize");
             assert_eq!(priority, restored);
@@ -168,7 +173,7 @@ mod tests {
     #[test]
     fn test_sequence_state_clone() {
         let state = SequenceState::Running;
-        let cloned = state.clone();
+        let cloned = state;
         assert_eq!(state, cloned);
     }
 

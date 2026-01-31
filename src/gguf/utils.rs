@@ -177,7 +177,10 @@ mod tests {
     fn test_decode_gpt2_token_mixed() {
         // Mix of printable ASCII and encoded special chars
         let bytes = decode_gpt2_token_to_bytes("Hello\u{010A}World");
-        assert_eq!(bytes, vec![0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x0A, 0x57, 0x6F, 0x72, 0x6C, 0x64]);
+        assert_eq!(
+            bytes,
+            vec![0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x0A, 0x57, 0x6F, 0x72, 0x6C, 0x64]
+        );
     }
 
     #[test]

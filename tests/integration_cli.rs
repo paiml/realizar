@@ -178,9 +178,11 @@ fn test_cli_run_nonexistent_model() {
         .arg("/nonexistent/model.gguf")
         .arg("--prompt")
         .arg("Hello");
-    cmd.assert()
-        .failure()
-        .stderr(predicate::str::contains("error").or(predicate::str::contains("Error")).or(predicate::str::contains("not found")));
+    cmd.assert().failure().stderr(
+        predicate::str::contains("error")
+            .or(predicate::str::contains("Error"))
+            .or(predicate::str::contains("not found")),
+    );
 }
 
 #[test]
@@ -365,7 +367,8 @@ fn test_cli_chat_with_pygmy_gguf() {
 fn create_poisoned_gguf() -> NamedTempFile {
     let mut temp = NamedTempFile::with_suffix(".gguf").expect("create temp file");
     // Write garbage that looks like it might be GGUF but isn't
-    temp.write_all(b"GGUF\x00\x00\x00\x03CORRUPTED_DATA_HERE").unwrap();
+    temp.write_all(b"GGUF\x00\x00\x00\x03CORRUPTED_DATA_HERE")
+        .unwrap();
     temp.flush().unwrap();
     temp
 }
@@ -381,8 +384,7 @@ fn test_cli_run_with_poisoned_gguf() {
         .arg("test");
 
     // Should fail gracefully with error message
-    cmd.assert()
-        .failure();
+    cmd.assert().failure();
 }
 
 /// Create a file with wrong extension
@@ -398,10 +400,7 @@ fn test_cli_run_with_wrong_extension() {
     let wrong = create_wrong_extension_file();
 
     let mut cmd = Command::cargo_bin("realizar").expect("test");
-    cmd.arg("run")
-        .arg(wrong.path())
-        .arg("--prompt")
-        .arg("test");
+    cmd.arg("run").arg(wrong.path()).arg("--prompt").arg("test");
 
     // Should handle gracefully
     let output = cmd.output().expect("run");
@@ -418,10 +417,7 @@ fn test_cli_run_with_empty_file() {
     // File is empty
 
     let mut cmd = Command::cargo_bin("realizar").expect("test");
-    cmd.arg("run")
-        .arg(temp.path())
-        .arg("--prompt")
-        .arg("test");
+    cmd.arg("run").arg(temp.path()).arg("--prompt").arg("test");
 
     cmd.assert().failure();
 }

@@ -11,11 +11,9 @@ use tower::util::ServiceExt;
 
 use crate::api::test_helpers::create_test_app_shared;
 use crate::api::{
-    build_trace_data, create_router, format_chat_messages, AppState, ChatChoice, ChatChunkChoice,
-    ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, ChatDelta, ChatMessage,
-    ErrorResponse, GenerateRequest, GenerateResponse, HealthResponse, OpenAIModel,
-    OpenAIModelsResponse, StreamDoneEvent, StreamTokenEvent, TokenizeResponse, TraceData,
-    TraceOperation, Usage,
+    build_trace_data, format_chat_messages, ChatChoice, ChatChunkChoice, ChatCompletionChunk,
+    ChatCompletionRequest, ChatCompletionResponse, ChatDelta, ChatMessage, ErrorResponse,
+    OpenAIModel, OpenAIModelsResponse, TraceData, TraceOperation, Usage,
 };
 
 // ============================================================================
@@ -78,8 +76,16 @@ async fn test_openai_models_handler_demo_mode() {
         .await
         .expect("test");
 
-    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::INTERNAL_SERVER_ERROR || response.status() == StatusCode::SERVICE_UNAVAILABLE || response.status() == StatusCode::UNPROCESSABLE_ENTITY);
-    if response.status() != StatusCode::OK { return; }
+    assert!(
+        response.status() == StatusCode::OK
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            || response.status() == StatusCode::SERVICE_UNAVAILABLE
+            || response.status() == StatusCode::UNPROCESSABLE_ENTITY
+    );
+    if response.status() != StatusCode::OK {
+        return;
+    }
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -195,7 +201,7 @@ fn test_chat_completion_request_deserialization() {
 fn test_chat_message_roles() {
     for role in &["user", "assistant", "system", "function"] {
         let msg = ChatMessage {
-            role: role.to_string(),
+            role: (*role).to_string(),
             content: "test".to_string(),
             name: None,
         };
@@ -220,7 +226,7 @@ fn test_chat_message_with_name() {
 fn test_chat_message_empty_content() {
     let msg = ChatMessage {
         role: "user".to_string(),
-        content: "".to_string(),
+        content: String::new(),
         name: None,
     };
 

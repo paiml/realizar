@@ -607,7 +607,7 @@ mod tests {
     #[test]
     fn test_log_level_clone_copy() {
         let level = LogLevel::Info;
-        let cloned = level.clone();
+        let cloned = level;
         let copied: LogLevel = level;
         assert_eq!(level, cloned);
         assert_eq!(level, copied);
@@ -631,8 +631,7 @@ mod tests {
 
     #[test]
     fn test_log_entry_with_correlation_id() {
-        let entry = LogEntry::new(LogLevel::Debug, "msg")
-            .with_correlation_id("req-123");
+        let entry = LogEntry::new(LogLevel::Debug, "msg").with_correlation_id("req-123");
         assert_eq!(entry.correlation_id(), Some("req-123"));
     }
 
@@ -657,8 +656,7 @@ mod tests {
 
     #[test]
     fn test_log_entry_to_json_with_correlation() {
-        let entry = LogEntry::new(LogLevel::Info, "msg")
-            .with_correlation_id("corr-456");
+        let entry = LogEntry::new(LogLevel::Info, "msg").with_correlation_id("corr-456");
         let json = entry.to_json();
         assert!(json.contains("\"correlation_id\":\"corr-456\""));
     }
@@ -705,7 +703,10 @@ mod tests {
             .with_module_level("gpu", LogLevel::Trace)
             .with_module_level("inference", LogLevel::Error);
         assert_eq!(config.module_levels.get("gpu"), Some(&LogLevel::Trace));
-        assert_eq!(config.module_levels.get("inference"), Some(&LogLevel::Error));
+        assert_eq!(
+            config.module_levels.get("inference"),
+            Some(&LogLevel::Error)
+        );
     }
 
     #[test]
@@ -1105,9 +1106,7 @@ mod tests {
 
     #[test]
     fn test_state_dump_clone() {
-        let dump = StateDump::new()
-            .with_error("err")
-            .with_stack_trace("trace");
+        let dump = StateDump::new().with_error("err").with_stack_trace("trace");
         let cloned = dump.clone();
         assert_eq!(cloned.error(), dump.error());
         assert_eq!(cloned.stack_trace(), dump.stack_trace());

@@ -7,7 +7,8 @@ use realizar::apr_transformer::AprTransformer;
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let gguf_path = "/home/noah/src/HF-Advanced-Fine-Tuning/corpus/models/qwen2-0.5b-instruct-q4_0.gguf";
+    let gguf_path =
+        "/home/noah/src/HF-Advanced-Fine-Tuning/corpus/models/qwen2-0.5b-instruct-q4_0.gguf";
     let apr_path = "/tmp/qwen2-test5.apr";
 
     if !Path::new(gguf_path).exists() || !Path::new(apr_path).exists() {
@@ -33,11 +34,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Compare norm weights
     println!("\n=== Norm weight comparison ===");
     println!("APR norm weight len: {}", apr_layer.attn_norm_weight.len());
-    println!("GGUF norm weight len: {}", gguf_layer.attn_norm_weight.len());
+    println!(
+        "GGUF norm weight len: {}",
+        gguf_layer.attn_norm_weight.len()
+    );
     println!("APR norm first 5: {:?}", &apr_layer.attn_norm_weight[..5]);
     println!("GGUF norm first 5: {:?}", &gguf_layer.attn_norm_weight[..5]);
 
-    let norm_diff: f32 = apr_layer.attn_norm_weight.iter()
+    let norm_diff: f32 = apr_layer
+        .attn_norm_weight
+        .iter()
         .zip(gguf_layer.attn_norm_weight.iter())
         .map(|(a, b)| (a - b).abs())
         .fold(0.0f32, f32::max);
@@ -65,7 +71,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // APR matmul: y = W @ x where W is [out_dim, in_dim]
     let qkv_out_dim = apr_layer.qkv_weight.len() / hidden_dim;
-    println!("APR qkv out_dim: {} (= {} / {})", qkv_out_dim, apr_layer.qkv_weight.len(), hidden_dim);
+    println!(
+        "APR qkv out_dim: {} (= {} / {})",
+        qkv_out_dim,
+        apr_layer.qkv_weight.len(),
+        hidden_dim
+    );
 
     // Manual APR-style matmul
     let mut apr_qkv = vec![0.0f32; qkv_out_dim];
@@ -105,15 +116,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Let's manually compute output[0] and compare
     let manual_q0: f32 = (0..hidden_dim).map(|i| apr_q_weight[i] * normed[i]).sum();
-    println!("\nManual Q[0] (first 896 weights dot normed): {:.6}", manual_q0);
+    println!(
+        "\nManual Q[0] (first 896 weights dot normed): {:.6}",
+        manual_q0
+    );
     println!("APR matmul Q[0]: {:.6}", apr_qkv[0]);
     println!("Match: {}", (manual_q0 - apr_qkv[0]).abs() < 1e-6);
 
     // Now check if weights might be transposed
     // If transposed, W[in, out], then output[0] would be:
     // sum over i of W[i, 0] * input[i] = sum over i of weight[i * 896] * input[i]
-    let manual_q0_transposed: f32 = (0..hidden_dim).map(|i| apr_q_weight[i * hidden_dim] * normed[i]).sum();
-    println!("\nManual Q[0] (transposed interpretation): {:.6}", manual_q0_transposed);
+    let manual_q0_transposed: f32 = (0..hidden_dim)
+        .map(|i| apr_q_weight[i * hidden_dim] * normed[i])
+        .sum();
+    println!(
+        "\nManual Q[0] (transposed interpretation): {:.6}",
+        manual_q0_transposed
+    );
 
     Ok(())
 }

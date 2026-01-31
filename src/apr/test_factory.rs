@@ -108,7 +108,10 @@ pub fn build_executable_pygmy_apr() -> Vec<u8> {
         current_offset += *byte_size as u64;
     }
 
-    let tensor_index: Vec<u8> = tensor_entries.iter().flat_map(|e| e.iter().copied()).collect();
+    let tensor_index: Vec<u8> = tensor_entries
+        .iter()
+        .flat_map(|e| e.iter().copied())
+        .collect();
     let tensor_count = tensor_defs.len() as u32;
     let total_data_size = current_offset as usize;
 

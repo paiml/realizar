@@ -3,7 +3,9 @@
 //! Tests AprTransformer paths using converted Pygmy GGUF models.
 //! The same code paths are exercised whether the model is 1KB or 100GB.
 
-use crate::apr_transformer::{AprKVCache, AprTransformer, AprTransformerConfig, AprTransformerLayer, GenerateConfig};
+use crate::apr_transformer::{
+    AprKVCache, AprTransformer, AprTransformerConfig, AprTransformerLayer, GenerateConfig,
+};
 use crate::convert::GgufToAprConverter;
 use crate::gguf::test_factory::{build_minimal_llama_gguf, build_minimal_phi2_gguf};
 
@@ -462,7 +464,13 @@ fn test_apr_layer_has_ffn_weights() {
     let layer = &apr.layers[0];
 
     // FFN weights should exist
-    assert!(layer.ffn_norm_weight.as_ref().map_or(false, |v| !v.is_empty()) || layer.ffn_norm_weight.is_none());
+    assert!(
+        layer
+            .ffn_norm_weight
+            .as_ref()
+            .is_some_and(|v| !v.is_empty())
+            || layer.ffn_norm_weight.is_none()
+    );
     assert!(!layer.ffn_up_weight.is_empty());
     assert!(!layer.ffn_down_weight.is_empty());
 }

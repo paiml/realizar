@@ -3,8 +3,8 @@
 //! Targets: build_trace_data for all trace levels, AppState accessors,
 //! streaming types serde, error paths, edge cases.
 
-use crate::api::*;
 use crate::api::test_helpers::create_test_app_shared;
+use crate::api::*;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use tower::util::ServiceExt;
@@ -25,7 +25,10 @@ fn test_build_trace_data_brick_level() {
     assert_eq!(trace.operations, 5);
     assert_eq!(trace.total_time_us, 1000);
     assert!(!trace.breakdown.is_empty());
-    assert!(trace.breakdown.iter().any(|op| op.name == "embedding_lookup"));
+    assert!(trace
+        .breakdown
+        .iter()
+        .any(|op| op.name == "embedding_lookup"));
     assert!(trace.breakdown.iter().any(|op| op.name == "matmul_qkv"));
     assert!(trace.breakdown.iter().any(|op| op.name == "softmax"));
 }
@@ -45,7 +48,11 @@ fn test_build_trace_data_step_level() {
     assert!(trace.breakdown.iter().any(|op| op.name == "forward_pass"));
     assert!(trace.breakdown.iter().any(|op| op.name == "decode"));
     // Check details fields
-    let tokenize = trace.breakdown.iter().find(|op| op.name == "tokenize").unwrap();
+    let tokenize = trace
+        .breakdown
+        .iter()
+        .find(|op| op.name == "tokenize")
+        .unwrap();
     assert!(tokenize.details.as_ref().unwrap().contains("20"));
 }
 
@@ -63,7 +70,11 @@ fn test_build_trace_data_layer_level() {
     assert_eq!(trace.breakdown.len(), 12);
     assert!(trace.breakdown[0].name.starts_with("layer_"));
     assert!(trace.breakdown[11].name.contains("11"));
-    assert!(trace.breakdown[0].details.as_ref().unwrap().contains("attention+mlp"));
+    assert!(trace.breakdown[0]
+        .details
+        .as_ref()
+        .unwrap()
+        .contains("attention+mlp"));
 }
 
 #[test]
@@ -570,8 +581,14 @@ fn test_batch_tokenize_request_serde() {
 fn test_batch_tokenize_response_serde() {
     let resp = BatchTokenizeResponse {
         results: vec![
-            TokenizeResponse { token_ids: vec![1], num_tokens: 1 },
-            TokenizeResponse { token_ids: vec![2], num_tokens: 1 },
+            TokenizeResponse {
+                token_ids: vec![1],
+                num_tokens: 1,
+            },
+            TokenizeResponse {
+                token_ids: vec![2],
+                num_tokens: 1,
+            },
         ],
     };
     let json = serde_json::to_string(&resp).unwrap();
@@ -748,9 +765,7 @@ async fn test_models_endpoint_returns_list() {
         )
         .await
         .unwrap();
-    assert!(
-        response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND
-    );
+    assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

@@ -1406,14 +1406,14 @@ mod tests {
     #[test]
     fn test_quantized_tensor_q4_zeros_multiple_blocks() {
         let tensor = QuantizedAprTensorQ4::zeros(64, 2); // 128 elements = 4 blocks
-        // 4 blocks = 72 bytes
+                                                         // 4 blocks = 72 bytes
         assert_eq!(tensor.data.len(), 72);
     }
 
     #[test]
     fn test_quantized_tensor_q4_zeros_partial_block() {
         let tensor = QuantizedAprTensorQ4::zeros(33, 1); // 33 elements = 2 blocks (rounds up)
-        // 2 blocks = 36 bytes
+                                                         // 2 blocks = 36 bytes
         assert_eq!(tensor.data.len(), 36);
     }
 

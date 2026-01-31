@@ -124,8 +124,8 @@ impl AprF32ToGpuAdapter {
             block_weights,
             final_norm_weight,
             final_norm_bias,
-            lm_head_weight_t,  // [hidden_dim, vocab_size] for GPU
-            lm_head_weight,    // [vocab_size, hidden_dim] for CPU
+            lm_head_weight_t, // [hidden_dim, vocab_size] for GPU
+            lm_head_weight,   // [vocab_size, hidden_dim] for CPU
             lm_head_bias,
         )
     }
@@ -398,8 +398,8 @@ impl AprToGpuAdapter {
             block_weights,
             final_norm_weight,
             final_norm_bias,
-            lm_head_weight_t,  // [hidden_dim, vocab_size] for GPU
-            lm_head_weight,    // [vocab_size, hidden_dim] for CPU
+            lm_head_weight_t, // [hidden_dim, vocab_size] for GPU
+            lm_head_weight,   // [vocab_size, hidden_dim] for CPU
             lm_head_bias,
         )
     }

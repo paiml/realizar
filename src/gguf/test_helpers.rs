@@ -256,7 +256,10 @@ mod tests {
         let model = create_test_model_with_config(&config);
         assert_eq!(model.output_norm_weight.len(), 32);
         // Output norm should be initialized to 1.0
-        assert!(model.output_norm_weight.iter().all(|&w| (w - 1.0).abs() < f32::EPSILON));
+        assert!(model
+            .output_norm_weight
+            .iter()
+            .all(|&w| (w - 1.0).abs() < f32::EPSILON));
     }
 
     #[test]
@@ -300,7 +303,10 @@ mod tests {
         let model = create_test_model_with_config(&config);
         assert_eq!(model.layers[0].attn_norm_weight.len(), 48);
         // Attention norm should be initialized to 1.0
-        assert!(model.layers[0].attn_norm_weight.iter().all(|&w| (w - 1.0).abs() < f32::EPSILON));
+        assert!(model.layers[0]
+            .attn_norm_weight
+            .iter()
+            .all(|&w| (w - 1.0).abs() < f32::EPSILON));
     }
 
     #[test]
@@ -308,7 +314,7 @@ mod tests {
         // Test exactly at super-block boundary (256)
         let tensor = create_q4k_test_data(256, 1);
         assert_eq!(tensor.in_dim, 256);
-        let expected_size = 1 * 144; // 1 row * 1 super-block * 144 bytes
+        let expected_size = 144; // 1 row * 1 super-block * 144 bytes
         assert_eq!(tensor.data.len(), expected_size);
     }
 
@@ -317,7 +323,7 @@ mod tests {
         // Test just over super-block boundary (257 needs 2 super-blocks)
         let tensor = create_q4k_test_data(257, 1);
         assert_eq!(tensor.in_dim, 257);
-        let expected_size = 1 * 2 * 144; // 1 row * 2 super-blocks * 144 bytes
+        let expected_size = 2 * 144; // 1 row * 2 super-blocks * 144 bytes
         assert_eq!(tensor.data.len(), expected_size);
     }
 }

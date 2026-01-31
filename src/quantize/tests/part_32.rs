@@ -45,7 +45,7 @@ fn test_q8k_into_error_not_multiple_of_256() {
     match result {
         Err(RealizarError::FormatError { reason }) => {
             assert!(reason.contains("multiple of 256"));
-        }
+        },
         _ => panic!("Expected FormatError"),
     }
 }
@@ -61,7 +61,7 @@ fn test_q8k_into_error_scales_too_small() {
     match result {
         Err(RealizarError::InvalidShape { reason }) => {
             assert!(reason.contains("Scales buffer too small"));
-        }
+        },
         _ => panic!("Expected InvalidShape"),
     }
 }
@@ -77,7 +77,7 @@ fn test_q8k_into_error_quants_too_small() {
     match result {
         Err(RealizarError::InvalidShape { reason }) => {
             assert!(reason.contains("Quants buffer too small"));
-        }
+        },
         _ => panic!("Expected InvalidShape"),
     }
 }

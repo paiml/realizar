@@ -12,8 +12,8 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::convert::*;
     use crate::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
+    use crate::convert::*;
     use std::collections::HashMap;
 
     // =========================================================================
@@ -37,7 +37,10 @@ mod tests {
     #[test]
     fn test_infer_rope_type_qwen3_neox() {
         let metadata = HashMap::new();
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("qwen3", &metadata), 2);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("qwen3", &metadata),
+            2
+        );
     }
 
     #[test]
@@ -55,37 +58,55 @@ mod tests {
     #[test]
     fn test_infer_rope_type_gemma_neox() {
         let metadata = HashMap::new();
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("gemma", &metadata), 2);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("gemma", &metadata),
+            2
+        );
     }
 
     #[test]
     fn test_infer_rope_type_gemma2_neox() {
         let metadata = HashMap::new();
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("gemma2", &metadata), 2);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("gemma2", &metadata),
+            2
+        );
     }
 
     #[test]
     fn test_infer_rope_type_falcon_neox() {
         let metadata = HashMap::new();
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("falcon", &metadata), 2);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("falcon", &metadata),
+            2
+        );
     }
 
     #[test]
     fn test_infer_rope_type_stablelm_neox() {
         let metadata = HashMap::new();
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("stablelm", &metadata), 2);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("stablelm", &metadata),
+            2
+        );
     }
 
     #[test]
     fn test_infer_rope_type_starcoder2_neox() {
         let metadata = HashMap::new();
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("starcoder2", &metadata), 2);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("starcoder2", &metadata),
+            2
+        );
     }
 
     #[test]
     fn test_infer_rope_type_gptneox_neox() {
         let metadata = HashMap::new();
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("gptneox", &metadata), 2);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("gptneox", &metadata),
+            2
+        );
     }
 
     #[test]
@@ -97,19 +118,28 @@ mod tests {
     #[test]
     fn test_infer_rope_type_deepseek2_neox() {
         let metadata = HashMap::new();
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("deepseek2", &metadata), 2);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("deepseek2", &metadata),
+            2
+        );
     }
 
     #[test]
     fn test_infer_rope_type_internlm2_neox() {
         let metadata = HashMap::new();
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("internlm2", &metadata), 2);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("internlm2", &metadata),
+            2
+        );
     }
 
     #[test]
     fn test_infer_rope_type_unknown_defaults_norm() {
         let metadata = HashMap::new();
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("custom_arch", &metadata), 0);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("custom_arch", &metadata),
+            0
+        );
     }
 
     #[test]
@@ -120,7 +150,10 @@ mod tests {
             "llama.rope.scaling.type".to_string(),
             GGUFValue::String("none".to_string()),
         );
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("llama", &metadata), 0);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("llama", &metadata),
+            0
+        );
     }
 
     #[test]
@@ -131,7 +164,10 @@ mod tests {
             "llama.rope.scaling.type".to_string(),
             GGUFValue::String("linear".to_string()),
         );
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("llama", &metadata), 0);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("llama", &metadata),
+            0
+        );
     }
 
     #[test]
@@ -142,7 +178,10 @@ mod tests {
             "llama.rope.scaling.type".to_string(),
             GGUFValue::String("yarn".to_string()),
         );
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("llama", &metadata), 2);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("llama", &metadata),
+            2
+        );
     }
 
     #[test]
@@ -153,7 +192,10 @@ mod tests {
             "llama.rope.scaling.type".to_string(),
             GGUFValue::String("neox".to_string()),
         );
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("llama", &metadata), 2);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("llama", &metadata),
+            2
+        );
     }
 
     #[test]
@@ -165,7 +207,10 @@ mod tests {
             GGUFValue::String("custom_scale".to_string()),
         );
         // Unknown scaling type → falls through to architecture check → llama → 0
-        assert_eq!(GgufToAprQ4KConverter::infer_rope_type("llama", &metadata), 0);
+        assert_eq!(
+            GgufToAprQ4KConverter::infer_rope_type("llama", &metadata),
+            0
+        );
     }
 
     // =========================================================================
@@ -229,7 +274,10 @@ mod tests {
     fn test_get_u32_wrong_type() {
         use crate::gguf::GGUFValue;
         let mut metadata = HashMap::new();
-        metadata.insert("key".to_string(), GGUFValue::String("not_a_number".to_string()));
+        metadata.insert(
+            "key".to_string(),
+            GGUFValue::String("not_a_number".to_string()),
+        );
         assert_eq!(GgufToAprQ4KConverter::get_u32(&metadata, "key"), None);
     }
 
@@ -392,14 +440,14 @@ mod tests {
 
     #[test]
     fn test_from_apr_bytes_truncated_after_header() {
-        use crate::apr::{MAGIC, HEADER_SIZE};
+        use crate::apr::{HEADER_SIZE, MAGIC};
 
         // Build a header that claims tensor index is beyond data
         let mut header = vec![0u8; HEADER_SIZE];
         header[0..4].copy_from_slice(&MAGIC);
         header[4] = 2; // version major
         header[5] = 0; // version minor
-        // tensor_index_offset pointing beyond the data
+                       // tensor_index_offset pointing beyond the data
         header[24..32].copy_from_slice(&1000u64.to_le_bytes());
         // data_offset
         header[32..40].copy_from_slice(&2000u64.to_le_bytes());

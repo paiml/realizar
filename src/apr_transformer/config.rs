@@ -609,8 +609,7 @@ mod tests {
     fn test_apr_transformer_config_serialization() {
         let config = AprTransformerConfig::default();
         let json = serde_json::to_string(&config).expect("serialize");
-        let deserialized: AprTransformerConfig =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: AprTransformerConfig = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(config, deserialized);
     }
 
@@ -638,7 +637,8 @@ mod tests {
         let num_kv_heads = 2;
         let intermediate_dim = 2048;
 
-        let layer = AprTransformerLayer::empty_gqa(hidden_dim, num_heads, num_kv_heads, intermediate_dim);
+        let layer =
+            AprTransformerLayer::empty_gqa(hidden_dim, num_heads, num_kv_heads, intermediate_dim);
 
         let head_dim = hidden_dim / num_heads; // 64
         let kv_dim = num_kv_heads * head_dim; // 2 * 64 = 128
@@ -658,7 +658,7 @@ mod tests {
             + 64 * 3 * 64  // qkv_weight
             + 64 * 64      // attn_output_weight
             + 64 * 128     // ffn_up_weight
-            + 128 * 64;    // ffn_down_weight
+            + 128 * 64; // ffn_down_weight
 
         assert_eq!(params, expected);
     }
@@ -694,8 +694,7 @@ mod tests {
     fn test_apr_transformer_layer_serialization() {
         let layer = AprTransformerLayer::empty(32, 64);
         let json = serde_json::to_string(&layer).expect("serialize");
-        let deserialized: AprTransformerLayer =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: AprTransformerLayer = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(deserialized.attn_norm_weight.len(), 32);
     }
 
@@ -735,8 +734,7 @@ mod tests {
         let mut weights = Q4KLayerWeights::default();
         weights.attn_q_weight = Some(vec![0x12, 0x34]);
         let json = serde_json::to_string(&weights).expect("serialize");
-        let deserialized: Q4KLayerWeights =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: Q4KLayerWeights = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(deserialized.attn_q_weight, Some(vec![0x12, 0x34]));
     }
 }

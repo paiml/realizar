@@ -43,7 +43,7 @@ fn test_maimed_pygmy_gguf_real_inference_path() {
         Ok(r) => {
             assert_eq!(r.format, "GGUF");
             assert!(r.generated_token_count <= 2);
-        }
+        },
         Err(e) => {
             // Error is acceptable - we exercised the path
             let err_str = e.to_string();
@@ -52,7 +52,7 @@ fn test_maimed_pygmy_gguf_real_inference_path() {
                 "Should not use mock path: {}",
                 err_str
             );
-        }
+        },
     }
 }
 
@@ -179,7 +179,9 @@ fn test_maimed_pygmy_corrupt_version() {
     assert!(result.is_err(), "Should fail with unsupported version");
     let err_str = format!("{:?}", result.unwrap_err());
     assert!(
-        err_str.contains("version") || err_str.contains("Version") || err_str.contains("Unsupported"),
+        err_str.contains("version")
+            || err_str.contains("Version")
+            || err_str.contains("Unsupported"),
         "Error should mention version: {}",
         err_str
     );

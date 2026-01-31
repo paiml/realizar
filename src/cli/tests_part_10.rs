@@ -272,7 +272,11 @@ fn test_run_bench_compare_empty_file() {
     temp.write_all(b"").unwrap();
     temp.flush().unwrap();
 
-    let result = run_bench_compare(temp.path().to_str().unwrap(), temp.path().to_str().unwrap(), 0.1);
+    let result = run_bench_compare(
+        temp.path().to_str().unwrap(),
+        temp.path().to_str().unwrap(),
+        0.1,
+    );
     // Should fail gracefully with empty JSON
     assert!(result.is_err());
 }
@@ -283,13 +287,21 @@ fn test_run_bench_compare_invalid_json() {
     temp.write_all(b"{ not valid json }").unwrap();
     temp.flush().unwrap();
 
-    let result = run_bench_compare(temp.path().to_str().unwrap(), temp.path().to_str().unwrap(), 0.1);
+    let result = run_bench_compare(
+        temp.path().to_str().unwrap(),
+        temp.path().to_str().unwrap(),
+        0.1,
+    );
     assert!(result.is_err());
 }
 
 #[test]
 fn test_run_bench_regression_nonexistent() {
-    let result = run_bench_regression("/nonexistent/baseline.json", "/nonexistent/current.json", false);
+    let result = run_bench_regression(
+        "/nonexistent/baseline.json",
+        "/nonexistent/current.json",
+        false,
+    );
     assert!(result.is_err());
 }
 
@@ -327,7 +339,14 @@ fn test_run_benchmarks_list_mode() {
 fn test_run_benchmarks_invalid_suite() {
     // Note: This test is ignored because run_benchmarks calls process::exit(1)
     // for invalid suite names, which kills the test harness.
-    let result = run_benchmarks(Some("nonexistent_suite".to_string()), false, None, None, None, None);
+    let result = run_benchmarks(
+        Some("nonexistent_suite".to_string()),
+        false,
+        None,
+        None,
+        None,
+        None,
+    );
     let _ = result;
 }
 
@@ -335,7 +354,14 @@ fn test_run_benchmarks_invalid_suite() {
 #[ignore = "requires cargo bench infrastructure"]
 fn test_run_benchmarks_valid_suite_no_runtime() {
     // Note: This test is ignored because it tries to run actual cargo bench
-    let result = run_benchmarks(Some("tensor_ops".to_string()), false, None, None, None, None);
+    let result = run_benchmarks(
+        Some("tensor_ops".to_string()),
+        false,
+        None,
+        None,
+        None,
+        None,
+    );
     let _ = result;
 }
 

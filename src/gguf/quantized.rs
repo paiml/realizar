@@ -203,14 +203,19 @@ impl OwnedQKVWeights {
     /// For GQA: q_dim = num_heads * head_dim = hidden_dim
     /// For MHA: q_dim = hidden_dim (same as GQA since num_heads * head_dim = hidden_dim)
     #[must_use]
-    pub fn q_dim_for_config(&self, num_heads: usize, _num_kv_heads: usize, hidden_dim: usize) -> usize {
+    pub fn q_dim_for_config(
+        &self,
+        num_heads: usize,
+        _num_kv_heads: usize,
+        hidden_dim: usize,
+    ) -> usize {
         match self {
             OwnedQKVWeights::Fused(_) => {
                 // Q dimension is always num_heads * head_dim = hidden_dim
                 // (since head_dim = hidden_dim / num_heads)
                 let head_dim = hidden_dim / num_heads;
                 num_heads * head_dim
-            }
+            },
             OwnedQKVWeights::Separate { q, .. } => q.out_dim,
         }
     }
@@ -220,12 +225,17 @@ impl OwnedQKVWeights {
     /// For GQA: k_dim = num_kv_heads * head_dim (smaller than q_dim)
     /// For MHA: k_dim = num_heads * head_dim = hidden_dim
     #[must_use]
-    pub fn k_dim_for_config(&self, num_heads: usize, num_kv_heads: usize, hidden_dim: usize) -> usize {
+    pub fn k_dim_for_config(
+        &self,
+        num_heads: usize,
+        num_kv_heads: usize,
+        hidden_dim: usize,
+    ) -> usize {
         match self {
             OwnedQKVWeights::Fused(_) => {
                 let head_dim = hidden_dim / num_heads;
                 num_kv_heads * head_dim
-            }
+            },
             OwnedQKVWeights::Separate { k, .. } => k.out_dim,
         }
     }
@@ -235,12 +245,17 @@ impl OwnedQKVWeights {
     /// For GQA: v_dim = num_kv_heads * head_dim (same as k_dim)
     /// For MHA: v_dim = num_heads * head_dim = hidden_dim
     #[must_use]
-    pub fn v_dim_for_config(&self, num_heads: usize, num_kv_heads: usize, hidden_dim: usize) -> usize {
+    pub fn v_dim_for_config(
+        &self,
+        num_heads: usize,
+        num_kv_heads: usize,
+        hidden_dim: usize,
+    ) -> usize {
         match self {
             OwnedQKVWeights::Fused(_) => {
                 let head_dim = hidden_dim / num_heads;
                 num_kv_heads * head_dim
-            }
+            },
             OwnedQKVWeights::Separate { v, .. } => v.out_dim,
         }
     }

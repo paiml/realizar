@@ -1840,7 +1840,7 @@ mod tests {
 
                 let end = offset + data.len();
                 json_map.insert(
-                    name.to_string(),
+                    (*name).to_string(),
                     serde_json::json!({
                         "dtype": dtype_str,
                         "shape": shape,

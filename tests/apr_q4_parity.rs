@@ -27,7 +27,7 @@ mod tests {
         QuantizedAprTransformerQ4,
     };
     use realizar::cuda::CudaExecutor;
-    use realizar::gpu::adapters::{AprQ4ToGpuAdapter, GpuModelQ4};
+    use realizar::gpu::adapters::AprQ4ToGpuAdapter;
 
     /// Create a minimal test model with known weights for parity testing
     fn create_test_model() -> QuantizedAprTransformerQ4 {
@@ -82,7 +82,7 @@ mod tests {
         let ffn_norm_weight = vec![1.0f32; hidden_dim];
 
         let layer = QuantizedAprLayerQ4 {
-            attn_norm_weight: attn_norm_weight.clone(),
+            attn_norm_weight: attn_norm_weight,
             qkv_weight: QuantizedAprTensorQ4::new(
                 create_q4_0_weights(hidden_dim, qkv_dim),
                 hidden_dim,
@@ -175,7 +175,7 @@ mod tests {
         let gpu_model = AprQ4ToGpuAdapter::create_model(&apr);
 
         let hidden_gpu: Vec<f32> = apr.token_embedding[offset..offset + hidden_dim].to_vec();
-        let mut normed_gpu = hidden_gpu.clone();
+        let mut normed_gpu = hidden_gpu;
 
         // Manually call the same RMSNorm that GPU path uses
         let n = normed_gpu.len();

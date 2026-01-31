@@ -248,7 +248,10 @@ fn test_dequantize_q2_k_with_nonzero_scales() {
     assert_eq!(values.len(), 256);
     // Values should be non-zero due to scale
     let has_nonzero = values.iter().any(|&v| v.abs() > 1e-6);
-    assert!(has_nonzero, "Expected some non-zero values with non-zero scales");
+    assert!(
+        has_nonzero,
+        "Expected some non-zero values with non-zero scales"
+    );
 }
 
 // ============================================================================
@@ -261,7 +264,7 @@ fn test_dequantize_q4_1_nibble_pattern() {
     let scale_f16 = 0x3C00u16; // 1.0
     data[0..2].copy_from_slice(&scale_f16.to_le_bytes());
     data[2..4].copy_from_slice(&0u16.to_le_bytes()); // min = 0
-    // Set first quant byte to 0xAB (low=B=11, high=A=10)
+                                                     // Set first quant byte to 0xAB (low=B=11, high=A=10)
     data[4] = 0xAB;
     let result = dequantize_q4_1(&data).unwrap();
     // Position 0 (low nibble): 11 * 1.0 + 0.0 = 11.0

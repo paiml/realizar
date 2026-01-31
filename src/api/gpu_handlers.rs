@@ -424,7 +424,7 @@ async fn process_batch(
             temperature: first.temperature,
             top_k: first.top_k,
             stop_tokens: Vec::new(),
-        trace: false,
+            trace: false,
         };
 
         // Run batch generation with GPU FFN (PARITY-021)
@@ -476,7 +476,7 @@ async fn process_batch(
                     temperature: request.temperature,
                     top_k: request.top_k,
                     stop_tokens: Vec::new(),
-        trace: false,
+                    trace: false,
                 };
 
                 // Generate
@@ -814,7 +814,7 @@ pub async fn generate_handler(
                         error: "No tokenizer available".to_string(),
                     }),
                 ));
-            }
+            },
         };
 
         // Tokenize prompt
@@ -848,17 +848,15 @@ pub async fn generate_handler(
         };
 
         // Generate using CUDA model
-        let mut cuda_model = cuda_model_lock
-            .write()
-            .map_err(|_| {
-                state.metrics.record_failure();
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "Failed to acquire CUDA model lock".to_string(),
-                    }),
-                )
-            })?;
+        let mut cuda_model = cuda_model_lock.write().map_err(|_| {
+            state.metrics.record_failure();
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Failed to acquire CUDA model lock".to_string(),
+                }),
+            )
+        })?;
 
         let generated = cuda_model
             .generate_gpu_resident(&prompt_ids, &q_config)
@@ -910,7 +908,7 @@ pub async fn generate_handler(
                         error: "No tokenizer available".to_string(),
                     }),
                 ));
-            }
+            },
         };
 
         // Tokenize prompt
@@ -993,7 +991,7 @@ pub async fn generate_handler(
                         error: "No tokenizer available".to_string(),
                     }),
                 ));
-            }
+            },
         };
 
         // Tokenize prompt
@@ -1222,7 +1220,7 @@ pub async fn batch_generate_handler(
                         error: "No tokenizer available".to_string(),
                     }),
                 ));
-            }
+            },
         };
 
         let eos_token_id = tokenizer
@@ -1233,7 +1231,11 @@ pub async fn batch_generate_handler(
         let q_config = QuantizedGenerateConfig {
             max_tokens: request.max_tokens,
             temperature: request.temperature,
-            top_k: if request.temperature == 0.0 { 1 } else { request.top_k },
+            top_k: if request.temperature == 0.0 {
+                1
+            } else {
+                request.top_k
+            },
             stop_tokens: vec![eos_token_id],
             trace: false,
         };
@@ -1305,7 +1307,7 @@ pub async fn batch_generate_handler(
                         error: "No tokenizer available".to_string(),
                     }),
                 ));
-            }
+            },
         };
 
         let gen_config = GenerateConfig {

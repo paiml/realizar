@@ -1828,7 +1828,7 @@ mod inline_tests {
     #[test]
     fn test_seq_id_clone() {
         let id1 = SeqId::new();
-        let id2 = id1.clone();
+        let id2 = id1;
         assert_eq!(id1.value(), id2.value());
     }
 
@@ -1870,7 +1870,7 @@ mod inline_tests {
     #[test]
     fn test_page_id_clone() {
         let id1 = PageId::new(99);
-        let id2 = id1.clone();
+        let id2 = id1;
         assert_eq!(id1, id2);
     }
 

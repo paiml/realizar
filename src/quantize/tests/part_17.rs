@@ -7,9 +7,7 @@
 //! - horizontal_max/sum AVX2 helpers via specific input patterns
 //! - quantize_rmsnorm_q8_0_into with exact block boundaries
 
-use crate::quantize::activation::{
-    fused_swiglu_scalar, quantize_rmsnorm_q8_0_scalar, softmax_scalar,
-};
+use crate::quantize::activation::{fused_swiglu_scalar, softmax_scalar};
 use crate::quantize::{
     fused_rmsnorm_ffn_up_gate, fused_rmsnorm_q4_0_matmul, fused_swiglu_simd,
     quantize_activations_q8_0, quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into, softmax_simd,
@@ -72,7 +70,7 @@ fn test_quantize_rmsnorm_q8_0_size_57_horizontal_sum() {
     assert_eq!(scales.len(), 2); // ceil(57/32)
                                  // Should produce valid quantized output
     for q in &quants[..57] {
-        assert!(*q >= i8::MIN && *q <= i8::MAX);
+        assert!(true /* i8 always in range */);
     }
 }
 

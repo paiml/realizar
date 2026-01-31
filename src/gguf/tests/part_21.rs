@@ -1099,7 +1099,7 @@ fn test_phase35_data_factory_helpers() {
     assert_eq!(q8_0.len(), 2 * 34); // 64/32 = 2 blocks * 34 bytes
 
     let q4_k = create_q4_k_data(256);
-    assert_eq!(q4_k.len(), 1 * 144); // 256/256 = 1 super-block * 144 bytes
+    assert_eq!(q4_k.len(), 144); // 256/256 = 1 super-block * 144 bytes
 
     let q5_k = create_q5_k_data(512);
     assert_eq!(q5_k.len(), 2 * 176); // 512/256 = 2 super-blocks * 176 bytes

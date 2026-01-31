@@ -618,7 +618,9 @@ mod tests {
 
         // Loader that returns an error
         let result = cache.get_or_load(&key, || {
-            Err(RealizarError::InvalidConfiguration("test error".to_string()))
+            Err(RealizarError::InvalidConfiguration(
+                "test error".to_string(),
+            ))
         });
 
         assert!(result.is_err());

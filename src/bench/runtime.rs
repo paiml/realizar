@@ -994,7 +994,10 @@ mod tests {
 
         let retrieved = registry.get(RuntimeType::Realizar);
         assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().info().runtime_type, RuntimeType::Realizar);
+        assert_eq!(
+            retrieved.unwrap().info().runtime_type,
+            RuntimeType::Realizar
+        );
     }
 
     #[test]
@@ -1006,8 +1009,14 @@ mod tests {
     #[test]
     fn test_backend_registry_list() {
         let mut registry = BackendRegistry::new();
-        registry.register(RuntimeType::Realizar, Box::new(MockBackend::new(10.0, 100.0)));
-        registry.register(RuntimeType::LlamaCpp, Box::new(MockBackend::new(20.0, 50.0)));
+        registry.register(
+            RuntimeType::Realizar,
+            Box::new(MockBackend::new(10.0, 100.0)),
+        );
+        registry.register(
+            RuntimeType::LlamaCpp,
+            Box::new(MockBackend::new(20.0, 50.0)),
+        );
 
         let list = registry.list();
         assert_eq!(list.len(), 2);
@@ -1146,11 +1155,11 @@ mod tests {
 
     #[test]
     fn test_llamacpp_backend_parse_timing_line() {
-        let output = r#"
+        let output = r"
 llama_perf_context_print: prompt eval time =      12.34 ms /    10 tokens
 llama_perf_context_print: eval time =     123.45 ms /   100 tokens
 llama_perf_context_print: total time =     135.79 ms /   110 runs
-        "#;
+        ";
 
         let (prompt_time, prompt_tokens) =
             LlamaCppBackend::parse_timing_line(output, "prompt eval time").unwrap();
@@ -1176,10 +1185,10 @@ llama_perf_context_print: total time =     135.79 ms /   110 runs
 
     #[test]
     fn test_llamacpp_backend_extract_generated_text() {
-        let output = r#"Hello world!
+        let output = r"Hello world!
 This is generated text.
 llama_perf_context_print: eval time = 100 ms
-sampler stats follow..."#;
+sampler stats follow...";
 
         let text = LlamaCppBackend::extract_generated_text(output);
         assert_eq!(text, "Hello world!\nThis is generated text.");
@@ -1194,10 +1203,10 @@ sampler stats follow..."#;
 
     #[test]
     fn test_llamacpp_backend_parse_cli_output() {
-        let output = r#"Generated response text
+        let output = r"Generated response text
 llama_perf_context_print: prompt eval time =      50.00 ms /     5 tokens
 llama_perf_context_print: eval time =     200.00 ms /    20 tokens
-llama_perf_context_print: total time =     250.00 ms /    25 runs"#;
+llama_perf_context_print: total time =     250.00 ms /    25 runs";
 
         let response = LlamaCppBackend::parse_cli_output(output).unwrap();
         assert_eq!(response.text, "Generated response text");

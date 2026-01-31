@@ -2377,7 +2377,7 @@ fn test_q4_0_fused_vs_dequantize_matmul() {
     for i in 0..16 {
         // Put increasing value in low nibble (0,1,2,...,15)
         // Put 8 in high nibble so high_quant = 8 - 8 = 0
-        data[2 + i] = ((8 << 4) | (i as u8)) as u8;
+        data[2 + i] = ((8 << 4) | (i as u8));
     }
 
     // Row 1: scale=2.0, all quants = 0x99 (low=9, high=9)

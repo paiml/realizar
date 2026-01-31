@@ -63,8 +63,7 @@ fn test_active_pygmy_load_owned_quantized_model() {
     let (temp_file, _) = create_pygmy_temp_file();
 
     // Load via memory-mapped path
-    let mapped = MappedGGUFModel::from_path(temp_file.path())
-        .expect("Should load MappedGGUFModel");
+    let mapped = MappedGGUFModel::from_path(temp_file.path()).expect("Should load MappedGGUFModel");
 
     let result = OwnedQuantizedModel::from_mapped(&mapped);
 
@@ -85,16 +84,14 @@ fn test_active_pygmy_load_owned_quantized_model() {
 #[test]
 fn test_active_pygmy_embed() {
     let (temp_file, _) = create_pygmy_temp_file();
-    let mapped = MappedGGUFModel::from_path(temp_file.path())
-        .expect("Should load MappedGGUFModel");
-    let model = OwnedQuantizedModel::from_mapped(&mapped)
-        .expect("Should load model");
+    let mapped = MappedGGUFModel::from_path(temp_file.path()).expect("Should load MappedGGUFModel");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Should load model");
 
     // Embed a token (within vocab_size=16)
     let embedding = model.embed(&[0]);
 
     assert_eq!(embedding.len(), 32); // hidden_dim
-    // Verify embedding values are reasonable (not NaN/Inf)
+                                     // Verify embedding values are reasonable (not NaN/Inf)
     assert!(embedding.iter().all(|&v| v.is_finite()));
 }
 
@@ -102,10 +99,8 @@ fn test_active_pygmy_embed() {
 #[test]
 fn test_active_pygmy_kv_cache() {
     let (temp_file, _) = create_pygmy_temp_file();
-    let mapped = MappedGGUFModel::from_path(temp_file.path())
-        .expect("Should load MappedGGUFModel");
-    let model = OwnedQuantizedModel::from_mapped(&mapped)
-        .expect("Should load model");
+    let mapped = MappedGGUFModel::from_path(temp_file.path()).expect("Should load MappedGGUFModel");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Should load model");
 
     let config = model.config();
     let cache = OwnedQuantizedKVCache::from_config(config, 32);
@@ -131,10 +126,8 @@ fn test_active_pygmy_kv_cache() {
 #[test]
 fn test_active_pygmy_forward_cached() {
     let (temp_file, _) = create_pygmy_temp_file();
-    let mapped = MappedGGUFModel::from_path(temp_file.path())
-        .expect("Should load MappedGGUFModel");
-    let model = OwnedQuantizedModel::from_mapped(&mapped)
-        .expect("Should load model");
+    let mapped = MappedGGUFModel::from_path(temp_file.path()).expect("Should load MappedGGUFModel");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Should load model");
 
     let config = model.config();
     let mut cache = OwnedQuantizedKVCache::from_config(config, 32);
@@ -145,11 +138,7 @@ fn test_active_pygmy_forward_cached() {
 
     let result = model.forward_cached(token_id, &mut cache, position);
 
-    assert!(
-        result.is_ok(),
-        "forward_cached failed: {:?}",
-        result.err()
-    );
+    assert!(result.is_ok(), "forward_cached failed: {:?}", result.err());
 
     let logits = result.unwrap();
 
@@ -168,10 +157,8 @@ fn test_active_pygmy_forward_cached() {
 #[test]
 fn test_active_pygmy_multi_token_generation() {
     let (temp_file, _) = create_pygmy_temp_file();
-    let mapped = MappedGGUFModel::from_path(temp_file.path())
-        .expect("Should load MappedGGUFModel");
-    let model = OwnedQuantizedModel::from_mapped(&mapped)
-        .expect("Should load model");
+    let mapped = MappedGGUFModel::from_path(temp_file.path()).expect("Should load MappedGGUFModel");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Should load model");
 
     let config = model.config();
     let mut cache = OwnedQuantizedKVCache::from_config(config, 32);
@@ -197,8 +184,7 @@ fn test_active_pygmy_multi_token_generation() {
             .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-            .map(|(idx, _)| idx as u32)
-            .unwrap_or(0);
+            .map_or(0, |(idx, _)| idx as u32);
 
         let logits = model
             .forward_cached(next_token, &mut cache, pos)
@@ -224,10 +210,8 @@ fn test_active_pygmy_multi_token_generation() {
 #[test]
 fn test_active_pygmy_edge_tokens() {
     let (temp_file, _) = create_pygmy_temp_file();
-    let mapped = MappedGGUFModel::from_path(temp_file.path())
-        .expect("Should load MappedGGUFModel");
-    let model = OwnedQuantizedModel::from_mapped(&mapped)
-        .expect("Should load model");
+    let mapped = MappedGGUFModel::from_path(temp_file.path()).expect("Should load MappedGGUFModel");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Should load model");
 
     let config = model.config();
     let mut cache = OwnedQuantizedKVCache::from_config(config, 32);
@@ -246,10 +230,8 @@ fn test_active_pygmy_edge_tokens() {
 #[test]
 fn test_active_pygmy_config() {
     let (temp_file, _) = create_pygmy_temp_file();
-    let mapped = MappedGGUFModel::from_path(temp_file.path())
-        .expect("Should load MappedGGUFModel");
-    let model = OwnedQuantizedModel::from_mapped(&mapped)
-        .expect("Should load model");
+    let mapped = MappedGGUFModel::from_path(temp_file.path()).expect("Should load MappedGGUFModel");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Should load model");
 
     let config = model.config();
 
@@ -261,7 +243,10 @@ fn test_active_pygmy_config() {
     assert_eq!(config.num_kv_heads, 4);
     assert_eq!(config.vocab_size, 32);
     // intermediate_dim may be inferred from FFN tensor dims - check it's reasonable
-    assert!(config.intermediate_dim > 0, "intermediate_dim should be positive");
+    assert!(
+        config.intermediate_dim > 0,
+        "intermediate_dim should be positive"
+    );
     assert!((config.rope_theta - 10000.0).abs() < 1.0);
     assert!((config.eps - 1e-5).abs() < 1e-6);
 }
@@ -270,10 +255,8 @@ fn test_active_pygmy_config() {
 #[test]
 fn test_active_pygmy_layer_weights() {
     let (temp_file, _) = create_pygmy_temp_file();
-    let mapped = MappedGGUFModel::from_path(temp_file.path())
-        .expect("Should load MappedGGUFModel");
-    let model = OwnedQuantizedModel::from_mapped(&mapped)
-        .expect("Should load model");
+    let mapped = MappedGGUFModel::from_path(temp_file.path()).expect("Should load MappedGGUFModel");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Should load model");
 
     // Should have 1 layer
     assert_eq!(model.layers.len(), 1);
@@ -282,17 +265,18 @@ fn test_active_pygmy_layer_weights() {
 
     // Attention norm weight
     assert_eq!(layer.attn_norm_weight.len(), 32);
-    assert!(layer.attn_norm_weight.iter().all(|&v| (v - 1.0).abs() < 0.01));
+    assert!(layer
+        .attn_norm_weight
+        .iter()
+        .all(|&v| (v - 1.0).abs() < 0.01));
 }
 
 /// Test output norm and lm_head
 #[test]
 fn test_active_pygmy_output_weights() {
     let (temp_file, _) = create_pygmy_temp_file();
-    let mapped = MappedGGUFModel::from_path(temp_file.path())
-        .expect("Should load MappedGGUFModel");
-    let model = OwnedQuantizedModel::from_mapped(&mapped)
-        .expect("Should load model");
+    let mapped = MappedGGUFModel::from_path(temp_file.path()).expect("Should load MappedGGUFModel");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Should load model");
 
     // Output norm weight
     assert_eq!(model.output_norm_weight.len(), 32);
@@ -311,10 +295,8 @@ fn test_active_pygmy_output_weights() {
 #[test]
 fn test_active_pygmy_cache_isolation() {
     let (temp_file, _) = create_pygmy_temp_file();
-    let mapped = MappedGGUFModel::from_path(temp_file.path())
-        .expect("Should load MappedGGUFModel");
-    let model = OwnedQuantizedModel::from_mapped(&mapped)
-        .expect("Should load model");
+    let mapped = MappedGGUFModel::from_path(temp_file.path()).expect("Should load MappedGGUFModel");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Should load model");
 
     let config = model.config();
 
@@ -343,10 +325,8 @@ fn test_active_pygmy_cache_isolation() {
 #[test]
 fn test_active_pygmy_cache_accumulation() {
     let (temp_file, _) = create_pygmy_temp_file();
-    let mapped = MappedGGUFModel::from_path(temp_file.path())
-        .expect("Should load MappedGGUFModel");
-    let model = OwnedQuantizedModel::from_mapped(&mapped)
-        .expect("Should load model");
+    let mapped = MappedGGUFModel::from_path(temp_file.path()).expect("Should load MappedGGUFModel");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Should load model");
 
     let config = model.config();
     let mut cache = OwnedQuantizedKVCache::from_config(config, 32);
@@ -361,12 +341,23 @@ fn test_active_pygmy_cache_accumulation() {
     // With Q4_0 quantized weights that decode to similar values, differences
     // may be very small. The key test is that forward() completes successfully
     // at multiple positions without crashing.
-    let _diff_01: f32 = logits0.iter().zip(&logits1).map(|(a, b)| (a - b).abs()).sum();
-    let _diff_12: f32 = logits1.iter().zip(&logits2).map(|(a, b)| (a - b).abs()).sum();
+    let _diff_01: f32 = logits0
+        .iter()
+        .zip(&logits1)
+        .map(|(a, b)| (a - b).abs())
+        .sum();
+    let _diff_12: f32 = logits1
+        .iter()
+        .zip(&logits2)
+        .map(|(a, b)| (a - b).abs())
+        .sum();
 
     // The key assertion is that all logits are valid (no NaN/Inf)
     for logits in [&logits0, &logits1, &logits2] {
-        assert!(logits.iter().all(|&v| v.is_finite()), "Logits contain NaN/Inf");
+        assert!(
+            logits.iter().all(|&v| v.is_finite()),
+            "Logits contain NaN/Inf"
+        );
     }
 }
 
@@ -374,15 +365,18 @@ fn test_active_pygmy_cache_accumulation() {
 #[test]
 fn test_active_pygmy_all_tokens_embed() {
     let (temp_file, _) = create_pygmy_temp_file();
-    let mapped = MappedGGUFModel::from_path(temp_file.path())
-        .expect("Should load MappedGGUFModel");
-    let model = OwnedQuantizedModel::from_mapped(&mapped)
-        .expect("Should load model");
+    let mapped = MappedGGUFModel::from_path(temp_file.path()).expect("Should load MappedGGUFModel");
+    let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Should load model");
 
     // Test all 32 tokens
     for token_id in 0..32u32 {
         let embedding = model.embed(&[token_id]);
-        assert_eq!(embedding.len(), 32, "Token {} embedding wrong size", token_id);
+        assert_eq!(
+            embedding.len(),
+            32,
+            "Token {} embedding wrong size",
+            token_id
+        );
         assert!(
             embedding.iter().all(|&v| v.is_finite()),
             "Token {} embedding contains NaN/Inf",
@@ -413,10 +407,10 @@ fn test_active_pygmy_transformer_layers() {
             assert!(q.num_elements > 0);
             assert!(k.num_elements > 0);
             assert!(v.num_elements > 0);
-        }
+        },
         crate::gguf::quantized::QKVWeights::Fused(fused) => {
             assert!(fused.num_elements > 0);
-        }
+        },
     }
 
     // Check FFN weights exist

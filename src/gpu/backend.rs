@@ -391,7 +391,7 @@ mod tests {
     fn test_mock_backend_matmul_dimension_error_b() {
         let mut backend = MockBackend::new(0).unwrap();
         let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // 2x3
-        // B should be 3x2 but we provide wrong size
+                                                    // B should be 3x2 but we provide wrong size
         let b = vec![7.0, 8.0]; // only 2 elements, not 6
 
         let result = backend.matmul(&a, &b, 2, 3, 2);
@@ -412,7 +412,9 @@ mod tests {
 
         // Load quantized weights
         let qdata = vec![0u8; 256]; // Q4_K data
-        backend.load_quantized_weights("q4k_test", &qdata, 3).unwrap();
+        backend
+            .load_quantized_weights("q4k_test", &qdata, 3)
+            .unwrap();
 
         let input = vec![1.0, 2.0, 3.0, 4.0];
         let result = backend.q4k_gemv_cached("q4k_test", &input, 8, 4).unwrap();

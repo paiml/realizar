@@ -12,8 +12,8 @@
 //! Target: convert/mod.rs (234 missed), gguf/loader.rs (618 missed)
 
 use crate::gguf::{
-    GGUFModel, GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q4_0,
-    GGUF_TYPE_Q4_K, GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
+    GGUFModel, GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_K,
+    GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
 };
 
 // ============================================================================
@@ -41,23 +41,41 @@ fn build_complex_pygmy(
     // Metadata: architecture + config
     let metadata = vec![
         // general.architecture
-        ("general.architecture".to_string(), build_gguf_string("llama")),
+        (
+            "general.architecture".to_string(),
+            build_gguf_string("llama"),
+        ),
         // llama.embedding_length
-        (format!("llama.embedding_length"), build_gguf_u32(hidden_dim as u32)),
+        (
+            "llama.embedding_length".to_string(),
+            build_gguf_u32(hidden_dim as u32),
+        ),
         // llama.block_count
-        (format!("llama.block_count"), build_gguf_u32(num_layers as u32)),
+        (
+            "llama.block_count".to_string(),
+            build_gguf_u32(num_layers as u32),
+        ),
         // llama.attention.head_count
-        (format!("llama.attention.head_count"), build_gguf_u32(4)),
+        ("llama.attention.head_count".to_string(), build_gguf_u32(4)),
         // llama.attention.head_count_kv
-        (format!("llama.attention.head_count_kv"), build_gguf_u32(4)),
+        (
+            "llama.attention.head_count_kv".to_string(),
+            build_gguf_u32(4),
+        ),
         // llama.context_length
-        (format!("llama.context_length"), build_gguf_u32(512)),
+        ("llama.context_length".to_string(), build_gguf_u32(512)),
         // llama.rope.freq_base
-        (format!("llama.rope.freq_base"), build_gguf_f32(10000.0)),
+        ("llama.rope.freq_base".to_string(), build_gguf_f32(10000.0)),
         // llama.attention.layer_norm_rms_epsilon
-        (format!("llama.attention.layer_norm_rms_epsilon"), build_gguf_f32(1e-5)),
+        (
+            "llama.attention.layer_norm_rms_epsilon".to_string(),
+            build_gguf_f32(1e-5),
+        ),
         // llama.feed_forward_length
-        (format!("llama.feed_forward_length"), build_gguf_u32(intermediate_dim as u32)),
+        (
+            "llama.feed_forward_length".to_string(),
+            build_gguf_u32(intermediate_dim as u32),
+        ),
     ];
 
     // Header
@@ -72,7 +90,7 @@ fn build_complex_pygmy(
         data.extend_from_slice(&(key.len() as u64).to_le_bytes());
         data.extend_from_slice(key.as_bytes());
         // Value type + value
-        data.extend_from_slice(&value);
+        data.extend_from_slice(value);
     }
 
     // Collect tensor info and data
@@ -333,11 +351,19 @@ fn test_menagerie_4_layer_pygmy_parses() {
     let data = build_complex_pygmy(4, 64, 256, 128);
 
     let model = GGUFModel::from_bytes(&data);
-    assert!(model.is_ok(), "4-layer Pygmy should parse: {:?}", model.err());
+    assert!(
+        model.is_ok(),
+        "4-layer Pygmy should parse: {:?}",
+        model.err()
+    );
 
     let model = model.unwrap();
     // 4 layers * 10 tensors + 3 global = 43 tensors
-    assert!(model.tensors.len() >= 40, "Expected 40+ tensors, got {}", model.tensors.len());
+    assert!(
+        model.tensors.len() >= 40,
+        "Expected 40+ tensors, got {}",
+        model.tensors.len()
+    );
 }
 
 #[test]
@@ -345,11 +371,19 @@ fn test_menagerie_8_layer_pygmy_parses() {
     let data = build_complex_pygmy(8, 64, 256, 128);
 
     let model = GGUFModel::from_bytes(&data);
-    assert!(model.is_ok(), "8-layer Pygmy should parse: {:?}", model.err());
+    assert!(
+        model.is_ok(),
+        "8-layer Pygmy should parse: {:?}",
+        model.err()
+    );
 
     let model = model.unwrap();
     // 8 layers * 10 tensors + 3 global = 83 tensors
-    assert!(model.tensors.len() >= 80, "Expected 80+ tensors, got {}", model.tensors.len());
+    assert!(
+        model.tensors.len() >= 80,
+        "Expected 80+ tensors, got {}",
+        model.tensors.len()
+    );
 }
 
 #[test]
@@ -370,7 +404,7 @@ fn test_menagerie_mixed_quantization_types() {
             t if t == GGUF_TYPE_Q8_0 => q8_0_count += 1,
             t if t == GGUF_TYPE_Q4_K => q4_k_count += 1,
             t if t == GGUF_TYPE_F32 => f32_count += 1,
-            _ => {}
+            _ => {},
         }
     }
 
@@ -389,16 +423,46 @@ fn test_menagerie_tensor_names_trigger_converter() {
     // Check for specific tensor names that trigger converter paths
     let names: Vec<&str> = model.tensors.iter().map(|t| t.name.as_str()).collect();
 
-    assert!(names.iter().any(|n| n.contains("attn_q")), "Should have attn_q tensors");
-    assert!(names.iter().any(|n| n.contains("attn_k")), "Should have attn_k tensors");
-    assert!(names.iter().any(|n| n.contains("attn_v")), "Should have attn_v tensors");
-    assert!(names.iter().any(|n| n.contains("ffn_gate")), "Should have ffn_gate tensors");
-    assert!(names.iter().any(|n| n.contains("ffn_up")), "Should have ffn_up tensors");
-    assert!(names.iter().any(|n| n.contains("ffn_down")), "Should have ffn_down tensors");
-    assert!(names.iter().any(|n| n.contains("attn_norm")), "Should have attn_norm tensors");
-    assert!(names.iter().any(|n| n.contains("ffn_norm")), "Should have ffn_norm tensors");
-    assert!(names.iter().any(|n| n.contains("token_embd")), "Should have token_embd tensor");
-    assert!(names.iter().any(|n| n.contains("output")), "Should have output tensor");
+    assert!(
+        names.iter().any(|n| n.contains("attn_q")),
+        "Should have attn_q tensors"
+    );
+    assert!(
+        names.iter().any(|n| n.contains("attn_k")),
+        "Should have attn_k tensors"
+    );
+    assert!(
+        names.iter().any(|n| n.contains("attn_v")),
+        "Should have attn_v tensors"
+    );
+    assert!(
+        names.iter().any(|n| n.contains("ffn_gate")),
+        "Should have ffn_gate tensors"
+    );
+    assert!(
+        names.iter().any(|n| n.contains("ffn_up")),
+        "Should have ffn_up tensors"
+    );
+    assert!(
+        names.iter().any(|n| n.contains("ffn_down")),
+        "Should have ffn_down tensors"
+    );
+    assert!(
+        names.iter().any(|n| n.contains("attn_norm")),
+        "Should have attn_norm tensors"
+    );
+    assert!(
+        names.iter().any(|n| n.contains("ffn_norm")),
+        "Should have ffn_norm tensors"
+    );
+    assert!(
+        names.iter().any(|n| n.contains("token_embd")),
+        "Should have token_embd tensor"
+    );
+    assert!(
+        names.iter().any(|n| n.contains("output")),
+        "Should have output tensor"
+    );
 }
 
 #[test]
@@ -407,8 +471,16 @@ fn test_menagerie_bias_tensors_present() {
     let model = GGUFModel::from_bytes(&data).expect("should parse");
 
     // Check for bias tensors
-    let bias_count = model.tensors.iter().filter(|t| t.name.contains(".bias")).count();
-    assert!(bias_count >= 4, "Should have at least 4 bias tensors, got {}", bias_count);
+    let bias_count = model
+        .tensors
+        .iter()
+        .filter(|t| t.name.contains(".bias"))
+        .count();
+    assert!(
+        bias_count >= 4,
+        "Should have at least 4 bias tensors, got {}",
+        bias_count
+    );
 }
 
 #[test]
@@ -423,7 +495,7 @@ fn test_menagerie_get_tensor_f32_mixed_types() {
     let f32_result = model.get_tensor_f32("blk.0.attn_norm.weight", &data);
     match f32_result {
         Ok(values) => assert_eq!(values.len(), 64, "F32 norm should have 64 elements"),
-        Err(e) => {} // Offset may be off, but code path executed
+        Err(e) => {}, // Offset may be off, but code path executed
     }
 
     // Q4_0 tensor (layer 0)
@@ -447,13 +519,18 @@ fn test_menagerie_layer_iteration() {
     // Verify all 8 layers have tensors
     for layer in 0..8 {
         let prefix = format!("blk.{layer}");
-        let layer_tensors: Vec<_> = model.tensors.iter()
+        let layer_tensors: Vec<_> = model
+            .tensors
+            .iter()
             .filter(|t| t.name.starts_with(&prefix))
             .collect();
 
-        assert!(layer_tensors.len() >= 8,
+        assert!(
+            layer_tensors.len() >= 8,
             "Layer {} should have at least 8 tensors, got {}",
-            layer, layer_tensors.len());
+            layer,
+            layer_tensors.len()
+        );
     }
 }
 
@@ -474,12 +551,12 @@ fn test_menagerie_converter_4_layer() {
     match result {
         Ok(apr) => {
             assert!(apr.config.num_layers > 0, "APR should have layers");
-        }
+        },
         Err(e) => {
             // Expected - our Pygmy may not have all required tensors
             // The important thing is the converter's loops ran
             let _ = e;
-        }
+        },
     }
 }
 
@@ -509,7 +586,11 @@ fn test_menagerie_large_dimension_pygmy() {
     let model = model.unwrap();
 
     // Verify dimensions
-    let embed_tensor = model.tensors.iter().find(|t| t.name.contains("token_embd")).unwrap();
+    let embed_tensor = model
+        .tensors
+        .iter()
+        .find(|t| t.name.contains("token_embd"))
+        .unwrap();
     // Check dimensions exist
     assert!(embed_tensor.dims[0] > 0 && embed_tensor.dims[1] > 0);
 }
@@ -522,6 +603,9 @@ fn test_menagerie_100_tensor_pygmy() {
     let model = GGUFModel::from_bytes(&data).expect("should parse");
 
     // 10 layers * 10 tensors + 3 global = 103 tensors
-    assert!(model.tensors.len() >= 100,
-        "Should have 100+ tensors, got {}", model.tensors.len());
+    assert!(
+        model.tensors.len() >= 100,
+        "Should have 100+ tensors, got {}",
+        model.tensors.len()
+    );
 }

@@ -771,7 +771,7 @@ mod tests {
         let mut data = vec![0u8; 34];
         data[0] = 0x00;
         data[1] = 0x3C; // f16 for 1.0
-        // quants[0] = 1 (as i8)
+                        // quants[0] = 1 (as i8)
         data[2] = 1;
         let result = dequantize_q8_0(&data).unwrap();
         assert_eq!(result.len(), 32);

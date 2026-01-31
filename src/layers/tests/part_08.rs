@@ -617,10 +617,13 @@ fn test_mha_gqa_various_group_sizes() {
     ];
 
     for (hidden_dim, num_heads, num_kv_heads) in test_cases {
-        let mha = MultiHeadAttention::new(hidden_dim, num_heads, num_kv_heads).expect(&format!(
-            "Should create MHA with ({}, {}, {})",
-            hidden_dim, num_heads, num_kv_heads
-        ));
+        let mha =
+            MultiHeadAttention::new(hidden_dim, num_heads, num_kv_heads).unwrap_or_else(|_| {
+                panic!(
+                    "Should create MHA with ({}, {}, {})",
+                    hidden_dim, num_heads, num_kv_heads
+                )
+            });
 
         let input = Tensor::from_vec(vec![4, hidden_dim], vec![0.1; 4 * hidden_dim]).expect("test");
         let output = mha.forward(&input).expect("test");

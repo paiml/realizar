@@ -212,7 +212,7 @@ fn test_optimized_lm_head_argmax_larger_vocab() {
 
     let hidden: Vec<f32> = (0..hidden_dim).map(|i| (i as f32) * 0.01).collect();
     let mut weight_t = vec![0.0f32; vocab_size * hidden_dim];
-    let mut bias = vec![0.0f32; vocab_size];
+    let bias = vec![0.0f32; vocab_size];
 
     // Make row 2500 produce the highest logit
     for i in 0..hidden_dim {
