@@ -123,7 +123,7 @@ fn test_quantize_rmsnorm_q8_0_scalar_weight_variation() {
     let norm_weight: Vec<f32> = (0..32).map(|i| (i as f32 + 1.0) * 0.1).collect();
     let eps = 1e-5;
 
-    let (scales, quants) = quantize_rmsnorm_q8_0_scalar(&input, &norm_weight, eps);
+    let (_scales, quants) = quantize_rmsnorm_q8_0_scalar(&input, &norm_weight, eps);
 
     // Quantized values should vary due to weights
     assert_ne!(quants[0], quants[31]);
@@ -557,7 +557,7 @@ fn test_quantize_activations_q8_0_size_1() {
 #[test]
 fn test_quantize_activations_q8_0_symmetric() {
     let activations = vec![-10.0, 0.0, 10.0];
-    let (scales, quants) = quantize_activations_q8_0(&activations);
+    let (_scales, quants) = quantize_activations_q8_0(&activations);
 
     // Scale = 10.0 / 127.0
     // quants: -127, 0, 127
@@ -853,7 +853,7 @@ fn test_softmax_scalar_diff_10() {
 #[test]
 fn test_quantize_activations_q8_0_all_negative() {
     let activations = vec![-5.0f32; 16];
-    let (scales, quants) = quantize_activations_q8_0(&activations);
+    let (_scales, quants) = quantize_activations_q8_0(&activations);
 
     // All quants should be -127 (max negative)
     for q in &quants[..16] {
@@ -868,7 +868,7 @@ fn test_quantize_activations_q8_0_all_negative() {
 #[test]
 fn test_quantize_activations_q8_0_alternating() {
     let activations = vec![1.0, -1.0, 1.0, -1.0];
-    let (scales, quants) = quantize_activations_q8_0(&activations);
+    let (_scales, quants) = quantize_activations_q8_0(&activations);
 
     // Scale = 1.0 / 127.0
     // quants should alternate 127, -127
@@ -902,7 +902,7 @@ fn test_quantize_rmsnorm_q8_0_scalar_clamping() {
 fn test_quantize_activations_q8_0_clamping_negative() {
     // Very large negative values
     let activations = vec![-1000.0f32; 8];
-    let (scales, quants) = quantize_activations_q8_0(&activations);
+    let (_scales, quants) = quantize_activations_q8_0(&activations);
 
     // All should clamp to -127 (not -128)
     for q in &quants[..8] {
@@ -999,7 +999,7 @@ fn test_quantize_rmsnorm_q8_0_alternating_signs() {
     let norm_weight = vec![1.0f32; 32];
     let eps = 1e-5;
 
-    let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+    let (_scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
 
     // All normalized values have same magnitude, so should quantize to same abs value
     let first_abs = quants[0].abs();
