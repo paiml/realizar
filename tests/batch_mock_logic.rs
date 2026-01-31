@@ -3,6 +3,8 @@
 //! Tests gpu/scheduler/batch.rs functions using MockExecutor.
 //! These tests verify the forward pass logic without requiring CUDA hardware.
 
+#![allow(unused_variables, clippy::needless_range_loop)]
+
 use realizar::gpu::executor::{CpuExecutor, MockExecutor};
 use realizar::gpu::scheduler::{GpuModel, GpuModelConfig};
 

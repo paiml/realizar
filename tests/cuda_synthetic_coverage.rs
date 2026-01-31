@@ -7,6 +7,7 @@
 //! These tests falsify cuda.rs logic WITHOUT loading real model files.
 
 #![cfg(feature = "cuda")]
+#![allow(unused_variables)]
 
 use realizar::cuda::CudaExecutor;
 use trueno_gpu::driver::GpuBuffer;

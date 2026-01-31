@@ -178,7 +178,7 @@ fn test_data_storm_q8_0_tensor_extraction() {
     let result = model.get_tensor_f32("test_q8_0", &gguf_data);
 
     if let Ok(values) = result {
-        assert_eq!(values.len(), 32)
+        assert_eq!(values.len(), 32);
     }
 }
 
@@ -193,7 +193,7 @@ fn test_data_storm_q4_1_tensor_extraction() {
     let result = model.get_tensor_f32("test_q4_1", &gguf_data);
 
     if let Ok(values) = result {
-        assert_eq!(values.len(), 32)
+        assert_eq!(values.len(), 32);
     }
 }
 
@@ -208,7 +208,7 @@ fn test_data_storm_q5_0_tensor_extraction() {
     let result = model.get_tensor_f32("test_q5_0", &gguf_data);
 
     if let Ok(values) = result {
-        assert_eq!(values.len(), 32)
+        assert_eq!(values.len(), 32);
     }
 }
 
@@ -223,7 +223,7 @@ fn test_data_storm_q5_1_tensor_extraction() {
     let result = model.get_tensor_f32("test_q5_1", &gguf_data);
 
     if let Ok(values) = result {
-        assert_eq!(values.len(), 32)
+        assert_eq!(values.len(), 32);
     }
 }
 
@@ -238,7 +238,7 @@ fn test_data_storm_q4_k_tensor_extraction() {
     let result = model.get_tensor_f32("test_q4_k", &gguf_data);
 
     if let Ok(values) = result {
-        assert_eq!(values.len(), 256)
+        assert_eq!(values.len(), 256);
     }
 }
 
@@ -253,7 +253,7 @@ fn test_data_storm_q5_k_tensor_extraction() {
     let result = model.get_tensor_f32("test_q5_k", &gguf_data);
 
     if let Ok(values) = result {
-        assert_eq!(values.len(), 256)
+        assert_eq!(values.len(), 256);
     }
 }
 
@@ -268,7 +268,7 @@ fn test_data_storm_q6_k_tensor_extraction() {
     let result = model.get_tensor_f32("test_q6_k", &gguf_data);
 
     if let Ok(values) = result {
-        assert_eq!(values.len(), 256)
+        assert_eq!(values.len(), 256);
     }
 }
 

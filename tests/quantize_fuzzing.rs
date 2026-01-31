@@ -9,6 +9,8 @@
 //!
 //! Constraint: Pure CPU logic verification, < 5s execution
 
+#![allow(clippy::needless_range_loop)]
+
 use half::f16;
 use proptest::prelude::*;
 use realizar::quantize::{dequantize_f16, dequantize_q4_k, dequantize_q8_0, f16_to_f32};

@@ -9,6 +9,13 @@
 //! - `src/cuda/executor/q_basic.rs` - Q4_0 GEMV kernel
 //! - `src/apr_transformer/q4_simd.rs` - Quantized tensor structures
 
+#![allow(
+    unused_imports,
+    unused_variables,
+    clippy::needless_range_loop,
+    clippy::manual_repeat_n
+)]
+
 use realizar::apr_transformer::{
     AprTransformerConfig, QuantizedAprLayerQ4, QuantizedAprTensorQ4, QuantizedAprTransformerQ4,
 };
@@ -426,6 +433,7 @@ fn create_q4_transformer_with_gate(num_layers: usize) -> QuantizedAprTransformer
 /// Q4_0 format: 18 bytes per 32 elements
 /// - bytes 0-1: f16 scale (d)
 /// - bytes 2-17: 16 packed bytes (32 nibbles)
+///
 /// Dequantization: value[i] = d * (nibble[i] - 8)
 #[cfg(feature = "cuda")]
 fn create_q4_block(scale: f32, nibbles: &[u8; 32]) -> [u8; 18] {
