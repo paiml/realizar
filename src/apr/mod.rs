@@ -52,6 +52,10 @@ mod cuda_tests;
 mod helpers;
 mod tokenizer;
 
+// T-COV-95: Test factory for Active Pygmy APR models
+#[cfg(test)]
+pub(crate) mod test_factory;
+
 #[cfg(feature = "cuda")]
 pub use cuda::AprV2ModelCuda;
 #[cfg(feature = "cuda")]
@@ -2358,3 +2362,13 @@ mod apr_tests;
 #[cfg(test)]
 #[path = "tests_part_02.rs"]
 mod apr_tests_part_02;
+
+// T-COV-95 Additional coverage (tests_part_03.rs)
+#[cfg(test)]
+#[path = "tests_part_03.rs"]
+mod apr_tests_part_03;
+
+// T-COV-95 Active APR Pygmy: Cross-Format Dynamic Falsification (tests_part_04.rs)
+#[cfg(test)]
+#[path = "tests_part_04.rs"]
+mod apr_tests_part_04;

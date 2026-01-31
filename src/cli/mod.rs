@@ -1768,3 +1768,18 @@ mod cli_tests_part_08;
 #[cfg(test)]
 #[path = "tests_part_09.rs"]
 mod cli_tests_part_09;
+
+// T-COV-95 CLI Inference Additional Coverage
+#[cfg(test)]
+#[path = "inference_tests_part_02.rs"]
+mod cli_inference_tests_part_02;
+
+// T-COV-95 Active Pygmy CLI Inference (In-Memory)
+#[cfg(test)]
+#[path = "inference_tests_part_03.rs"]
+mod cli_inference_tests_part_03;
+
+// T-COV-95 Artifact Falsification (Real Files, Real CLI)
+#[cfg(test)]
+#[path = "inference_tests_part_04.rs"]
+mod cli_inference_tests_part_04;

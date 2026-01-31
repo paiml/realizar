@@ -138,54 +138,56 @@ mod tests {
     }
 
     // =========================================================================
-    // TensorEntry from_binary - additional dtype coverage
+    // TensorEntry from_binary - additional dtype coverage (using GGML dtype IDs)
+    // GGML types: 0=F32, 1=F16, 2=Q4_0, 3=Q4_1, 6=Q5_0, 7=Q5_1,
+    //   8=Q8_0, 9=Q8_1, 10=Q2_K, 11=Q3_K, 12=Q4_K, 13=Q5_K, 14=Q6_K, 30=BF16
     // =========================================================================
 
     #[test]
-    fn test_tensor_entry_from_binary_dtype_i16() {
-        let data = create_binary_tensor_entry("test.i16", 4, &[100], 0, 200);
-        let (entry, _) = TensorEntry::from_binary(&data).expect("parse i16");
-        assert_eq!(entry.dtype, "I16");
+    fn test_tensor_entry_from_binary_dtype_q5_0() {
+        let data = create_binary_tensor_entry("test.q50", 6, &[32], 0, 22);
+        let (entry, _) = TensorEntry::from_binary(&data).expect("parse q5_0");
+        assert_eq!(entry.dtype, "Q5_0");
     }
 
     #[test]
-    fn test_tensor_entry_from_binary_dtype_i32() {
-        let data = create_binary_tensor_entry("test.i32", 5, &[100], 0, 400);
-        let (entry, _) = TensorEntry::from_binary(&data).expect("parse i32");
-        assert_eq!(entry.dtype, "I32");
+    fn test_tensor_entry_from_binary_dtype_q5_1() {
+        let data = create_binary_tensor_entry("test.q51", 7, &[32], 0, 24);
+        let (entry, _) = TensorEntry::from_binary(&data).expect("parse q5_1");
+        assert_eq!(entry.dtype, "Q5_1");
     }
 
     #[test]
-    fn test_tensor_entry_from_binary_dtype_i64() {
-        let data = create_binary_tensor_entry("test.i64", 6, &[100], 0, 800);
-        let (entry, _) = TensorEntry::from_binary(&data).expect("parse i64");
-        assert_eq!(entry.dtype, "I64");
+    fn test_tensor_entry_from_binary_dtype_q8_1() {
+        let data = create_binary_tensor_entry("test.q81", 9, &[32], 0, 36);
+        let (entry, _) = TensorEntry::from_binary(&data).expect("parse q8_1");
+        assert_eq!(entry.dtype, "Q8_1");
     }
 
     #[test]
-    fn test_tensor_entry_from_binary_dtype_u8() {
-        let data = create_binary_tensor_entry("test.u8", 7, &[100], 0, 100);
-        let (entry, _) = TensorEntry::from_binary(&data).expect("parse u8");
-        assert_eq!(entry.dtype, "U8");
+    fn test_tensor_entry_from_binary_dtype_q2_k() {
+        let data = create_binary_tensor_entry("test.q2k", 10, &[256], 0, 84);
+        let (entry, _) = TensorEntry::from_binary(&data).expect("parse q2_k");
+        assert_eq!(entry.dtype, "Q2_K");
     }
 
     #[test]
     fn test_tensor_entry_from_binary_dtype_q4_k() {
-        let data = create_binary_tensor_entry("test.q4k", 8, &[256], 0, 144);
+        let data = create_binary_tensor_entry("test.q4k", 12, &[256], 0, 144);
         let (entry, _) = TensorEntry::from_binary(&data).expect("parse q4k");
         assert_eq!(entry.dtype, "Q4_K");
     }
 
     #[test]
     fn test_tensor_entry_from_binary_dtype_q6_k() {
-        let data = create_binary_tensor_entry("test.q6k", 9, &[256], 0, 210);
+        let data = create_binary_tensor_entry("test.q6k", 14, &[256], 0, 210);
         let (entry, _) = TensorEntry::from_binary(&data).expect("parse q6k");
         assert_eq!(entry.dtype, "Q6_K");
     }
 
     #[test]
     fn test_tensor_entry_from_binary_dtype_q8_0() {
-        let data = create_binary_tensor_entry("test.q80", 10, &[32], 0, 34);
+        let data = create_binary_tensor_entry("test.q80", 8, &[32], 0, 34);
         let (entry, _) = TensorEntry::from_binary(&data).expect("parse q8_0");
         assert_eq!(entry.dtype, "Q8_0");
     }
