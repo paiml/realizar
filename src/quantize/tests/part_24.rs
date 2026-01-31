@@ -637,7 +637,7 @@ fn test_interleaved_q4k_varied_values() {
 
     // Set varied quantized values
     for i in 16..144 {
-        data[i] = (i as u8);
+        data[i] = i as u8;
     }
 
     let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();

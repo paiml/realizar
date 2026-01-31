@@ -3,6 +3,7 @@
 //! Extracted from gguf_monolith.rs (PMAT-802)
 //!
 //! ## Test Coverage
+#![allow(clippy::many_single_char_names)]
 //!
 //! - IMP-106a: Batch matmul correctness (sequential vs batch)
 //! - IMP-106b: forward_batch output shape and determinism

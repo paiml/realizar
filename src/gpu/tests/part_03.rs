@@ -1,3 +1,5 @@
+#![allow(clippy::many_single_char_names)]
+
 use crate::gpu::*;
 #[test]
 fn test_fused_layernorm_basic() {

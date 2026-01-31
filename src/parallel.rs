@@ -2022,6 +2022,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::many_single_char_names)]
     fn test_parallel_tensor_large_matmul() {
         // Larger matrix multiplication
         let m = 4;

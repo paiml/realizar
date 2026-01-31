@@ -1,6 +1,7 @@
 //! Additional coverage tests for attention.rs
 //!
 //! Targets uncovered paths in:
+#![allow(clippy::many_single_char_names)]
 //! - Attention: empty tensor errors, head_dim validation
 //! - Flash Attention: block_size=0, shape mismatches
 //! - Flash Attention v2: shape validation, SIMD paths
