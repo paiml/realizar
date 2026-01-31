@@ -219,7 +219,7 @@ pub(crate) fn dequantize_q6_k_apr(data: &[u8], num_elements: usize) -> Vec<f32> 
 /// Q8_0 block layout (per GGML):
 /// - scale: 2 bytes (f16)
 /// - quants: 32 bytes (i8 values)
-/// Total: 34 bytes per block, 32 elements per block
+///   Total: 34 bytes per block, 32 elements per block
 pub(crate) fn dequantize_q8_0_apr(data: &[u8], num_elements: usize) -> Vec<f32> {
     const BLOCK_SIZE: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
     const ELEMENTS_PER_BLOCK: usize = 32;

@@ -12,16 +12,15 @@
 
 #[cfg(all(test, feature = "gpu"))]
 mod chaotic_citizens {
-    use std::sync::Arc;
+
     use std::time::{Duration, Instant};
     use tokio::sync::{mpsc, oneshot};
 
     use crate::api::gpu_handlers::{
         BatchConfig, BatchProcessResult, BatchQueueStats, ContinuousBatchRequest,
-        ContinuousBatchResponse, GpuBatchRequest, GpuBatchResponse, GpuBatchResult,
-        GpuBatchStats, GpuStatusResponse, GpuWarmupResponse,
+        ContinuousBatchResponse, GpuBatchRequest, GpuBatchResponse, GpuBatchResult, GpuBatchStats,
+        GpuStatusResponse, GpuWarmupResponse,
     };
-    use crate::gguf::GGUFConfig;
 
     // =========================================================================
     // Chaos Pattern 1: Partial Batch Failures
@@ -30,12 +29,7 @@ mod chaotic_citizens {
     #[test]
     fn test_partial_batch_one_success_one_failure_response() {
         // Simulate a batch where one request succeeds, another fails
-        let success_response = ContinuousBatchResponse::batched(
-            vec![1, 2, 3, 4, 5],
-            2,
-            2,
-            15.5,
-        );
+        let success_response = ContinuousBatchResponse::batched(vec![1, 2, 3, 4, 5], 2, 2, 15.5);
         let failure_response = ContinuousBatchResponse::single(
             vec![1, 2], // Just prompt tokens returned on failure
             2,
@@ -56,10 +50,10 @@ mod chaotic_citizens {
     fn test_partial_batch_mixed_latencies() {
         // Some requests fast, some slow - simulates partial failure
         let responses: Vec<ContinuousBatchResponse> = vec![
-            ContinuousBatchResponse::batched(vec![1, 2, 3], 1, 4, 5.0),  // Fast
+            ContinuousBatchResponse::batched(vec![1, 2, 3], 1, 4, 5.0), // Fast
             ContinuousBatchResponse::batched(vec![4, 5, 6], 1, 4, 500.0), // Slow (timeout-like)
             ContinuousBatchResponse::batched(vec![7, 8, 9], 1, 4, 10.0), // Normal
-            ContinuousBatchResponse::single(vec![10], 1, 1000.0), // Degraded to single
+            ContinuousBatchResponse::single(vec![10], 1, 1000.0),       // Degraded to single
         ];
 
         let total_latency: f64 = responses.iter().map(|r| r.latency_ms).sum();
@@ -76,7 +70,7 @@ mod chaotic_citizens {
         // Prompt so long that max_tokens=0 effectively
         let response = ContinuousBatchResponse::batched(
             vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10], // All prompt
-            10, // prompt_len = total
+            10,                                  // prompt_len = total
             8,
             25.0,
         );
@@ -170,7 +164,11 @@ mod chaotic_citizens {
         }
 
         // Should succeed for queue_size requests, then fail
-        assert!(success_count >= 4 && success_count <= 6, "Expected 4-6 successes before overflow, got {}", success_count);
+        assert!(
+            success_count >= 4 && success_count <= 6,
+            "Expected 4-6 successes before overflow, got {}",
+            success_count
+        );
     }
 
     #[test]
@@ -202,12 +200,7 @@ mod chaotic_citizens {
         drop(resp_rx);
 
         // Server tries to send response - should not panic
-        let response = ContinuousBatchResponse::batched(
-            vec![1, 2, 3, 4, 5],
-            2,
-            1,
-            10.0,
-        );
+        let response = ContinuousBatchResponse::batched(vec![1, 2, 3, 4, 5], 2, 1, 10.0);
 
         // Send should fail gracefully (returns Err but doesn't panic)
         let result = resp_tx.send(response);
@@ -217,7 +210,10 @@ mod chaotic_citizens {
     #[tokio::test]
     async fn test_zombie_batch_multiple_disconnects() {
         // Simulate batch where 3/5 clients disconnect
-        let mut channels: Vec<(oneshot::Sender<ContinuousBatchResponse>, Option<oneshot::Receiver<ContinuousBatchResponse>>)> = Vec::new();
+        let mut channels: Vec<(
+            oneshot::Sender<ContinuousBatchResponse>,
+            Option<oneshot::Receiver<ContinuousBatchResponse>>,
+        )> = Vec::new();
 
         for i in 0..5 {
             let (tx, rx) = oneshot::channel();
@@ -233,13 +229,8 @@ mod chaotic_citizens {
         let mut send_failures = 0;
         let mut send_successes = 0;
 
-        for (i, (tx, _)) in channels.into_iter().enumerate() {
-            let response = ContinuousBatchResponse::batched(
-                vec![1, 2, 3],
-                1,
-                5,
-                10.0,
-            );
+        for (_i, (tx, _)) in channels.into_iter().enumerate() {
+            let response = ContinuousBatchResponse::batched(vec![1, 2, 3], 1, 5, 10.0);
 
             match tx.send(response) {
                 Ok(()) => send_successes += 1,
@@ -509,7 +500,8 @@ mod chaotic_citizens {
         assert!(queue_wait >= Duration::from_millis(5));
 
         // Send response
-        let response = ContinuousBatchResponse::single(vec![1, 2, 3, 4], 3, queue_wait.as_secs_f64() * 1000.0);
+        let response =
+            ContinuousBatchResponse::single(vec![1, 2, 3, 4], 3, queue_wait.as_secs_f64() * 1000.0);
         let _ = request.response_tx.send(response);
     }
 

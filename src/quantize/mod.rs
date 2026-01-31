@@ -1975,5 +1975,4 @@ pub(crate) fn extract_scale_min(scales: &[u8; 12], block_idx: usize) -> (f32, f3
 }
 
 #[cfg(test)]
-#[cfg(test)]
 mod tests;

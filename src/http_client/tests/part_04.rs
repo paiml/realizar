@@ -1,3 +1,5 @@
+use crate::http_client::tests::part_02::LatencyPercentiles;
+use crate::http_client::tests::part_03::ThroughputWithVariance;
 use crate::http_client::*;
 // =========================================================================
 // Per spec QA-034: Use Median Absolute Deviation for robust outlier detection.

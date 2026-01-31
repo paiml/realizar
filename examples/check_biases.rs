@@ -10,7 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ] {
         let mapped = MappedGGUFModel::from_path(path)?;
         let model = OwnedQuantizedModel::from_mapped(&mapped)?;
-        
+
         println!("=== {} ===", name);
         let layer0 = &model.layers[0];
         println!("  qkv_bias: {:?}", layer0.qkv_bias.as_ref().map(|b| b.len()));
@@ -20,10 +20,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  ffn_down_bias: {:?}", layer0.ffn_down_bias.as_ref().map(|b| b.len()));
         println!("  ffn_gate_bias: {:?}", layer0.ffn_gate_bias.as_ref().map(|b| b.len()));
         println!("  ffn_norm_bias: {:?}", layer0.ffn_norm_bias.as_ref().map(|b| b.len()));
-        
+
         println!("  output_norm_bias: {:?}", model.output_norm_bias.as_ref().map(|b| b.len()));
         println!("  lm_head_bias: {:?}", model.lm_head_bias.as_ref().map(|b| b.len()));
-        
+
         // Check first few values of qkv_bias if present
         if let Some(ref bias) = layer0.qkv_bias {
             println!("  qkv_bias first 5: {:?}", &bias[..5.min(bias.len())]);

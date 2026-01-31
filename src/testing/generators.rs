@@ -3,9 +3,9 @@
 //! Deterministic weight generation for reproducible test fixtures.
 //! Based on PyTorch's `make_tensor` pattern.
 
-use rand::{Rng, SeedableRng};
-use rand::rngs::StdRng;
 use half::f16;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 
 use super::{ModelConfig, QuantType};
 
@@ -39,9 +39,7 @@ impl SyntheticWeightGenerator {
         let fan_in = *shape.last().unwrap_or(&1);
         let scale = 1.0 / (fan_in as f32).sqrt();
 
-        (0..n)
-            .map(|_| rng.gen_range(-scale..scale))
-            .collect()
+        (0..n).map(|_| rng.gen_range(-scale..scale)).collect()
     }
 
     /// Generate F32 weights with specific scale
@@ -49,9 +47,7 @@ impl SyntheticWeightGenerator {
         let mut rng = StdRng::seed_from_u64(self.seed);
         let n: usize = shape.iter().product();
 
-        (0..n)
-            .map(|_| rng.gen_range(-scale..scale))
-            .collect()
+        (0..n).map(|_| rng.gen_range(-scale..scale)).collect()
     }
 
     /// Generate F16 weights
@@ -182,27 +178,24 @@ impl SyntheticWeightGenerator {
         match quant {
             QuantType::F32 => {
                 let f32_data = self.generate_f32(&[num_elements]);
-                f32_data.iter()
-                    .flat_map(|f| f.to_le_bytes())
-                    .collect()
-            }
+                f32_data.iter().flat_map(|f| f.to_le_bytes()).collect()
+            },
             QuantType::F16 => {
                 let f16_data = self.generate_f16(&[num_elements]);
-                f16_data.iter()
-                    .flat_map(|f| f.to_le_bytes())
-                    .collect()
-            }
+                f16_data.iter().flat_map(|f| f.to_le_bytes()).collect()
+            },
             QuantType::BF16 => {
                 // BF16 is just truncated F32
                 let f32_data = self.generate_f32(&[num_elements]);
-                f32_data.iter()
+                f32_data
+                    .iter()
                     .flat_map(|f| {
                         let bits = f.to_bits();
                         let bf16_bits = (bits >> 16) as u16;
                         bf16_bits.to_le_bytes()
                     })
                     .collect()
-            }
+            },
             QuantType::Q4_0 => self.generate_q4_0(num_elements),
             QuantType::Q8_0 => self.generate_q8_0(num_elements),
             QuantType::Q4_K => self.generate_q4_k(num_elements),
@@ -213,7 +206,7 @@ impl SyntheticWeightGenerator {
 
     /// Generate all weights for a model config
     pub fn generate_model_weights(&self, config: &ModelConfig, quant: QuantType) -> ModelWeights {
-        let head_dim = config.head_dim();
+        let _head_dim = config.head_dim();
 
         // Create separate generators for each weight type (deterministic)
         let embed_gen = Self::new(self.seed);
@@ -221,10 +214,7 @@ impl SyntheticWeightGenerator {
         let output_gen = Self::new(self.seed.wrapping_add(2000));
 
         // Embedding table
-        let embed_weights = embed_gen.generate_quant(
-            config.vocab_size * config.hidden_dim,
-            quant
-        );
+        let embed_weights = embed_gen.generate_quant(config.vocab_size * config.hidden_dim, quant);
 
         // Per-layer weights
         let mut layer_weights = Vec::with_capacity(config.num_layers);
@@ -252,10 +242,8 @@ impl SyntheticWeightGenerator {
 
         // Output norm and LM head
         let output_norm = output_gen.generate_f32(&[config.hidden_dim]);
-        let lm_head = Self::new(output_gen.seed + 1).generate_quant(
-            config.hidden_dim * config.vocab_size,
-            quant
-        );
+        let lm_head = Self::new(output_gen.seed + 1)
+            .generate_quant(config.hidden_dim * config.vocab_size, quant);
 
         ModelWeights {
             config: config.clone(),
@@ -312,11 +300,19 @@ impl ModelWeights {
     /// Total size in bytes
     pub fn total_bytes(&self) -> usize {
         let embed = self.embed_weights.len();
-        let layers: usize = self.layer_weights.iter()
+        let layers: usize = self
+            .layer_weights
+            .iter()
             .map(|l| {
-                l.attn_q.len() + l.attn_k.len() + l.attn_v.len() + l.attn_o.len() +
-                l.ffn_gate.len() + l.ffn_up.len() + l.ffn_down.len() +
-                l.attn_norm.len() * 4 + l.ffn_norm.len() * 4
+                l.attn_q.len()
+                    + l.attn_k.len()
+                    + l.attn_v.len()
+                    + l.attn_o.len()
+                    + l.ffn_gate.len()
+                    + l.ffn_up.len()
+                    + l.ffn_down.len()
+                    + l.attn_norm.len() * 4
+                    + l.ffn_norm.len() * 4
             })
             .sum();
         let output = self.output_norm.len() * 4 + self.lm_head.len();
@@ -517,7 +513,7 @@ mod tests {
         let config = ModelConfig::tiny();
         let gen = SyntheticWeightGenerator::new(42);
         let weights = gen.generate_model_weights(&config, QuantType::F32);
-        
+
         assert!(weights.total_bytes() > 0);
         assert_eq!(weights.param_count(), config.param_count());
     }

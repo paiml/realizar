@@ -119,6 +119,7 @@ fn create_test_bpe_tokenizer() -> BpeTokenizer {
         merge_rules,
         bos_id: Some(0),
         eos_id: Some(1),
+        special_tokens: std::collections::HashMap::new(),
     }
 }
 
@@ -304,6 +305,7 @@ fn test_bpe_merge_application() {
         merge_rules,
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
 
     let tokens = tok.encode("ab");
@@ -339,6 +341,7 @@ fn test_bpe_multiple_merges() {
         merge_rules,
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
 
     let tokens = tok.encode("abc");
@@ -369,6 +372,7 @@ fn test_bpe_no_merge_when_not_adjacent() {
         merge_rules,
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
 
     // "acb" - a and b are not adjacent, so no merge
@@ -394,6 +398,7 @@ fn test_bpe_repeated_merges() {
         merge_rules,
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
 
     // "abab" should become "ab" "ab" -> 2, 2

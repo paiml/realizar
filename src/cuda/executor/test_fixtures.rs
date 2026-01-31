@@ -25,7 +25,6 @@
 //! - **Layer 3**: Component tests (attention, FFN, etc.)
 //! - **Layer 4**: Integration tests (full model inference)
 
-#![cfg(test)]
 #![cfg(feature = "cuda")]
 
 use half::f16;
@@ -336,8 +335,8 @@ impl HarnessConfig {
     /// Config matching Qwen 0.5B dimensions (scaled down)
     pub fn qwen_like() -> Self {
         Self {
-            hidden_dim: 256,  // 896 scaled down
-            intermediate_dim: 512,  // 4864 scaled down
+            hidden_dim: 256,       // 896 scaled down
+            intermediate_dim: 512, // 4864 scaled down
             num_layers: 2,
             num_heads: 8,
             num_kv_heads: 2,
@@ -356,8 +355,6 @@ pub fn setup_executor_harness(
     exec: &mut crate::cuda::executor::CudaExecutor,
     config: &HarnessConfig,
 ) -> Result<(), crate::cuda::executor::GpuError> {
-    use crate::cuda::executor::GpuBuffer;
-
     // 1. Set GQA configuration
     exec.kv_num_heads = config.num_heads;
     exec.kv_num_kv_heads = config.num_kv_heads;
@@ -531,7 +528,9 @@ mod tests {
     fn test_setup_executor_harness_tiny() {
         use crate::cuda::executor::CudaExecutor;
 
-        let Some(mut exec) = CudaExecutor::new(0).ok() else { return; };
+        let Some(mut exec) = CudaExecutor::new(0).ok() else {
+            return;
+        };
 
         let config = HarnessConfig::tiny();
         let result = setup_executor_harness(&mut exec, &config);
@@ -548,7 +547,9 @@ mod tests {
     fn test_setup_executor_harness_default() {
         use crate::cuda::executor::CudaExecutor;
 
-        let Some(mut exec) = CudaExecutor::new(0).ok() else { return; };
+        let Some(mut exec) = CudaExecutor::new(0).ok() else {
+            return;
+        };
 
         let config = HarnessConfig::default();
         let result = setup_executor_harness(&mut exec, &config);
@@ -569,7 +570,9 @@ mod tests {
     fn test_harness_forward_all_layers() {
         use crate::cuda::executor::CudaExecutor;
 
-        let Some(mut exec) = CudaExecutor::new(0).ok() else { return; };
+        let Some(mut exec) = CudaExecutor::new(0).ok() else {
+            return;
+        };
 
         let config = HarnessConfig::default();
         if setup_executor_harness(&mut exec, &config).is_err() {
@@ -598,7 +601,9 @@ mod tests {
     fn test_harness_forward_to_logits() {
         use crate::cuda::executor::CudaExecutor;
 
-        let Some(mut exec) = CudaExecutor::new(0).ok() else { return; };
+        let Some(mut exec) = CudaExecutor::new(0).ok() else {
+            return;
+        };
 
         let config = HarnessConfig::default();
         if setup_executor_harness(&mut exec, &config).is_err() {
