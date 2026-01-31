@@ -987,7 +987,13 @@ mod tests {
 
         let mut scales_into = vec![0.0f32; 2];
         let mut quants_into = vec![0i8; 64];
-        quantize_rmsnorm_q8_0_into(&input, &norm_weight, eps, &mut scales_into, &mut quants_into);
+        quantize_rmsnorm_q8_0_into(
+            &input,
+            &norm_weight,
+            eps,
+            &mut scales_into,
+            &mut quants_into,
+        );
 
         assert_eq!(scales_alloc, scales_into);
         assert_eq!(quants_alloc, quants_into);
@@ -1029,7 +1035,8 @@ mod tests {
         let norm_weight = vec![1.0f32; in_dim];
         let weight_data = vec![0u8; total_bytes];
 
-        let result = fused_rmsnorm_q4_0_matmul(&input, &norm_weight, 1e-5, &weight_data, in_dim, out_dim);
+        let result =
+            fused_rmsnorm_q4_0_matmul(&input, &norm_weight, 1e-5, &weight_data, in_dim, out_dim);
 
         assert!(result.is_ok());
         let output = result.unwrap();
@@ -1337,10 +1344,8 @@ mod tests {
         assert_eq!(scales.len(), 2); // 64/32 = 2 blocks
         assert_eq!(quants.len(), 64);
 
-        // Verify quants are in valid range
-        for q in &quants {
-            assert!(*q >= -128 && *q <= 127);
-        }
+        // Verify quants are all i8 values (type-guaranteed to be in -128..=127)
+        assert!(quants.iter().all(|_| true)); // Just exercise the iterator
     }
 
     #[test]

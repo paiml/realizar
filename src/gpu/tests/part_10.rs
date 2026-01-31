@@ -835,19 +835,19 @@ fn test_error_recovery_strategy_classify_fatal() {
 fn test_error_recovery_strategy_classify_gpu_failure() {
     let strategy = ErrorRecoveryStrategy::new();
 
-    let error = Error::new(ErrorKind::Other, "GPU memory exhausted");
+    let error = Error::other("GPU memory exhausted");
     assert_eq!(
         strategy.classify_error(&error),
         ErrorClassification::GpuFailure
     );
 
-    let error = Error::new(ErrorKind::Other, "CUDA error");
+    let error = Error::other("CUDA error");
     assert_eq!(
         strategy.classify_error(&error),
         ErrorClassification::GpuFailure
     );
 
-    let error = Error::new(ErrorKind::Other, "wgpu device lost");
+    let error = Error::other("wgpu device lost");
     assert_eq!(
         strategy.classify_error(&error),
         ErrorClassification::GpuFailure
@@ -878,7 +878,7 @@ fn test_error_recovery_strategy_determine_action_fail() {
 fn test_error_recovery_strategy_determine_action_fallback() {
     let strategy = ErrorRecoveryStrategy::new();
 
-    let error = Error::new(ErrorKind::Other, "GPU error");
+    let error = Error::other("GPU error");
     let action = strategy.determine_action(&error, 0);
 
     assert!(matches!(action, RecoveryAction::FallbackToCpu));
@@ -888,7 +888,7 @@ fn test_error_recovery_strategy_determine_action_fallback() {
 fn test_error_recovery_strategy_determine_action_with_fallback() {
     let strategy = ErrorRecoveryStrategy::new();
 
-    let error = Error::new(ErrorKind::Other, "GPU unavailable");
+    let error = Error::other("GPU unavailable");
     let action = strategy.determine_action_with_fallback(&error, 0);
 
     assert!(matches!(action, RecoveryAction::FallbackToCpu));
@@ -1425,7 +1425,8 @@ fn test_resource_limiter_start_compute() {
     let limiter = ResourceLimiter::new(config);
 
     let start = limiter.start_compute();
-    assert!(start.elapsed().as_nanos() >= 0);
+    // Verify start_compute returns a valid Instant by checking it doesn't panic
+    let _ = start.elapsed();
 }
 
 // ============================================================================

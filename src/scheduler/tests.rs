@@ -1948,8 +1948,8 @@ mod tests {
             .expect("add critical");
         let _ = scheduler.schedule(&mut kv_cache, 0).expect("schedule 2");
 
-        // Low priority should now be preempted
-        assert!(scheduler.preempted_count() >= 0); // May or may not be preempted
+        // Low priority may be preempted - verify the method is callable
+        let _preempted = scheduler.preempted_count();
 
         // Complete the critical request
         let low_req = scheduler.get_request(low_id);
@@ -2338,8 +2338,7 @@ mod tests {
         let deadline_long = Deadline::with_target(1000);
 
         // Add long deadline first
-        let _id_long =
-            scheduler.add_request(vec![1], 5, Priority::Normal, Some(deadline_long.clone()));
+        let _id_long = scheduler.add_request(vec![1], 5, Priority::Normal, Some(deadline_long));
 
         // Add short deadline second
         let id_short = scheduler.add_request(vec![2], 5, Priority::Normal, Some(deadline_short));

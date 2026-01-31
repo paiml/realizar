@@ -461,7 +461,7 @@ mod tests {
     #[test]
     fn test_error_category_clone_copy() {
         let cat = ErrorCategory::Transient;
-        let cloned = cat.clone();
+        let cloned = cat;
         let copied: ErrorCategory = cat;
         assert_eq!(cat, cloned);
         assert_eq!(cat, copied);
@@ -646,7 +646,7 @@ mod tests {
     #[test]
     fn test_circuit_state_clone_copy() {
         let state = CircuitState::HalfOpen;
-        let cloned = state.clone();
+        let cloned = state;
         let copied: CircuitState = state;
         assert_eq!(state, cloned);
         assert_eq!(state, copied);
@@ -778,7 +778,7 @@ mod tests {
 
         breaker.record_failure();
         std::thread::sleep(Duration::from_millis(5));
-        breaker.allow_request(); // Transition to HalfOpen
+        let _ = breaker.allow_request(); // Transition to HalfOpen
         assert_eq!(breaker.state(), CircuitState::HalfOpen);
 
         breaker.record_failure(); // Should reopen
@@ -798,7 +798,7 @@ mod tests {
     #[test]
     fn test_request_type_clone_copy() {
         let rt = RequestType::Embedding;
-        let cloned = rt.clone();
+        let cloned = rt;
         let copied: RequestType = rt;
         assert_eq!(rt, cloned);
         assert_eq!(rt, copied);
