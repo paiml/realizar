@@ -441,7 +441,7 @@ coverage-control-plane: ## CONTROL PLANE only: All non-CUDA tests, quarantine in
 	@cargo llvm-cov clean --workspace
 	@echo ""
 	@echo "Running all non-CUDA tests under instrumentation..."
-	-@cargo llvm-cov test --lib --no-report -- --skip cuda:: --skip test_cuda --test-threads=8 2>&1 | tail -3
+	-@cargo llvm-cov test --lib --no-report -- --skip 'cuda::' --skip test_cuda --test-threads=2 2>&1 | tail -3
 	@echo ""
 	@$(MAKE) --no-print-directory cov-report-control-plane
 	@echo ""
