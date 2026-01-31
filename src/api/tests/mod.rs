@@ -41,3 +41,4 @@ mod part_18; // T-COV-95 Coverage Bridge B2+B3 (GPU handlers, Realize/OpenAI han
 mod part_19; // T-COV-95 Deep Coverage Bridge (BatchConfig, ContinuousBatchResponse, streaming types, endpoints)
 mod part_20; // T-COV-95 Deep Coverage Bridge (ContextWindow, format_chat, clean_chat, HTTP handlers, serde)
 mod part_21; // T-COV-95 Extended Coverage (build_trace_data, streaming types, request/response serde)
+mod part_22; // T-COV-95 APR handlers coverage (predict, explain, audit, serde, error paths)
