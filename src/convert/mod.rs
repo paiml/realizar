@@ -801,3 +801,8 @@ mod convert_tests_part_04;
 #[cfg(test)]
 #[path = "tests_part_05.rs"]
 mod convert_tests_part_05;
+
+// T-COV-95 Synthetic Falsification (Part 06 - Pygmy GGUF conversions)
+#[cfg(test)]
+#[path = "tests_part_06.rs"]
+mod convert_tests_part_06;

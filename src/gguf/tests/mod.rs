@@ -59,3 +59,4 @@ mod part_25;
 mod part_26; // T-COV-95 Coverage Bridge B6 (loader.rs metadata, parsing, transformer)
 mod part_27; // T-COV-95 Deep Coverage Bridge (get_tensor_f32 qtypes, rope_type, tied embeddings)
 mod part_28; // T-COV-95 Deep Coverage Bridge (Q2_K/F16/Q4_1/Q5_0/Q5_1, metadata types, decode/encode)
+mod part_29; // T-COV-95 Synthetic Falsification (loader.rs via Pygmy GGUF models)
