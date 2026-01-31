@@ -43,3 +43,4 @@ mod part_20; // T-COV-95 Deep Coverage Bridge (ContextWindow, format_chat, clean
 mod part_21; // T-COV-95 Extended Coverage (build_trace_data, streaming types, request/response serde)
 mod part_22; // T-COV-95 APR handlers coverage (predict, explain, audit, serde, error paths)
 mod part_23; // T-COV-95 gpu_handlers + realize_handlers coverage (BatchConfig, ContextWindow, format_chat)
+mod part_24; // T-COV-95 Protocol Falsification: Potemkin Village GPU Mocks
