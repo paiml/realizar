@@ -468,6 +468,21 @@ pub fn apply_dry_penalty(
         .expect("Shape should match original logits")
 }
 
+/// Check if suffix matches at position and next token follows
+#[inline]
+fn check_ngram_match(
+    context: &[usize],
+    suffix: &[usize],
+    start: usize,
+    suffix_len: usize,
+    next_token: usize,
+) -> bool {
+    let potential_end = start + suffix_len;
+    potential_end < context.len()
+        && context[start..potential_end] == *suffix
+        && context[potential_end] == next_token
+}
+
 /// Find the length of the longest n-gram that would be repeated if we add this token
 fn find_ngram_match_length(context: &[usize], next_token: usize, min_len: usize) -> usize {
     if context.len() < min_len {
@@ -484,17 +499,8 @@ fn find_ngram_match_length(context: &[usize], next_token: usize, min_len: usize)
 
         // Look for this suffix earlier in the context
         for start in 0..(context.len() - end_pos) {
-            let potential_end = start + end_pos;
-            if potential_end >= context.len() {
-                continue;
-            }
-
-            // Check if suffix matches
-            if context[start..potential_end] == *suffix {
-                // Check if the next token after this match equals our candidate
-                if potential_end < context.len() && context[potential_end] == next_token {
-                    max_match = max_match.max(end_pos + 1);
-                }
+            if check_ngram_match(context, suffix, start, end_pos, next_token) {
+                max_match = max_match.max(end_pos + 1);
             }
         }
     }
