@@ -92,7 +92,7 @@ unsafe fn simd_function() { ... }
 | `src/gpu/scheduler/model.rs` | 2653 | ✅ types.rs extracted (was 2866) |
 | `src/observability.rs` | 2751 | Split: metrics, tracing, logging |
 | `src/safetensors.rs` | 2613 | Split: loader, inference, config |
-| `src/apr/mod.rs` | 2125 | ✅ dequant.rs extracted (was 2412, need ~120 more) |
+| `src/apr/mod.rs` | 1949 | ✅ DONE (dequant.rs + model_data.rs extracted) |
 | `src/quantize/fused_k.rs` | 2403 | Review: may have dead code |
 | `src/cuda/executor/layers/batched.rs` | 2304 | Split by layer type |
 | `src/generate/sampler.rs` | 2296 | Split: strategies, nucleus, beam |
