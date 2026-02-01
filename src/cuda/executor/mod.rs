@@ -69,7 +69,9 @@ mod tests_part_04;
 #[cfg(test)]
 mod tests_part_05;
 #[cfg(test)]
-mod tests_part_06;
+mod tests_part_06a;
+#[cfg(test)]
+mod tests_part_06b;
 
 #[cfg(test)]
 mod proptests_01;
