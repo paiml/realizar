@@ -314,20 +314,6 @@ fn create_test_apr_transformer(
     }
 }
 
-/// Benchmark: GGUF forward pass
-/// NOTE: Disabled - forward() method moved to QuantizedGGUFTransformer
-#[allow(dead_code)]
-fn benchmark_gguf_forward(_c: &mut Criterion) {
-    // TODO: Update to use QuantizedGGUFTransformer
-}
-
-/// Benchmark: APR forward pass
-/// NOTE: Disabled - forward() method moved to QuantizedGGUFTransformer
-#[allow(dead_code)]
-fn benchmark_apr_forward(_c: &mut Criterion) {
-    // TODO: Update to use QuantizedGGUFTransformer
-}
-
 /// Benchmark: GGUF to APR conversion overhead
 fn benchmark_conversion(c: &mut Criterion) {
     let mut group = c.benchmark_group("gguf_to_apr_conversion");
@@ -407,8 +393,6 @@ criterion_group!(
     benchmark_cifar10_inference,
     benchmark_iris_inference,
     benchmark_tensor_creation,
-    // benchmark_gguf_forward,  // TODO: forward() moved to QuantizedGGUFTransformer
-    // benchmark_apr_forward,   // TODO: forward() moved to QuantizedGGUFTransformer
     benchmark_conversion,
     benchmark_apr_serialization,
     benchmark_memory_usage,

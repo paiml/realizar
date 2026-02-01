@@ -183,45 +183,6 @@ fn benchmark_gguf_transformer_load(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
-// BENCHMARK: Token Embedding Lookup
-// ============================================================================
-
-// NOTE: Disabled - embed() method moved to QuantizedGGUFTransformer
-#[allow(dead_code)]
-fn benchmark_gguf_embedding(_c: &mut Criterion) {
-    // TODO: Update to use QuantizedGGUFTransformer
-}
-
-// ============================================================================
-// BENCHMARK: Single Forward Pass
-// ============================================================================
-
-// NOTE: Disabled - forward() method moved to QuantizedGGUFTransformer
-#[allow(dead_code)]
-fn benchmark_gguf_forward_single(_c: &mut Criterion) {
-    // TODO: Update to use QuantizedGGUFTransformer
-}
-
-// ============================================================================
-// BENCHMARK: Next Token Prediction (Greedy)
-// ============================================================================
-
-// NOTE: Disabled - predict_next() method moved to QuantizedGGUFTransformer
-#[allow(dead_code)]
-fn benchmark_gguf_predict_next(_c: &mut Criterion) {
-    // TODO: Update to use QuantizedGGUFTransformer
-}
-
-// ============================================================================
-// BENCHMARK: Multi-Token Generation (Throughput)
-// ============================================================================
-
-// NOTE: Disabled - predict_next() method moved to QuantizedGGUFTransformer
-#[allow(dead_code)]
-fn benchmark_gguf_throughput(_c: &mut Criterion) {
-    // TODO: Update to use QuantizedGGUFTransformer
-}
 
 // ============================================================================
 // BENCHMARK: Parameter Scaling (Memory Efficiency)
@@ -330,12 +291,6 @@ fn test_gguf_predict_produces_token() {
 // CRITERION GROUPS
 // ============================================================================
 
-// TECH-DEBT: The following benchmarks are disabled because GGUFTransformer is a weight
-// container without inference methods (embed, forward, predict_next). To enable them:
-// 1. Use OwnedQuantizedModel::from_mapped() for inference
-// 2. Use generate() or generate_with_cache() methods instead
-// Disabled benchmarks: benchmark_gguf_embedding, benchmark_gguf_forward_single,
-//                      benchmark_gguf_predict_next, benchmark_gguf_throughput
 criterion_group!(
     benches,
     benchmark_gguf_model_load,
