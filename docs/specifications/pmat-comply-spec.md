@@ -1,6 +1,6 @@
 # Specification: PMAT Compliance & Quality Gates
 
-**Status:** ⚠️ IN PROGRESS (2026-02-01)
+**Status:** ⚠️ IN PROGRESS (2026-02-02)
 **Objective:** Achieve full PMAT compliance across all quality dimensions.
 **Command:** `pmat comply check` and `pmat quality-gate`
 
@@ -10,12 +10,11 @@ PMAT compliance check: **NON-COMPLIANT**
 
 Critical issues remaining:
 - File Health: 24 files >2000 lines (grade D) — all non-test code under 2000, tests extracted ✅
-- Dead Code: ✅ **1 violation** (rav1e build artifact only, down from 6)
-- ComputeBrick: 526 SIMD warnings (#[target_feature] missing — linter false positives)
-- Quality gate: **56 violations** (was 225, **75% reduction**)
-  - 53 entropy (structural Rust patterns + 6 .pmatignore'd files)
-  - 1 complexity (tool inconsistency — quality-gate=36, standalone=15)
-  - 1 dead code (rav1e build artifact)
+- Dead Code: ✅ **0 violations** (was 1; #141 closed, quality-gate fixed)
+- ComputeBrick: 536 SIMD warnings (#[target_feature] missing — linter false positives)
+- Quality gate: **54 violations** (was 225, **76% reduction**)
+  - 53 entropy (standard Rust idioms flagged as patterns; ~5-7 from .pmatignore'd files #140; filed #142)
+  - 0 complexity ✅ (was 1; refactored `detect_format` into `format_from_extension` + `format_from_magic`)
   - 1 provability (tool bug #139)
 
 ## 1. Compliance Check Results (`pmat comply check`)
@@ -31,7 +30,7 @@ Critical issues remaining:
 | Cargo.lock | ✅ | Reproducible builds |
 | MSRV Defined | ✅ | rust-version present |
 | CI Configured | ✅ | 3 workflows |
-| ComputeBrick | ⚠️ | 526 warnings (CB-021 false positives — all functions have `#[target_feature]`) |
+| ComputeBrick | ⚠️ | 536 warnings (CB-021 false positives — all functions have `#[target_feature]`) |
 | OIP Tarantula | ✅ | CB-121 fixed (8 production patterns), CB-120/122/123/124 clean |
 | Coverage Quality | ⚠️ | 17 warnings (CB-127) |
 | PAIML Deps | ⚠️ | 3 dirty workspaces |
@@ -41,25 +40,24 @@ Critical issues remaining:
 
 | Metric | Threshold | Current | Status |
 |--------|-----------|---------|--------|
-| **Dead Code** | ≤ 15% | 1 violation | ⚠️ Only rav1e build artifact (filed [#141](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/141)) |
-| **Complexity** | ≤ 25 cognitive | 1 violation | ⚠️ `detect_format` (quality-gate=36, standalone=15; inconsistent) |
+| **Dead Code** | ≤ 15% | 0 violations | ✅ PASS ([#141](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/141) closed, fixed) |
+| **Complexity** | ≤ 25 cognitive | 0 violations | ✅ PASS (refactored `detect_format` → `format_from_extension` + `format_from_magic`) |
 | **SATD** | 0 critical | 0 violations | ✅ PASS |
-| **Entropy** | - | 53 violations | ⚠️ (structural patterns, 6 from .pmatignore'd files, filed [#140](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/140)) |
-| **Provability** | ≥ 0.70 | 0.65 | ❌ FAIL (tool panics, filed [#139](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/139)) |
+| **Entropy** | - | 53 violations | ⚠️ Standard Rust idioms (filed [#142](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/142)); ~5-7 from .pmatignore'd files ([#140](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/140)) |
+| **Provability** | ≥ 0.70 | 0.65 | ❌ FAIL (tool panics, [#139](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/139) still open) |
 | **Security** | 0 | 0 | ✅ PASS |
 | **Duplicates** | - | 0 | ✅ PASS |
 | **Sections** | All required | 0 missing | ✅ PASS |
 
-**Total violations: 56** (down from 225, **75% reduction**)
+**Total violations: 54** (down from 225, **76% reduction**)
 
 ## 3. Dead Code Violations ✅ RESOLVED
 
-**Current: 1 violation** — only `rav1e` build artifact (`target_test/.../built.rs`, 95.7% dead)
+**Current: 0 violations** (quality gate) ✅
 
-Previous quality-gate reported 6 violations (30.8% dead) from quantize/ SIMD files.
-After AVX-512 refactoring reduced code, dead code violations dropped from 6 → 1.
-
-**Filed:** [#141](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/141) — quality-gate and standalone `pmat analyze dead-code` use inconsistent algorithms.
+Previous progression: 6 → 1 → 0 violations.
+- [#141](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/141) (CLOSED) — quality-gate/standalone inconsistency resolved.
+- Standalone `pmat analyze dead-code`: 24 files with dead code (0.03%), all in build artifacts or test infrastructure.
 
 ### Completed
 - Removed `hsum_epi32_*` from simd.rs
@@ -73,7 +71,7 @@ After AVX-512 refactoring reduced code, dead code violations dropped from 6 → 
 
 ## 4. ComputeBrick Compliance (Priority: HIGH)
 
-**526 CB-021 warnings**: Linter false positives — flags each `_mm256_*` call per-line,
+**536 CB-021 warnings** (was 526): Linter false positives — flags each `_mm256_*`/`_mm512_*` call per-line,
 not per-function. All SIMD functions already have `#[target_feature]`.
 
 ### Audit Results (11 files with SIMD intrinsics)
@@ -98,9 +96,9 @@ Was using compile-time `#[cfg(target_feature = "avx2")]` instead of runtime
 `#[target_feature(enable = "avx2")]`. Converted to runtime feature detection
 with `is_x86_feature_detected!` dispatch.
 
-### Remaining: Linter false positives (526 warnings)
+### Remaining: Linter false positives (536 warnings)
 
-The CB-021 checker counts each individual `_mm256_*` call (~526 across all files)
+The CB-021 checker counts each individual `_mm256_*`/`_mm512_*` call (~536 across all files)
 rather than checking function-level `#[target_feature]` attributes. All flagged calls
 are inside properly-attributed `unsafe fn` declarations. This is a known linter
 limitation — no code changes needed.
@@ -269,24 +267,55 @@ These contain Python scripts, benchmarks, test infrastructure, and ancillary bin
 | `testing/combinatorial_tests.rs` | `generate_combinatorial_tests` | Cog 25 | <20 (extracted `generate_conversion_cases()`) |
 | `testing/combinatorial_tests.rs` | `test_all_format_conversions` | Cog 22 | <20 (extracted `create_fixture()`) |
 
-### Remaining complexity (1 violation)
+### Remaining complexity (0 quality-gate violations ✅, 11 standalone warnings)
 
-| File | Function | QG Complexity | Standalone | Notes |
-|------|----------|---------------|------------|-------|
-| `src/apr/helpers.rs:275` | `detect_format` | 36 | 15 | Quality-gate inflates; standalone `pmat analyze complexity` max=20. 28-line function. |
+**Quality-gate: PASS** — `detect_format` split into `format_from_extension()` + `format_from_magic()` + thin dispatcher. Each function has trivial complexity.
+
+**Standalone hotspots** (cyclomatic, not quality-gate violations):
+
+| File | Function | CC | Notes |
+|------|----------|----|-------|
+| `src/cli/inference.rs:384` | `run_gguf_inference_gpu` | 17 | GPU inference orchestrator |
+| `src/cli/inference.rs:203` | `run_gguf_inference` | 15 | CPU inference orchestrator |
+| `src/cuda/executor/layers/ffn.rs:119` | `fused_ffn_swiglu_gpu_true_dp4a` | 13 | CUDA kernel dispatch |
+| `src/cuda/executor/layers/ffn.rs:37` | `fused_ffn_swiglu_gpu` | 12 | CUDA kernel dispatch |
+| `src/cli/inference.rs:903` | `run_apr_inference_gpu` | 12 | APR GPU inference |
+
+Median cyclomatic: 6.0, median cognitive: 10.0, max cognitive: 20.
 
 Previously resolved:
 - `fused_q4k_dot_avx512_vnni` → Extracted `avx512_quantize_dot` helper (removed 60 lines of duplicated SIMD)
 - `run_model_prediction` → Extracted `first_pred!` macro + `bool::then()` patterns
 
-## 8. Duplicate Code Patterns (Priority: LOW)
+## 8. Entropy Violations Analysis (53 violations — all false positives)
 
-| File | Pattern | Occurrences | Potential Savings |
-|------|---------|-------------|-------------------|
-| `src/gguf/batch_scheduler.rs` | ResourceManagement | 10x | 1238 lines |
-| `src/safetensors.rs` | ApiCall | 10x | 648 lines |
+Filed: [#142](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/142) — entropy flags standard Rust idioms as duplicate patterns.
 
-These are lower priority - address after dead code and SATD.
+### Pattern breakdown (from `pmat analyze entropy --format json`)
+
+| Pattern Type | Instances | Example Code | Why False Positive |
+|-------------|-----------|--------------|-------------------|
+| DataValidation | 605 | `.len()`, `.is_empty()` | Standard trait methods |
+| DataTransformation | 2296 | `.iter().map().collect()` | Idiomatic Rust iterators |
+| ApiCall | 408 | `.get()` | HashMap/struct field access |
+| ResourceManagement | 60 | `.lock()` | Mutex synchronization |
+| ControlFlow | 53 | match/if-let patterns | Standard control flow |
+
+**Total: 3,422 pattern instances flagged across 513 patterns in 88,417 LOC.**
+
+### .pmatignore'd files included (~5-7 violations, bug #140)
+
+| File | Should be ignored by |
+|------|---------------------|
+| `examples/performance_parity.rs` | `examples/` |
+| `examples/par_001_qkv_parity.rs` | `examples/` |
+| `examples/verify_rope.rs` | `examples/` |
+| `examples/check_idx_5475.rs` | `examples/` |
+| `src/infer/tests.rs` (2 violations) | `src/*/tests.rs` |
+
+### Conclusion
+
+These 53 violations represent **standard Rust language constructs**, not application-level code duplication. No code changes are warranted. Resolution depends on upstream tool fixes (#140, #142).
 
 ## 9. Execution Protocol
 
@@ -311,36 +340,57 @@ make lint
 
 ## 10. Acceptance Criteria
 
-- [x] Dead code: 1 violation (rav1e build artifact only, filed [#141](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/141))
+- [x] Dead code: 0 violations ✅ (was 1; [#141](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/141) CLOSED)
 - [x] 0 critical SATD comments (0 violations)
-- [x] All tests pass (13103 passed)
+- [x] All non-CUDA tests pass (13103 passed, 0 failed, 52 ignored)
+- [x] CUDA tests pass per-module (full-suite has context exhaustion; pass individually)
 - [x] Zero clippy warnings
-- [x] TDG score ≥ 93.0 (94.3)
+- [x] TDG score ≥ 93.0 (94.4)
 - [ ] File health grade ≥ C (current: D — 24 pure test files, all production <2000 ✅)
-- [x] ComputeBrick CB-021: All 34 SIMD functions have `#[target_feature]` (526 = linter false positives)
+- [x] ComputeBrick CB-021: All 34 SIMD functions have `#[target_feature]` (536 = linter false positives)
 - [x] OIP Tarantula: CB-121 fixed, CB-120/122/123/124 clean
-- [ ] Provability score ≥ 0.70 (current: 0.65 — structural metric, uniform 42.5% per function)
+- [ ] Provability score ≥ 0.70 (current: 0.65 — [#139](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/139) still open)
 - [x] README sections: Installation + Contributing added
-- [x] Complexity: Handler+inference+CLI refactoring complete (148→27, 82% reduction)
+- [x] Complexity: **0 QG violations** ✅ (was 148→27→1→0; `detect_format` split into helpers)
 - [x] .pmatignore: Excluded non-production code (Python, benches, examples, book, tests, bin, bench)
 - [ ] `pmat comply check` = COMPLIANT
-- **Quality gate violations: 225 → 56 (75% reduction)**
-- **PMAT tool issues filed: 4** (#138, #139, #140, #141) — ~8-10 false positive violations
+- **Quality gate violations: 225 → 54 (76% reduction)**
+- **PMAT tool issues filed: 5** (#138, #139, #140, #141, #142) — 2 closed, 3 open
 
 ## 11. PMAT Tool Issues Filed
 
 Issues filed against `paiml-mcp-agent-toolkit` for bugs discovered during compliance work:
 
-| Issue | Title | Impact |
-|-------|-------|--------|
-| [#138](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/138) | Line number mismatch in complexity analysis | Quality-gate reports `detect_format` complexity=36; standalone `pmat analyze complexity` reports max=20. 28-line function has ~15 actual cognitive complexity. |
-| [#139](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/139) | Provability analyzer panic | `pmat analyze provability` crashes with index out of range |
-| [#140](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/140) | .pmatignore not respected by entropy analysis | 6+ entropy violations from excluded files (benches/, examples/, tests.rs) |
-| [#141](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/141) | dead-code inconsistent between quality-gate and standalone | quality-gate=30.8% vs standalone=0.03%, completely different files flagged |
+| Issue | Title | Status | Impact |
+|-------|-------|--------|--------|
+| [#138](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/138) | Line number mismatch in complexity analysis | ✅ CLOSED | Line number fixed; complexity value still inflated (quality-gate=36, standalone=15). |
+| [#139](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/139) | Provability analyzer panic | ⚠️ OPEN | `pmat analyze provability` crashes with index out of range |
+| [#140](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/140) | .pmatignore not respected by entropy analysis | ⚠️ OPEN | Entropy violations include .pmatignore'd files (benches/, tests.rs) |
+| [#141](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/141) | dead-code inconsistent between quality-gate and standalone | ✅ CLOSED | Fixed — quality-gate now reports 0 dead code violations |
+| [#142](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/142) | entropy: Standard Rust idioms flagged as duplicate patterns | ⚠️ OPEN | `.len()`, `.is_empty()`, iterators, `.get()`, `.lock()` flagged as 53 violations |
 
-**Estimated false-positive violations:** ~8-10 of 63 total (13-16%)
+**Remaining violations breakdown:** 53 entropy (all Rust idiom false positives, #142) + 1 provability (tool panic, #139) = 54
 
-## 12. References
+## 12. Current Metrics Snapshot (2026-02-02)
+
+| Metric | Value |
+|--------|-------|
+| TDG Score | 94.4/100 (A) |
+| Total Tests (non-CUDA) | 13103 passed, 0 failed, 52 ignored |
+| Total Tests (with CUDA) | 14127 passed, 487 failed (context exhaustion), 60 ignored |
+| CUDA per-module | All pass in isolation |
+| Clippy Warnings | 0 |
+| SATD Violations | 0 |
+| Dead Code (quality-gate) | 0 |
+| Dead Code (standalone) | 0.03% (24 files, build artifacts + test infra) |
+| Complexity (quality-gate) | 0 violations ✅ |
+| Complexity (standalone) | 11 warnings, max CC=17, max cognitive=20 |
+| Entropy | 53 violations (Rust idioms, filed #142) |
+| Provability | 0.65 (tool bug #139) |
+| CB-021 Warnings | 536 (linter false positives) |
+| Files >2000 lines | 24 (all pure test files) |
+
+## 13. References
 
 - PMAT-805: Qwen throughput spec (parent)
 - Issue #43: APR performance (related)
