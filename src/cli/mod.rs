@@ -474,6 +474,73 @@ pub fn run_visualization(use_color: bool, samples: usize) {
     println!("Visualization powered by trueno-viz");
 }
 
+/// Print benchmark configuration info
+fn print_bench_config(
+    runtime_name: &str,
+    model: Option<&str>,
+    url: Option<&str>,
+    output: Option<&str>,
+) {
+    println!("Benchmark Configuration:");
+    println!("  Runtime: {runtime_name}");
+    if let Some(m) = model {
+        println!("  Model: {m}");
+    }
+    if let Some(u) = url {
+        println!("  URL: {u}");
+    }
+    if let Some(o) = output {
+        println!("  Output: {o}");
+    }
+    println!();
+}
+
+/// Write benchmark results to JSON file
+fn write_bench_json(
+    output_path: &str,
+    stdout: &str,
+    suite: Option<&str>,
+    runtime: Option<&str>,
+    model: Option<&str>,
+) -> Result<()> {
+    use std::fs::File;
+    use std::io::Write;
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let results = parse_cargo_bench_output(stdout, suite);
+
+    let json_output = serde_json::json!({
+        "version": "1.0",
+        "timestamp": timestamp,
+        "runtime": runtime.unwrap_or("realizar"),
+        "suite": suite,
+        "model": model,
+        "results": results,
+        "raw_output": stdout
+    });
+
+    let mut file = File::create(output_path).map_err(|e| RealizarError::IoError {
+        message: format!("Failed to create output file {output_path}: {e}"),
+    })?;
+
+    file.write_all(
+        serde_json::to_string_pretty(&json_output)
+            .expect("test")
+            .as_bytes(),
+    )
+    .map_err(|e| RealizarError::IoError {
+        message: format!("Failed to write to output file {output_path}: {e}"),
+    })?;
+
+    println!();
+    println!("Benchmark results written to: {output_path}");
+    Ok(())
+}
+
 /// Run benchmarks with cargo bench or real HTTP client
 pub fn run_benchmarks(
     suite: Option<String>,
@@ -505,18 +572,12 @@ pub fn run_benchmarks(
     }
 
     let runtime_name = runtime.clone().unwrap_or_else(|| "realizar".to_string());
-    println!("Benchmark Configuration:");
-    println!("  Runtime: {runtime_name}");
-    if let Some(ref m) = model {
-        println!("  Model: {m}");
-    }
-    if let Some(ref u) = url {
-        println!("  URL: {u}");
-    }
-    if let Some(ref o) = output {
-        println!("  Output: {o}");
-    }
-    println!();
+    print_bench_config(
+        &runtime_name,
+        model.as_deref(),
+        url.as_deref(),
+        output.as_deref(),
+    );
 
     // Check if this is an external runtime benchmark (requires bench-http feature)
     if let (Some(ref rt), Some(ref server_url)) = (&runtime, &url) {
@@ -582,44 +643,15 @@ pub fn run_benchmarks(
     let stdout = String::from_utf8_lossy(&bench_output.stdout);
     print!("{stdout}");
 
-    // Generate JSON output (real implementation, not stub)
+    // Generate JSON output
     if let Some(ref output_path) = output {
-        use std::fs::File;
-        use std::io::Write;
-
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-
-        // Parse benchmark results from cargo bench output
-        let results = parse_cargo_bench_output(&stdout, suite.as_deref());
-
-        let json_output = serde_json::json!({
-            "version": "1.0",
-            "timestamp": timestamp,
-            "runtime": runtime.clone().unwrap_or_else(|| "realizar".to_string()),
-            "suite": suite,
-            "model": model,
-            "results": results,
-            "raw_output": stdout
-        });
-
-        let mut file = File::create(output_path).map_err(|e| RealizarError::IoError {
-            message: format!("Failed to create output file {output_path}: {e}"),
-        })?;
-
-        file.write_all(
-            serde_json::to_string_pretty(&json_output)
-                .expect("test")
-                .as_bytes(),
-        )
-        .map_err(|e| RealizarError::IoError {
-            message: format!("Failed to write to output file {output_path}: {e}"),
-        })?;
-
-        println!();
-        println!("Benchmark results written to: {output_path}");
+        write_bench_json(
+            output_path,
+            &stdout,
+            suite.as_deref(),
+            runtime.as_deref(),
+            model.as_deref(),
+        )?;
     }
 
     Ok(())
