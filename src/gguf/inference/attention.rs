@@ -434,7 +434,7 @@ impl OwnedQuantizedModel {
 
         let mut output = vec![0.0f32; hidden_dim];
 
-        // Temp buffer for scores of the current group.
+        // Score buffer for the current group.
         // Size: q_per_kv * total_len.
         // We reuse this buffer for each KV group to minimize allocation.
         let mut group_scores = vec![0.0f32; q_per_kv * total_len];
@@ -536,7 +536,7 @@ impl OwnedQuantizedModel {
         // Zero output buffer
         output[..hidden_dim].iter_mut().for_each(|x| *x = 0.0);
 
-        // Temp buffer for scores of the current group.
+        // Score buffer for the current group.
         // Size: q_per_kv * total_len.
         // We reuse this buffer for each KV group to minimize allocation.
         let mut group_scores = vec![0.0f32; q_per_kv * total_len];

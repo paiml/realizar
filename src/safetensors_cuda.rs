@@ -582,7 +582,7 @@ impl SafeTensorsCudaModel {
             hidden = self.forward_layer(layer_idx, &hidden)?;
         }
 
-        // 3. Output norm (CPU for now - could optimize to GPU later)
+        // 3. Output norm (CPU path)
         hidden = self.apply_rms_norm_cpu(&hidden)?;
 
         // 4. LM head projection (GPU) - C = A × B where B is cached lm_head
