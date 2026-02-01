@@ -212,7 +212,7 @@ coverage-cuda: ## Coverage: CUDA/GPU only (~120s, single-threaded, requires RTX 
 	@START=$$(date +%s); \
 	echo "📊 Coverage: CUDA (batched to prevent GPU context exhaustion)..."; \
 	echo "  [1/8] cuda::executor::tests..."; \
-	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
+	PROPTEST_CASES=16 cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=1 'cuda::executor::tests' \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -1; \
 	echo "  [2/8] cuda::executor::layers..."; \
@@ -268,7 +268,7 @@ coverage-fast: ## Fast coverage: no CUDA tests (~90s)
 	echo "📊 COVERAGE-FAST: No CUDA (use 'make coverage' for full stack)"; \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "🚀 Running core tests (parallel, no regex filter)..."
-	@cargo llvm-cov test --lib --no-report \
+	@PROPTEST_CASES=16 cargo llvm-cov test --lib --no-report \
 		-- --test-threads=8 --skip cuda:: --skip gpu:: \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -3
 	@echo "📊 Generating report (with exclusions)..."
