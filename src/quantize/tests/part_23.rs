@@ -1,18 +1,15 @@
 //! Part 23: Additional SIMD Coverage Tests for quantize/simd.rs
 //!
-//! Targets the uncovered ~10% in simd.rs:
+//! Targets the uncovered areas in simd.rs:
 //! - f16_to_f32 positive subnormal branch (line 38)
 //! - extract_scale_min_from_slice odd index branch (lines 114-117)
-//! - Standalone SIMD horizontal sum functions (lines 133-217)
 //! - AVX2 RoPE rotation inner loop (lines 525-535)
+//!
+//! Note: Horizontal sum functions (hsum_epi32_*, horizontal_sum_*) are now
+//! internal to fused_k.rs and tested there to avoid dead code.
 
-use crate::quantize::simd::{extract_scale_min_from_slice, f16_to_f32};
-use crate::quantize::{fused_swiglu_simd, softmax_simd};
-
-#[cfg(target_arch = "x86_64")]
-use crate::quantize::simd::{
-    horizontal_sum_epi16_256, horizontal_sum_epi32_256, hsum_epi32, hsum_epi32_128, hsum_epi32_256,
-};
+use crate::quantize::simd::extract_scale_min_from_slice;
+use crate::quantize::{f16_to_f32, fused_swiglu_simd, softmax_simd};
 
 // =============================================================================
 // f16_to_f32: Positive Subnormal Coverage (line 38)
@@ -133,134 +130,6 @@ fn test_extract_scale_min_from_slice_odd_indices() {
         let (s, m) = extract_scale_min_from_slice(&zeros, idx);
         assert_eq!(s, 0.0);
         assert_eq!(m, 0.0);
-    }
-}
-
-// =============================================================================
-// SIMD Horizontal Sum Functions (lines 133-217)
-// =============================================================================
-
-#[cfg(target_arch = "x86_64")]
-mod simd_horizontal_sum_tests {
-    use super::*;
-
-    #[test]
-    fn test_hsum_epi32_128_coverage() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-        use std::arch::x86_64::{_mm_set_epi32, _mm_setzero_si128};
-
-        unsafe {
-            // Basic sum: [1,2,3,4] = 10
-            assert_eq!(hsum_epi32_128(_mm_set_epi32(4, 3, 2, 1)), 10);
-            // Mixed: [-1,-2,3,4] = 4
-            assert_eq!(hsum_epi32_128(_mm_set_epi32(4, 3, -2, -1)), 4);
-            // Zeros
-            assert_eq!(hsum_epi32_128(_mm_setzero_si128()), 0);
-        }
-    }
-
-    #[test]
-    fn test_hsum_epi32_256_coverage() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-        use std::arch::x86_64::_mm256_set_epi32;
-
-        unsafe {
-            // [1..8] = 36
-            assert_eq!(hsum_epi32_256(_mm256_set_epi32(8, 7, 6, 5, 4, 3, 2, 1)), 36);
-            // Symmetric sums to 0
-            assert_eq!(
-                hsum_epi32_256(_mm256_set_epi32(4, 3, 2, 1, -1, -2, -3, -4)),
-                0
-            );
-        }
-    }
-
-    #[test]
-    fn test_horizontal_sum_epi32_256_coverage() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-        use std::arch::x86_64::_mm256_set_epi32;
-
-        unsafe {
-            // [10,20,30,40,50,60,70,80] = 360
-            assert_eq!(
-                horizontal_sum_epi32_256(_mm256_set_epi32(80, 70, 60, 50, 40, 30, 20, 10)),
-                360
-            );
-            // Single nonzero
-            assert_eq!(
-                horizontal_sum_epi32_256(_mm256_set_epi32(0, 0, 0, 0, 0, 0, 0, 42)),
-                42
-            );
-        }
-    }
-
-    #[test]
-    fn test_horizontal_sum_epi16_256_coverage() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-        use std::arch::x86_64::_mm256_set_epi16;
-
-        unsafe {
-            // [1..16] = 136
-            assert_eq!(
-                horizontal_sum_epi16_256(_mm256_set_epi16(
-                    16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
-                )),
-                136
-            );
-            // Symmetric sums to 0
-            assert_eq!(
-                horizontal_sum_epi16_256(_mm256_set_epi16(
-                    8, 7, 6, 5, 4, 3, 2, 1, -1, -2, -3, -4, -5, -6, -7, -8
-                )),
-                0
-            );
-        }
-    }
-
-    #[test]
-    fn test_hsum_epi32_coverage() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-        use std::arch::x86_64::_mm256_set_epi32;
-
-        unsafe {
-            // [1..8] = 36
-            assert_eq!(hsum_epi32(_mm256_set_epi32(8, 7, 6, 5, 4, 3, 2, 1)), 36);
-            // Large values
-            assert_eq!(
-                hsum_epi32(_mm256_set_epi32(
-                    100_000, 200_000, 300_000, 400_000, 500_000, 600_000, 700_000, 800_000
-                )),
-                3_600_000
-            );
-        }
-    }
-
-    #[test]
-    fn test_horizontal_sum_consistency() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-        use std::arch::x86_64::_mm256_set_epi32;
-
-        unsafe {
-            let v = _mm256_set_epi32(1, 2, 3, 4, 5, 6, 7, 8);
-            let r1 = hsum_epi32_256(v);
-            let r2 = horizontal_sum_epi32_256(v);
-            let r3 = hsum_epi32(v);
-            assert_eq!(r1, r2);
-            assert_eq!(r2, r3);
-            assert_eq!(r1, 36);
-        }
     }
 }
 

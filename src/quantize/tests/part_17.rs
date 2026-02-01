@@ -3,8 +3,8 @@
 //! Targets uncovered code paths in `src/quantize/activation.rs`:
 //! - AVX2 remainder loops at specific block boundaries
 //! - Fused function edge cases with minimal dimensions
-//! - `fast_exp_avx2` coverage via softmax with specific patterns
-//! - horizontal_max/sum AVX2 helpers via specific input patterns
+//! - Softmax exp underflow boundary tests
+//! - horizontal_max AVX2 helper via specific input patterns
 //! - quantize_rmsnorm_q8_0_into with exact block boundaries
 
 use crate::quantize::activation::{fused_swiglu_scalar, softmax_scalar};
@@ -129,11 +129,11 @@ fn test_quantize_rmsnorm_q8_0_avx2_block_23_remainder() {
 }
 
 // ============================================================================
-// Softmax Fast Exp AVX2 Coverage
+// Softmax Exp Underflow Boundary Tests
 // ============================================================================
 
 /// Test softmax with values near exp underflow boundary (-87)
-/// This exercises the clamping in fast_exp_avx2
+/// This exercises numerical stability with extreme negative values
 #[test]
 fn test_softmax_simd_near_exp_underflow() {
     let mut x = vec![-85.0, -86.0, -87.0, -88.0, -89.0, -90.0, -100.0, 0.0];
