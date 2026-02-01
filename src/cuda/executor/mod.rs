@@ -59,7 +59,9 @@ mod workspace;
 
 // Test modules (split for file health - was 12K lines)
 #[cfg(test)]
-mod tests_part_01;
+mod tests_part_01_a;
+#[cfg(test)]
+mod tests_part_01_b;
 #[cfg(test)]
 mod tests_part_02a;
 #[cfg(test)]
