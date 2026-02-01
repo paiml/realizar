@@ -182,7 +182,7 @@ COV_THRESHOLD ?= 95
 coverage-core: ## Coverage: core modules including part_* tests (~5min, includes CUDA compilation)
 	@START=$$(date +%s); \
 	echo "📊 Coverage: core (quantize, layers, generate, infer) + part_* tests..."; \
-	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
+	PROPTEST_CASES=16 cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=8 \
 		--skip gguf:: --skip api:: --skip cli:: --skip cuda:: --skip gpu:: --skip bench:: \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -3; \
@@ -192,7 +192,7 @@ coverage-core: ## Coverage: core modules including part_* tests (~5min, includes
 coverage-gguf: ## Coverage: GGUF module including part_* tests (~2min)
 	@START=$$(date +%s); \
 	echo "📊 Coverage: gguf (+ part_* tests)..."; \
-	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
+	PROPTEST_CASES=16 cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=8 gguf:: \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -3; \
 	END=$$(date +%s); \
@@ -201,7 +201,7 @@ coverage-gguf: ## Coverage: GGUF module including part_* tests (~2min)
 coverage-api: ## Coverage: API module including part_* tests (~2min)
 	@START=$$(date +%s); \
 	echo "📊 Coverage: api + cli (+ part_* tests)..."; \
-	cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
+	PROPTEST_CASES=16 cargo llvm-cov test --lib --features "cuda,gpu" --no-report $(COV_EXCLUDE) \
 		-- --test-threads=8 api:: cli:: \
 		--skip property_ --skip stress --skip slow --skip heavy 2>&1 | tail -3; \
 	END=$$(date +%s); \
