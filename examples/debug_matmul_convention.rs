@@ -120,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Let's compare just Q projection
 
     // Get Q weights from GGUF (dequantized)
-    let gguf_layer = &gguf_model.layers[0];
+    let _gguf_layer = &gguf_model.layers[0];
 
     // GGUF stores Q as quantized, need to dequantize
     // For fair comparison, let's just compare the first few QKV outputs

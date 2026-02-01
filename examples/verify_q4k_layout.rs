@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading models...");
     let apr_model = AprTransformer::from_apr_file(apr_path)?;
     let mapped = MappedGGUFModel::from_path(gguf_path)?;
-    let gguf_model = OwnedQuantizedModel::from_mapped(&mapped)?;
+    let _gguf_model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
     let hidden_dim = apr_model.config.hidden_dim;
 

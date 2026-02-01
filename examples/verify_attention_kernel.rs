@@ -1,6 +1,7 @@
 //! CORRECTNESS-013: Verify multi-warp attention kernel with known inputs
 //!
 //! This test creates simple Q, K, V values and verifies the attention output.
+#![allow(clippy::needless_range_loop)]
 
 #[cfg(not(feature = "cuda"))]
 fn main() {

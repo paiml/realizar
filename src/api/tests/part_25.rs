@@ -229,7 +229,7 @@ mod chaotic_citizens {
         let mut send_failures = 0;
         let mut send_successes = 0;
 
-        for (tx, _) in channels.into_iter() {
+        for (tx, _) in channels {
             let response = ContinuousBatchResponse::batched(vec![1, 2, 3], 1, 5, 10.0);
 
             match tx.send(response) {
@@ -262,7 +262,7 @@ mod chaotic_citizens {
 
         // Client has already timed out, receiver dropped
         let response = ContinuousBatchResponse::single(vec![1], 1, 100.0);
-        let send_result = resp_tx.send(response);
+        let _send_result = resp_tx.send(response);
 
         let client_result = handle.await.unwrap();
 
@@ -481,7 +481,7 @@ mod chaotic_citizens {
 
     #[tokio::test]
     async fn test_continuous_batch_request_timing() {
-        let (tx, rx) = oneshot::channel();
+        let (tx, _rx) = oneshot::channel();
 
         let start = Instant::now();
         let request = ContinuousBatchRequest {

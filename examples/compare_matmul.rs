@@ -1,6 +1,7 @@
 //! Direct comparison of matmul between APR and GGUF paths
 //!
 //! This isolates the matmul operation to find the divergence.
+#![allow(clippy::needless_range_loop)]
 use std::path::Path;
 
 use realizar::apr_transformer::AprTransformer;

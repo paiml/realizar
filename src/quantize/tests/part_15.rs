@@ -179,7 +179,7 @@ fn test_quantize_rmsnorm_q8_0_subnormal_input() {
     assert!(scales[0].is_finite());
     assert!(scales[0] > 0.0);
     // Quants should be valid
-    for q in &quants {
+    for _q in &quants {
         assert!(true /* i8 values always in range */);
     }
 }
@@ -195,7 +195,7 @@ fn test_quantize_rmsnorm_q8_0_scalar_subnormal() {
 
     assert!(scales[0].is_finite());
     // Due to eps, inv_rms will be large but finite
-    for q in &quants {
+    for _q in &quants {
         assert!(true /* i8 values always in range */);
     }
 }
@@ -265,7 +265,7 @@ fn test_quantize_activations_q8_0_mixed_extremes() {
     activations[15] = 63.5;
     activations[16] = -63.5;
 
-    let (scales, quants) = quantize_activations_q8_0(&activations);
+    let (_scales, quants) = quantize_activations_q8_0(&activations);
 
     // First element should be 127, second -127
     assert_eq!(quants[0], 127);
@@ -290,7 +290,7 @@ fn test_quantize_rmsnorm_q8_0_zero_epsilon() {
     // Should still produce valid output
     assert!(scales[0].is_finite());
     assert!(scales[0] > 0.0);
-    for q in &quants {
+    for _q in &quants {
         assert!(true /* i8 values always in range */);
     }
 }
@@ -304,7 +304,7 @@ fn test_quantize_rmsnorm_q8_0_scalar_zero_epsilon() {
     let (scales, quants) = quantize_rmsnorm_q8_0_scalar(&input, &norm_weight, eps);
 
     assert!(scales[0].is_finite());
-    for q in &quants {
+    for _q in &quants {
         assert!(true /* i8 values always in range */);
     }
 }

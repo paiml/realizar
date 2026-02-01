@@ -2,6 +2,7 @@
 //!
 //! Computes attention manually using the same Q, K, V values to verify
 //! what the correct output should be.
+#![allow(unused_variables, clippy::needless_range_loop)]
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Values from debug output at position 1, layer 0

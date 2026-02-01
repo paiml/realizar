@@ -314,7 +314,7 @@ fn test_attention_gqa() {
     let model = create_model_for_attention(8, 4, 2);
 
     let head_dim = 8 / 4; // 2
-    let kv_dim = 2 * head_dim; // 4
+    let _kv_dim = 2 * head_dim; // 4
 
     // QKV layout: Q[8] | K[4] | V[4]
     let mut qkv = vec![0.0; 8 + 4 + 4];

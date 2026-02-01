@@ -937,7 +937,7 @@ fn test_quantize_rmsnorm_q8_0_large_epsilon() {
     let norm_weight = vec![1.0f32; 32];
     let eps = 1.0; // Large epsilon
 
-    let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+    let (scales, _quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
 
     assert_eq!(scales.len(), 1);
     // Large epsilon affects the inv_rms calculation

@@ -493,10 +493,10 @@ fn test_menagerie_get_tensor_f32_mixed_types() {
 
     // F32 tensor
     let f32_result = model.get_tensor_f32("blk.0.attn_norm.weight", &data);
-    match f32_result {
-        Ok(values) => assert_eq!(values.len(), 64, "F32 norm should have 64 elements"),
-        Err(e) => {}, // Offset may be off, but code path executed
+    if let Ok(values) = f32_result {
+        assert_eq!(values.len(), 64, "F32 norm should have 64 elements");
     }
+    // Note: Err case ignored - offset may be off, but code path executed
 
     // Q4_0 tensor (layer 0)
     let q4_0_result = model.get_tensor_f32("blk.0.attn_q.weight", &data);

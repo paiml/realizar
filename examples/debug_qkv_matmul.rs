@@ -1,4 +1,5 @@
 //! Debug QKV matmul - compare APR F32 matmul vs GGUF quantized matmul
+#![allow(clippy::needless_range_loop)]
 
 use realizar::apr_transformer::AprTransformer;
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};

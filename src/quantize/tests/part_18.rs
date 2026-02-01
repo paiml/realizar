@@ -810,9 +810,9 @@ fn test_swiglu_simd_zero_elements() {
 /// Test rope with head_dim=0 (degenerate case)
 #[test]
 fn test_rope_simd_zero_head_dim() {
-    let x: Vec<f32> = vec![1.0, 2.0];
-    let freqs_cos: Vec<f32> = vec![];
-    let freqs_sin: Vec<f32> = vec![];
+    let _x: Vec<f32> = vec![1.0, 2.0];
+    let _freqs_cos: Vec<f32> = vec![];
+    let _freqs_sin: Vec<f32> = vec![];
 
     // head_dim=0 means half_dim=0, should be no-op
     // Note: This may trigger debug_assert in debug mode

@@ -1,4 +1,5 @@
 //! Direct comparison of QKV matmul result between APR and GGUF paths
+#![allow(clippy::needless_range_loop)]
 use std::path::Path;
 
 use realizar::apr_transformer::AprTransformer;

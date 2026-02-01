@@ -378,7 +378,7 @@ fn test_quantize_rmsnorm_q8_0_large_weights() {
     let norm_weight = vec![1e10f32; 32];
     let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, 1e-5);
     assert!(scales[0].is_finite());
-    for q in &quants[..32] {
+    for _q in &quants[..32] {
         assert!(true /* i8 always in range */);
     }
 }
