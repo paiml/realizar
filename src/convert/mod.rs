@@ -783,10 +783,13 @@ pub struct Q4KConversionStats {
     pub hidden_size: usize,
 }
 
-// Tests extracted to tests.rs (PMAT-802)
+// Tests split for file health (was 2.3K lines)
 #[cfg(test)]
-#[path = "tests.rs"]
-mod convert_tests;
+#[path = "tests_a.rs"]
+mod convert_tests_a;
+#[cfg(test)]
+#[path = "tests_b.rs"]
+mod convert_tests_b;
 
 // T-COV-95 Coverage Bridge tests (Part 02 - B5)
 #[cfg(test)]
