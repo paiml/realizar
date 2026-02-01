@@ -508,10 +508,10 @@ impl AprV2ModelCuda {
                             );
                         }
 
-                        // Cache with forward path naming: layer_{}_q_proj, etc.
-                        let q_cache_name = format!("layer_{layer_idx}_q_proj");
-                        let k_cache_name = format!("layer_{layer_idx}_k_proj");
-                        let v_cache_name = format!("layer_{layer_idx}_v_proj");
+                        // Cache with GGUF-style naming to match forward path (PMAT-805)
+                        let q_cache_name = format!("blk.{layer_idx}.attn_q.weight");
+                        let k_cache_name = format!("blk.{layer_idx}.attn_k.weight");
+                        let v_cache_name = format!("blk.{layer_idx}.attn_v.weight");
 
                         if let Ok(bytes) = self.executor.load_weights(&q_cache_name, &q_weight_t) {
                             total_bytes += bytes;
@@ -1169,10 +1169,11 @@ impl AprV2ModelCuda {
 
             // Q, K, V projections (GPU GEMM for 2x speedup)
             // Use cached weights if available (avoids repeated transpose + upload)
-            let q_cache_name = format!("layer_{}_q_proj", layer_idx);
-            let k_cache_name = format!("layer_{}_k_proj", layer_idx);
-            let v_cache_name = format!("layer_{}_v_proj", layer_idx);
-            let o_cache_name = format!("layer_{}_o_proj", layer_idx);
+            // PMAT-805 FIX: Use GGUF-style cache names to match pre_cache_weights()
+            let q_cache_name = format!("blk.{}.attn_q.weight", layer_idx);
+            let k_cache_name = format!("blk.{}.attn_k.weight", layer_idx);
+            let v_cache_name = format!("blk.{}.attn_v.weight", layer_idx);
+            let o_cache_name = format!("blk.{}.attn_output.weight", layer_idx);
 
             let timer_qkv = if profiling {
                 let _ = self.executor.synchronize();
@@ -1540,9 +1541,10 @@ impl AprV2ModelCuda {
             }
 
             // FFN projections (GPU GEMM) - use cached weights if available
-            let gate_cache_name = format!("layer_{}_gate_proj", layer_idx);
-            let up_cache_name = format!("layer_{}_up_proj", layer_idx);
-            let down_cache_name = format!("layer_{}_down_proj", layer_idx);
+            // PMAT-805 FIX: Use GGUF-style cache names to match pre_cache_weights()
+            let gate_cache_name = format!("blk.{}.ffn_gate.weight", layer_idx);
+            let up_cache_name = format!("blk.{}.ffn_up.weight", layer_idx);
+            let down_cache_name = format!("blk.{}.ffn_down.weight", layer_idx);
 
             let timer_ffn = if profiling {
                 let _ = self.executor.synchronize();
