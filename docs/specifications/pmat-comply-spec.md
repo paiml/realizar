@@ -37,10 +37,10 @@ Critical issues remaining:
 
 | Metric | Threshold | Current | Status |
 |--------|-----------|---------|--------|
-| **Dead Code** | ≤ 15% | 30.2% | ❌ FAIL (SIMD cfg false positives, AST=0.03%) |
+| **Dead Code** | ≤ 15% | 30.8% | ❌ FAIL (inconsistent with AST=0.03%, filed [#141](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/141)) |
 | **Complexity** | ≤ 25 cognitive | 3 violations | ⚠️ down from 148 (98% reduction) |
 | **SATD** | 0 critical | 0 violations | ✅ PASS |
-| **Entropy** | - | 53 violations | ⚠️ (structural patterns) |
+| **Entropy** | - | 53 violations | ⚠️ (structural patterns, 6 from .pmatignore'd files, filed [#140](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/140)) |
 | **Provability** | ≥ 0.70 | 0.65 | ❌ FAIL (structural metric) |
 | **Security** | 0 | 0 | ✅ PASS |
 | **Duplicates** | - | 0 | ✅ PASS |
@@ -51,7 +51,9 @@ Critical issues remaining:
 ## 3. Dead Code Violations (Priority: HIGH)
 
 Target: ≤15%
-**Current: 30.0%** (quality-gate heuristic; `pmat analyze dead-code` reports 0.03%)
+**Current: 30.8%** (quality-gate heuristic; `pmat analyze dead-code` reports 0.03%)
+
+**Filed:** [#141](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/141) — quality-gate and standalone `pmat analyze dead-code` use different algorithms and report completely different files/percentages.
 
 | File | Dead % | Dead Lines | Status |
 |------|--------|------------|--------|
@@ -318,7 +320,7 @@ make lint
 
 ## 10. Acceptance Criteria
 
-- [ ] Dead code ≤ 15% (current: 29.7% — SIMD cfg false positives, AST reports 0.03%)
+- [ ] Dead code ≤ 15% (current: 30.8% — inconsistent with AST 0.03%, filed [#141](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/141))
 - [x] 0 critical SATD comments (0 violations)
 - [x] All tests pass (13103 passed)
 - [x] Zero clippy warnings
@@ -331,9 +333,23 @@ make lint
 - [x] Complexity: Handler+inference+CLI refactoring complete (148→27, 82% reduction)
 - [x] .pmatignore: Excluded non-production code (Python, benches, examples, book, tests, bin, bench)
 - [ ] `pmat comply check` = COMPLIANT
-- **Quality gate violations: 225 → 86 (62% reduction)**
+- **Quality gate violations: 225 → 63 (72% reduction)**
+- **PMAT tool issues filed: 4** (#138, #139, #140, #141) — ~8-10 false positive violations
 
-## 11. References
+## 11. PMAT Tool Issues Filed
+
+Issues filed against `paiml-mcp-agent-toolkit` for bugs discovered during compliance work:
+
+| Issue | Title | Impact |
+|-------|-------|--------|
+| [#138](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/138) | Line number mismatch in complexity analysis | 1 false complexity violation (`detect_format` at line 550, file has 524 lines) |
+| [#139](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/139) | Provability analyzer panic | `pmat analyze provability` crashes with index out of range |
+| [#140](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/140) | .pmatignore not respected by entropy analysis | 6+ entropy violations from excluded files (benches/, examples/, tests.rs) |
+| [#141](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/141) | dead-code inconsistent between quality-gate and standalone | quality-gate=30.8% vs standalone=0.03%, completely different files flagged |
+
+**Estimated false-positive violations:** ~8-10 of 63 total (13-16%)
+
+## 12. References
 
 - PMAT-805: Qwen throughput spec (parent)
 - Issue #43: APR performance (related)
