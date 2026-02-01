@@ -21,6 +21,10 @@ GREEN := \033[0;32m
 YELLOW := \033[0;33m
 NC := \033[0m
 
+# Property-based testing defaults (CB-126-D, CB-127-B compliance)
+export PROPTEST_CASES ?= 16
+export QUICKCHECK_TESTS ?= 100
+
 help: ## Show this help message
 	@echo "Realizar - Pure Rust ML Library"
 	@echo "================================"
