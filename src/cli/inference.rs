@@ -112,6 +112,26 @@ fn decode_tokens_with_cache(
     Ok(())
 }
 
+/// Print GPU model info when verbose mode is enabled
+fn print_gpu_model_info(
+    vocab_size: usize,
+    hidden_dim: usize,
+    num_layers: usize,
+    prompt_len: usize,
+    bos_token_id: Option<u32>,
+    eos_token_id: Option<u32>,
+    temperature: f32,
+) {
+    println!(
+        "Vocab size: {vocab_size}, Hidden dim: {hidden_dim}, Layers: {num_layers}"
+    );
+    println!(
+        "Prompt tokens: {prompt_len} (BOS={bos_token_id:?}, EOS={eos_token_id:?})"
+    );
+    println!("Temperature: {temperature:.1}");
+    println!();
+}
+
 fn print_model_info(
     mapped: &crate::gguf::MappedGGUFModel,
     config: &crate::gguf::GGUFConfig,
@@ -425,18 +445,15 @@ pub fn run_gguf_inference_gpu(
     let eos_token_id = mapped.model.eos_token_id();
 
     if verbose {
-        println!(
-            "Vocab size: {}, Hidden dim: {}, Layers: {}",
-            vocab_size, hidden_dim, num_layers
-        );
-        println!(
-            "Prompt tokens: {} (BOS={:?}, EOS={:?})",
+        print_gpu_model_info(
+            vocab_size,
+            hidden_dim,
+            num_layers,
             prompt_len,
             mapped.model.bos_token_id(),
-            eos_token_id
+            eos_token_id,
+            temperature,
         );
-        println!("Temperature: {:.1}", temperature);
-        println!();
     }
 
     // PAR-046: Use CUDA-accelerated generation with GPU-resident KV cache
@@ -506,40 +523,17 @@ pub fn run_gguf_inference_gpu(
         .decode(&generated[prompt_len..])
         .replace('▁', " ");
 
-    match format {
-        "json" => {
-            let json = serde_json::json!({
-                "model": "GGUF (CUDA)",
-                "backend": "GPU",
-                "prompt": prompt,
-                "generated_text": output_text,
-                "tokens_generated": tokens_generated,
-                "generation_time_ms": gen_time.as_secs_f64() * 1000.0,
-                "tokens_per_second": tokens_per_sec,
-                "temperature": temperature,
-                "cuda_enabled": true,
-                "cuda_device": cuda_model.device_name(),
-            });
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&json).unwrap_or_default()
-            );
-        },
-        _ => {
-            if verbose {
-                println!(
-                    "Generated ({tokens_generated} tokens in {:.2}ms):",
-                    gen_time.as_secs_f64() * 1000.0
-                );
-                println!("{prompt}{output_text}");
-                println!();
-                println!("Performance: {:.1} tok/s (GPU)", tokens_per_sec);
-            } else {
-                // Ollama-style clean output: just the response
-                println!("{output_text}");
-            }
-        },
-    }
+    print_inference_output(
+        "GGUF (CUDA)",
+        prompt,
+        &output_text,
+        tokens_generated,
+        gen_time.as_secs_f64() * 1000.0,
+        tokens_per_sec,
+        temperature,
+        format,
+        verbose,
+    );
 
     Ok(())
 }
