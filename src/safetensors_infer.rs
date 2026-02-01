@@ -19,6 +19,12 @@ use std::path::Path;
 ///
 /// Converts HuggingFace SafeTensors models to APR Transformer format.
 /// Supports BF16, F16, and F32 weights with automatic conversion to F32.
+///
+/// # Tensor Naming Conventions
+///
+/// Supports both HuggingFace and GGUF-style tensor naming:
+/// - HuggingFace: `model.embed_tokens.weight`, `model.layers.{i}.self_attn.q_proj.weight`
+/// - GGUF-style: `token_embd.weight`, `blk.{i}.attn_q.weight`
 pub struct SafetensorsToAprConverter;
 
 impl SafetensorsToAprConverter {
@@ -90,22 +96,29 @@ impl SafetensorsToAprConverter {
             eps,
         };
 
-        // Extract embeddings
-        let token_embedding = st_model.get_tensor_auto("model.embed_tokens.weight")?;
+        // Extract embeddings (HuggingFace: model.embed_tokens.weight, GGUF: token_embd.weight)
+        let token_embedding = Self::get_tensor_with_fallback(
+            &st_model,
+            "model.embed_tokens.weight",
+            "token_embd.weight",
+        )?;
 
-        // Extract output norm
-        let output_norm_weight = st_model.get_tensor_auto("model.norm.weight")?;
+        // Extract output norm (HuggingFace: model.norm.weight, GGUF: output_norm.weight)
+        let output_norm_weight =
+            Self::get_tensor_with_fallback(&st_model, "model.norm.weight", "output_norm.weight")?;
 
         // Check for tied embeddings (lm_head = embed_tokens.T)
         // lm_head.weight: [vocab_size, hidden_dim] -> transpose -> [hidden_dim, vocab_size]
-        let lm_head_weight = if st_model.has_tensor("lm_head.weight") {
-            let raw = st_model.get_tensor_auto("lm_head.weight")?;
-            Self::transpose_weight(&raw, vocab_size, hidden_dim)
-        } else {
-            // Tied embeddings: token_embedding is [vocab_size, hidden_dim]
-            // Need to transpose to [hidden_dim, vocab_size]
-            Self::transpose_weight(&token_embedding, vocab_size, hidden_dim)
-        };
+        let lm_head_weight =
+            if Self::has_tensor_with_fallback(&st_model, "lm_head.weight", "output.weight") {
+                let raw =
+                    Self::get_tensor_with_fallback(&st_model, "lm_head.weight", "output.weight")?;
+                Self::transpose_weight(&raw, vocab_size, hidden_dim)
+            } else {
+                // Tied embeddings: token_embedding is [vocab_size, hidden_dim]
+                // Need to transpose to [hidden_dim, vocab_size]
+                Self::transpose_weight(&token_embedding, vocab_size, hidden_dim)
+            };
 
         // Extract layers
         let mut layers = Vec::with_capacity(num_layers);
@@ -144,17 +157,36 @@ impl SafetensorsToAprConverter {
         num_kv_heads: usize,
         intermediate_dim: usize,
     ) -> Result<AprTransformerLayer> {
-        let prefix = format!("model.layers.{layer_idx}");
+        // Support both HuggingFace and GGUF naming conventions
+        let hf_prefix = format!("model.layers.{layer_idx}");
+        let gguf_prefix = format!("blk.{layer_idx}");
 
         // Attention norm (input_layernorm) - 1D vector, no transpose needed
-        let attn_norm_weight =
-            st_model.get_tensor_auto(&format!("{prefix}.input_layernorm.weight"))?;
+        // HuggingFace: model.layers.{i}.input_layernorm.weight
+        // GGUF: blk.{i}.attn_norm.weight
+        let attn_norm_weight = Self::get_tensor_with_fallback(
+            st_model,
+            &format!("{hf_prefix}.input_layernorm.weight"),
+            &format!("{gguf_prefix}.attn_norm.weight"),
+        )?;
 
         // Q, K, V projections (separate in HuggingFace, combined in APR)
         // HuggingFace: [out_dim, in_dim], APR needs: [in_dim, out_dim]
-        let q_weight = st_model.get_tensor_auto(&format!("{prefix}.self_attn.q_proj.weight"))?;
-        let k_weight = st_model.get_tensor_auto(&format!("{prefix}.self_attn.k_proj.weight"))?;
-        let v_weight = st_model.get_tensor_auto(&format!("{prefix}.self_attn.v_proj.weight"))?;
+        let q_weight = Self::get_tensor_with_fallback(
+            st_model,
+            &format!("{hf_prefix}.self_attn.q_proj.weight"),
+            &format!("{gguf_prefix}.attn_q.weight"),
+        )?;
+        let k_weight = Self::get_tensor_with_fallback(
+            st_model,
+            &format!("{hf_prefix}.self_attn.k_proj.weight"),
+            &format!("{gguf_prefix}.attn_k.weight"),
+        )?;
+        let v_weight = Self::get_tensor_with_fallback(
+            st_model,
+            &format!("{hf_prefix}.self_attn.v_proj.weight"),
+            &format!("{gguf_prefix}.attn_v.weight"),
+        )?;
 
         // Concatenate and transpose Q, K, V into combined QKV weight
         let head_dim = hidden_dim / num_heads;
@@ -163,29 +195,51 @@ impl SafetensorsToAprConverter {
             Self::concat_qkv_transposed(&q_weight, &k_weight, &v_weight, hidden_dim, kv_dim);
 
         // QKV bias (optional) - 1D vector, no transpose needed
-        let qkv_bias = Self::try_concat_qkv_bias(st_model, &prefix, hidden_dim, kv_dim);
+        let qkv_bias =
+            Self::try_concat_qkv_bias_dual(st_model, &hf_prefix, &gguf_prefix, hidden_dim, kv_dim);
 
         // Attention output projection: [hidden_dim, hidden_dim]
         // HuggingFace: o_proj is [hidden_dim, hidden_dim] (out=hidden, in=hidden)
-        let attn_output_raw =
-            st_model.get_tensor_auto(&format!("{prefix}.self_attn.o_proj.weight"))?;
+        // GGUF: blk.{i}.attn_output.weight
+        let attn_output_raw = Self::get_tensor_with_fallback(
+            st_model,
+            &format!("{hf_prefix}.self_attn.o_proj.weight"),
+            &format!("{gguf_prefix}.attn_output.weight"),
+        )?;
         let attn_output_weight = Self::transpose_weight(&attn_output_raw, hidden_dim, hidden_dim);
 
         // FFN norm (post_attention_layernorm) - 1D vector, no transpose needed
-        let ffn_norm_weight =
-            st_model.get_tensor_auto(&format!("{prefix}.post_attention_layernorm.weight"))?;
+        // HuggingFace: model.layers.{i}.post_attention_layernorm.weight
+        // GGUF: blk.{i}.ffn_norm.weight
+        let ffn_norm_weight = Self::get_tensor_with_fallback(
+            st_model,
+            &format!("{hf_prefix}.post_attention_layernorm.weight"),
+            &format!("{gguf_prefix}.ffn_norm.weight"),
+        )?;
 
         // FFN projections (SwiGLU architecture)
         // gate_proj: [intermediate_dim, hidden_dim] -> transpose -> [hidden_dim, intermediate_dim]
         // up_proj: [intermediate_dim, hidden_dim] -> transpose -> [hidden_dim, intermediate_dim]
         // down_proj: [hidden_dim, intermediate_dim] -> transpose -> [intermediate_dim, hidden_dim]
-        let ffn_gate_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.gate_proj.weight"))?;
+        let ffn_gate_raw = Self::get_tensor_with_fallback(
+            st_model,
+            &format!("{hf_prefix}.mlp.gate_proj.weight"),
+            &format!("{gguf_prefix}.ffn_gate.weight"),
+        )?;
         let ffn_gate_weight = Self::transpose_weight(&ffn_gate_raw, intermediate_dim, hidden_dim);
 
-        let ffn_up_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.up_proj.weight"))?;
+        let ffn_up_raw = Self::get_tensor_with_fallback(
+            st_model,
+            &format!("{hf_prefix}.mlp.up_proj.weight"),
+            &format!("{gguf_prefix}.ffn_up.weight"),
+        )?;
         let ffn_up_weight = Self::transpose_weight(&ffn_up_raw, intermediate_dim, hidden_dim);
 
-        let ffn_down_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.down_proj.weight"))?;
+        let ffn_down_raw = Self::get_tensor_with_fallback(
+            st_model,
+            &format!("{hf_prefix}.mlp.down_proj.weight"),
+            &format!("{gguf_prefix}.ffn_down.weight"),
+        )?;
         let ffn_down_weight = Self::transpose_weight(&ffn_down_raw, hidden_dim, intermediate_dim);
 
         Ok(AprTransformerLayer {
@@ -277,6 +331,90 @@ impl SafetensorsToAprConverter {
         qkv_bias.extend_from_slice(&v_bias);
 
         Some(qkv_bias)
+    }
+
+    /// Try to concatenate Q, K, V biases with dual naming support
+    fn try_concat_qkv_bias_dual(
+        st_model: &MappedSafeTensorsModel,
+        hf_prefix: &str,
+        gguf_prefix: &str,
+        hidden_dim: usize,
+        kv_dim: usize,
+    ) -> Option<Vec<f32>> {
+        // Try HuggingFace naming first
+        let q_bias = st_model
+            .get_tensor_auto(&format!("{hf_prefix}.self_attn.q_proj.bias"))
+            .ok()
+            .or_else(|| {
+                st_model
+                    .get_tensor_auto(&format!("{gguf_prefix}.attn_q.bias"))
+                    .ok()
+            })?;
+        let k_bias = st_model
+            .get_tensor_auto(&format!("{hf_prefix}.self_attn.k_proj.bias"))
+            .ok()
+            .or_else(|| {
+                st_model
+                    .get_tensor_auto(&format!("{gguf_prefix}.attn_k.bias"))
+                    .ok()
+            })?;
+        let v_bias = st_model
+            .get_tensor_auto(&format!("{hf_prefix}.self_attn.v_proj.bias"))
+            .ok()
+            .or_else(|| {
+                st_model
+                    .get_tensor_auto(&format!("{gguf_prefix}.attn_v.bias"))
+                    .ok()
+            })?;
+
+        let mut qkv_bias = Vec::with_capacity(hidden_dim + kv_dim + kv_dim);
+        qkv_bias.extend_from_slice(&q_bias);
+        qkv_bias.extend_from_slice(&k_bias);
+        qkv_bias.extend_from_slice(&v_bias);
+
+        Some(qkv_bias)
+    }
+
+    /// Get tensor with fallback to alternative naming conventions
+    ///
+    /// Tries HuggingFace naming first, then GGUF-style naming.
+    /// This enables loading SafeTensors files regardless of their origin.
+    fn get_tensor_with_fallback(
+        st_model: &MappedSafeTensorsModel,
+        hf_name: &str,
+        gguf_name: &str,
+    ) -> Result<Vec<f32>> {
+        st_model
+            .get_tensor_auto(hf_name)
+            .or_else(|_| st_model.get_tensor_auto(gguf_name))
+            .map_err(|_| RealizarError::UnsupportedOperation {
+                operation: "get_tensor_auto".to_string(),
+                reason: format!(
+                    "Tensor not found with either name: '{}' or '{}'",
+                    hf_name, gguf_name
+                ),
+            })
+    }
+
+    /// Check if tensor exists with either naming convention
+    fn has_tensor_with_fallback(
+        st_model: &MappedSafeTensorsModel,
+        hf_name: &str,
+        gguf_name: &str,
+    ) -> bool {
+        st_model.has_tensor(hf_name) || st_model.has_tensor(gguf_name)
+    }
+
+    /// Get optional tensor with fallback naming
+    fn get_optional_tensor_with_fallback(
+        st_model: &MappedSafeTensorsModel,
+        hf_name: &str,
+        gguf_name: &str,
+    ) -> Option<Vec<f32>> {
+        st_model
+            .get_tensor_auto(hf_name)
+            .ok()
+            .or_else(|| st_model.get_tensor_auto(gguf_name).ok())
     }
 }
 
