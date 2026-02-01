@@ -1759,13 +1759,10 @@ impl ComputeBrick for CudaGraphBrick {
 // Tests (F001-F020)
 // ============================================================================
 
-// Tests split for file health (was 2.5K lines)
+// Tests extracted to tests.rs (PMAT-802)
 #[cfg(test)]
-#[path = "tests_a.rs"]
-mod brick_tests_a;
-#[cfg(test)]
-#[path = "tests_b.rs"]
-mod brick_tests_b;
+#[path = "tests.rs"]
+mod brick_tests;
 
 // Additional tests in tests_part_02.rs
 #[cfg(test)]

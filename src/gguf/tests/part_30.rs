@@ -183,7 +183,7 @@ fn test_active_pygmy_multi_token_generation() {
         let next_token = last_logits
             .iter()
             .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map_or(0, |(idx, _)| idx as u32);
 
         let logits = model

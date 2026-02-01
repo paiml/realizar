@@ -389,13 +389,10 @@ pub fn sample_token(
     }
 }
 
-// Tests split for file health (was 2.6K lines)
+// Tests extracted to tests.rs (PMAT-802)
 #[cfg(test)]
-#[path = "tests_a.rs"]
-mod generate_tests_a;
-#[cfg(test)]
-#[path = "tests_b.rs"]
-mod generate_tests_b;
+#[path = "tests.rs"]
+mod generate_tests;
 
 // Additional tests for coverage (Part 2)
 #[cfg(test)]
