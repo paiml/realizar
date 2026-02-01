@@ -1,43 +1,98 @@
 # Specification: PMAT Compliance & Quality Gates
 
-**Status:** ✅ COMPLETE (2026-02-01)
+**Status:** ⚠️ IN PROGRESS (2026-02-01)
 **Objective:** Achieve full PMAT compliance across all quality dimensions.
-**Command:** `pmat quality-gate --fail-on-violation`
+**Command:** `pmat comply check` and `pmat quality-gate`
 
 ## Summary
 
-All quality gates now passing:
-- Dead code reduced from 33.1% to 0.03%
-- Critical SATD violations reduced from 18 to 1 (mdbook generated only)
-- All 13,097 tests passing
-- TDG score 94.3 (A grade)
+PMAT compliance check: **NON-COMPLIANT**
 
-## 1. Quality Gate Thresholds
+Critical issues remaining:
+- File Health: 39 files >2000 lines (grade D)
+- Dead Code: 31.8% (quality-gate) vs target ≤15%
+- ComputeBrick: 526 SIMD warnings (#[target_feature] missing)
+
+## 1. Compliance Check Results (`pmat comply check`)
+
+| Check | Status | Details |
+|-------|--------|---------|
+| Version Currency | ✅ | v2.215.0 (latest) |
+| Config Files | ✅ | All present |
+| Git Hooks | ✅ | Installed |
+| CB-030 O(1) Hooks | ✅ | Cache initialized |
+| Quality Thresholds | ✅ | Configured |
+| Deprecated Features | ✅ | None detected |
+| Cargo.lock | ✅ | Reproducible builds |
+| MSRV Defined | ✅ | rust-version present |
+| CI Configured | ✅ | 3 workflows |
+| ComputeBrick | ⚠️ | 526 warnings (CB-021 SIMD) |
+| OIP Tarantula | ⚠️ | 11 issues, 9 warnings |
+| Coverage Quality | ⚠️ | 17 warnings (CB-127) |
+| PAIML Deps | ⚠️ | 3 dirty workspaces |
+| **File Health** | ❌ | 39 files >2000 lines |
+
+## 2. Quality Gate Results (`pmat quality-gate`)
 
 | Metric | Threshold | Current | Status |
 |--------|-----------|---------|--------|
-| **TDG Score** | ≥ 93.0 (A Grade) | 94.3 | ✅ PASS |
-| **Dead Code** | ≤ 15% | 0.03% | ✅ PASS |
-| **Line Coverage** | ≥ 80% | 81.03% | ✅ PASS |
-| **SATD Comments** | 0 critical | 1 (mdbook) | ✅ PASS |
-| **File Size** | ≤ 2000 lines | OK | ✅ PASS |
+| **Dead Code** | ≤ 15% | 31.8% | ❌ FAIL |
+| **Complexity** | ≤ 25 cognitive | 147 violations | ❌ FAIL |
+| **SATD** | 0 critical | 16 violations | ⚠️ |
+| **Entropy** | - | 54 violations | ⚠️ |
+| **Provability** | ≥ 0.70 | 0.65 | ❌ FAIL |
+| **Security** | 0 | 0 | ✅ PASS |
+| **Duplicates** | - | 0 | ✅ PASS |
 
-## 2. Dead Code Violations (Priority: HIGH) ✅ RESOLVED
+## 3. Dead Code Violations (Priority: HIGH)
 
-Target: Reduce from 33.1% to ≤15%
-**Achieved: 0.03%**
+Target: ≤15%
+**Current: 31.8%** (quality-gate reports higher than `pmat analyze dead`)
 
-| File | Action | Status |
-|------|--------|--------|
-| `src/quantize/simd.rs` | Removed unused SIMD helpers (`hsum_epi32_*`) | ✅ Done |
-| `src/quantize/activation.rs` | Removed `fast_exp_avx2`, `horizontal_sum_avx2` | ✅ Done |
-| `src/quantize/tests/part_23.rs` | Removed tests for deleted functions | ✅ Done |
+| File | Dead % | Dead Lines | Status |
+|------|--------|------------|--------|
+| `src/quantize/activation.rs` | 82.4% | 140 | ❌ TODO |
+| `src/quantize/fused_k.rs` | 80.0% | 200 | ❌ TODO |
+| `src/quantize/parallel_dequant.rs` | 73.7% | 140 | ❌ TODO |
+| `src/quantize/dequant.rs` | 75.0% | 120 | ❌ TODO |
+| `src/quantize/simd.rs` | - | - | ✅ Cleaned |
 
-### Remaining Dead Code (Acceptable)
-- Test/benchmark files (gpu_parity_workflow.rs, gguf_real.rs)
-- mdbook generated files (rav1e/built.rs)
+### Completed
+- Removed `hsum_epi32_*` from simd.rs
+- Removed `fast_exp_avx2`, `horizontal_sum_avx2` from activation.rs
 
-## 3. SATD Violations (Priority: MEDIUM) ✅ RESOLVED
+### Root Cause
+SIMD functions behind `#[cfg(target_arch = "x86_64")]` not counted as covered
+
+## 4. ComputeBrick Compliance (Priority: HIGH)
+
+**526 CB-021 warnings**: SIMD intrinsics without `#[target_feature]`
+
+| File | Issue |
+|------|-------|
+| `src/quantize/parallel_dequant.rs` | `_mm256_*` without attribute |
+| `src/quantize/fused_k.rs` | `_mm256_*` without attribute |
+| `src/quantize/activation.rs` | `_mm256_*` without attribute |
+
+### Fix Strategy
+Add `#[target_feature(enable = "avx2")]` to SIMD functions:
+```rust
+#[target_feature(enable = "avx2")]
+unsafe fn simd_function() { ... }
+```
+
+## 5. File Health (Priority: CRITICAL)
+
+**39 files exceed 2000 lines** (grade D, avg health 62%)
+
+Top offenders (need splitting):
+- Large CUDA files in `src/cuda/`
+- Large test files in `src/*/tests/`
+
+### Fix Strategy
+Split files >2000 lines into submodules.
+
+## 6. SATD Violations (Priority: MEDIUM) ✅ RESOLVED
 
 All critical SATD violations fixed:
 
@@ -52,7 +107,7 @@ All critical SATD violations fixed:
 - `book/searcher.js:148` - mdbook generated file (not our code)
 - 4x High: Defect tracking comments (acceptable documentation)
 
-## 4. Duplicate Code Patterns (Priority: LOW)
+## 7. Duplicate Code Patterns (Priority: LOW)
 
 | File | Pattern | Occurrences | Potential Savings |
 |------|---------|-------------|-------------------|
@@ -61,7 +116,7 @@ All critical SATD violations fixed:
 
 These are lower priority - address after dead code and SATD.
 
-## 5. Execution Protocol
+## 8. Execution Protocol
 
 ```bash
 # 1. Check current state
@@ -82,15 +137,19 @@ make test-fast
 make lint
 ```
 
-## 6. Acceptance Criteria
+## 9. Acceptance Criteria
 
-- [x] Dead code ≤ 15% (achieved: 0.03%)
+- [ ] Dead code ≤ 15% (current: 31.8%)
 - [x] 0 critical SATD comments (1 in mdbook generated, acceptable)
 - [x] All tests pass (13097 passed)
 - [x] Zero clippy warnings
 - [x] TDG score ≥ 93.0 (94.3)
+- [ ] File health grade ≥ C (current: D)
+- [ ] ComputeBrick CB-021 warnings = 0 (current: 526)
+- [ ] Provability score ≥ 0.70 (current: 0.65)
+- [ ] `pmat comply check` = COMPLIANT
 
-## 7. References
+## 10. References
 
 - PMAT-805: Qwen throughput spec (parent)
 - Issue #43: APR performance (related)
