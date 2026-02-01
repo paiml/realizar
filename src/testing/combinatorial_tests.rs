@@ -395,6 +395,16 @@ fn test_f034_conversion_preserves_shape() {
 // COMBINATORIAL TESTS
 // ============================================================================
 
+/// Create a fixture for the given format
+fn create_fixture(format: ModelFormat) -> Option<Box<dyn ModelFixture>> {
+    match format {
+        ModelFormat::GGUF => Some(Box::new(GgufFixture::tiny_gqa())),
+        ModelFormat::APR => Some(Box::new(AprFixture::tiny_gqa())),
+        ModelFormat::Safetensors => Some(Box::new(SafetensorsFixture::tiny())),
+        ModelFormat::PyTorch => None,
+    }
+}
+
 #[test]
 fn test_all_format_conversions() {
     let formats = [
@@ -404,11 +414,8 @@ fn test_all_format_conversions() {
     ];
 
     for source in &formats {
-        let fixture: Box<dyn ModelFixture> = match source {
-            ModelFormat::GGUF => Box::new(GgufFixture::tiny_gqa()),
-            ModelFormat::APR => Box::new(AprFixture::tiny_gqa()),
-            ModelFormat::Safetensors => Box::new(SafetensorsFixture::tiny()),
-            ModelFormat::PyTorch => continue,
+        let Some(fixture) = create_fixture(*source) else {
+            continue;
         };
 
         for target in &formats {
@@ -417,13 +424,6 @@ fn test_all_format_conversions() {
             }
 
             let result = fixture.convert_to(*target);
-
-            // Skip PyTorch target (not implemented)
-            if *target == ModelFormat::PyTorch {
-                assert!(result.is_err());
-                continue;
-            }
-
             assert!(
                 result.is_ok(),
                 "Conversion {:?} -> {:?} should succeed",
@@ -433,8 +433,6 @@ fn test_all_format_conversions() {
 
             let converted = result.unwrap();
             assert_eq!(converted.format(), *target);
-
-            // Verify config preservation
             assert_eq!(
                 converted.config().num_heads,
                 fixture.config().num_heads,
