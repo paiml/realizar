@@ -80,6 +80,25 @@ pub fn dequantize_q8_0(bytes: &[u8], num_elements: usize) -> Vec<f32> {
     result
 }
 
+/// Extract and dequantize 32 nibbles from Q4_K bytes
+#[inline]
+fn push_q4k_nibbles(
+    result: &mut Vec<f32>,
+    num_elements: usize,
+    bytes: &[u8],
+    d_scale: f32,
+    d_min: f32,
+    shift: u8,
+) {
+    for &byte in bytes {
+        if result.len() >= num_elements {
+            break;
+        }
+        let q_val = ((byte >> shift) & 0x0F) as f32;
+        result.push(d_scale * q_val - d_min);
+    }
+}
+
 /// Dequantize Q4_K format (GGUF K-quants)
 /// Q4_K: super blocks of 256 elements
 /// Each super block: d (f16) + dmin (f16) + scales (12 bytes) + qs (128 bytes) = 144 bytes
@@ -96,53 +115,27 @@ pub fn dequantize_q4_k(bytes: &[u8], num_elements: usize) -> Vec<f32> {
     let mut offset = 0;
 
     while result.len() < num_elements && offset + SUPER_BLOCK_BYTES <= bytes.len() {
-        // Read d (f16 scale) and dmin (f16 min)
         let d = f16_to_f32(u16::from_le_bytes([bytes[offset], bytes[offset + 1]]));
         let dmin = f16_to_f32(u16::from_le_bytes([bytes[offset + 2], bytes[offset + 3]]));
         offset += 4;
 
-        // Read scales (12 bytes)
         let mut scales = [0u8; 12];
         scales.copy_from_slice(&bytes[offset..offset + 12]);
         offset += 12;
 
-        // Read 128 bytes = 256 4-bit quantized values
         let qs = &bytes[offset..offset + 128];
         offset += 128;
 
-        // PAR-001: Match fused_q4k_dot layout (llama.cpp/candle compatible)
-        // Process 4 chunks of 64 values each (0, 64, 128, 192)
-        // Each chunk: 32 low nibbles, then 32 high nibbles from 32 consecutive bytes
+        // PAR-001: 4 chunks of 64 values (low nibbles then high nibbles from 32 bytes)
         for j in (0..QK_K).step_by(64) {
             let q = &qs[j / 2..j / 2 + 32];
-
-            // Get scales for the two 32-value halves
             let is = j / 32;
+
             let (sc1, m1) = extract_scale_min_q4k(&scales, is);
-            let d1 = d * sc1;
-            let dm1 = dmin * m1;
+            push_q4k_nibbles(&mut result, num_elements, q, d * sc1, dmin * m1, 0);
 
             let (sc2, m2) = extract_scale_min_q4k(&scales, is + 1);
-            let d2 = d * sc2;
-            let dm2 = dmin * m2;
-
-            // First pass: 32 low nibbles (use sc1, m1)
-            for &byte in q {
-                if result.len() >= num_elements {
-                    break;
-                }
-                let q_val = (byte & 0x0F) as f32;
-                result.push(d1 * q_val - dm1);
-            }
-
-            // Second pass: 32 high nibbles (use sc2, m2)
-            for &byte in q {
-                if result.len() >= num_elements {
-                    break;
-                }
-                let q_val = (byte >> 4) as f32;
-                result.push(d2 * q_val - dm2);
-            }
+            push_q4k_nibbles(&mut result, num_elements, q, d * sc2, dmin * m2, 4);
         }
     }
 
