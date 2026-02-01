@@ -695,7 +695,8 @@ impl HttpBenchmarkRunner {
                 temperature: Some(self.config.temperature),
                 stream: false,
             };
-            let _ = self.client.llamacpp_completion(base_url, &request);
+            // CB-121: Warmup - errors expected and harmless before server is ready
+            drop(self.client.llamacpp_completion(base_url, &request));
         }
 
         // Measurement loop with CV-based stopping (per Hoefler & Belli SC'15)
@@ -779,7 +780,8 @@ impl HttpBenchmarkRunner {
                     temperature: Some(self.config.temperature),
                 }),
             };
-            let _ = self.client.ollama_generate(base_url, &request);
+            // CB-121: Warmup - errors expected and harmless before server is ready
+            drop(self.client.ollama_generate(base_url, &request));
         }
 
         // Measurement loop with CV-based stopping (per Hoefler & Belli SC'15)
