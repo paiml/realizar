@@ -110,8 +110,8 @@ pub use parallel_dequant::{
     dequantize_q8_0_parallel, dequantize_q8_0_simd,
 };
 
-// Re-export SIMD utilities for tests
-pub use simd::read_f16;
+// Re-export SIMD utilities (for tests and internal use)
+pub use simd::{extract_scale_min, extract_scale_min_from_slice, read_f16};
 
 /// Pre-computed f16 to f32 lookup table (65536 entries = 256KB)
 ///
@@ -424,8 +424,10 @@ impl InterleavedQ4K {
                 let q_start = qs_start + j / 2;
                 let is = j / 32;
 
-                let (sc1, m1) = extract_scale_min_from_slice(&self.scales[scales_start..], is);
-                let (sc2, m2) = extract_scale_min_from_slice(&self.scales[scales_start..], is + 1);
+                let (sc1, m1) =
+                    simd::extract_scale_min_from_slice(&self.scales[scales_start..], is);
+                let (sc2, m2) =
+                    simd::extract_scale_min_from_slice(&self.scales[scales_start..], is + 1);
 
                 // Process 32 low nibbles
                 for i in 0..32 {
@@ -487,8 +489,10 @@ impl InterleavedQ4K {
                 let q_start = qs_start + j / 2;
                 let is = j / 32;
 
-                let (sc1, m1) = extract_scale_min_from_slice(&self.scales[scales_start..], is);
-                let (sc2, m2) = extract_scale_min_from_slice(&self.scales[scales_start..], is + 1);
+                let (sc1, m1) =
+                    simd::extract_scale_min_from_slice(&self.scales[scales_start..], is);
+                let (sc2, m2) =
+                    simd::extract_scale_min_from_slice(&self.scales[scales_start..], is + 1);
 
                 let d_scale1 = d * sc1;
                 let dm1 = dmin * m1;
@@ -589,24 +593,6 @@ impl InterleavedQ4K {
 
         Ok(result)
     }
-}
-
-/// Extract scale and min from packed 6-bit scales (helper for InterleavedQ4K)
-pub(crate) fn extract_scale_min_from_slice(scales: &[u8], idx: usize) -> (f32, f32) {
-    // Same logic as extract_scale_min but works with slice
-    let scale_idx = idx / 2;
-    let min_idx = idx / 2 + 4;
-
-    let (scale_raw, min_raw) = if idx.is_multiple_of(2) {
-        (scales[scale_idx] & 0x3F, scales[min_idx] & 0x3F)
-    } else {
-        (
-            (scales[scale_idx] >> 6) | ((scales[scale_idx + 2] & 0x0F) << 2),
-            (scales[min_idx] >> 6) | ((scales[min_idx + 2] & 0x0F) << 2),
-        )
-    };
-
-    (scale_raw as f32, min_raw as f32)
 }
 
 // Basic dequantization functions moved to dequant.rs (PMAT-802)
@@ -1943,35 +1929,6 @@ pub fn fused_q8_0_q8_0_parallel_matvec_into(
         });
 
     Ok(())
-}
-
-/// Helper: Extract 6-bit scale and min for a block from the packed scales array
-///
-/// PAR-001 FIX: Matches llama.cpp's get_scale_min_k4 packing scheme:
-/// - Blocks 0-3: scale = q[j] & 63, min = q[j+4] & 63
-/// - Blocks 4-7: scale = (q[j+4] & 0xF) | ((q[j-4] >> 6) << 4)
-///   min = (q[j+4] >> 4) | ((q[j] >> 6) << 4)
-#[inline]
-pub(crate) fn extract_scale_min(scales: &[u8; 12], block_idx: usize) -> (f32, f32) {
-    let j = block_idx;
-    let (scale_bits, min_bits) = if j < 4 {
-        // First 4 blocks: simple layout
-        let d = scales[j] & 63;
-        let m = scales[j + 4] & 63;
-        (d, m)
-    } else {
-        // Last 4 blocks: packed layout using high bits from first 4 bytes
-        let d = (scales[j + 4] & 0x0F) | ((scales[j - 4] >> 6) << 4);
-        let m = (scales[j + 4] >> 4) | ((scales[j] >> 6) << 4);
-        (d, m)
-    };
-
-    // Return raw 6-bit values as floats
-    // The GGUF header's d/dmin values already include the /63 normalization
-    let scale = f32::from(scale_bits);
-    let min = f32::from(min_bits);
-
-    (scale, min)
 }
 
 #[cfg(test)]
