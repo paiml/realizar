@@ -366,79 +366,80 @@ impl GrammarStateMachine {
 
     // Internal: Check if state can accept character
     fn can_accept_char(&self, state: &GrammarState, c: char) -> bool {
-        if let Some(elem) = state.current_element(&self.grammar) {
-            match elem {
-                GrammarElement::Char(expected) => c == *expected,
-                GrammarElement::CharRange(start, end) => c >= *start && c <= *end,
-                GrammarElement::CharNot(excluded) => !excluded.contains(&c),
-                GrammarElement::Any => true,
-                GrammarElement::RuleRef(rule_name) => {
-                    // Need to check if any alternative of referenced rule accepts c
-                    if let Some(rule) = self.grammar.get_rule(rule_name) {
-                        for (alt_idx, _) in rule.alternatives.iter().enumerate() {
-                            let sub_state = GrammarState {
-                                rule: rule_name.clone(),
-                                alt_idx,
-                                elem_idx: 0,
-                                stack: Vec::new(),
-                            };
-                            if self.can_accept_char(&sub_state, c) {
-                                return true;
-                            }
-                        }
-                    }
-                    false
-                },
-                GrammarElement::End => false,
-            }
-        } else {
-            false
+        let Some(elem) = state.current_element(&self.grammar) else {
+            return false;
+        };
+        match elem {
+            GrammarElement::Char(expected) => c == *expected,
+            GrammarElement::CharRange(start, end) => c >= *start && c <= *end,
+            GrammarElement::CharNot(excluded) => !excluded.contains(&c),
+            GrammarElement::Any => true,
+            GrammarElement::RuleRef(rule_name) => self.any_alternative_accepts(rule_name, c),
+            GrammarElement::End => false,
         }
+    }
+
+    // Check if any alternative of the referenced rule accepts character c
+    fn any_alternative_accepts(&self, rule_name: &str, c: char) -> bool {
+        let Some(rule) = self.grammar.get_rule(rule_name) else {
+            return false;
+        };
+        rule.alternatives.iter().enumerate().any(|(alt_idx, _)| {
+            let sub_state = GrammarState {
+                rule: rule_name.to_string(),
+                alt_idx,
+                elem_idx: 0,
+                stack: Vec::new(),
+            };
+            self.can_accept_char(&sub_state, c)
+        })
     }
 
     // Internal: Collect valid characters for a state
     fn collect_valid_chars(&self, state: &GrammarState, valid: &mut HashSet<char>) {
-        if let Some(elem) = state.current_element(&self.grammar) {
-            match elem {
-                GrammarElement::Char(c) => {
-                    valid.insert(*c);
-                },
-                GrammarElement::CharRange(start, end) => {
-                    for c in *start..=*end {
+        let Some(elem) = state.current_element(&self.grammar) else {
+            return;
+        };
+        match elem {
+            GrammarElement::Char(c) => {
+                valid.insert(*c);
+            },
+            GrammarElement::CharRange(start, end) => {
+                for c in *start..=*end {
+                    valid.insert(c);
+                }
+            },
+            GrammarElement::CharNot(_) => {
+                // For negated sets, check each printable char against the exclusion list
+                for c in ' '..='~' {
+                    if self.can_accept_char(state, c) {
                         valid.insert(c);
                     }
-                },
-                GrammarElement::CharNot(_excluded) => {
-                    // For negated sets, we'd need to add all chars except excluded
-                    // This is expensive, so for now we mark as "any printable"
-                    for c in ' '..='~' {
-                        if self.can_accept_char(state, c) {
-                            valid.insert(c);
-                        }
-                    }
-                },
-                GrammarElement::Any => {
-                    // Add common printable characters
-                    for c in ' '..='~' {
-                        valid.insert(c);
-                    }
-                },
-                GrammarElement::RuleRef(rule_name) => {
-                    // Recurse into referenced rule
-                    if let Some(rule) = self.grammar.get_rule(rule_name) {
-                        for (alt_idx, _) in rule.alternatives.iter().enumerate() {
-                            let sub_state = GrammarState {
-                                rule: rule_name.clone(),
-                                alt_idx,
-                                elem_idx: 0,
-                                stack: Vec::new(),
-                            };
-                            self.collect_valid_chars(&sub_state, valid);
-                        }
-                    }
-                },
-                GrammarElement::End => {},
-            }
+                }
+            },
+            GrammarElement::Any => {
+                valid.extend(' '..='~');
+            },
+            GrammarElement::RuleRef(rule_name) => {
+                self.collect_chars_from_alternatives(rule_name, valid);
+            },
+            GrammarElement::End => {},
+        }
+    }
+
+    // Recurse into all alternatives of a referenced rule to collect valid chars
+    fn collect_chars_from_alternatives(&self, rule_name: &str, valid: &mut HashSet<char>) {
+        let Some(rule) = self.grammar.get_rule(rule_name) else {
+            return;
+        };
+        for (alt_idx, _) in rule.alternatives.iter().enumerate() {
+            let sub_state = GrammarState {
+                rule: rule_name.to_string(),
+                alt_idx,
+                elem_idx: 0,
+                stack: Vec::new(),
+            };
+            self.collect_valid_chars(&sub_state, valid);
         }
     }
 
@@ -757,54 +758,7 @@ fn add_schema_rules(grammar: &mut Grammar, rule_name: &str, schema: &JsonSchemaT
             ));
         },
         JsonSchemaType::Object(properties) => {
-            // Build object grammar with properties
-            if properties.is_empty() {
-                // Empty object
-                grammar.add_rule(GrammarRule::new(
-                    rule_name,
-                    vec![GrammarAlternative::new(vec![
-                        GrammarElement::Char('{'),
-                        GrammarElement::RuleRef("ws".to_string()),
-                        GrammarElement::Char('}'),
-                    ])],
-                ));
-            } else {
-                // Object with properties
-                let mut elements = vec![
-                    GrammarElement::Char('{'),
-                    GrammarElement::RuleRef("ws".to_string()),
-                ];
-
-                for (i, (prop_name, prop_type, _required)) in properties.iter().enumerate() {
-                    if i > 0 {
-                        elements.push(GrammarElement::Char(','));
-                        elements.push(GrammarElement::RuleRef("ws".to_string()));
-                    }
-
-                    // Property name
-                    elements.push(GrammarElement::Char('"'));
-                    for c in prop_name.chars() {
-                        elements.push(GrammarElement::Char(c));
-                    }
-                    elements.push(GrammarElement::Char('"'));
-                    elements.push(GrammarElement::RuleRef("ws".to_string()));
-                    elements.push(GrammarElement::Char(':'));
-                    elements.push(GrammarElement::RuleRef("ws".to_string()));
-
-                    // Property value
-                    let prop_rule = format!("{rule_name}_{prop_name}");
-                    add_schema_rules(grammar, &prop_rule, prop_type);
-                    elements.push(GrammarElement::RuleRef(prop_rule));
-                }
-
-                elements.push(GrammarElement::RuleRef("ws".to_string()));
-                elements.push(GrammarElement::Char('}'));
-
-                grammar.add_rule(GrammarRule::new(
-                    rule_name,
-                    vec![GrammarAlternative::new(elements)],
-                ));
-            }
+            add_object_schema_rules(grammar, rule_name, properties);
         },
         JsonSchemaType::Any => {
             // Any JSON value
@@ -835,6 +789,60 @@ fn add_schema_rules(grammar: &mut Grammar, rule_name: &str, schema: &JsonSchemaT
             }
         },
     }
+}
+
+/// Build grammar rules for a JSON object schema with the given properties
+fn add_object_schema_rules(
+    grammar: &mut Grammar,
+    rule_name: &str,
+    properties: &[(String, JsonSchemaType, bool)],
+) {
+    if properties.is_empty() {
+        grammar.add_rule(GrammarRule::new(
+            rule_name,
+            vec![GrammarAlternative::new(vec![
+                GrammarElement::Char('{'),
+                GrammarElement::RuleRef("ws".to_string()),
+                GrammarElement::Char('}'),
+            ])],
+        ));
+        return;
+    }
+
+    let mut elements = vec![
+        GrammarElement::Char('{'),
+        GrammarElement::RuleRef("ws".to_string()),
+    ];
+
+    for (i, (prop_name, prop_type, _required)) in properties.iter().enumerate() {
+        if i > 0 {
+            elements.push(GrammarElement::Char(','));
+            elements.push(GrammarElement::RuleRef("ws".to_string()));
+        }
+
+        // Property name
+        elements.push(GrammarElement::Char('"'));
+        for c in prop_name.chars() {
+            elements.push(GrammarElement::Char(c));
+        }
+        elements.push(GrammarElement::Char('"'));
+        elements.push(GrammarElement::RuleRef("ws".to_string()));
+        elements.push(GrammarElement::Char(':'));
+        elements.push(GrammarElement::RuleRef("ws".to_string()));
+
+        // Property value
+        let prop_rule = format!("{rule_name}_{prop_name}");
+        add_schema_rules(grammar, &prop_rule, prop_type);
+        elements.push(GrammarElement::RuleRef(prop_rule));
+    }
+
+    elements.push(GrammarElement::RuleRef("ws".to_string()));
+    elements.push(GrammarElement::Char('}'));
+
+    grammar.add_rule(GrammarRule::new(
+        rule_name,
+        vec![GrammarAlternative::new(elements)],
+    ));
 }
 
 // =============================================================================
@@ -913,40 +921,28 @@ impl GrammarTokenMasker {
         })
     }
 
+    /// Check if all characters in a multi-char token form a valid sequence
+    fn is_token_valid_sequence(&self, token_str: &str) -> bool {
+        let mut temp_sm = self.state_machine.clone();
+        token_str.chars().all(|c| temp_sm.advance(c))
+    }
+
     /// Get mask for current state
     pub fn get_mask(&self) -> TokenMask {
         let valid_chars = self.state_machine.valid_chars();
         let mut allowed = HashSet::new();
 
         for (token_id, token_str) in &self.token_strings {
-            // Check if token's first character is valid
             if let Some(first_char) = token_str.chars().next() {
-                if valid_chars.contains(&first_char) {
-                    // For single-char tokens, this is sufficient
-                    // For multi-char tokens, we'd need to simulate all chars
-                    if token_str.len() == 1 {
-                        allowed.insert(*token_id);
-                    } else {
-                        // Check if all characters in token are valid sequence
-                        let mut temp_sm = self.state_machine.clone();
-                        let mut all_valid = true;
-                        for c in token_str.chars() {
-                            if !temp_sm.advance(c) {
-                                all_valid = false;
-                                break;
-                            }
-                        }
-                        if all_valid {
-                            allowed.insert(*token_id);
-                        }
-                    }
+                if valid_chars.contains(&first_char)
+                    && (token_str.len() == 1 || self.is_token_valid_sequence(token_str))
+                {
+                    allowed.insert(*token_id);
                 }
             }
         }
 
-        let allow_eos = self.state_machine.is_complete();
-
-        TokenMask::from_allowed(allowed, allow_eos)
+        TokenMask::from_allowed(allowed, self.state_machine.is_complete())
     }
 
     /// Advance masker with selected token
@@ -1300,6 +1296,21 @@ impl ToolCallParser {
         }
     }
 
+    /// Try to extract a tool call from a parsed JSON value with "name" and "arguments" fields.
+    fn try_extract_json_tool_call(&mut self, value: &serde_json::Value) -> Option<ToolCall> {
+        let name = value.get("name").and_then(|v| v.as_str())?;
+        let args = value.get("arguments")?;
+        if !self.tools.iter().any(|t| t.name == name) {
+            return None;
+        }
+        let arguments = if args.is_string() {
+            args.as_str().expect("checked is_string above").to_string()
+        } else {
+            args.to_string()
+        };
+        Some(ToolCall::new(self.generate_id(), name, arguments))
+    }
+
     fn parse_openai(&mut self, text: &str) -> Vec<ToolCall> {
         let mut calls = Vec::new();
 
@@ -1311,19 +1322,8 @@ impl ToolCallParser {
             if let Some(end) = find_matching_brace(&text[abs_pos..]) {
                 let json_str = &text[abs_pos..=(abs_pos + end)];
                 if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
-                    if let (Some(name), Some(args)) = (
-                        value.get("name").and_then(|v| v.as_str()),
-                        value.get("arguments"),
-                    ) {
-                        // Check if this is a valid tool
-                        if self.tools.iter().any(|t| t.name == name) {
-                            let arguments = if args.is_string() {
-                                args.as_str().expect("checked is_string above").to_string()
-                            } else {
-                                args.to_string()
-                            };
-                            calls.push(ToolCall::new(self.generate_id(), name, arguments));
-                        }
+                    if let Some(call) = self.try_extract_json_tool_call(&value) {
+                        calls.push(call);
                     }
                 }
                 start = abs_pos + end + 1;
@@ -1375,18 +1375,8 @@ impl ToolCallParser {
                 let json_str = text[abs_start..abs_start + end].trim();
 
                 if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
-                    if let (Some(name), Some(args)) = (
-                        value.get("name").and_then(|v| v.as_str()),
-                        value.get("arguments"),
-                    ) {
-                        if self.tools.iter().any(|t| t.name == name) {
-                            let arguments = if args.is_string() {
-                                args.as_str().expect("checked is_string above").to_string()
-                            } else {
-                                args.to_string()
-                            };
-                            calls.push(ToolCall::new(self.generate_id(), name, arguments));
-                        }
+                    if let Some(call) = self.try_extract_json_tool_call(&value) {
+                        calls.push(call);
                     }
                 }
 
