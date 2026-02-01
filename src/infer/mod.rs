@@ -317,107 +317,29 @@ pub fn run_inference(config: &InferenceConfig) -> Result<InferenceResult> {
 
 /// Run GGUF model inference
 fn run_gguf_inference(config: &InferenceConfig) -> Result<InferenceResult> {
-    use crate::chat_template::{format_messages, ChatMessage};
     use crate::gguf::{MappedGGUFModel, OwnedQuantizedModel, QuantizedGenerateConfig};
 
-    // Verbose: Show loading message BEFORE loading (NOISY-GUARD F-UX-27)
     if config.verbose {
         eprintln!("Loading model: {}", config.model_path.display());
     }
 
     let load_start = Instant::now();
-
-    // Load GGUF via mmap
     let mapped = MappedGGUFModel::from_path(&config.model_path)?;
-
-    // Pre-fault mmap pages (PAR-200: avoid page faults during inference)
     prefault_mmap(mapped.data());
-
-    // Create quantized model
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
-    // PMAT-109: Extract architecture from GGUF metadata (not filename)
-    // Cached models have hash filenames, so we MUST use GGUF metadata
+    // PMAT-109: Architecture from GGUF metadata (not filename)
     let gguf_arch = mapped.model.architecture().unwrap_or("transformer");
-    let arch = match gguf_arch.to_lowercase().as_str() {
-        "qwen2" | "qwen" => "Qwen2",
-        "llama" => "LLaMA",
-        "mistral" => "Mistral",
-        "phi" | "phi3" => "Phi",
-        _ => "Transformer",
-    };
 
     if config.verbose {
-        // PMAT-173: Enhanced verbose output with deferred UX items
-        // F-UX-036: hidden_size, F-UX-037: threads, F-UX-038: quant, F-UX-039: context
-        let quant_type = qtype_to_dtype_str(model.lm_head_weight.qtype);
-        let thread_count = rayon::current_num_threads();
-        eprintln!(
-            "Architecture: {} [GGUF: {}] ({} layers, vocab_size={})",
-            arch, gguf_arch, model.config.num_layers, model.config.vocab_size
-        );
-        eprintln!(
-            "Config: hidden_size={}, context_length={}, quant={}, threads={}",
-            model.config.hidden_dim, model.config.context_length, quant_type, thread_count
-        );
-        eprintln!("Model loaded in {:.1}ms", load_ms);
+        print_gguf_verbose_info(gguf_arch, &model, load_ms);
     }
 
-    // Get input tokens
-    let input_tokens = if let Some(ref tokens) = config.input_tokens {
-        tokens.clone()
-    } else if let Some(ref prompt) = config.prompt {
-        // PMAT-109: Detect instruct model from GGUF architecture (not filename)
-        // Qwen2 models use ChatML format with <|im_start|> / <|im_end|> tokens
-        // We apply chat template for known instruct architectures
-        let is_instruct_arch = matches!(
-            gguf_arch.to_lowercase().as_str(),
-            "qwen2" | "qwen" | "llama" | "mistral" | "phi" | "phi3"
-        );
-
-        // Also check filename as fallback (for explicitly named instruct models)
-        let model_name = config
-            .model_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-        let filename_instruct = model_name.to_lowercase().contains("instruct");
-
-        let formatted_prompt = if is_instruct_arch || filename_instruct {
-            // Use GGUF architecture for chat template detection
-            let template_hint = if gguf_arch.to_lowercase().contains("qwen") {
-                "qwen2"
-            } else if gguf_arch.to_lowercase().contains("llama") {
-                "llama"
-            } else if gguf_arch.to_lowercase().contains("mistral") {
-                "mistral"
-            } else if gguf_arch.to_lowercase().contains("phi") {
-                "phi"
-            } else {
-                model_name
-            };
-
-            let messages = vec![ChatMessage::user(prompt)];
-            format_messages(&messages, Some(template_hint)).unwrap_or_else(|_| prompt.clone())
-        } else {
-            prompt.clone()
-        };
-
-        mapped
-            .model
-            .encode(&formatted_prompt)
-            .unwrap_or_else(|| vec![1u32])
-    } else {
-        vec![1u32] // BOS token
-    };
-
+    let input_tokens = prepare_gguf_input_tokens(config, gguf_arch, &mapped);
     let input_token_count = input_tokens.len();
-
-    // Capture model config before move (for trace output)
     let model_config = model.config.clone();
 
-    // Configure generation (PMAT-TRACE-GGUF-001: pass trace flag)
     let gen_config = QuantizedGenerateConfig {
         max_tokens: config.max_tokens.min(128),
         temperature: config.temperature,
@@ -426,29 +348,117 @@ fn run_gguf_inference(config: &InferenceConfig) -> Result<InferenceResult> {
         ..Default::default()
     };
 
-    // Run inference (GPU or CPU)
     let infer_start = Instant::now();
     let (tokens, used_gpu) = run_gguf_generate(model, &input_tokens, &gen_config, config)?;
     let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
 
-    // Decode output
     let generated_tokens = &tokens[input_token_count..];
-    let text = mapped.model.decode(generated_tokens);
-
-    // Clean output (strip ChatML markers)
-    let text = clean_model_output(&text);
-
+    let text = clean_model_output(&mapped.model.decode(generated_tokens));
     let generated_token_count = generated_tokens.len();
-    let tok_per_sec = if inference_ms > 0.0 {
-        generated_token_count as f64 / (inference_ms / 1000.0)
-    } else {
-        0.0
+    let tps = tok_per_sec(generated_token_count, inference_ms);
+
+    write_gguf_trace(config, &model_config, input_token_count, generated_token_count,
+                     load_ms, inference_ms, tps, used_gpu);
+
+    Ok(InferenceResult {
+        text,
+        tokens,
+        input_token_count,
+        generated_token_count,
+        inference_ms,
+        tok_per_sec: tps,
+        load_ms,
+        format: "GGUF".to_string(),
+        used_gpu,
+    })
+}
+
+/// Print verbose model info for GGUF inference
+fn print_gguf_verbose_info(
+    gguf_arch: &str,
+    model: &crate::gguf::OwnedQuantizedModel,
+    load_ms: f64,
+) {
+    let arch = match gguf_arch.to_lowercase().as_str() {
+        "qwen2" | "qwen" => "Qwen2",
+        "llama" => "LLaMA",
+        "mistral" => "Mistral",
+        "phi" | "phi3" => "Phi",
+        _ => "Transformer",
+    };
+    let quant_type = qtype_to_dtype_str(model.lm_head_weight.qtype);
+    let thread_count = rayon::current_num_threads();
+    eprintln!(
+        "Architecture: {} [GGUF: {}] ({} layers, vocab_size={})",
+        arch, gguf_arch, model.config.num_layers, model.config.vocab_size
+    );
+    eprintln!(
+        "Config: hidden_size={}, context_length={}, quant={}, threads={}",
+        model.config.hidden_dim, model.config.context_length, quant_type, thread_count
+    );
+    eprintln!("Model loaded in {:.1}ms", load_ms);
+}
+
+/// Prepare input tokens for GGUF inference (PMAT-109: chat template support)
+fn prepare_gguf_input_tokens(
+    config: &InferenceConfig,
+    gguf_arch: &str,
+    mapped: &crate::gguf::MappedGGUFModel,
+) -> Vec<u32> {
+    use crate::chat_template::{format_messages, ChatMessage};
+
+    if let Some(ref tokens) = config.input_tokens {
+        return tokens.clone();
+    }
+
+    let prompt = match config.prompt {
+        Some(ref p) => p,
+        None => return vec![1u32],
     };
 
-    // Write trace output if requested (PMAT-SHOWCASE-METHODOLOGY-001)
-    if let Some(ref trace_path) = config.trace_output {
-        let trace_json = format!(
-            r#"{{
+    let is_instruct_arch = matches!(
+        gguf_arch.to_lowercase().as_str(),
+        "qwen2" | "qwen" | "llama" | "mistral" | "phi" | "phi3"
+    );
+
+    let model_name = config
+        .model_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    let filename_instruct = model_name.to_lowercase().contains("instruct");
+
+    let formatted_prompt = if is_instruct_arch || filename_instruct {
+        let template_hint = apr_arch_to_template_hint(gguf_arch, model_name);
+        let messages = vec![ChatMessage::user(prompt)];
+        format_messages(&messages, Some(template_hint)).unwrap_or_else(|_| prompt.clone())
+    } else {
+        prompt.clone()
+    };
+
+    mapped
+        .model
+        .encode(&formatted_prompt)
+        .unwrap_or_else(|| vec![1u32])
+}
+
+/// Write GGUF trace output if requested (PMAT-SHOWCASE-METHODOLOGY-001)
+fn write_gguf_trace(
+    config: &InferenceConfig,
+    model_config: &crate::gguf::GGUFConfig,
+    input_token_count: usize,
+    generated_token_count: usize,
+    load_ms: f64,
+    inference_ms: f64,
+    tps: f64,
+    used_gpu: bool,
+) {
+    let trace_path = match config.trace_output {
+        Some(ref p) => p,
+        None => return,
+    };
+    let trace_json = format!(
+        r#"{{
   "version": "1.0",
   "timestamp": "{}",
   "model": {{
@@ -470,39 +480,26 @@ fn run_gguf_inference(config: &InferenceConfig) -> Result<InferenceResult> {
   "events": []
 }}
 "#,
-            chrono::Utc::now().to_rfc3339(),
-            config.model_path.display(),
-            model_config.num_layers,
-            model_config.hidden_dim,
-            model_config.vocab_size,
-            model_config.num_heads,
-            input_token_count,
-            generated_token_count,
-            load_ms,
-            inference_ms,
-            tok_per_sec,
-            used_gpu
-        );
-        if let Err(e) = std::fs::write(trace_path, trace_json) {
-            eprintln!(
-                "Warning: Failed to write trace output to {}: {}",
-                trace_path.display(),
-                e
-            );
-        }
-    }
-
-    Ok(InferenceResult {
-        text,
-        tokens,
+        chrono::Utc::now().to_rfc3339(),
+        config.model_path.display(),
+        model_config.num_layers,
+        model_config.hidden_dim,
+        model_config.vocab_size,
+        model_config.num_heads,
         input_token_count,
         generated_token_count,
-        inference_ms,
-        tok_per_sec,
         load_ms,
-        format: "GGUF".to_string(),
-        used_gpu,
-    })
+        inference_ms,
+        tps,
+        used_gpu
+    );
+    if let Err(e) = std::fs::write(trace_path, trace_json) {
+        eprintln!(
+            "Warning: Failed to write trace output to {}: {}",
+            trace_path.display(),
+            e
+        );
+    }
 }
 
 /// Run GGUF generation with GPU or CPU
@@ -843,121 +840,121 @@ fn tok_per_sec(count: usize, ms: f64) -> f64 {
 fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     use crate::apr::AprV2Model;
 
-    // Verbose: Show loading message BEFORE loading
     if config.verbose {
         eprintln!("Loading SafeTensors model: {}", config.model_path.display());
     }
 
-    // Get input tokens first (needed for both GPU and CPU paths)
     let input_tokens = if let Some(ref tokens) = config.input_tokens {
         tokens.clone()
     } else if let Some(ref prompt) = config.prompt {
-        // Load tokenizer from sibling tokenizer.json
         AprV2Model::encode_text(&config.model_path, prompt).unwrap_or_else(|| vec![1u32])
     } else {
-        vec![1u32] // BOS token
+        vec![1u32]
     };
 
     let input_token_count = input_tokens.len();
 
-    // PMAT-129: Try GPU path first using SafeTensorsCudaModel
+    // PMAT-129: Try GPU path first
     #[cfg(feature = "cuda")]
     if !config.no_gpu {
-        use crate::safetensors_cuda::SafeTensorsCudaModel;
-
-        let load_start = Instant::now();
-        match SafeTensorsCudaModel::load(&config.model_path, 0) {
-            Ok(mut cuda_model) => {
-                let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
-
-                if config.verbose {
-                    // PMAT-173: Enhanced verbose output with deferred UX items
-                    // F-UX-036: hidden_size, F-UX-037: threads, F-UX-038: quant, F-UX-039: context
-                    eprintln!(
-                        "Architecture: SafeTensors ({} layers, vocab_size={})",
-                        cuda_model.config().num_layers,
-                        cuda_model.config().vocab_size
-                    );
-                    eprintln!(
-                        "Config: hidden_size={}, context_length={}, quant=F16/BF16, threads=1 (GPU)",
-                        cuda_model.config().hidden_dim,
-                        cuda_model.config().context_length
-                    );
-                    eprintln!("Model loaded in {:.1}ms", load_ms);
-                    eprintln!(
-                        "Backend: GPU ({}, {} MB VRAM)",
-                        cuda_model.device_name(),
-                        cuda_model.vram_mb()
-                    );
-                }
-
-                // GPU generation
-                let infer_start = Instant::now();
-                let eos_id = 151645u32; // Qwen2 EOS
-                let tokens = cuda_model
-                    .generate(&input_tokens, config.max_tokens.min(128), eos_id)
-                    .map_err(|e| {
-                        RealizarError::InferenceError(format!("GPU generation failed: {}", e))
-                    })?;
-
-                let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
-
-                // Decode output tokens
-                let generated_tokens = &tokens[input_token_count..];
-                let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
-                    tokenizer.decode(generated_tokens)
-                } else if let Some(tokenizer) = find_fallback_tokenizer(&config.model_path) {
-                    tokenizer.decode(generated_tokens)
-                } else {
-                    format!(
-                        "[{} tokens generated, tokenizer not found]",
-                        generated_tokens.len()
-                    )
-                };
-
-                let text = clean_model_output(&text);
-                let generated_token_count = generated_tokens.len();
-                let tok_per_sec = if inference_ms > 0.0 {
-                    generated_token_count as f64 / (inference_ms / 1000.0)
-                } else {
-                    0.0
-                };
-
-                return Ok(InferenceResult {
-                    text,
-                    tokens,
-                    input_token_count,
-                    generated_token_count,
-                    inference_ms,
-                    tok_per_sec,
-                    load_ms,
-                    format: "SafeTensors".to_string(),
-                    used_gpu: true,
-                });
-            },
-            Err(e) => {
-                if config.verbose {
-                    eprintln!("Backend: CPU (GPU init failed: {})", e);
-                }
-            },
+        if let Some(result) =
+            try_safetensors_cuda_inference(config, &input_tokens, input_token_count)
+        {
+            return result;
         }
     }
 
-    // CPU fallback: use AprTransformer with proper RoPE and SwiGLU
+    // CPU fallback: SafeTensors → AprTransformer conversion
+    run_safetensors_cpu_inference(config, &input_tokens, input_token_count)
+}
+
+/// Try SafeTensors CUDA inference, returning None to fall through to CPU
+#[cfg(feature = "cuda")]
+fn try_safetensors_cuda_inference(
+    config: &InferenceConfig,
+    input_tokens: &[u32],
+    input_token_count: usize,
+) -> Option<Result<InferenceResult>> {
+    use crate::safetensors_cuda::SafeTensorsCudaModel;
+
+    let load_start = Instant::now();
+    let mut cuda_model = match SafeTensorsCudaModel::load(&config.model_path, 0) {
+        Ok(m) => m,
+        Err(e) => {
+            if config.verbose {
+                eprintln!("Backend: CPU (GPU init failed: {})", e);
+            }
+            return None;
+        }
+    };
+
+    let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+
+    if config.verbose {
+        eprintln!(
+            "Architecture: SafeTensors ({} layers, vocab_size={})",
+            cuda_model.config().num_layers,
+            cuda_model.config().vocab_size
+        );
+        eprintln!(
+            "Config: hidden_size={}, context_length={}, quant=F16/BF16, threads=1 (GPU)",
+            cuda_model.config().hidden_dim,
+            cuda_model.config().context_length
+        );
+        eprintln!("Model loaded in {:.1}ms", load_ms);
+        eprintln!(
+            "Backend: GPU ({}, {} MB VRAM)",
+            cuda_model.device_name(),
+            cuda_model.vram_mb()
+        );
+    }
+
+    let infer_start = Instant::now();
+    let eos_id = 151645u32; // Qwen2 EOS
+    let tokens = match cuda_model.generate(input_tokens, config.max_tokens.min(128), eos_id) {
+        Ok(t) => t,
+        Err(e) => {
+            return Some(Err(RealizarError::InferenceError(format!(
+                "GPU generation failed: {}",
+                e
+            ))))
+        }
+    };
+
+    let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
+    let generated_tokens = &tokens[input_token_count..];
+    let text = decode_apr_tokens(&config.model_path, generated_tokens);
+    let generated_token_count = generated_tokens.len();
+
+    Some(Ok(InferenceResult {
+        text,
+        tokens,
+        input_token_count,
+        generated_token_count,
+        inference_ms,
+        tok_per_sec: tok_per_sec(generated_token_count, inference_ms),
+        load_ms,
+        format: "SafeTensors".to_string(),
+        used_gpu: true,
+    }))
+}
+
+/// Run SafeTensors inference on CPU via AprTransformer conversion (PMAT-103)
+fn run_safetensors_cpu_inference(
+    config: &InferenceConfig,
+    input_tokens: &[u32],
+    input_token_count: usize,
+) -> Result<InferenceResult> {
+    use crate::apr::AprV2Model;
     use crate::apr_transformer::AprKVCache;
     use crate::safetensors_infer::SafetensorsToAprConverter;
 
     let load_start = Instant::now();
-
-    // Convert SafeTensors to AprTransformer
     let transformer = SafetensorsToAprConverter::convert(&config.model_path)?;
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
-    let arch = &transformer.config.architecture;
-
     if config.verbose {
-        // PMAT-173: Enhanced verbose output with deferred UX items
-        // F-UX-036: hidden_size, F-UX-037: threads, F-UX-038: quant, F-UX-039: context
+        let arch = &transformer.config.architecture;
         let thread_count = rayon::current_num_threads();
         eprintln!(
             "Architecture: {} ({} layers, vocab_size={})",
@@ -971,45 +968,38 @@ fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult
         eprintln!("Backend: CPU (SIMD-accelerated)");
     }
 
-    // PMAT-103: Use KV-cached generation for O(n) instead of O(n²) complexity
     let infer_start = Instant::now();
     let mut cache = AprKVCache::new(&transformer.config);
-    let mut all_tokens = input_tokens.clone();
+    let mut all_tokens = input_tokens.to_vec();
 
-    // Prefill phase: process all prompt tokens, get logits from last token
+    // Prefill phase
     let mut logits = Vec::new();
     for (pos, &token) in input_tokens.iter().enumerate() {
         logits = transformer.forward_with_cache(token, &mut cache, pos)?;
     }
 
-    // Decode phase: sample and generate new tokens
-    let max_gen = config.max_tokens.min(128);
-    for _ in 0..max_gen {
-        // Greedy sampling (argmax) from current logits
+    // Decode phase: greedy sampling
+    for _ in 0..config.max_tokens.min(128) {
         let next_token = logits
             .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map_or(0, |(i, _)| i as u32);
 
-        // Check for EOS (Qwen2 EOS=151645, BOS=151643, standard=2)
         if next_token == 151645 || next_token == 151643 || next_token == 2 {
             break;
         }
 
         all_tokens.push(next_token);
-
-        // Process newly generated token to get next logits
-        let pos = all_tokens.len() - 1; // Position of the just-added token
+        let pos = all_tokens.len() - 1;
         logits = transformer.forward_with_cache(next_token, &mut cache, pos)?;
     }
 
     let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
-
-    // Decode output tokens
     let generated_tokens = &all_tokens[input_token_count..];
+
     let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
-        tokenizer.decode(generated_tokens)
+        clean_model_output(&tokenizer.decode(generated_tokens))
     } else {
         format!(
             "[{} tokens generated, tokenizer not found]",
@@ -1017,15 +1007,7 @@ fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult
         )
     };
 
-    // Clean output
-    let text = clean_model_output(&text);
-
     let generated_token_count = generated_tokens.len();
-    let tok_per_sec = if inference_ms > 0.0 {
-        generated_token_count as f64 / (inference_ms / 1000.0)
-    } else {
-        0.0
-    };
 
     Ok(InferenceResult {
         text,
@@ -1033,10 +1015,10 @@ fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult
         input_token_count,
         generated_token_count,
         inference_ms,
-        tok_per_sec,
+        tok_per_sec: tok_per_sec(generated_token_count, inference_ms),
         load_ms,
         format: "SafeTensors".to_string(),
-        used_gpu: false, // SafeTensors currently CPU-only
+        used_gpu: false,
     })
 }
 
