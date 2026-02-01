@@ -348,10 +348,24 @@ impl AprV2ModelCuda {
                         (0, false)
                     }
                 } else {
-                    // PMAT-113: F32/F16 - cache on GPU for fallback GEMM path
-                    // Previously skipped, causing "No matching tensor found" during inference
+                    // PMAT-113: F32/F16 - cache on GPU for GEMM path
+                    // PMAT-222: Transpose 2D F32 weights from [n, k] to [k, n] for gemm_b_cached
+                    // HF convention stores weights as [out_dim, in_dim] but GEMM needs B[k, n]
                     if let Ok(weights) = model.get_tensor_f32(src_name) {
-                        let size = executor.load_weights(cache_name, &weights).unwrap_or(0);
+                        let final_weights = if entry.shape.len() == 2 {
+                            let rows = entry.shape[0]; // out_dim (n)
+                            let cols = entry.shape[1]; // in_dim (k)
+                            let mut transposed = vec![0.0f32; weights.len()];
+                            for i in 0..rows {
+                                for j in 0..cols {
+                                    transposed[j * rows + i] = weights[i * cols + j];
+                                }
+                            }
+                            transposed
+                        } else {
+                            weights
+                        };
+                        let size = executor.load_weights(cache_name, &final_weights).unwrap_or(0);
                         (size, false)
                     } else {
                         (0, false)
@@ -1740,10 +1754,10 @@ impl AprV2ModelCuda {
     /// GPU GEMM with cached weight: C[m, n] = A[m, k] × B_cached[k, n]
     ///
     /// Uses pre-cached weight matrix B to avoid repeated GPU uploads.
-    /// This is the optimized path for transformer inference.
+    /// Dispatches to F32 GEMM or quantized GEMV based on weight cache location.
     ///
-    /// Phase 45: When test_executor is present, falls back to returning zeros
-    /// (since test executors don't have cached weights).
+    /// PMAT-222: Added quantized dispatch for GGUF-sourced APR models.
+    /// Phase 45: When test_executor is present, falls back to returning zeros.
     #[allow(clippy::many_single_char_names)] // Standard matrix notation
     fn gemm_cached_gpu(
         &mut self,
@@ -1755,20 +1769,79 @@ impl AprV2ModelCuda {
     ) -> Result<Vec<f32>> {
         // Phase 45: Test executor can't use cached weights, return zeros
         if self.test_executor.is_some() {
-            // For testing, return zeros of correct size
-            // The test executor can use with_matmul_result() for custom values if needed
             return Ok(vec![0.0f32; m * n]);
         }
 
-        // Normal CUDA path
-        let mut c = vec![0.0f32; m * n];
-        self.executor
-            .gemm_b_cached(weight_name, a, &mut c, m as u32, n as u32, k as u32)
-            .map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "GPU GEMM cached".to_string(),
-                reason: format!("CUDA GEMM with cached weight '{}' failed: {e}", weight_name),
-            })?;
-        Ok(c)
+        // PMAT-222: Check if weight is quantized (GGUF-sourced APR) or F32 (SafeTensors APR)
+        if self.executor.has_quantized_weights(weight_name) {
+            // Quantized path: dispatch to Q4K or Q6K GEMV kernels
+            let qtype = self.executor.get_quantized_weight_type(weight_name).unwrap_or(12);
+            let mut c = vec![0.0f32; m * n];
+
+            match qtype {
+                12 => {
+                    // Q4_K: use batched GEMV for m>1, single GEMV for m=1
+                    if m == 1 {
+                        self.executor
+                            .q4k_gemv_cached(weight_name, a, &mut c, n as u32, k as u32)
+                            .map_err(|e| RealizarError::UnsupportedOperation {
+                                operation: "GPU Q4K GEMV cached".to_string(),
+                                reason: format!("CUDA Q4K GEMV '{}' failed: {e}", weight_name),
+                            })?;
+                    } else {
+                        self.executor
+                            .batched_q4k_gemv_cached(weight_name, a, &mut c, m as u32, k as u32, n as u32)
+                            .map_err(|e| RealizarError::UnsupportedOperation {
+                                operation: "GPU Q4K batched GEMV cached".to_string(),
+                                reason: format!("CUDA batched Q4K GEMV '{}' failed: {e}", weight_name),
+                            })?;
+                    }
+                }
+                14 => {
+                    // Q6_K: use single GEMV, loop for batched
+                    if m == 1 {
+                        self.executor
+                            .q6k_gemv_cached(weight_name, a, &mut c, n as u32, k as u32)
+                            .map_err(|e| RealizarError::UnsupportedOperation {
+                                operation: "GPU Q6K GEMV cached".to_string(),
+                                reason: format!("CUDA Q6K GEMV '{}' failed: {e}", weight_name),
+                            })?;
+                    } else {
+                        // Batched Q6K: process each row individually
+                        for row in 0..m {
+                            let row_input = &a[row * k..(row + 1) * k];
+                            let row_output = &mut c[row * n..(row + 1) * n];
+                            self.executor
+                                .q6k_gemv_cached(weight_name, row_input, row_output, n as u32, k as u32)
+                                .map_err(|e| RealizarError::UnsupportedOperation {
+                                    operation: "GPU Q6K GEMV cached (batched)".to_string(),
+                                    reason: format!("CUDA Q6K GEMV '{}' row {row} failed: {e}", weight_name),
+                                })?;
+                        }
+                    }
+                }
+                _ => {
+                    // Unsupported quantization type, fall back to F32 GEMM
+                    self.executor
+                        .gemm_b_cached(weight_name, a, &mut c, m as u32, n as u32, k as u32)
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "GPU GEMM cached (qtype fallback)".to_string(),
+                            reason: format!("CUDA GEMM '{}' qtype={qtype} failed: {e}", weight_name),
+                        })?;
+                }
+            }
+            Ok(c)
+        } else {
+            // F32 path: standard GEMM with cached weights
+            let mut c = vec![0.0f32; m * n];
+            self.executor
+                .gemm_b_cached(weight_name, a, &mut c, m as u32, n as u32, k as u32)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "GPU GEMM cached".to_string(),
+                    reason: format!("CUDA GEMM with cached weight '{}' failed: {e}", weight_name),
+                })?;
+            Ok(c)
+        }
     }
 
     /// Check if a weight is cached on GPU.
