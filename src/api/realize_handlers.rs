@@ -11,6 +11,35 @@ use crate::generate::{GenerationConfig, SamplingStrategy};
 use crate::registry::ModelInfo;
 
 // ============================================================================
+// Shared helpers
+// ============================================================================
+
+/// Shorthand error type for realize handlers.
+type RErr = (StatusCode, Json<ErrorResponse>);
+
+/// Build an error response, recording a failure metric.
+fn rerr(state: &AppState, status: StatusCode, msg: impl std::fmt::Display) -> RErr {
+    state.metrics.record_failure();
+    (status, Json(ErrorResponse { error: msg.to_string() }))
+}
+
+/// Current unix epoch seconds.
+fn epoch_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Current unix epoch millis (for response IDs).
+fn epoch_millis() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+}
+
+// ============================================================================
 // Context Window Management (per spec §5.2)
 // ============================================================================
 
@@ -550,530 +579,242 @@ pub async fn realize_reload_handler(
     }))
 }
 
-/// OpenAI-compatible completions handler (/v1/completions)
-pub async fn openai_completions_handler(
-    State(state): State<AppState>,
-    Json(request): Json<CompletionRequest>,
-) -> Result<Json<CompletionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let start = std::time::Instant::now();
+// ── openai_completions_handler backend dispatch ─────────────────────
 
-    // Build generation config
-    let max_tokens = request.max_tokens.unwrap_or(256);
-    let temperature = request.temperature.unwrap_or(0.7) as f32;
-
-    // IMP-116: Try cached model first (10.6x speedup from scheduler caching)
-    #[cfg(feature = "gpu")]
-    if let Some(cached_model) = state.cached_model() {
-        use crate::gguf::QuantizedGenerateConfig;
-
-        // Get tokenizer for encoding/decoding
-        let tokenizer = state.tokenizer.clone().ok_or_else(|| {
-            state.metrics.record_failure();
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "No tokenizer available".to_string(),
-                }),
-            )
-        })?;
-
-        // Tokenize prompt
-        let prompt_ids = tokenizer.encode(&request.prompt);
-        if prompt_ids.is_empty() {
-            state.metrics.record_failure();
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Prompt cannot be empty".to_string(),
-                }),
-            ));
-        }
-
-        let prompt_tokens = prompt_ids.len();
-
-        // PARITY-054: Use batch path if enabled for higher throughput under load
-        if state.batch_enabled() {
-            if let Some(batch_tx) = state.batch_request_tx() {
-                // Create oneshot channel for response
-                let (response_tx, response_rx) = tokio::sync::oneshot::channel();
-
-                // Build batch request
-                let batch_request = ContinuousBatchRequest {
-                    prompt_tokens: prompt_ids.clone(),
-                    max_tokens,
-                    temperature,
-                    top_k: if temperature == 0.0 { 1 } else { 40 },
-                    response_tx,
-                    submitted_at: std::time::Instant::now(),
-                };
-
-                // Send to batch processor
-                if batch_tx.send(batch_request).await.is_ok() {
-                    // Wait for response
-                    match response_rx.await {
-                        Ok(batch_response) => {
-                            // Extract generated tokens (skip prompt)
-                            let token_ids = batch_response.generated_tokens().to_vec();
-                            let completion_tokens = token_ids.len();
-
-                            // Decode generated text
-                            let text = tokenizer.decode(&token_ids).map_err(|e| {
-                                state.metrics.record_failure();
-                                (
-                                    StatusCode::INTERNAL_SERVER_ERROR,
-                                    Json(ErrorResponse {
-                                        error: e.to_string(),
-                                    }),
-                                )
-                            })?;
-
-                            // Record metrics
-                            let latency = start.elapsed();
-                            state.metrics.record_success(completion_tokens, latency);
-
-                            // Generate response ID
-                            let response_id = format!(
-                                "cmpl-batch-{}",
-                                std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_millis()
-                            );
-
-                            return Ok(Json(CompletionResponse {
-                                id: response_id,
-                                object: "text_completion".to_string(),
-                                created: std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .map(|d| d.as_secs())
-                                    .unwrap_or(0),
-                                model: format!("batch-q4k-{}", batch_response.batch_size),
-                                choices: vec![CompletionChoice {
-                                    text,
-                                    index: 0,
-                                    logprobs: None,
-                                    finish_reason: if completion_tokens >= max_tokens {
-                                        "length".to_string()
-                                    } else {
-                                        "stop".to_string()
-                                    },
-                                }],
-                                usage: Usage {
-                                    prompt_tokens,
-                                    completion_tokens,
-                                    total_tokens: prompt_tokens + completion_tokens,
-                                },
-                            }));
-                        },
-                        Err(_) => {
-                            // Batch processor dropped, fall through to single-request path
-                        },
-                    }
-                }
-                // If send failed, fall through to single-request path
-            }
-        }
-
-        // Build quantized generation config
-        let q_config = QuantizedGenerateConfig {
-            max_tokens,
-            temperature,
-            top_k: if temperature == 0.0 { 1 } else { 40 },
-            stop_tokens: Vec::new(),
-            trace: false,
-        };
-
-        // IMP-126: Use adaptive generation when dispatch_metrics available
-        // This enables automatic CPU/GPU switching based on KV cache length
-        let generated = if let Some(metrics) = state.dispatch_metrics() {
-            cached_model
-                .generate_with_cache_adaptive(&prompt_ids, &q_config, metrics)
-                .map_err(|e| {
-                    state.metrics.record_failure();
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse {
-                            error: e.to_string(),
-                        }),
-                    )
-                })?
-        } else {
-            // Fallback to standard generation if no metrics configured
-            cached_model
-                .generate_with_cache(&prompt_ids, &q_config)
-                .map_err(|e| {
-                    state.metrics.record_failure();
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse {
-                            error: e.to_string(),
-                        }),
-                    )
-                })?
-        };
-
-        // Skip prompt tokens
-        let token_ids: Vec<u32> = generated.iter().skip(prompt_tokens).copied().collect();
-
-        let completion_tokens = token_ids.len();
-
-        // Decode generated text
-        let text = tokenizer.decode(&token_ids).map_err(|e| {
-            state.metrics.record_failure();
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
-
-        // Record metrics
-        let latency = start.elapsed();
-        state.metrics.record_success(completion_tokens, latency);
-
-        // Generate response ID
-        let response_id = format!(
-            "cmpl-cached-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis()
-        );
-
-        return Ok(Json(CompletionResponse {
-            id: response_id,
-            object: "text_completion".to_string(),
-            created: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0),
-            model: "cached-q4k".to_string(),
-            choices: vec![CompletionChoice {
-                text,
-                index: 0,
-                logprobs: None,
-                finish_reason: if completion_tokens >= max_tokens {
-                    "length".to_string()
-                } else {
-                    "stop".to_string()
-                },
-            }],
-            usage: Usage {
-                prompt_tokens,
-                completion_tokens,
-                total_tokens: prompt_tokens + completion_tokens,
-            },
-        }));
+/// Build a CompletionResponse from generated tokens.
+fn completion_resp(
+    id_prefix: &str,
+    model: String,
+    text: String,
+    prompt_tokens: usize,
+    completion_tokens: usize,
+    max_tokens: usize,
+) -> CompletionResponse {
+    let finish_reason = if completion_tokens >= max_tokens { "length" } else { "stop" };
+    CompletionResponse {
+        id: format!("{id_prefix}-{}", epoch_millis()),
+        object: "text_completion".to_string(),
+        created: epoch_secs(),
+        model,
+        choices: vec![CompletionChoice {
+            text,
+            index: 0,
+            logprobs: None,
+            finish_reason: finish_reason.to_string(),
+        }],
+        usage: Usage {
+            prompt_tokens,
+            completion_tokens,
+            total_tokens: prompt_tokens + completion_tokens,
+        },
     }
+}
 
-    // IMP-100: Try quantized model (fallback from cached)
-    if let Some(quantized_model) = state.quantized_model() {
-        use crate::gguf::QuantizedGenerateConfig;
+/// Cached model backend (includes batch path). Returns None if not available.
+#[cfg(feature = "gpu")]
+async fn try_cached_completions(
+    state: &AppState,
+    request: &CompletionRequest,
+    max_tokens: usize,
+    temperature: f32,
+    start: std::time::Instant,
+) -> Result<Option<CompletionResponse>, RErr> {
+    use crate::gguf::QuantizedGenerateConfig;
 
-        // Get tokenizer for encoding/decoding
-        let tokenizer = state.tokenizer.clone().ok_or_else(|| {
-            state.metrics.record_failure();
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "No tokenizer available".to_string(),
-                }),
-            )
-        })?;
-
-        // Tokenize prompt
-        let prompt_ids = tokenizer.encode(&request.prompt);
-        if prompt_ids.is_empty() {
-            state.metrics.record_failure();
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Prompt cannot be empty".to_string(),
-                }),
-            ));
-        }
-
-        let prompt_tokens = prompt_ids.len();
-
-        // Build quantized generation config
-        let q_config = QuantizedGenerateConfig {
-            max_tokens,
-            temperature,
-            top_k: if temperature == 0.0 { 1 } else { 40 },
-            stop_tokens: Vec::new(),
-            trace: false,
-        };
-
-        // Generate with KV cache for O(n) per-token decoding (IMP-102b)
-        // This uses fused Q4_K operations + KV cache for 2.6-9.7x speedup
-        let generated = quantized_model
-            .generate_with_cache(&prompt_ids, &q_config)
-            .map_err(|e| {
-                state.metrics.record_failure();
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: e.to_string(),
-                    }),
-                )
-            })?;
-
-        // Skip prompt tokens
-        let token_ids: Vec<u32> = generated.iter().skip(prompt_tokens).copied().collect();
-
-        let completion_tokens = token_ids.len();
-
-        // Decode generated text
-        let text = tokenizer.decode(&token_ids).map_err(|e| {
-            state.metrics.record_failure();
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
-
-        // Record metrics
-        let latency = start.elapsed();
-        state.metrics.record_success(completion_tokens, latency);
-
-        // Generate response ID
-        let response_id = format!(
-            "cmpl-q4k-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis()
-        );
-
-        return Ok(Json(CompletionResponse {
-            id: response_id,
-            object: "text_completion".to_string(),
-            created: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-            model: request.model.clone(),
-            choices: vec![CompletionChoice {
-                text,
-                index: 0,
-                logprobs: None,
-                finish_reason: "stop".to_string(),
-            }],
-            usage: Usage {
-                prompt_tokens,
-                completion_tokens,
-                total_tokens: prompt_tokens + completion_tokens,
-            },
-        }));
-    }
-
-    // M33 (IMP-085): Try GPU model if quantized not available
-    #[cfg(feature = "gpu")]
-    if let Some(gpu_model_lock) = state.gpu_model() {
-        use crate::gpu::GpuGenerateConfig;
-
-        // Get tokenizer for encoding/decoding
-        let tokenizer = state.tokenizer.clone().ok_or_else(|| {
-            state.metrics.record_failure();
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "No tokenizer available".to_string(),
-                }),
-            )
-        })?;
-
-        // Tokenize prompt
-        let prompt_ids = tokenizer.encode(&request.prompt);
-        if prompt_ids.is_empty() {
-            state.metrics.record_failure();
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Prompt cannot be empty".to_string(),
-                }),
-            ));
-        }
-
-        let prompt_tokens = prompt_ids.len();
-        let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
-
-        // Build GPU generation config
-        let gpu_config = GpuGenerateConfig {
-            max_tokens,
-            temperature,
-            top_k: 1, // Greedy for now
-            stop_tokens: Vec::new(),
-            trace: false,
-        };
-
-        // Generate with GPU model
-        let mut gpu_model = gpu_model_lock.write().map_err(|e| {
-            state.metrics.record_failure();
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Failed to acquire GPU model lock: {e}"),
-                }),
-            )
-        })?;
-
-        let generated = gpu_model.generate(&prompt, &gpu_config).map_err(|e| {
-            state.metrics.record_failure();
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
-
-        // Convert to u32 for tokenizer
-        let token_ids: Vec<u32> = generated
-            .iter()
-            .skip(prompt_tokens)
-            .filter_map(|&id| u32::try_from(id).ok())
-            .collect();
-
-        let completion_tokens = token_ids.len();
-
-        // Decode generated text
-        let text = tokenizer.decode(&token_ids).map_err(|e| {
-            state.metrics.record_failure();
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
-
-        // Record metrics
-        let latency = start.elapsed();
-        state.metrics.record_success(completion_tokens, latency);
-
-        // Generate response ID
-        let response_id = format!("cmpl-{}", &uuid::Uuid::new_v4().to_string()[..8]);
-
-        return Ok(Json(CompletionResponse {
-            id: response_id,
-            object: "text_completion".to_string(),
-            created: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-            model: request.model.clone(),
-            choices: vec![CompletionChoice {
-                text,
-                index: 0,
-                logprobs: None,
-                finish_reason: "stop".to_string(),
-            }],
-            usage: Usage {
-                prompt_tokens,
-                completion_tokens,
-                total_tokens: prompt_tokens + completion_tokens,
-            },
-        }));
-    }
-
-    // Fall back to CPU model
-    let model_id = if request.model == "default" || request.model.is_empty() {
-        None
-    } else {
-        Some(request.model.as_str())
+    let cached_model = match state.cached_model() {
+        Some(m) => m,
+        None => return Ok(None),
     };
-
-    let (model, tokenizer) = state.get_model(model_id).map_err(|e| {
-        state.metrics.record_failure();
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
-
-    // Tokenize prompt
+    let tokenizer = state
+        .tokenizer
+        .clone()
+        .ok_or_else(|| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, "No tokenizer available"))?;
     let prompt_ids = tokenizer.encode(&request.prompt);
     if prompt_ids.is_empty() {
-        state.metrics.record_failure();
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Prompt cannot be empty".to_string(),
-            }),
-        ));
+        return Err(rerr(state, StatusCode::BAD_REQUEST, "Prompt cannot be empty"));
     }
-
     let prompt_tokens = prompt_ids.len();
 
-    // Convert to usize for model
-    let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
-
-    let mut config = GenerationConfig::default()
-        .with_max_tokens(max_tokens)
-        .with_temperature(temperature);
-
-    if let Some(top_p) = request.top_p {
-        config.strategy = SamplingStrategy::TopP { p: top_p as f32 };
+    // PARITY-054: Try batch path first
+    if state.batch_enabled() {
+        if let Some(batch_tx) = state.batch_request_tx() {
+            let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+            let batch_request = ContinuousBatchRequest {
+                prompt_tokens: prompt_ids.clone(),
+                max_tokens,
+                temperature,
+                top_k: if temperature == 0.0 { 1 } else { 40 },
+                response_tx,
+                submitted_at: std::time::Instant::now(),
+            };
+            if batch_tx.send(batch_request).await.is_ok() {
+                if let Ok(batch_response) = response_rx.await {
+                    let token_ids = batch_response.generated_tokens().to_vec();
+                    let completion_tokens = token_ids.len();
+                    let text = tokenizer
+                        .decode(&token_ids)
+                        .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
+                    state.metrics.record_success(completion_tokens, start.elapsed());
+                    return Ok(Some(completion_resp(
+                        "cmpl-batch",
+                        format!("batch-q4k-{}", batch_response.batch_size),
+                        text,
+                        prompt_tokens,
+                        completion_tokens,
+                        max_tokens,
+                    )));
+                }
+            }
+        }
     }
 
-    // Generate
-    let generated = model.generate(&prompt, &config).map_err(|e| {
-        state.metrics.record_failure();
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
+    // Single-request cached path
+    let q_config = QuantizedGenerateConfig {
+        max_tokens,
+        temperature,
+        top_k: if temperature == 0.0 { 1 } else { 40 },
+        stop_tokens: Vec::new(),
+        trace: false,
+    };
 
-    // Convert to u32 for tokenizer
+    // IMP-126: adaptive generation when dispatch_metrics available
+    let generated = if let Some(metrics) = state.dispatch_metrics() {
+        cached_model
+            .generate_with_cache_adaptive(&prompt_ids, &q_config, metrics)
+            .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?
+    } else {
+        cached_model
+            .generate_with_cache(&prompt_ids, &q_config)
+            .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?
+    };
+
+    let token_ids: Vec<u32> = generated.iter().skip(prompt_tokens).copied().collect();
+    let completion_tokens = token_ids.len();
+    let text = tokenizer
+        .decode(&token_ids)
+        .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    state.metrics.record_success(completion_tokens, start.elapsed());
+
+    Ok(Some(completion_resp(
+        "cmpl-cached",
+        "cached-q4k".to_string(),
+        text,
+        prompt_tokens,
+        completion_tokens,
+        max_tokens,
+    )))
+}
+
+/// Quantized model (CPU GGUF) backend.
+fn try_quantized_completions(
+    state: &AppState,
+    request: &CompletionRequest,
+    max_tokens: usize,
+    temperature: f32,
+    start: std::time::Instant,
+) -> Result<Option<CompletionResponse>, RErr> {
+    use crate::gguf::QuantizedGenerateConfig;
+
+    let quantized_model = match state.quantized_model() {
+        Some(m) => m,
+        None => return Ok(None),
+    };
+    let tokenizer = state
+        .tokenizer
+        .clone()
+        .ok_or_else(|| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, "No tokenizer available"))?;
+    let prompt_ids = tokenizer.encode(&request.prompt);
+    if prompt_ids.is_empty() {
+        return Err(rerr(state, StatusCode::BAD_REQUEST, "Prompt cannot be empty"));
+    }
+    let prompt_tokens = prompt_ids.len();
+
+    let q_config = QuantizedGenerateConfig {
+        max_tokens,
+        temperature,
+        top_k: if temperature == 0.0 { 1 } else { 40 },
+        stop_tokens: Vec::new(),
+        trace: false,
+    };
+
+    let generated = quantized_model
+        .generate_with_cache(&prompt_ids, &q_config)
+        .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let token_ids: Vec<u32> = generated.iter().skip(prompt_tokens).copied().collect();
+    let completion_tokens = token_ids.len();
+    let text = tokenizer
+        .decode(&token_ids)
+        .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    state.metrics.record_success(completion_tokens, start.elapsed());
+
+    Ok(Some(completion_resp(
+        "cmpl-q4k",
+        request.model.clone(),
+        text,
+        prompt_tokens,
+        completion_tokens,
+        max_tokens,
+    )))
+}
+
+/// GPU model backend.
+#[cfg(feature = "gpu")]
+fn try_gpu_completions(
+    state: &AppState,
+    request: &CompletionRequest,
+    max_tokens: usize,
+    temperature: f32,
+    start: std::time::Instant,
+) -> Result<Option<CompletionResponse>, RErr> {
+    use crate::gpu::GpuGenerateConfig;
+
+    let gpu_model_lock = match state.gpu_model() {
+        Some(l) => l,
+        None => return Ok(None),
+    };
+    let tokenizer = state
+        .tokenizer
+        .clone()
+        .ok_or_else(|| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, "No tokenizer available"))?;
+    let prompt_ids = tokenizer.encode(&request.prompt);
+    if prompt_ids.is_empty() {
+        return Err(rerr(state, StatusCode::BAD_REQUEST, "Prompt cannot be empty"));
+    }
+    let prompt_tokens = prompt_ids.len();
+    let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
+
+    let gpu_config = GpuGenerateConfig {
+        max_tokens,
+        temperature,
+        top_k: 1,
+        stop_tokens: Vec::new(),
+        trace: false,
+    };
+
+    let mut gpu_model = gpu_model_lock
+        .write()
+        .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, format!("GPU lock: {e}")))?;
+    let generated = gpu_model
+        .generate(&prompt, &gpu_config)
+        .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
     let token_ids: Vec<u32> = generated
         .iter()
         .skip(prompt_tokens)
         .filter_map(|&id| u32::try_from(id).ok())
         .collect();
-
     let completion_tokens = token_ids.len();
+    let text = tokenizer
+        .decode(&token_ids)
+        .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    state.metrics.record_success(completion_tokens, start.elapsed());
 
-    // Decode generated text
-    let text = tokenizer.decode(&token_ids).map_err(|e| {
-        state.metrics.record_failure();
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
-
-    // Record metrics
-    let latency = start.elapsed();
-    state.metrics.record_success(completion_tokens, latency);
-
-    // Generate response ID
-    let response_id = format!(
-        "cmpl-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    );
-
-    Ok(Json(CompletionResponse {
+    let response_id = format!("cmpl-{}", &uuid::Uuid::new_v4().to_string()[..8]);
+    Ok(Some(CompletionResponse {
         id: response_id,
         object: "text_completion".to_string(),
-        created: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
-        model: request.model,
+        created: epoch_secs(),
+        model: request.model.clone(),
         choices: vec![CompletionChoice {
             text,
             index: 0,
@@ -1086,6 +827,87 @@ pub async fn openai_completions_handler(
             total_tokens: prompt_tokens + completion_tokens,
         },
     }))
+}
+
+/// CPU model fallback.
+fn registry_completions(
+    state: &AppState,
+    request: &CompletionRequest,
+    max_tokens: usize,
+    temperature: f32,
+    start: std::time::Instant,
+) -> Result<CompletionResponse, RErr> {
+    let model_id = if request.model == "default" || request.model.is_empty() {
+        None
+    } else {
+        Some(request.model.as_str())
+    };
+
+    let (model, tokenizer) = state
+        .get_model(model_id)
+        .map_err(|e| rerr(state, StatusCode::NOT_FOUND, e))?;
+    let prompt_ids = tokenizer.encode(&request.prompt);
+    if prompt_ids.is_empty() {
+        return Err(rerr(state, StatusCode::BAD_REQUEST, "Prompt cannot be empty"));
+    }
+    let prompt_tokens = prompt_ids.len();
+    let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
+
+    let mut config = GenerationConfig::default()
+        .with_max_tokens(max_tokens)
+        .with_temperature(temperature);
+    if let Some(top_p) = request.top_p {
+        config.strategy = SamplingStrategy::TopP { p: top_p as f32 };
+    }
+
+    let generated = model
+        .generate(&prompt, &config)
+        .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let token_ids: Vec<u32> = generated
+        .iter()
+        .skip(prompt_tokens)
+        .filter_map(|&id| u32::try_from(id).ok())
+        .collect();
+    let completion_tokens = token_ids.len();
+    let text = tokenizer
+        .decode(&token_ids)
+        .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    state.metrics.record_success(completion_tokens, start.elapsed());
+
+    Ok(completion_resp(
+        "cmpl",
+        request.model.clone(),
+        text,
+        prompt_tokens,
+        completion_tokens,
+        max_tokens,
+    ))
+}
+
+pub async fn openai_completions_handler(
+    State(state): State<AppState>,
+    Json(request): Json<CompletionRequest>,
+) -> Result<Json<CompletionResponse>, RErr> {
+    let start = std::time::Instant::now();
+    let max_tokens = request.max_tokens.unwrap_or(256);
+    let temperature = request.temperature.unwrap_or(0.7) as f32;
+
+    #[cfg(feature = "gpu")]
+    if let Some(r) = try_cached_completions(&state, &request, max_tokens, temperature, start).await?
+    {
+        return Ok(Json(r));
+    }
+
+    if let Some(r) = try_quantized_completions(&state, &request, max_tokens, temperature, start)? {
+        return Ok(Json(r));
+    }
+
+    #[cfg(feature = "gpu")]
+    if let Some(r) = try_gpu_completions(&state, &request, max_tokens, temperature, start)? {
+        return Ok(Json(r));
+    }
+
+    Ok(Json(registry_completions(&state, &request, max_tokens, temperature, start)?))
 }
 
 /// OpenAI-compatible embeddings handler (/v1/embeddings)
