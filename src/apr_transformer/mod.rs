@@ -478,7 +478,7 @@ impl AprTransformer {
         }
 
         // GH-187: Enhanced logging for embedding tensor (ALWAYS log, not just debug)
-        // This class of bug (transposition mismatch) has occurred 50+ times
+        // Transposition mismatch is the most common root cause for incorrect output
         let embed_names = [
             "model.embed_tokens.weight",
             "token_embd.weight",

@@ -128,8 +128,8 @@ pub(crate) fn bpe_encode(
     merges: &[(String, String)],
     special_tokens: &HashMap<String, u32>,
 ) -> Vec<u32> {
-    // F-REGR-231: First, split text by special tokens
-    // This ensures tokens like <|im_start|> are not broken into characters
+    // F-REGR-231: Split text by special tokens first so that multi-char
+    // sequences like <|im_start|> are preserved as single tokens
     let segments = split_by_special_tokens(text, special_tokens);
 
     let mut result = Vec::new();
