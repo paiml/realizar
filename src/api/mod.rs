@@ -88,6 +88,9 @@ pub use types::{
     StreamDoneEvent, StreamTokenEvent, TokenizeRequest, TokenizeResponse,
 };
 pub use types::{default_max_tokens, default_top_k};
+#[cfg(test)]
+pub(crate) use types::{default_strategy, default_temperature, default_top_p};
+pub use crate::registry::ModelInfo;
 
 /// Application state shared across handlers
 #[derive(Clone)]

@@ -43,6 +43,7 @@ mod cuda;
 mod cuda_model;
 mod inference;
 mod inference_types;
+mod io;
 mod loader;
 mod model;
 mod owned;
