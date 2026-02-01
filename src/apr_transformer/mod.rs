@@ -36,7 +36,9 @@ use crate::error::{RealizarError, Result};
 
 // PMAT-802: Extracted modules
 mod config;
+mod convert;
 mod dequant;
+mod generation;
 mod helpers;
 mod loader;
 mod q4_simd;
@@ -955,13 +957,7 @@ impl AprTransformer {
         embeddings
     }
 
-    /// RMSNorm (Root Mean Square Layer Normalization)
-    ///
-    /// Used by Qwen2, LLaMA, Mistral, and most modern LLMs.
-    /// Formula: output = x / sqrt(mean(x^2) + eps) * weight
-    ///
-    /// PMAT-094: Fixed five-whys root cause - was using LayerNorm (mean subtraction)
-    /// instead of RMSNorm which caused garbage output for Qwen2 models.
+    /// RMSNorm (delegates to helpers module)
     fn layer_norm(
         &self,
         input: &[f32],
@@ -969,188 +965,30 @@ impl AprTransformer {
         bias: Option<&[f32]>,
         eps: f32,
     ) -> Vec<f32> {
-        let hidden_dim = self.config.hidden_dim;
-        let seq_len = input.len() / hidden_dim;
-        let mut output = Vec::with_capacity(input.len());
-
-        for s in 0..seq_len {
-            let start = s * hidden_dim;
-            let slice = &input[start..start + hidden_dim];
-
-            // RMSNorm: compute root mean square (no mean subtraction!)
-            let sum_sq: f32 = slice.iter().map(|x| x * x).sum();
-            let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
-
-            // Normalize and scale
-            for (i, &x) in slice.iter().enumerate() {
-                let normalized = x / rms;
-                let scaled = normalized * weight[i];
-                let shifted = if let Some(b) = bias {
-                    scaled + b[i]
-                } else {
-                    scaled
-                };
-                output.push(shifted);
-            }
-        }
-
-        output
+        helpers::rms_norm(input, weight, bias, self.config.hidden_dim, eps)
     }
 
-    /// Matrix multiplication: output[out_dim] = weight[out_dim, in_dim] @ input[in_dim]
-    ///
-    /// PMAT-095 FIX: Weights are now stored in matvec-optimal [out_dim, in_dim] format.
-    ///
-    /// PMAT-103 FIX: Zero-copy implementation using raw slice operations.
-    /// Previous implementations had O(n) allocation overhead per matmul call.
+    /// Matrix multiplication (delegates to helpers module)
     #[allow(clippy::unused_self)]
     fn matmul(&self, input: &[f32], weight: &[f32], in_dim: usize, out_dim: usize) -> Vec<f32> {
-        let seq_len = input.len() / in_dim;
-        let expected_size = in_dim * out_dim;
-
-        if weight.len() != expected_size {
-            return self.matmul_scalar(input, weight, in_dim, out_dim);
-        }
-
-        let mut output = vec![0.0f32; seq_len * out_dim];
-
-        for s in 0..seq_len {
-            let input_start = s * in_dim;
-            let input_slice = &input[input_start..input_start + in_dim];
-            let out_start = s * out_dim;
-
-            // PMAT-103: Unrolled dot product for better cache utilization
-            // Process 4 output elements at a time when possible
-            let out_chunks = out_dim / 4;
-            let out_remainder = out_dim % 4;
-
-            for o_chunk in 0..out_chunks {
-                let o_base = o_chunk * 4;
-                let mut sum0 = 0.0f32;
-                let mut sum1 = 0.0f32;
-                let mut sum2 = 0.0f32;
-                let mut sum3 = 0.0f32;
-
-                let w0_start = (o_base) * in_dim;
-                let w1_start = (o_base + 1) * in_dim;
-                let w2_start = (o_base + 2) * in_dim;
-                let w3_start = (o_base + 3) * in_dim;
-
-                for i in 0..in_dim {
-                    let x = input_slice[i];
-                    sum0 += x * weight[w0_start + i];
-                    sum1 += x * weight[w1_start + i];
-                    sum2 += x * weight[w2_start + i];
-                    sum3 += x * weight[w3_start + i];
-                }
-
-                output[out_start + o_base] = sum0;
-                output[out_start + o_base + 1] = sum1;
-                output[out_start + o_base + 2] = sum2;
-                output[out_start + o_base + 3] = sum3;
-            }
-
-            // Handle remainder
-            for o in (out_dim - out_remainder)..out_dim {
-                let w_start = o * in_dim;
-                let mut sum = 0.0f32;
-                for i in 0..in_dim {
-                    sum += input_slice[i] * weight[w_start + i];
-                }
-                output[out_start + o] = sum;
-            }
-        }
-
-        output
+        helpers::f32_matmul(input, weight, in_dim, out_dim)
     }
 
-    /// Scalar fallback for matmul (used when trueno fails)
-    ///
-    /// PMAT-095: Weight is [out_dim, in_dim] row-major format
-    #[allow(clippy::unused_self)]
-    fn matmul_scalar(
-        &self,
-        input: &[f32],
-        weight: &[f32],
-        in_dim: usize,
-        out_dim: usize,
-    ) -> Vec<f32> {
-        let seq_len = input.len() / in_dim;
-        let mut output = Vec::with_capacity(seq_len * out_dim);
-
-        for s in 0..seq_len {
-            let input_start = s * in_dim;
-            let input_slice = &input[input_start..input_start + in_dim];
-
-            for o in 0..out_dim {
-                let mut sum = 0.0;
-                for (i, &input_val) in input_slice.iter().enumerate() {
-                    // PMAT-095: Weight is [out_dim, in_dim] row-major
-                    let weight_idx = o * in_dim + i;
-                    if weight_idx < weight.len() {
-                        sum += input_val * weight[weight_idx];
-                    }
-                }
-                output.push(sum);
-            }
-        }
-
-        output
-    }
-
-    /// Add bias in-place
+    /// Add bias in-place (delegates to helpers module)
     #[allow(clippy::unused_self)]
     fn add_bias(&self, data: &mut [f32], bias: &[f32]) {
-        let dim = bias.len();
-        for (i, val) in data.iter_mut().enumerate() {
-            *val += bias[i % dim];
-        }
+        helpers::add_bias_inplace(data, bias);
     }
 
-    /// GELU activation (tanh approximation)
+    /// GELU activation (delegates to helpers module)
     #[allow(clippy::unused_self)]
     fn gelu(&self, data: &mut [f32]) {
-        const SQRT_2_OVER_PI: f32 = 0.797_884_6;
-        const GELU_COEFF: f32 = 0.044_715;
-
-        for x in data.iter_mut() {
-            let x3 = *x * *x * *x;
-            let inner = SQRT_2_OVER_PI * (*x + GELU_COEFF * x3);
-            *x = 0.5 * *x * (1.0 + inner.tanh());
-        }
+        helpers::gelu_inplace(data);
     }
 
-    /// Apply Rotary Position Embedding (RoPE) to Q or K vectors
-    ///
-    /// RoPE encodes position information by rotating pairs of elements
-    /// with position-dependent angles.
+    /// Apply RoPE (delegates to helpers module)
     fn apply_rope_f32(&self, x: &mut [f32], position: usize, num_heads: usize, head_dim: usize) {
-        let half_dim = head_dim / 2;
-        let theta = self.config.rope_theta;
-        let pos_f32 = position as f32;
-        let head_dim_f32 = head_dim as f32;
-
-        for h in 0..num_heads {
-            let head_start = h * head_dim;
-            let idx2_start = head_start + half_dim;
-
-            if idx2_start + half_dim > x.len() {
-                continue;
-            }
-
-            for i in 0..half_dim {
-                let freq = 1.0 / theta.powf(2.0 * i as f32 / head_dim_f32);
-                let angle = pos_f32 * freq;
-                let (sin_val, cos_val) = angle.sin_cos();
-
-                let x1 = x[head_start + i];
-                let x2 = x[idx2_start + i];
-
-                // Apply rotation: [cos -sin; sin cos] * [x1; x2]
-                x[head_start + i] = x1 * cos_val - x2 * sin_val;
-                x[idx2_start + i] = x1 * sin_val + x2 * cos_val;
-            }
-        }
+        helpers::apply_rope_f32(x, position, num_heads, head_dim, self.config.rope_theta);
     }
 
     /// Forward pass through the transformer
@@ -2112,153 +1950,9 @@ impl AprTransformer {
         Ok(logits)
     }
 
-    /// Generate tokens using KV cache for efficiency (Y4)
-    ///
-    /// # Arguments
-    ///
-    /// * `prompt` - Initial token IDs
-    /// * `config` - Generation configuration
-    ///
-    /// # Returns
-    ///
-    /// Generated token sequence (including prompt)
+    /// Generate tokens using KV cache (delegates to generation module)
     pub fn generate_with_cache(&self, prompt: &[u32], config: &GenerateConfig) -> Result<Vec<u32>> {
-        if prompt.is_empty() {
-            return Err(RealizarError::InvalidShape {
-                reason: "Prompt cannot be empty".to_string(),
-            });
-        }
-
-        let mut cache = AprKVCache::new(&self.config);
-        let mut output = prompt.to_vec();
-
-        // PMAT-103 FIX: Process prompt tokens and KEEP the logits from the last one.
-        // Previously we threw away all logits (`let _ = ...`) and then reprocessed
-        // the last prompt token at the same position, corrupting the KV cache.
-        let mut logits = Vec::new();
-
-        // PMAT-103 TRACE: Measure per-token timing to verify O(n) vs O(n²)
-        let trace_enabled = std::env::var("REALIZE_TRACE").is_ok();
-        if trace_enabled {
-            eprintln!("[TRACE] Processing {} prompt tokens...", prompt.len());
-        }
-
-        for (pos, &token) in prompt.iter().enumerate() {
-            let start = std::time::Instant::now();
-            logits = self.forward_with_cache(token, &mut cache, pos)?;
-            if trace_enabled {
-                eprintln!("[TRACE] Prompt token {}: {:?}", pos, start.elapsed());
-            }
-        }
-
-        // Generate new tokens using the logits we already have
-        for i in 0..config.max_tokens {
-            // Sample from current logits (which predict the NEXT token)
-            let next_token = if config.temperature == 0.0 {
-                logits
-                    .iter()
-                    .enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                    .map_or(0, |(idx, _)| idx as u32)
-            } else {
-                let scaled: Vec<f32> = logits.iter().map(|l| l / config.temperature).collect();
-                let max_val = scaled.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                let exp_vals: Vec<f32> = scaled.iter().map(|s| (s - max_val).exp()).collect();
-                let sum: f32 = exp_vals.iter().sum();
-                let probs: Vec<f32> = exp_vals.iter().map(|e| e / sum).collect();
-                probs
-                    .iter()
-                    .enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                    .map_or(0, |(idx, _)| idx as u32)
-            };
-
-            output.push(next_token);
-
-            // Check for EOS tokens
-            if next_token == 0 || next_token == 2 || next_token == 151645 || next_token == 151643 {
-                break;
-            }
-
-            // If we need more tokens, process this one to get logits for the next
-            if i < config.max_tokens - 1 {
-                // Position is output.len() - 1 = prompt.len() + (i + 1) - 1 = prompt.len() + i
-                let start = std::time::Instant::now();
-                logits = self.forward_with_cache(next_token, &mut cache, output.len() - 1)?;
-                if trace_enabled {
-                    eprintln!(
-                        "[TRACE] Gen token {} (pos {}): {:?}",
-                        i,
-                        output.len() - 1,
-                        start.elapsed()
-                    );
-                }
-            }
-        }
-
-        if trace_enabled {
-            eprintln!(
-                "[TRACE] Generation complete. Total output tokens: {}",
-                output.len()
-            );
-        }
-
-        Ok(output)
-    }
-}
-
-/// Convert from `GGUFTransformer` to APR format
-///
-/// This dequantizes all GGUF weights to F32 for WASM compatibility.
-#[cfg(feature = "default")]
-impl From<&crate::gguf::GGUFTransformer> for AprTransformer {
-    fn from(gguf: &crate::gguf::GGUFTransformer) -> Self {
-        let config = AprTransformerConfig {
-            architecture: gguf.config.architecture.clone(),
-            hidden_dim: gguf.config.hidden_dim,
-            num_layers: gguf.config.num_layers,
-            num_heads: gguf.config.num_heads,
-            num_kv_heads: gguf.config.num_kv_heads,
-            vocab_size: gguf.config.vocab_size,
-            intermediate_dim: gguf.config.intermediate_dim,
-            context_length: gguf.config.context_length,
-            rope_theta: gguf.config.rope_theta,
-            eps: gguf.config.eps,
-        };
-
-        let layers = gguf
-            .layers
-            .iter()
-            .map(|l| AprTransformerLayer {
-                attn_norm_weight: l.attn_norm_weight.clone(),
-                attn_norm_bias: l.attn_norm_bias.clone(),
-                qkv_weight: l.qkv_weight.clone(),
-                qkv_bias: l.qkv_bias.clone(),
-                attn_output_weight: l.attn_output_weight.clone(),
-                attn_output_bias: l.attn_output_bias.clone(),
-                ffn_gate_weight: l.ffn_gate_weight.clone(),
-                ffn_gate_bias: l.ffn_gate_bias.clone(),
-                ffn_up_weight: l.ffn_up_weight.clone(),
-                ffn_up_bias: l.ffn_up_bias.clone(),
-                ffn_down_weight: l.ffn_down_weight.clone(),
-                ffn_down_bias: l.ffn_down_bias.clone(),
-                ffn_norm_weight: l.ffn_norm_weight.clone(),
-                ffn_norm_bias: l.ffn_norm_bias.clone(),
-            })
-            .collect();
-
-        Self {
-            config,
-            token_embedding: gguf.token_embedding.clone(),
-            layers,
-            output_norm_weight: gguf.output_norm_weight.clone(),
-            output_norm_bias: gguf.output_norm_bias.clone(),
-            lm_head_weight: gguf.lm_head_weight.clone(),
-            lm_head_bias: gguf.lm_head_bias.clone(),
-            q4k_layers: None,
-            lm_head_weight_q6k: None,
-            lm_head_weight_q4k: None,
-        }
+        generation::generate_with_cache(self, prompt, config)
     }
 }
 // Tests shattered to tests/ directory (PMAT-803)
