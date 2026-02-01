@@ -317,19 +317,23 @@ impl LatencyHistogram {
         for (i, &boundary) in self.buckets.iter().enumerate() {
             cumulative += self.counts[i];
             let le = boundary as f64 / 1_000_000.0; // Convert to seconds
-            let _ = writeln!(
+            writeln!(
                 output,
                 "{name}_bucket{{le=\"{le:.6}\",{labels}}} {cumulative}"
-            );
+            )
+            .expect("fmt::Write for String is infallible");
         }
         // +Inf bucket
         cumulative += self.counts.last().copied().unwrap_or(0);
-        let _ = writeln!(output, "{name}_bucket{{le=\"+Inf\",{labels}}} {cumulative}");
+        writeln!(output, "{name}_bucket{{le=\"+Inf\",{labels}}} {cumulative}")
+            .expect("fmt::Write for String is infallible");
 
         // Sum and count
         let sum_secs = self.sum as f64 / 1_000_000.0;
-        let _ = writeln!(output, "{name}_sum{{{labels}}} {sum_secs:.6}");
-        let _ = writeln!(output, "{name}_count{{{labels}}} {}", self.total);
+        writeln!(output, "{name}_sum{{{labels}}} {sum_secs:.6}")
+            .expect("fmt::Write for String is infallible");
+        writeln!(output, "{name}_count{{{labels}}} {}", self.total)
+            .expect("fmt::Write for String is infallible");
 
         output
     }
@@ -1121,7 +1125,8 @@ impl Observer {
         }
 
         for (name, points) in by_name {
-            let _ = writeln!(output, "# TYPE {name} gauge");
+            writeln!(output, "# TYPE {name} gauge")
+                .expect("fmt::Write for String is infallible");
             for point in points {
                 let labels = if point.labels.is_empty() {
                     String::new()
@@ -1133,7 +1138,8 @@ impl Observer {
                         .collect();
                     format!("{{{}}}", pairs.join(","))
                 };
-                let _ = writeln!(output, "{name}{labels} {}", point.value);
+                writeln!(output, "{name}{labels} {}", point.value)
+                    .expect("fmt::Write for String is infallible");
             }
         }
 

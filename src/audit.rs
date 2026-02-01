@@ -561,7 +561,9 @@ impl AuditLogger {
 
         // Auto-flush if buffer exceeds threshold
         if buffer.len() >= self.buffer_threshold {
-            let _ = self.flush_buffer_locked(&mut buffer);
+            if let Err(e) = self.flush_buffer_locked(&mut buffer) {
+                eprintln!("audit: auto-flush failed: {e}");
+            }
         }
     }
 
