@@ -1272,16 +1272,10 @@ impl InferenceConfig {
     }
 }
 
-// Tests split for file health (was 3.4K lines)
+// Tests extracted to tests.rs (PMAT-802)
 #[cfg(test)]
-#[path = "tests_split_01.rs"]
-mod infer_tests_split_01;
-#[cfg(test)]
-#[path = "tests_split_02.rs"]
-mod infer_tests_split_02;
-#[cfg(test)]
-#[path = "tests_split_03.rs"]
-mod infer_tests_split_03;
+#[path = "tests.rs"]
+mod infer_tests;
 
 // Additional coverage tests (tests_part_02.rs)
 #[cfg(test)]

@@ -1961,13 +1961,10 @@ impl DynamicPriorityScheduler {
 // Tests
 // ============================================================================
 
-// Tests split for file health (was 2.7K lines)
+// Tests extracted to tests.rs (PMAT-802)
 #[cfg(test)]
-#[path = "tests_a.rs"]
-mod scheduler_tests_a;
-#[cfg(test)]
-#[path = "tests_b.rs"]
-mod scheduler_tests_b;
+#[path = "tests.rs"]
+mod scheduler_tests;
 
 // Additional tests for coverage (Part 02)
 #[cfg(test)]

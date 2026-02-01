@@ -20,17 +20,14 @@
 //! - part_15: T-COV-95 Directive 2: In-Process API Falsification (GPU/CUDA/quantized paths)
 //! - part_16: T-COV-95 Popper Phase 2: Combinatorial API Sweep (stream/temp/max_tokens/invalid)
 
-mod part_01a;
-mod part_01b;
+mod part_01;
 mod part_02;
 mod part_03;
 mod part_04;
-mod part_05a;
-mod part_05b;
+mod part_05;
 mod part_06;
 mod part_07;
-mod part_08a;
-mod part_08b;
+mod part_08;
 mod part_09;
 mod part_10;
 mod part_11;

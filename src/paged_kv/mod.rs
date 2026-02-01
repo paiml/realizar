@@ -1759,13 +1759,10 @@ pub fn find_longest_prefix(cache: &mut PrefixCache, tokens: &[u32]) -> Option<(P
 // Tests
 // ============================================================================
 
-// Tests split for file health (was 2.4K lines)
+// Tests extracted to tests.rs (PMAT-802)
 #[cfg(test)]
-#[path = "tests_a.rs"]
-mod paged_kv_tests_a;
-#[cfg(test)]
-#[path = "tests_b.rs"]
-mod paged_kv_tests_b;
+#[path = "tests.rs"]
+mod paged_kv_tests;
 
 // Additional coverage tests (part 2)
 #[cfg(test)]
