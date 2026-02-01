@@ -148,6 +148,90 @@ fn format_model_prompt(
         .unwrap_or_else(|_| prompt_text.to_string())
 }
 
+/// Model source detection result
+enum ModelSource {
+    /// Local file, continue processing
+    Local,
+    /// Registry URI (pacha:// or name:tag), feature not enabled
+    RegistryPacha,
+    /// HuggingFace Hub (hf://), feature not enabled
+    RegistryHf,
+}
+
+/// Detect and validate model source
+fn detect_model_source(model_ref: &str, verbose: bool) -> Result<ModelSource> {
+    if is_local_file_path(model_ref) {
+        handlers::validate_model_path(model_ref)?;
+        if verbose {
+            println!("  Source: local file");
+        }
+        return Ok(ModelSource::Local);
+    }
+    if model_ref.starts_with("pacha://") || model_ref.contains(':') {
+        return Ok(ModelSource::RegistryPacha);
+    }
+    if model_ref.starts_with("hf://") {
+        return Ok(ModelSource::RegistryHf);
+    }
+    Ok(ModelSource::Local)
+}
+
+/// Setup trace environment if enabled
+#[allow(clippy::option_option)]
+fn setup_trace_env(trace: Option<Option<String>>) {
+    let trace_config = handlers::parse_trace_config(trace);
+    if trace_config.is_some() {
+        std::env::set_var("GPU_DEBUG", "1");
+        eprintln!("[TRACE] Inference tracing enabled - GPU_DEBUG=1");
+    }
+}
+
+/// Dispatch inference based on model format
+#[allow(clippy::too_many_arguments)]
+fn dispatch_inference(
+    model_ref: &str,
+    file_data: &[u8],
+    formatted_prompt: &str,
+    max_tokens: usize,
+    temperature: f32,
+    format: &str,
+    force_gpu: bool,
+    verbose: bool,
+    trace_enabled: bool,
+) -> Result<()> {
+    use crate::format::{detect_format, ModelFormat};
+    match detect_format(file_data).unwrap_or(ModelFormat::Gguf) {
+        ModelFormat::Apr => run_apr_inference(
+            model_ref,
+            file_data,
+            formatted_prompt,
+            max_tokens,
+            temperature,
+            format,
+            force_gpu,
+            verbose,
+        ),
+        ModelFormat::SafeTensors => run_safetensors_inference(
+            model_ref,
+            formatted_prompt,
+            max_tokens,
+            temperature,
+            format,
+        ),
+        ModelFormat::Gguf => run_gguf_inference(
+            model_ref,
+            file_data,
+            formatted_prompt,
+            max_tokens,
+            temperature,
+            format,
+            force_gpu,
+            verbose,
+            trace_enabled,
+        ),
+    }
+}
+
 /// Run model command handler
 #[allow(
     clippy::too_many_arguments,
@@ -166,25 +250,20 @@ async fn run_model_command(
     verbose: bool,
     trace: Option<Option<String>>,
 ) -> Result<()> {
-    let trace_config = handlers::parse_trace_config(trace.clone());
-    if trace_config.is_some() {
-        std::env::set_var("GPU_DEBUG", "1");
-        eprintln!("[TRACE] Inference tracing enabled - GPU_DEBUG=1");
-    }
+    setup_trace_env(trace.clone());
 
-    if is_local_file_path(model_ref) {
-        handlers::validate_model_path(model_ref)?;
-        if verbose {
-            println!("  Source: local file");
-        }
-    } else if model_ref.starts_with("pacha://") || model_ref.contains(':') {
-        println!("  Source: Pacha registry");
-        println!("Enable registry support: --features registry");
-        return Ok(());
-    } else if model_ref.starts_with("hf://") {
-        println!("  Source: HuggingFace Hub");
-        println!("Enable registry support: --features registry");
-        return Ok(());
+    match detect_model_source(model_ref, verbose)? {
+        ModelSource::Local => {},
+        ModelSource::RegistryPacha => {
+            println!("  Source: Pacha registry");
+            println!("Enable registry support: --features registry");
+            return Ok(());
+        },
+        ModelSource::RegistryHf => {
+            println!("  Source: HuggingFace Hub");
+            println!("Enable registry support: --features registry");
+            return Ok(());
+        },
     }
 
     let file_data = std::fs::read(model_ref).map_err(|e| RealizarError::UnsupportedOperation {
@@ -198,38 +277,17 @@ async fn run_model_command(
 
     if let Some(prompt_text) = prompt {
         let formatted_prompt = format_model_prompt(model_ref, prompt_text, system_prompt, raw_mode);
-
-        use crate::format::{detect_format, ModelFormat};
-        match detect_format(&file_data).unwrap_or(ModelFormat::Gguf) {
-            ModelFormat::Apr => run_apr_inference(
-                model_ref,
-                &file_data,
-                &formatted_prompt,
-                max_tokens,
-                temperature,
-                format,
-                force_gpu,
-                verbose,
-            )?,
-            ModelFormat::SafeTensors => run_safetensors_inference(
-                model_ref,
-                &formatted_prompt,
-                max_tokens,
-                temperature,
-                format,
-            )?,
-            ModelFormat::Gguf => run_gguf_inference(
-                model_ref,
-                &file_data,
-                &formatted_prompt,
-                max_tokens,
-                temperature,
-                format,
-                force_gpu,
-                verbose,
-                trace.is_some(),
-            )?,
-        }
+        dispatch_inference(
+            model_ref,
+            &file_data,
+            &formatted_prompt,
+            max_tokens,
+            temperature,
+            format,
+            force_gpu,
+            verbose,
+            trace.is_some(),
+        )?;
     } else {
         println!("Interactive mode - use a prompt argument");
     }
