@@ -727,58 +727,6 @@ unsafe fn softmax_avx2(x: &mut [f32]) {
     }
 }
 
-/// Fast exp approximation using polynomial (AVX2)
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2", enable = "fma")]
-#[inline]
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn fast_exp_avx2(
-    x: std::arch::x86_64::__m256,
-    ln2_inv: std::arch::x86_64::__m256,
-    ln2: std::arch::x86_64::__m256,
-    c0: std::arch::x86_64::__m256,
-    c1: std::arch::x86_64::__m256,
-    c2: std::arch::x86_64::__m256,
-    c3: std::arch::x86_64::__m256,
-    c4: std::arch::x86_64::__m256,
-    c5: std::arch::x86_64::__m256,
-    min_exp: std::arch::x86_64::__m256,
-) -> std::arch::x86_64::__m256 {
-    use std::arch::x86_64::{
-        _mm256_add_epi32, _mm256_castsi256_ps, _mm256_cvtps_epi32, _mm256_floor_ps,
-        _mm256_fmadd_ps, _mm256_fnmadd_ps, _mm256_max_ps, _mm256_mul_ps, _mm256_set1_epi32,
-        _mm256_slli_epi32,
-    };
-
-    {
-        // Clamp to avoid underflow
-        let x_clamped = _mm256_max_ps(x, min_exp);
-
-        // n = floor(x / ln2)
-        let xln2 = _mm256_mul_ps(x_clamped, ln2_inv);
-        let n_f = _mm256_floor_ps(xln2);
-        let n_i = _mm256_cvtps_epi32(n_f);
-
-        // f = x - n * ln2
-        let f = _mm256_fnmadd_ps(n_f, ln2, x_clamped);
-
-        // Polynomial: c0 + f*(c1 + f*(c2 + f*(c3 + f*(c4 + f*c5))))
-        let p = _mm256_fmadd_ps(f, c5, c4);
-        let p = _mm256_fmadd_ps(f, p, c3);
-        let p = _mm256_fmadd_ps(f, p, c2);
-        let p = _mm256_fmadd_ps(f, p, c1);
-        let p = _mm256_fmadd_ps(f, p, c0);
-
-        // 2^n via bit manipulation
-        let bias = _mm256_set1_epi32(127);
-        let n_biased = _mm256_add_epi32(n_i, bias);
-        let exp_scale = _mm256_slli_epi32::<23>(n_biased);
-        let exp_scale_f = _mm256_castsi256_ps(exp_scale);
-
-        _mm256_mul_ps(p, exp_scale_f)
-    }
-}
-
 /// Horizontal max of 8-wide AVX2 vector
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
@@ -802,32 +750,6 @@ unsafe fn horizontal_max_avx2(v: std::arch::x86_64::__m256) -> f32 {
         let max32 = _mm_max_ss(max64, _mm_shuffle_ps::<0x55>(max64, max64));
 
         _mm_cvtss_f32(max32)
-    }
-}
-
-/// Horizontal sum of 8-wide AVX2 vector
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-#[inline]
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn horizontal_sum_avx2(v: std::arch::x86_64::__m256) -> f32 {
-    use std::arch::x86_64::{
-        _mm256_extractf128_ps, _mm_add_ps, _mm_add_ss, _mm_cvtss_f32, _mm_movehl_ps, _mm_shuffle_ps,
-    };
-
-    {
-        // Extract high and low 128-bit lanes
-        let hi = _mm256_extractf128_ps::<1>(v);
-        let lo = _mm256_extractf128_ps::<0>(v);
-        let sum128 = _mm_add_ps(hi, lo);
-
-        // Reduce 4 to 2
-        let sum64 = _mm_add_ps(sum128, _mm_movehl_ps(sum128, sum128));
-
-        // Reduce 2 to 1
-        let sum32 = _mm_add_ss(sum64, _mm_shuffle_ps::<0x55>(sum64, sum64));
-
-        _mm_cvtss_f32(sum32)
     }
 }
 

@@ -3,65 +3,19 @@
 //! Extracted from quantize/mod.rs - Shared SIMD utility functions.
 //!
 //! ## Contents
-//! - f16 conversion: `f16_to_f32`, `read_f16`
+//! - f16 reading: `read_f16`
 //! - Scale extraction: `extract_scale_min`, `extract_scale_min_from_slice`
-//! - Horizontal sum helpers: `hsum_epi32_128`, `hsum_epi32_256`, etc.
 //!
-//! Note: SIMD activations (`softmax_simd`, `fused_swiglu_simd`, `apply_rope_rotation_simd`)
+//! Note: `f16_to_f32` is exported from `dequant.rs`.
+//! SIMD activations (`softmax_simd`, `fused_swiglu_simd`, `apply_rope_rotation_simd`)
 //! are exported from `activation.rs` and `parallel_dequant.rs` respectively.
+//!
+//! Horizontal sum helpers (hsum_epi32_*, horizontal_sum_*) are internal to
+//! the files that use them (fused_k.rs, etc.) to avoid dead code.
 
 // ============================================================================
-// f16 Conversion (Manual Implementation)
+// f16 Conversion
 // ============================================================================
-
-/// Convert IEEE 754 half-precision (f16) to single-precision (f32)
-///
-/// Handles normal values, subnormals, infinities, and NaN.
-#[inline]
-pub fn f16_to_f32(h: u16) -> f32 {
-    let sign = (h >> 15) & 1;
-    let exp = (h >> 10) & 0x1F;
-    let mantissa = h & 0x3FF;
-
-    if exp == 0 {
-        // Subnormal or zero
-        if mantissa == 0 {
-            // Zero (preserve sign)
-            if sign == 1 {
-                -0.0
-            } else {
-                0.0
-            }
-        } else {
-            // Subnormal: (mantissa / 1024) * 2^-14
-            let value = (mantissa as f32 / 1024.0) * (2.0_f32).powi(-14);
-            if sign == 1 {
-                -value
-            } else {
-                value
-            }
-        }
-    } else if exp == 31 {
-        // Infinity or NaN
-        if mantissa == 0 {
-            if sign == 1 {
-                f32::NEG_INFINITY
-            } else {
-                f32::INFINITY
-            }
-        } else {
-            f32::NAN
-        }
-    } else {
-        // Normal value: (1 + mantissa/1024) * 2^(exp-15)
-        let value = (1.0 + mantissa as f32 / 1024.0) * (2.0_f32).powi(exp as i32 - 15);
-        if sign == 1 {
-            -value
-        } else {
-            value
-        }
-    }
-}
 
 /// Helper: Read f16 from bytes and convert to f32
 #[inline]
@@ -121,106 +75,10 @@ pub fn extract_scale_min_from_slice(scales: &[u8], idx: usize) -> (f32, f32) {
     (scale_raw as f32, min_raw as f32)
 }
 
-// ============================================================================
-// x86_64 SIMD Horizontal Sum Helpers
-// ============================================================================
-
-/// Fast horizontal sum of 4 i32 in __m128i
-///
-/// # Safety
-/// Requires AVX2 support. Caller must verify CPU feature availability.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-#[inline]
-pub unsafe fn hsum_epi32_128(v: std::arch::x86_64::__m128i) -> i32 {
-    use std::arch::x86_64::{_mm_cvtsi128_si32, _mm_hadd_epi32};
-    let sum64 = _mm_hadd_epi32(v, v);
-    let sum32 = _mm_hadd_epi32(sum64, sum64);
-    _mm_cvtsi128_si32(sum32)
-}
-
-/// Fast horizontal sum of 8 i32 in __m256i
-///
-/// # Safety
-/// Requires AVX2 support. Caller must verify CPU feature availability.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-#[inline]
-pub unsafe fn hsum_epi32_256(v: std::arch::x86_64::__m256i) -> i32 {
-    use std::arch::x86_64::{_mm256_castsi256_si128, _mm256_extracti128_si256, _mm_add_epi32};
-    // SAFETY: Unsafe operation with validated invariants
-    unsafe {
-        let lo = _mm256_castsi256_si128(v);
-        let hi = _mm256_extracti128_si256(v, 1);
-        hsum_epi32_128(_mm_add_epi32(lo, hi))
-    }
-}
-
-/// Helper: horizontal sum of 8 int32 values in a 256-bit register
-///
-/// # Safety
-/// Requires AVX2 support. Caller must verify CPU feature availability.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-#[inline]
-pub unsafe fn horizontal_sum_epi32_256(v: std::arch::x86_64::__m256i) -> i32 {
-    use std::arch::x86_64::{
-        _mm256_castsi256_si128, _mm256_extracti128_si256, _mm_add_epi32, _mm_cvtsi128_si32,
-        _mm_hadd_epi32,
-    };
-
-    // Add high 128 bits to low 128 bits
-    let hi = _mm256_extracti128_si256(v, 1);
-    let lo = _mm256_castsi256_si128(v);
-    let sum128 = _mm_add_epi32(lo, hi);
-
-    // Horizontal add within 128 bits
-    let sum64 = _mm_hadd_epi32(sum128, sum128);
-    let sum32 = _mm_hadd_epi32(sum64, sum64);
-
-    _mm_cvtsi128_si32(sum32)
-}
-
-/// Helper: horizontal sum of 16 int16 values in a 256-bit register
-///
-/// # Safety
-/// Requires AVX2 support. Caller must verify CPU feature availability.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-#[inline]
-#[allow(unsafe_op_in_unsafe_fn)]
-pub unsafe fn horizontal_sum_epi16_256(v: std::arch::x86_64::__m256i) -> i32 {
-    use std::arch::x86_64::{_mm256_madd_epi16, _mm256_set1_epi16};
-
-    // Use madd to sum pairs of i16 to i32
-    let ones = _mm256_set1_epi16(1);
-    let sum_i32 = _mm256_madd_epi16(v, ones);
-
-    // Now sum the 8 i32 values
-    horizontal_sum_epi32_256(sum_i32)
-}
-
-/// Helper: Horizontal sum of 8 i32 values to single i32
-///
-/// # Safety
-/// Requires AVX2 support. Caller must verify CPU feature availability.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-#[inline]
-pub unsafe fn hsum_epi32(v: std::arch::x86_64::__m256i) -> i32 {
-    #[allow(clippy::wildcard_imports)]
-    use std::arch::x86_64::*;
-
-    // All intrinsics are unsafe and we're in an unsafe fn with target_feature
-    let sum128 = _mm_add_epi32(_mm256_castsi256_si128(v), _mm256_extracti128_si256(v, 1));
-    let sum64 = _mm_add_epi32(sum128, _mm_shuffle_epi32(sum128, 0b10_11_00_01));
-    let sum32 = _mm_add_epi32(sum64, _mm_shuffle_epi32(sum64, 0b00_00_10_10));
-    _mm_cvtsi128_si32(sum32)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::quantize::f16_to_f32;
 
     // ============= f16_to_f32 tests =============
 
@@ -338,82 +196,5 @@ mod tests {
         let (scale, min) = extract_scale_min_from_slice(&scales, 0);
         assert_eq!(scale, 10.0);
         assert_eq!(min, 5.0);
-    }
-
-    // ============= hsum tests (x86_64 only) =============
-
-    #[cfg(target_arch = "x86_64")]
-    #[test]
-    fn test_hsum_epi32_128() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-
-        unsafe {
-            use std::arch::x86_64::_mm_setr_epi32;
-            let v = _mm_setr_epi32(1, 2, 3, 4);
-            let sum = hsum_epi32_128(v);
-            assert_eq!(sum, 10);
-        }
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[test]
-    fn test_hsum_epi32_256() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-
-        unsafe {
-            use std::arch::x86_64::_mm256_setr_epi32;
-            let v = _mm256_setr_epi32(1, 2, 3, 4, 5, 6, 7, 8);
-            let sum = hsum_epi32_256(v);
-            assert_eq!(sum, 36);
-        }
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[test]
-    fn test_horizontal_sum_epi32_256() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-
-        unsafe {
-            use std::arch::x86_64::_mm256_setr_epi32;
-            let v = _mm256_setr_epi32(10, 20, 30, 40, 50, 60, 70, 80);
-            let sum = horizontal_sum_epi32_256(v);
-            assert_eq!(sum, 360);
-        }
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[test]
-    fn test_horizontal_sum_epi16_256() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-
-        unsafe {
-            use std::arch::x86_64::_mm256_setr_epi16;
-            let v = _mm256_setr_epi16(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
-            let sum = horizontal_sum_epi16_256(v);
-            assert_eq!(sum, 136); // 1+2+...+16 = 136
-        }
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[test]
-    fn test_hsum_epi32() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-
-        unsafe {
-            use std::arch::x86_64::_mm256_setr_epi32;
-            let v = _mm256_setr_epi32(-1, 2, -3, 4, -5, 6, -7, 8);
-            let sum = hsum_epi32(v);
-            assert_eq!(sum, 4); // (-1+2-3+4-5+6-7+8) = 4
-        }
     }
 }
