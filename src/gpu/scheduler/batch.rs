@@ -405,6 +405,60 @@ pub fn optimized_lm_head_argmax_transposed(
         .0
 }
 
+/// Extract Q tensor for a single head from packed Q data
+fn extract_q_head(q: &[f32], head: usize, seq_len: usize, hidden_dim: usize, head_dim: usize) -> Vec<f32> {
+    let mut q_head = Vec::with_capacity(seq_len * head_dim);
+    for i in 0..seq_len {
+        let start = i * hidden_dim + head * head_dim;
+        q_head.extend_from_slice(&q[start..start + head_dim]);
+    }
+    q_head
+}
+
+/// Extract K and V tensors for a KV head from packed K/V data
+fn extract_kv_head(k: &[f32], v: &[f32], kv_head: usize, seq_len: usize, kv_dim: usize, head_dim: usize) -> (Vec<f32>, Vec<f32>) {
+    let mut k_head = Vec::with_capacity(seq_len * head_dim);
+    let mut v_head = Vec::with_capacity(seq_len * head_dim);
+    for i in 0..seq_len {
+        let start = i * kv_dim + kv_head * head_dim;
+        k_head.extend_from_slice(&k[start..start + head_dim]);
+        v_head.extend_from_slice(&v[start..start + head_dim]);
+    }
+    (k_head, v_head)
+}
+
+/// Apply causal softmax to attention scores
+fn apply_causal_softmax(scores: &[f32], seq_len: usize, scale: f32) -> Vec<f32> {
+    let mut attn = vec![f32::NEG_INFINITY; seq_len * seq_len];
+
+    // Apply causal mask and scale
+    for i in 0..seq_len {
+        for j in 0..=i {
+            attn[i * seq_len + j] = scores[i * seq_len + j] * scale;
+        }
+    }
+
+    // Softmax per row
+    for i in 0..seq_len {
+        let row_start = i * seq_len;
+        let row = &mut attn[row_start..row_start + seq_len];
+        let max_val = row[..=i].iter().copied().fold(f32::NEG_INFINITY, f32::max);
+
+        let mut sum = 0.0f32;
+        for item in row.iter_mut().take(i + 1) {
+            *item = (*item - max_val).exp();
+            sum += *item;
+        }
+        for item in row.iter_mut().take(i + 1) {
+            *item /= sum;
+        }
+        for item in row.iter_mut().skip(i + 1) {
+            *item = 0.0;
+        }
+    }
+    attn
+}
+
 /// Optimized GQA attention using GPU for matmul operations (IMP-089)
 pub fn optimized_gqa_attention(
     model: &mut GpuModel,
@@ -426,61 +480,16 @@ pub fn optimized_gqa_attention(
     let scale = 1.0 / (head_dim as f32).sqrt();
     let mut output = vec![0.0f32; seq_len * hidden_dim];
 
-    // Process each head
     for head in 0..num_heads {
         let kv_head = head / heads_per_kv;
-
-        // Extract Q for this head
-        let mut q_head = Vec::with_capacity(seq_len * head_dim);
-        for i in 0..seq_len {
-            let start = i * hidden_dim + head * head_dim;
-            q_head.extend_from_slice(&q[start..start + head_dim]);
-        }
-
-        // Extract K, V for the corresponding KV head (shared by multiple Q heads)
-        let mut k_head = Vec::with_capacity(seq_len * head_dim);
-        let mut v_head = Vec::with_capacity(seq_len * head_dim);
-        for i in 0..seq_len {
-            let start = i * kv_dim + kv_head * head_dim;
-            k_head.extend_from_slice(&k[start..start + head_dim]);
-            v_head.extend_from_slice(&v[start..start + head_dim]);
-        }
+        let q_head = extract_q_head(q, head, seq_len, hidden_dim, head_dim);
+        let (k_head, v_head) = extract_kv_head(k, v, kv_head, seq_len, kv_dim, head_dim);
 
         // Compute attention scores: Q @ K^T using GPU matmul
-        // Phase 44: Use do_matmul_transpose_b() to enable MockExecutor testing
-        let mut attn_scores = vec![f32::NEG_INFINITY; seq_len * seq_len];
         let scores = model.do_matmul_transpose_b(&q_head, &k_head, seq_len, head_dim, seq_len)?;
-
-        // Apply causal mask and scale
-        for i in 0..seq_len {
-            for j in 0..=i {
-                attn_scores[i * seq_len + j] = scores[i * seq_len + j] * scale;
-            }
-        }
-
-        // Softmax per row
-        for i in 0..seq_len {
-            let row_start = i * seq_len;
-            let row = &mut attn_scores[row_start..row_start + seq_len];
-
-            let max_val = row[..=i].iter().copied().fold(f32::NEG_INFINITY, f32::max);
-
-            let mut sum = 0.0f32;
-            for item in row.iter_mut().take(i + 1) {
-                *item = (*item - max_val).exp();
-                sum += *item;
-            }
-
-            for item in row.iter_mut().take(i + 1) {
-                *item /= sum;
-            }
-            for item in row.iter_mut().skip(i + 1) {
-                *item = 0.0;
-            }
-        }
+        let attn_scores = apply_causal_softmax(&scores, seq_len, scale);
 
         // Compute output: attn @ V using GPU matmul
-        // Phase 44: Use do_matmul() to enable MockExecutor testing
         let head_output = model.do_matmul(&attn_scores, &v_head, seq_len, seq_len, head_dim)?;
 
         // Copy to output
