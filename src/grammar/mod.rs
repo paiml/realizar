@@ -885,6 +885,7 @@ impl TokenMask {
 }
 
 /// Grammar-based token masker
+#[derive(Debug)]
 pub struct GrammarTokenMasker {
     /// State machine tracking grammar state
     state_machine: GrammarStateMachine,
@@ -1234,6 +1235,7 @@ impl ToolResult {
 }
 
 /// Tool call parser for extracting tool calls from model output
+#[derive(Debug)]
 pub struct ToolCallParser {
     /// Available tools
     tools: Vec<ToolDefinition>,

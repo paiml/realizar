@@ -10,9 +10,9 @@
 //! - GEBP (General Block Panel) tiling maximizes cache reuse
 //! - Tile size should fit in L2 cache (~256KB-512KB typically)
 
-use super::fused_k::{
-    fused_q4k_dot_simd, fused_q4k_q8k_dot_4rows_avx512vnni, fused_q4k_q8k_dot_simd,
-};
+use super::fused_k::{fused_q4k_dot_simd, fused_q4k_q8k_dot_simd};
+#[cfg(target_arch = "x86_64")]
+use super::fused_k::fused_q4k_q8k_dot_4rows_avx512vnni;
 use super::fused_q5k_q6k::{fused_q5k_dot_simd, fused_q6k_dot_simd};
 use super::types::QK_K;
 use crate::error::{RealizarError, Result};
@@ -690,25 +690,25 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
                 let remainder = midi_rows % MICRO_TILE_M;
 
                 for micro_idx in 0..full_micro_tiles {
-                    let row_base = midi_start + micro_idx * MICRO_TILE_M;
-
-                    // Build row pointers for 4-row kernel
-                    let row_ptrs: [*const u8; 4] = [
-                        weight_data.as_ptr().wrapping_add(row_base * bytes_per_row),
-                        weight_data
-                            .as_ptr()
-                            .wrapping_add((row_base + 1) * bytes_per_row),
-                        weight_data
-                            .as_ptr()
-                            .wrapping_add((row_base + 2) * bytes_per_row),
-                        weight_data
-                            .as_ptr()
-                            .wrapping_add((row_base + 3) * bytes_per_row),
-                    ];
-
                     // SAFETY: AVX-512 VNNI detected, pointers are within weight_data bounds
                     #[cfg(target_arch = "x86_64")]
                     let outputs = unsafe {
+                        let row_base = midi_start + micro_idx * MICRO_TILE_M;
+                        
+                        // Build row pointers for 4-row kernel
+                        let row_ptrs: [*const u8; 4] = [
+                            weight_data.as_ptr().wrapping_add(row_base * bytes_per_row),
+                            weight_data
+                                .as_ptr()
+                                .wrapping_add((row_base + 1) * bytes_per_row),
+                            weight_data
+                                .as_ptr()
+                                .wrapping_add((row_base + 2) * bytes_per_row),
+                            weight_data
+                                .as_ptr()
+                                .wrapping_add((row_base + 3) * bytes_per_row),
+                        ];
+                        
                         fused_q4k_q8k_dot_4rows_avx512vnni(
                             row_ptrs,
                             bytes_per_row,

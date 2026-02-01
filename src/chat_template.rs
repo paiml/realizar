@@ -156,6 +156,10 @@ pub enum TemplateFormat {
     ChatML,
     /// LLaMA 2 format (Vicuna, LLaMA 2 Chat)
     Llama2,
+    /// LLaMA 3 format (Meta-Llama-3)
+    Llama3,
+    /// Groq Tool-Use format (Llama-3-Groq-8B-Tool-Use)
+    GroqTool,
     /// Zephyr format (TinyLlama, Zephyr, StableLM)
     Zephyr,
     /// Mistral format (Mistral, Mixtral)
@@ -860,6 +864,142 @@ impl ChatTemplateEngine for AlpacaTemplate {
     }
 }
 
+/// LLaMA 3 Template (Meta-Llama-3-8B-Instruct)
+///
+/// Format: `<|begin_of_text|><|start_header_id|>{role}<|end_header_id|>\n\n{content}<|eot_id|>`
+#[derive(Debug, Clone)]
+pub struct Llama3Template {
+    special_tokens: SpecialTokens,
+}
+
+impl Llama3Template {
+    /// Create a new LLaMA 3 template
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            special_tokens: SpecialTokens {
+                bos_token: Some("<|begin_of_text|>".to_string()),
+                eos_token: Some("<|eot_id|>".to_string()),
+                ..Default::default()
+            },
+        }
+    }
+}
+
+impl Default for Llama3Template {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ChatTemplateEngine for Llama3Template {
+    fn format_message(&self, role: &str, content: &str) -> Result<String, RealizarError> {
+        Ok(format!(
+            "<|start_header_id|>{role}<|end_header_id|>\n\n{content}<|eot_id|>"
+        ))
+    }
+
+    fn format_conversation(&self, messages: &[ChatMessage]) -> Result<String, RealizarError> {
+        let mut result = String::from("<|begin_of_text|>");
+
+        for msg in messages {
+            result.push_str("<|start_header_id|>");
+            result.push_str(&msg.role);
+            result.push_str("<|end_header_id|>\n\n");
+            result.push_str(&msg.content);
+            result.push_str("<|eot_id|>");
+        }
+
+        // Add assistant header for generation
+        result.push_str("<|start_header_id|>assistant<|end_header_id|>\n\n");
+
+        Ok(result)
+    }
+
+    fn special_tokens(&self) -> &SpecialTokens {
+        &self.special_tokens
+    }
+
+    fn format(&self) -> TemplateFormat {
+        TemplateFormat::Llama3
+    }
+
+    fn supports_system_prompt(&self) -> bool {
+        true
+    }
+}
+
+/// Groq Tool-Use Template (Llama-3-Groq-8B-Tool-Use)
+///
+/// Format: Same as Llama 3 but with tool-calling system prompt integration.
+/// Uses `<tool_call>` tags for tool invocations.
+///
+/// Recommended settings: temperature=0.5, top_p=0.65
+#[derive(Debug, Clone)]
+pub struct GroqToolChatTemplate {
+    special_tokens: SpecialTokens,
+}
+
+impl GroqToolChatTemplate {
+    /// Create a new Groq Tool-Use template
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            special_tokens: SpecialTokens {
+                bos_token: Some("<|begin_of_text|>".to_string()),
+                eos_token: Some("<|eot_id|>".to_string()),
+                ..Default::default()
+            },
+        }
+    }
+}
+
+impl Default for GroqToolChatTemplate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ChatTemplateEngine for GroqToolChatTemplate {
+    fn format_message(&self, role: &str, content: &str) -> Result<String, RealizarError> {
+        Ok(format!(
+            "<|start_header_id|>{role}<|end_header_id|>\n\n{content}<|eot_id|>"
+        ))
+    }
+
+    fn format_conversation(&self, messages: &[ChatMessage]) -> Result<String, RealizarError> {
+        let mut result = String::from("<|begin_of_text|>");
+
+        for msg in messages {
+            // Handle tool role specially
+            let role = if msg.role == "tool" { "ipython" } else { &msg.role };
+            
+            result.push_str("<|start_header_id|>");
+            result.push_str(role);
+            result.push_str("<|end_header_id|>\n\n");
+            result.push_str(&msg.content);
+            result.push_str("<|eot_id|>");
+        }
+
+        // Add assistant header for generation
+        result.push_str("<|start_header_id|>assistant<|end_header_id|>\n\n");
+
+        Ok(result)
+    }
+
+    fn special_tokens(&self) -> &SpecialTokens {
+        &self.special_tokens
+    }
+
+    fn format(&self) -> TemplateFormat {
+        TemplateFormat::GroqTool
+    }
+
+    fn supports_system_prompt(&self) -> bool {
+        true
+    }
+}
+
 /// Raw Template (Fallback - no formatting)
 #[derive(Debug, Clone, Default)]
 pub struct RawTemplate {
@@ -927,6 +1067,11 @@ impl ChatTemplateEngine for RawTemplate {
 pub fn detect_format_from_name(model_name: &str) -> TemplateFormat {
     let name_lower = model_name.to_lowercase();
 
+    // Groq Tool-Use models (check first, highest priority for tool calling)
+    if name_lower.contains("groq") && name_lower.contains("tool") {
+        return TemplateFormat::GroqTool;
+    }
+
     // ChatML models
     if name_lower.contains("qwen")
         || name_lower.contains("openhermes")
@@ -947,6 +1092,11 @@ pub fn detect_format_from_name(model_name: &str) -> TemplateFormat {
     // Mistral (check before LLaMA since both use [INST])
     if name_lower.contains("mistral") || name_lower.contains("mixtral") {
         return TemplateFormat::Mistral;
+    }
+
+    // LLaMA 3 (check before LLaMA 2)
+    if name_lower.contains("llama-3") || name_lower.contains("llama3") || name_lower.contains("meta-llama-3") {
+        return TemplateFormat::Llama3;
     }
 
     // LLaMA 2 / Vicuna (note: TinyLlama is handled above as Zephyr)
@@ -988,6 +1138,8 @@ pub fn create_template(format: TemplateFormat) -> Box<dyn ChatTemplateEngine> {
     match format {
         TemplateFormat::ChatML => Box::new(ChatMLTemplate::new()),
         TemplateFormat::Llama2 => Box::new(Llama2Template::new()),
+        TemplateFormat::Llama3 => Box::new(Llama3Template::new()),
+        TemplateFormat::GroqTool => Box::new(GroqToolChatTemplate::new()),
         TemplateFormat::Zephyr => Box::new(ZephyrTemplate::new()),
         TemplateFormat::Mistral => Box::new(MistralTemplate::new()),
         TemplateFormat::Phi => Box::new(PhiTemplate::new()),
@@ -1577,6 +1729,8 @@ mod tests {
         let formats = [
             TemplateFormat::ChatML,
             TemplateFormat::Llama2,
+            TemplateFormat::Llama3,
+            TemplateFormat::GroqTool,
             TemplateFormat::Zephyr,
             TemplateFormat::Mistral,
             TemplateFormat::Phi,
@@ -1601,6 +1755,8 @@ mod tests {
         let formats = [
             TemplateFormat::ChatML,
             TemplateFormat::Llama2,
+            TemplateFormat::Llama3,
+            TemplateFormat::GroqTool,
             TemplateFormat::Zephyr,
             TemplateFormat::Mistral,
             TemplateFormat::Phi,
@@ -1905,10 +2061,12 @@ mod proptests {
 
         /// Property: Template format enum is exhaustive in create_template
         #[test]
-        fn prop_all_formats_creatable(format_idx in 0usize..8) {
+        fn prop_all_formats_creatable(format_idx in 0usize..10) {
             let formats = [
                 TemplateFormat::ChatML,
                 TemplateFormat::Llama2,
+                TemplateFormat::Llama3,
+                TemplateFormat::GroqTool,
                 TemplateFormat::Zephyr,
                 TemplateFormat::Mistral,
                 TemplateFormat::Phi,

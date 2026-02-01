@@ -197,6 +197,11 @@ pub mod convert;
     clippy::manual_div_ceil
 )]
 pub mod cuda;
+// Embedding model engine for sentence embeddings
+//
+// NOTE: Embeddings module disabled - requires candle dependencies
+// To re-enable, add candle-core, candle-nn, candle-transformers, and tokenizers to Cargo.toml
+// pub mod embeddings;
 pub mod error;
 /// Model explainability (SHAP, Attention)
 ///
@@ -236,6 +241,17 @@ pub mod gpu;
 /// - Token masking for efficient constrained generation
 /// - State machine for tracking grammar state
 pub mod grammar;
+/// Constrained sampling with logit processing for grammar-enforced generation
+///
+/// Provides the [`sampling::LogitProcessor`] trait for constraining LLM token generation,
+/// along with implementations for JSON grammar enforcement and hybrid sampling that
+/// dynamically switches between free-form and grammar-constrained modes.
+///
+/// Key types:
+/// - [`sampling::JsonGrammarProcessor`]: Enforces JSON grammar during generation
+/// - [`sampling::HybridSampler`]: Auto-detects tool calls and switches to grammar mode
+/// - [`sampling::ToolCallDetector`]: Detects tool call patterns in generated text
+pub mod sampling;
 /// HTTP client for real model server benchmarking
 ///
 /// Implements actual HTTP calls to external servers (vLLM, Ollama, llama.cpp).
@@ -372,6 +388,24 @@ pub mod lambda;
 /// Multi-target deployment support (Lambda, Docker, WASM)
 pub mod target;
 pub mod tokenizer;
+/// Tool prompt templates for model-specific tool calling formats
+///
+/// Provides the [`tools::ToolPromptTemplate`] trait and implementations for
+/// different model architectures that support tool/function calling:
+/// - [`tools::GroqToolTemplate`]: Default for Llama-3-Groq-8B-Tool-Use (best 8B for tools)
+/// - [`tools::Llama3InstructToolTemplate`]: For Meta's Llama 3 Instruct models
+/// - [`tools::OpenAIToolTemplate`]: For OpenAI-compatible models
+pub mod tools;
+/// Agent loop for autonomous multi-turn tool-calling execution.
+///
+/// The agent module provides high-level abstractions for running multi-turn
+/// tool-calling conversations without requiring clients to manage the loop:
+///
+/// - [`agent::AgentExecutor`]: Runs the agent loop, handling tool calls automatically
+/// - [`agent::AgentConfig`]: Configuration for the agent (max iterations, etc.)
+/// - [`agent::AgentEvent`]: Events emitted during execution for observability
+/// - [`agent::AgentResult`]: Final result with response, tool calls, and trace
+pub mod agent;
 /// Pacha URI scheme support for model loading
 pub mod uri;
 
@@ -383,6 +417,39 @@ pub use inference_trace::{InferenceTracer, ModelInfo, TraceConfig, TraceStep};
 pub use safetensors::MappedSafeTensorsModel;
 pub use safetensors::SafetensorsConfig;
 pub use tensor::Tensor;
+
+// Sampling module re-exports
+pub use sampling::{
+    HybridSampler, JsonGrammarProcessor, LogitProcessor, LogitProcessorChain,
+    RepetitionPenaltyProcessor, SamplingMode, TemperatureProcessor, ToolCallDetector,
+    TopPProcessor,
+};
+
+// Tools module re-exports
+pub use tools::{
+    create_template as create_tool_template, detect_template_type, DispatchingToolHandler,
+    FnToolHandler, GroqToolTemplate, Llama3InstructToolTemplate, OpenAIToolTemplate,
+    ToolCallExecutor, ToolCallHandler, ToolCallHandlerError, ToolExecutorError,
+    ToolPromptTemplate, ToolTemplateType,
+};
+
+// Agent module re-exports
+pub use agent::{
+    create_agent, AgentConfig, AgentEvent, AgentEventHandler, AgentExecutor, AgentResult,
+    ClosureGenerator, CollectingEventHandler, NoOpEventHandler, StreamToken,
+    StreamingAgentEvent, StreamingAgentExecutor, StreamingGenerator,
+};
+
+// Chat template re-exports for new formats
+pub use chat_template::{
+    GroqToolChatTemplate, Llama3Template, TemplateFormat,
+};
+
+// Embeddings module re-exports (disabled - requires candle dependencies)
+// pub use embeddings::{
+//     cosine_similarity, l2_distance, EmbeddingConfig, EmbeddingEngine, EmbeddingModelType,
+//     PoolingStrategy,
+// };
 
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
