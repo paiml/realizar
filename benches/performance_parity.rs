@@ -2619,7 +2619,6 @@ criterion_group!(
     benchmark_e2e_generation,
     benchmark_component_profiling,
     benchmark_q4k_matvec_optimization,
-    // benchmark_batch_prefill,  // TODO: new_for_benchmark not implemented
     benchmark_gpu_batch_matmul,
     benchmark_batched_causal_attention,
     benchmark_parallel_multihead_attention,
@@ -2648,7 +2647,6 @@ criterion_group!(
     benchmark_e2e_generation,
     benchmark_component_profiling,
     benchmark_q4k_matvec_optimization,
-    // benchmark_batch_prefill,  // TODO: new_for_benchmark not implemented
 );
 
 criterion_main!(benches);
