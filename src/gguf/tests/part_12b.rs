@@ -445,7 +445,7 @@ fn test_parity_075d_int8_softmax() {
         softmax
             .iter()
             .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).expect("test"))
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .expect("test")
             .0
     );

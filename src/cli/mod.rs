@@ -733,7 +733,7 @@ fn run_external_benchmark(
     }
 
     // Calculate statistics
-    latencies.sort_by(|a, b| a.partial_cmp(b).expect("test"));
+    latencies.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let p50 = latencies[latencies.len() / 2];
     let p99_idx = (latencies.len() as f64 * 0.99) as usize;
     let p99 = latencies[p99_idx.min(latencies.len() - 1)];

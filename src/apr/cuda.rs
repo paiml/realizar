@@ -893,7 +893,7 @@ impl AprV2ModelCuda {
                 let (top_idx, _) = output
                     .iter()
                     .enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("APR operation failed"))
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                     .ok_or_else(|| RealizarError::InvalidShape {
                         reason: "Empty logits".to_string(),
                     })?;
@@ -919,7 +919,7 @@ impl AprV2ModelCuda {
         let (top_idx, _) = logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("APR operation failed"))
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .ok_or_else(|| RealizarError::InvalidShape {
                 reason: "Empty logits".to_string(),
             })?;

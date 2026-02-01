@@ -15,7 +15,7 @@ fn test_qa_012_latency_no_outliers() {
         latencies.push(start.elapsed().as_nanos() as f64);
     }
 
-    latencies.sort_by(|a, b| a.partial_cmp(b).expect("test"));
+    latencies.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     let p50 = latencies[49];
     let p99 = latencies[98];
@@ -82,7 +82,7 @@ fn test_qa_017_warm_inference_stability() {
         }
 
         // Remove outliers (top/bottom 10%) per robust statistics
-        steady_latencies.sort_by(|a, b| a.partial_cmp(b).expect("test"));
+        steady_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let trimmed_start = steady_latencies.len() / 10;
         let trimmed_end = steady_latencies.len() - trimmed_start;
         let trimmed: Vec<f64> = steady_latencies[trimmed_start..trimmed_end].to_vec();
@@ -442,7 +442,7 @@ fn test_qa_011_throughput_regression_detection() {
         }
         baseline_times.push(start.elapsed().as_secs_f64());
     }
-    baseline_times.sort_by(|a, b| a.partial_cmp(b).expect("test"));
+    baseline_times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let baseline_time = baseline_times[2]; // Median
 
     // Measure again (simulating "after commit") - also take median
@@ -454,7 +454,7 @@ fn test_qa_011_throughput_regression_detection() {
         }
         current_times.push(start.elapsed().as_secs_f64());
     }
-    current_times.sort_by(|a, b| a.partial_cmp(b).expect("test"));
+    current_times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let current_time = current_times[2]; // Median
 
     // Current time should not be more than 100% slower than baseline

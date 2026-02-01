@@ -50,3 +50,7 @@ artifacts/
 
 # Benchmark results (regenerated)
 benches/comparative/results/
+
+# PMAT
+.pmat/backup/
+.pmat-qa/

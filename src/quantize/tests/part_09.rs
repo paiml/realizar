@@ -385,11 +385,11 @@ proptest! {
 
         // Find max input and its softmax output
         let (max_idx, _) = x.iter().enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .unwrap();
 
         let (softmax_max_idx, _) = x_copy.iter().enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .unwrap();
 
         prop_assert_eq!(

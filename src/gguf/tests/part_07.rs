@@ -1278,7 +1278,7 @@ fn test_parity009d_outlier_detection_mad() {
     /// Median Absolute Deviation (MAD) outlier detection
     /// Per Fleming & Wallace: MAD is robust to outliers
     fn median(values: &mut [f64]) -> f64 {
-        values.sort_by(|a, b| a.partial_cmp(b).expect("test"));
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let mid = values.len() / 2;
         if values.len().is_multiple_of(2) {
             f64::midpoint(values[mid - 1], values[mid])
@@ -1351,7 +1351,7 @@ fn test_parity009e_latency_percentiles() {
     impl LatencyStats {
         fn from_latencies(latencies: &[f64]) -> Self {
             let mut sorted = latencies.to_vec();
-            sorted.sort_by(|a, b| a.partial_cmp(b).expect("test"));
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
             let percentile = |p: f64| -> f64 {
                 let idx = ((sorted.len() as f64 - 1.0) * p).round() as usize;
