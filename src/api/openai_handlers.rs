@@ -589,6 +589,19 @@ fn convert_token_ids(ids: &[usize]) -> Result<Vec<u32>, String> {
         .collect()
 }
 
+/// Build generation config from request parameters
+fn build_gen_config(request: &ChatCompletionRequest) -> GenerationConfig {
+    let max_tokens = request.max_tokens.unwrap_or(256);
+    let temperature = request.temperature.unwrap_or(0.7);
+    let mut config = GenerationConfig::default()
+        .with_max_tokens(max_tokens)
+        .with_temperature(temperature);
+    if let Some(top_p) = request.top_p {
+        config.strategy = SamplingStrategy::TopP { p: top_p };
+    }
+    config
+}
+
 /// Registry-based model fallback (no specialized backend).
 fn registry_fallback(
     state: &AppState,
@@ -615,16 +628,7 @@ fn registry_fallback(
 
     let prompt_tokens = prompt_ids.len();
     let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
-
-    let max_tokens = request.max_tokens.unwrap_or(256);
-    let temperature = request.temperature.unwrap_or(0.7);
-
-    let mut config = GenerationConfig::default()
-        .with_max_tokens(max_tokens)
-        .with_temperature(temperature);
-    if let Some(top_p) = request.top_p {
-        config.strategy = SamplingStrategy::TopP { p: top_p };
-    }
+    let config = build_gen_config(request);
 
     let generated = match model.generate(&prompt, &config) {
         Ok(g) => g,
@@ -660,30 +664,17 @@ fn registry_fallback(
     let duration = start.elapsed();
     state.metrics.record_success(completion_tokens, duration);
 
-    Json(ChatCompletionResponse {
-        id: request_id.to_string(),
-        object: "chat.completion".to_string(),
-        created: unix_timestamp(),
-        model: request.model.clone(),
-        choices: vec![ChatChoice {
-            index: 0,
-            message: ChatMessage {
-                role: "assistant".to_string(),
-                content: response_text,
-                name: None,
-            },
-            finish_reason: "stop".to_string(),
-        }],
-        usage: Usage {
-            prompt_tokens,
-            completion_tokens,
-            total_tokens: prompt_tokens + completion_tokens,
-        },
-        brick_trace: None,
-        step_trace: None,
-        layer_trace: None,
-    })
-    .into_response()
+    let max_tokens = request.max_tokens.unwrap_or(256);
+    build_chat_response(
+        request_id.to_string(),
+        request.model.clone(),
+        response_text,
+        prompt_tokens,
+        completion_tokens,
+        max_tokens,
+        None,
+        duration,
+    )
 }
 
 // ============================================================================
