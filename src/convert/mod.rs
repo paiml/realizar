@@ -21,6 +21,50 @@ use crate::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransforme
 use crate::error::{RealizarError, Result};
 use crate::gguf::{GGUFModel, GGUFTransformer};
 
+// ============================================================================
+// CRC32 (IEEE polynomial, matches aprender's format/v2/mod.rs)
+// ============================================================================
+
+/// CRC32 checksum (IEEE polynomial 0xEDB88320)
+/// Used for APR v2 header checksum verification
+fn crc32(data: &[u8]) -> u32 {
+    const TABLE: [u32; 256] = {
+        let mut table = [0u32; 256];
+        let mut i = 0;
+        while i < 256 {
+            let mut crc = i as u32;
+            let mut j = 0;
+            while j < 8 {
+                if crc & 1 != 0 {
+                    crc = (crc >> 1) ^ 0xEDB8_8320;
+                } else {
+                    crc >>= 1;
+                }
+                j += 1;
+            }
+            table[i] = crc;
+            i += 1;
+        }
+        table
+    };
+
+    let mut crc = 0xFFFF_FFFFu32;
+    for &byte in data {
+        let idx = ((crc ^ u32::from(byte)) & 0xFF) as usize;
+        crc = TABLE[idx] ^ (crc >> 8);
+    }
+    !crc
+}
+
+/// Compute APR v2 header checksum
+/// Checksum is CRC32 over bytes [0..40] + [44..64], excluding checksum field at [40..44]
+fn compute_apr_header_checksum(header: &[u8]) -> u32 {
+    let mut data = Vec::with_capacity(60);
+    data.extend_from_slice(&header[0..40]);
+    data.extend_from_slice(&header[44..64]);
+    crc32(&data)
+}
+
 /// GGUF to APR Transformer converter
 ///
 /// Converts GGUF models with quantized weights to APR format with F32 weights.
@@ -552,6 +596,7 @@ impl GgufToAprQ4KConverter {
 
         // Build metadata JSON
         // F-REGR-231 FIX: Use field names consistent with AprTransformer::from_apr_bytes
+        // BUG-APR-044 FIX: Use QuantizationMetadata struct format expected by aprender
         let metadata = serde_json::json!({
             "model_type": "transformer_lm_q4k",
             "architecture": architecture,
@@ -565,7 +610,12 @@ impl GgufToAprQ4KConverter {
             "rope_theta": rope_theta,
             "rope_type": rope_type,
             "rms_norm_eps": eps,  // F-REGR-231: Was "eps", loader reads "rms_norm_eps"
-            "quantization": "Q4_K_M",
+            "quantization": {
+                "quant_type": "Q4_K",
+                "bits": 4,
+                "block_size": 256,
+                "symmetric": true
+            },
         });
         let metadata_bytes =
             serde_json::to_vec(&metadata).map_err(|e| RealizarError::FormatError {
@@ -585,18 +635,23 @@ impl GgufToAprQ4KConverter {
             let qtype = tensor_meta.qtype;
 
             // Calculate byte size based on qtype (GGML dtype)
-            // GGML types: 0=F32, 1=F16, 8=Q8_0, 12=Q4_K, 13=Q5_K, 14=Q6_K
+            // GGML types: 0=F32, 1=F16, 2=Q4_0, 3=Q4_1, 6=Q5_0, 7=Q5_1, 8=Q8_0, 12=Q4_K, 13=Q5_K, 14=Q6_K
             // BUG-APR-002 FIX: Use div_ceil to round UP, not integer division which rounds DOWN
             // Integer division caused "tensor exceeds file bounds" for tensors not perfectly
-            // divisible by block size (256 for K-quants, 32 for Q8_0).
+            // divisible by block size (256 for K-quants, 32 for legacy quants).
+            // BUG-APR-044 FIX: Add Q4_0, Q4_1, Q5_0, Q5_1 handlers (was defaulting to F32)
             let byte_size = match qtype {
-                0 => num_elements * 4,                  // F32
-                1 => num_elements * 2,                  // F16
-                8 => num_elements.div_ceil(32) * 34, // Q8_0: 32 elements = 34 bytes (scale + quants)
-                12 => num_elements.div_ceil(256) * 144, // Q4_K: 256 elements = 144 bytes
-                13 => num_elements.div_ceil(256) * 176, // Q5_K: 256 elements = 176 bytes
-                14 => num_elements.div_ceil(256) * 210, // Q6_K: 256 elements = 210 bytes
-                _ => num_elements * 4,               // Default to F32
+                0 => num_elements * 4,                   // F32
+                1 => num_elements * 2,                   // F16
+                2 => num_elements.div_ceil(32) * 18,     // Q4_0: 32 elements = 18 bytes (2 scale + 16 quants)
+                3 => num_elements.div_ceil(32) * 20,     // Q4_1: 32 elements = 20 bytes (2 scale + 2 min + 16 quants)
+                6 => num_elements.div_ceil(32) * 22,     // Q5_0: 32 elements = 22 bytes (2 scale + 4 high + 16 quants)
+                7 => num_elements.div_ceil(32) * 24,     // Q5_1: 32 elements = 24 bytes (2 scale + 2 min + 4 high + 16 quants)
+                8 => num_elements.div_ceil(32) * 34,     // Q8_0: 32 elements = 34 bytes (2 scale + 32 quants)
+                12 => num_elements.div_ceil(256) * 144,  // Q4_K: 256 elements = 144 bytes
+                13 => num_elements.div_ceil(256) * 176,  // Q5_K: 256 elements = 176 bytes
+                14 => num_elements.div_ceil(256) * 210,  // Q6_K: 256 elements = 210 bytes
+                _ => num_elements * 4,                   // Default to F32
             };
 
             // Extract raw bytes
@@ -628,6 +683,9 @@ impl GgufToAprQ4KConverter {
                 dtype: qtype,
             });
         }
+
+        // BUG-APR-044 FIX: Sort tensors by name (APR v2 format requires sorted tensor index)
+        raw_tensors.sort_by(|a, b| a.name.cmp(&b.name));
 
         // Build binary tensor index
         let mut tensor_index_bytes: Vec<u8> = Vec::new();
@@ -698,6 +756,11 @@ impl GgufToAprQ4KConverter {
         header[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
         header[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
         header[32..40].copy_from_slice(&data_offset_aligned.to_le_bytes());
+
+        // BUG-APR-044 FIX: Compute and write CRC32 checksum for APR v2 compatibility
+        // Checksum is over bytes [0..40] + [44..64], excluding checksum field itself
+        let checksum = compute_apr_header_checksum(&header);
+        header[40..44].copy_from_slice(&checksum.to_le_bytes());
 
         // Write file
         let mut file = std::fs::File::create(output_path).map_err(|e| RealizarError::IoError {
