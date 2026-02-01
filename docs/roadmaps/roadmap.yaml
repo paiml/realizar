@@ -4099,3 +4099,35 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: 'APR-PERF-001: Fix APR 278x slower than GGUF inference'
+  github_issue: null
+  item_type: task
+  title: 'New task: APR-PERF-001: Fix APR 278x slower than GGUF inference'
+  status: inprogress
+  priority: medium
+  assigned_to: null
+  created: 2026-02-01T12:44:10.915498813+00:00
+  updated: 2026-02-01T12:44:10.915498813+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
+- id: 'PMAT-COMPLY: Reduce dead code from 33% to 15%'
+  github_issue: null
+  item_type: task
+  title: 'New task: PMAT-COMPLY: Reduce dead code from 33% to 15%'
+  status: completed
+  priority: medium
+  assigned_to: null
+  created: 2026-02-01T12:52:41.478125272+00:00
+  updated: 2026-02-01T14:15:12.638230685+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
