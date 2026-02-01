@@ -271,35 +271,41 @@ pub fn is_apr_file<P: AsRef<Path>>(path: P) -> bool {
     fs::read(path.as_ref()).is_ok_and(|data| data.len() >= 4 && data[0..4] == MAGIC)
 }
 
-/// Detect model format from magic bytes
+/// Detect model format from file extension
+fn format_from_extension(path: &Path) -> Option<&'static str> {
+    let ext = path.extension()?.to_string_lossy().to_lowercase();
+    match ext.as_str() {
+        "apr" => Some("apr"),
+        "gguf" => Some("gguf"),
+        "safetensors" => Some("safetensors"),
+        _ => None,
+    }
+}
+
+/// Detect model format from file magic bytes
+fn format_from_magic(path: &Path) -> &'static str {
+    let Ok(data) = fs::read(path) else {
+        return "unknown";
+    };
+    if data.len() < 4 {
+        return "unknown";
+    }
+    if data[0..4] == MAGIC {
+        return "apr";
+    }
+    if data[0..4] == [0x47, 0x47, 0x55, 0x46] {
+        return "gguf";
+    }
+    if data[0] == b'{' {
+        return "safetensors";
+    }
+    "unknown"
+}
+
+/// Detect model format from extension or magic bytes
 pub fn detect_format<P: AsRef<Path>>(path: P) -> &'static str {
     let path = path.as_ref();
-
-    if let Some(ext) = path.extension() {
-        let ext = ext.to_string_lossy().to_lowercase();
-        match ext.as_str() {
-            "apr" => return "apr",
-            "gguf" => return "gguf",
-            "safetensors" => return "safetensors",
-            _ => {},
-        }
-    }
-
-    if let Ok(data) = fs::read(path) {
-        if data.len() >= 4 {
-            if data[0..4] == MAGIC {
-                return "apr";
-            }
-            if data[0..4] == [0x47, 0x47, 0x55, 0x46] {
-                return "gguf";
-            }
-            if data[0] == b'{' {
-                return "safetensors";
-            }
-        }
-    }
-
-    "unknown"
+    format_from_extension(path).unwrap_or_else(|| format_from_magic(path))
 }
 
 // ============================================================================
