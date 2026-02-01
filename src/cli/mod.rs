@@ -599,6 +599,71 @@ fn write_bench_json(
     Ok(())
 }
 
+/// Print benchmark usage help
+fn print_bench_usage() {
+    println!("Available benchmark suites:");
+    println!();
+    for (name, description) in BENCHMARK_SUITES {
+        println!("  {name:<12} - {description}");
+    }
+    println!();
+    println!("Usage:");
+    println!("  realizar bench                        # Run all benchmarks");
+    println!("  realizar bench tensor_ops             # Run specific suite");
+    println!("  realizar bench --list                 # List available suites");
+    println!("  realizar bench --runtime realizar     # Specify runtime");
+    println!("  realizar bench --output results.json  # Save JSON results");
+    println!();
+    println!("External Runtime Benchmarking (REAL HTTP calls):");
+    println!("  realizar bench --runtime ollama --url http://localhost:11434 --model llama3.2");
+    println!("  realizar bench --runtime vllm --url http://localhost:8000 --model meta-llama/Llama-3.2-1B");
+    println!("  realizar bench --runtime llama-cpp --url http://localhost:8080");
+}
+
+/// Validate benchmark suite name and print error if invalid
+fn validate_suite_or_error(suite_name: &str) -> bool {
+    if BENCHMARK_SUITES.iter().any(|(name, _)| *name == suite_name) {
+        return true;
+    }
+    eprintln!("Error: Unknown benchmark suite '{suite_name}'");
+    eprintln!();
+    eprintln!("Available suites:");
+    for (name, _) in BENCHMARK_SUITES {
+        eprintln!("  {name}");
+    }
+    false
+}
+
+/// Execute cargo bench and capture or stream output
+fn execute_cargo_bench(
+    cmd: &mut std::process::Command,
+    capture: bool,
+) -> Result<Option<std::process::Output>> {
+    if capture {
+        let output = cmd
+            .output()
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "run_benchmarks".to_string(),
+                reason: format!("Failed to execute cargo bench: {e}"),
+            })?;
+        return Ok(Some(output));
+    }
+    // Just run and show output directly
+    let status = cmd
+        .status()
+        .map_err(|e| RealizarError::UnsupportedOperation {
+            operation: "run_benchmarks".to_string(),
+            reason: format!("Failed to execute cargo bench: {e}"),
+        })?;
+    if !status.success() {
+        return Err(RealizarError::UnsupportedOperation {
+            operation: "run_benchmarks".to_string(),
+            reason: format!("Benchmarks failed with exit code: {:?}", status.code()),
+        });
+    }
+    Ok(None)
+}
+
 /// Run benchmarks with cargo bench or real HTTP client
 pub fn run_benchmarks(
     suite: Option<String>,
@@ -609,23 +674,7 @@ pub fn run_benchmarks(
     output: Option<String>,
 ) -> Result<()> {
     if list {
-        println!("Available benchmark suites:");
-        println!();
-        for (name, description) in BENCHMARK_SUITES {
-            println!("  {name:<12} - {description}");
-        }
-        println!();
-        println!("Usage:");
-        println!("  realizar bench                        # Run all benchmarks");
-        println!("  realizar bench tensor_ops             # Run specific suite");
-        println!("  realizar bench --list                 # List available suites");
-        println!("  realizar bench --runtime realizar     # Specify runtime");
-        println!("  realizar bench --output results.json  # Save JSON results");
-        println!();
-        println!("External Runtime Benchmarking (REAL HTTP calls):");
-        println!("  realizar bench --runtime ollama --url http://localhost:11434 --model llama3.2");
-        println!("  realizar bench --runtime vllm --url http://localhost:8000 --model meta-llama/Llama-3.2-1B");
-        println!("  realizar bench --runtime llama-cpp --url http://localhost:8080");
+        print_bench_usage();
         return Ok(());
     }
 
@@ -646,14 +695,7 @@ pub fn run_benchmarks(
     cmd.arg("bench");
 
     if let Some(ref suite_name) = suite {
-        // Validate suite name
-        if !BENCHMARK_SUITES.iter().any(|(name, _)| *name == suite_name) {
-            eprintln!("Error: Unknown benchmark suite '{suite_name}'");
-            eprintln!();
-            eprintln!("Available suites:");
-            for (name, _) in BENCHMARK_SUITES {
-                eprintln!("  {name}");
-            }
+        if !validate_suite_or_error(suite_name) {
             std::process::exit(1);
         }
         cmd.arg("--bench").arg(suite_name);
@@ -662,28 +704,9 @@ pub fn run_benchmarks(
     println!("Running benchmarks...");
     println!();
 
-    // Capture output if JSON output is requested
-    let bench_output = if output.is_some() {
-        cmd.output()
-            .map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "run_benchmarks".to_string(),
-                reason: format!("Failed to execute cargo bench: {e}"),
-            })?
-    } else {
-        // Just run and show output directly
-        let status = cmd
-            .status()
-            .map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "run_benchmarks".to_string(),
-                reason: format!("Failed to execute cargo bench: {e}"),
-            })?;
-        if !status.success() {
-            return Err(RealizarError::UnsupportedOperation {
-                operation: "run_benchmarks".to_string(),
-                reason: format!("Benchmarks failed with exit code: {:?}", status.code()),
-            });
-        }
-        return Ok(());
+    let bench_output = match execute_cargo_bench(&mut cmd, output.is_some())? {
+        Some(out) => out,
+        None => return Ok(()),
     };
 
     if !bench_output.status.success() {
