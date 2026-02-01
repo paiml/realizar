@@ -12,7 +12,7 @@ Critical issues remaining:
 - File Health: 24 files >2000 lines (grade D) — all non-test code under 2000, tests extracted ✅
 - Dead Code: 30.2% (quality-gate) vs target ≤15% — SIMD cfg false positives (AST reports 0.03%)
 - ComputeBrick: 526 SIMD warnings (#[target_feature] missing — linter false positives)
-- Quality gate: **66 violations** (was 225, **71% reduction**)
+- Quality gate: **63 violations** (was 225, **72% reduction**)
 
 ## 1. Compliance Check Results (`pmat comply check`)
 
@@ -38,7 +38,7 @@ Critical issues remaining:
 | Metric | Threshold | Current | Status |
 |--------|-----------|---------|--------|
 | **Dead Code** | ≤ 15% | 30.2% | ❌ FAIL (SIMD cfg false positives, AST=0.03%) |
-| **Complexity** | ≤ 25 cognitive | 6 violations | ⚠️ down from 148 (96% reduction) |
+| **Complexity** | ≤ 25 cognitive | 3 violations | ⚠️ down from 148 (98% reduction) |
 | **SATD** | 0 critical | 0 violations | ✅ PASS |
 | **Entropy** | - | 53 violations | ⚠️ (structural patterns) |
 | **Provability** | ≥ 0.70 | 0.65 | ❌ FAIL (structural metric) |
@@ -46,7 +46,7 @@ Critical issues remaining:
 | **Duplicates** | - | 0 | ✅ PASS |
 | **Sections** | All required | 0 missing | ✅ PASS |
 
-**Total violations: 66** (down from 225, 71% reduction)
+**Total violations: 63** (down from 225, 72% reduction)
 
 ## 3. Dead Code Violations (Priority: HIGH)
 
@@ -274,17 +274,17 @@ These contain Python scripts, benchmarks, test infrastructure, and ancillary bin
 | `cuda/executor/layers/ffn.rs` | `fused_ffn_swiglu_gpu` | Cog 22 | <20 (extracted `use_dp4a_kernel()`) |
 | `serve.rs` | `predict_handler` | Cog 31 | <20 (extracted `http_error()`, `require_model()`, `validate_dimensions()`, `run_model_prediction()`) |
 | `serve.rs` | `batch_predict_handler` | Cog 27 | <20 (reused shared helpers) |
+| `cuda/executor/test_fixtures.rs` | `setup_executor_harness` | Cog 25 | <20 (extracted `load_layer_attn_weights()`, `load_layer_ffn_weights()`, `load_zero_weights()`) |
+| `testing/combinatorial_tests.rs` | `generate_combinatorial_tests` | Cog 25 | <20 (extracted `generate_conversion_cases()`) |
+| `testing/combinatorial_tests.rs` | `test_all_format_conversions` | Cog 22 | <20 (extracted `create_fixture()`) |
 
-### Remaining complexity (6 violations)
+### Remaining complexity (3 violations)
 
 | File | Function | Complexity | Notes |
 |------|----------|------------|-------|
 | `src/apr/helpers.rs:550` | `detect_format` | 36 | **False positive** - line doesn't exist (file has 524 lines). Filed [#138](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/138) |
-| `src/cuda/executor/test_fixtures.rs` | `setup_executor_harness` | 25 | Test code, lower priority |
-| `src/quantize/fused_k.rs` | `fused_q4k_dot_avx512_vnni` | 23 | SIMD code, difficult to refactor |
-| `src/serve.rs` | `run_model_prediction` | 23 | Just above threshold (extracted from handlers) |
-| `src/testing/combinatorial_tests.rs` | `generate_combinatorial_tests` | 25 | Test code, 5-level loop nesting |
-| (1 more) | | | |
+| `src/quantize/fused_k.rs` | `fused_q4k_dot_avx512_vnni` | 23 | SIMD code with AVX-512 intrinsics, difficult to refactor |
+| `src/serve.rs` | `run_model_prediction` | 23 | Match on 8 model types, inherent complexity |
 
 ## 8. Duplicate Code Patterns (Priority: LOW)
 
