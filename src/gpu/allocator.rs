@@ -153,6 +153,29 @@ pub fn naive_matmul(
 
 /// Cache-blocked matrix multiplication (M21 - IMP-048)
 ///
+/// Compute inner block of matrix multiplication
+#[inline]
+fn compute_block(
+    result: &mut [f32],
+    mat_a: &[f32],
+    mat_b: &[f32],
+    row_range: std::ops::Range<usize>,
+    col_range: std::ops::Range<usize>,
+    inner_range: std::ops::Range<usize>,
+    inner: usize,
+    cols: usize,
+) {
+    for row in row_range {
+        for col in col_range.clone() {
+            let mut sum = result[row * cols + col];
+            for idx in inner_range.clone() {
+                sum += mat_a[row * inner + idx] * mat_b[idx * cols + col];
+            }
+            result[row * cols + col] = sum;
+        }
+    }
+}
+
 /// Uses tiling/blocking to improve cache locality for large matrices.
 /// Block size should be chosen to fit in L1/L2 cache.
 #[must_use]
@@ -170,23 +193,20 @@ pub fn blocked_matmul(
     // Process in blocks for better cache utilization
     for row_blk in (0..rows).step_by(block_size) {
         let row_end = (row_blk + block_size).min(rows);
-
         for col_blk in (0..cols).step_by(block_size) {
             let col_end = (col_blk + block_size).min(cols);
-
             for inner_blk in (0..inner).step_by(block_size) {
                 let inner_end = (inner_blk + block_size).min(inner);
-
-                // Inner blocked computation
-                for row in row_blk..row_end {
-                    for col in col_blk..col_end {
-                        let mut sum = result[row * cols + col];
-                        for idx in inner_blk..inner_end {
-                            sum += mat_a[row * inner + idx] * mat_b[idx * cols + col];
-                        }
-                        result[row * cols + col] = sum;
-                    }
-                }
+                compute_block(
+                    &mut result,
+                    mat_a,
+                    mat_b,
+                    row_blk..row_end,
+                    col_blk..col_end,
+                    inner_blk..inner_end,
+                    inner,
+                    cols,
+                );
             }
         }
     }
