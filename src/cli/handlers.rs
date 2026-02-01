@@ -298,6 +298,58 @@ pub async fn handle_serve(_config: ServeConfig) -> Result<()> {
     })
 }
 
+/// Scan a directory for model files (.gguf, .safetensors, .apr)
+fn scan_model_directory(dir: &std::path::Path) -> Vec<(String, u64)> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !path.is_file() {
+                return None;
+            }
+            let name = path.file_name()?.to_string_lossy().to_string();
+            if name.ends_with(".gguf") || name.ends_with(".safetensors") || name.ends_with(".apr") {
+                let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                Some((name, size))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Print a list of models in the requested format
+fn print_model_list(models: &[(String, u64)], format: &str) {
+    match format {
+        "json" => {
+            let json_models: Vec<_> = models
+                .iter()
+                .map(|(name, size)| {
+                    serde_json::json!({
+                        "name": name,
+                        "size_bytes": size,
+                        "size_human": super::format_size(*size)
+                    })
+                })
+                .collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json_models).unwrap_or_default()
+            );
+        },
+        _ => {
+            println!("{:<40} {:>12}", "NAME", "SIZE");
+            println!("{}", "-".repeat(54));
+            for (name, size) in models {
+                println!("{:<40} {:>12}", name, super::format_size(*size));
+            }
+        },
+    }
+}
+
 /// Handle the list command
 pub fn handle_list(remote: Option<&str>, format: &str) -> Result<()> {
     println!("Available Models");
@@ -327,51 +379,11 @@ pub fn handle_list(remote: Option<&str>, format: &str) -> Result<()> {
         return Ok(());
     }
 
-    let mut models_found = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&pacha_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                let name = path.file_name().unwrap_or_default().to_string_lossy();
-                if name.ends_with(".gguf")
-                    || name.ends_with(".safetensors")
-                    || name.ends_with(".apr")
-                {
-                    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                    models_found.push((name.to_string(), size));
-                }
-            }
-        }
-    }
-
+    let models_found = scan_model_directory(&pacha_dir);
     if models_found.is_empty() {
         println!("No models found in {}", pacha_dir.display());
     } else {
-        match format {
-            "json" => {
-                let json_models: Vec<_> = models_found
-                    .iter()
-                    .map(|(name, size)| {
-                        serde_json::json!({
-                            "name": name,
-                            "size_bytes": size,
-                            "size_human": super::format_size(*size)
-                        })
-                    })
-                    .collect();
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&json_models).unwrap_or_default()
-                );
-            },
-            _ => {
-                println!("{:<40} {:>12}", "NAME", "SIZE");
-                println!("{}", "-".repeat(54));
-                for (name, size) in &models_found {
-                    println!("{:<40} {:>12}", name, super::format_size(*size));
-                }
-            },
-        }
+        print_model_list(&models_found, format);
     }
 
     Ok(())

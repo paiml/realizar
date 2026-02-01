@@ -153,12 +153,37 @@ enum TextSegment {
 }
 
 /// Split text by special tokens, preserving order
+/// Try to match a special token at the start of remaining text
+///
+/// Returns (token_id, bytes_consumed) if matched.
+fn try_match_special_at_start<'a>(
+    remaining: &str,
+    sorted_tokens: &[(&'a String, &'a u32)],
+) -> Option<(u32, usize)> {
+    for (token_str, &token_id) in sorted_tokens {
+        if remaining.starts_with(token_str.as_str()) {
+            return Some((token_id, token_str.len()));
+        }
+    }
+    None
+}
+
+/// Find the byte position of the earliest special token in remaining text
+fn find_earliest_special_pos(remaining: &str, sorted_tokens: &[(&String, &u32)]) -> usize {
+    let mut earliest = remaining.len();
+    for (token_str, _) in sorted_tokens {
+        if let Some(pos) = remaining.find(token_str.as_str()) {
+            earliest = earliest.min(pos);
+        }
+    }
+    earliest
+}
+
 fn split_by_special_tokens(text: &str, special_tokens: &HashMap<String, u32>) -> Vec<TextSegment> {
     if special_tokens.is_empty() {
         return vec![TextSegment::Regular(text.to_string())];
     }
 
-    // Sort special tokens by length (longest first) to handle overlapping patterns
     let mut sorted_tokens: Vec<(&String, &u32)> = special_tokens.iter().collect();
     sorted_tokens.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
 
@@ -166,39 +191,51 @@ fn split_by_special_tokens(text: &str, special_tokens: &HashMap<String, u32>) ->
     let mut remaining = text;
 
     while !remaining.is_empty() {
-        // Try to match a special token at the start
-        let mut matched = false;
-        for (token_str, &token_id) in &sorted_tokens {
-            if remaining.starts_with(token_str.as_str()) {
-                segments.push(TextSegment::Special(token_id));
-                remaining = &remaining[token_str.len()..];
-                matched = true;
-                break;
-            }
-        }
-
-        if !matched {
-            // Find the next special token occurrence
-            let mut next_special_pos = remaining.len();
-            for (token_str, _) in &sorted_tokens {
-                if let Some(pos) = remaining.find(token_str.as_str()) {
-                    if pos < next_special_pos {
-                        next_special_pos = pos;
-                    }
-                }
-            }
-
-            // Add regular text segment up to the next special token
-            if next_special_pos > 0 {
-                segments.push(TextSegment::Regular(
-                    remaining[..next_special_pos].to_string(),
-                ));
-                remaining = &remaining[next_special_pos..];
+        if let Some((token_id, consumed)) = try_match_special_at_start(remaining, &sorted_tokens) {
+            segments.push(TextSegment::Special(token_id));
+            remaining = &remaining[consumed..];
+        } else {
+            let next_pos = find_earliest_special_pos(remaining, &sorted_tokens);
+            if next_pos > 0 {
+                segments.push(TextSegment::Regular(remaining[..next_pos].to_string()));
+                remaining = &remaining[next_pos..];
             }
         }
     }
 
     segments
+}
+
+/// Convert a character to its byte-level BPE token representation (GPT-2/Qwen style)
+fn char_to_bpe_token(c: char) -> String {
+    match c {
+        ' ' => "Ġ".to_string(),
+        '\n' => "Ċ".to_string(),
+        '\t' => "ĉ".to_string(),
+        c if c.is_ascii() => c.to_string(),
+        c => {
+            let mut buf = [0u8; 4];
+            let s = c.encode_utf8(&mut buf);
+            s.chars()
+                .map(|byte_char| byte_to_bpe_char(byte_char as u8))
+                .collect()
+        },
+    }
+}
+
+/// Apply a single BPE merge rule to the token list, returning true if any merge was applied
+fn apply_bpe_merge(tokens: &mut Vec<String>, first: &str, second: &str, merged: &str) -> bool {
+    let mut found = false;
+    let mut i = 0;
+    while i + 1 < tokens.len() {
+        if tokens[i] == first && tokens[i + 1] == second {
+            tokens[i] = merged.to_string();
+            tokens.remove(i + 1);
+            found = true;
+        }
+        i += 1;
+    }
+    found
 }
 
 /// BPE encode a regular text segment (no special tokens)
@@ -207,50 +244,12 @@ fn bpe_encode_segment(
     vocab: &HashMap<String, u32>,
     merges: &[(String, String)],
 ) -> Vec<u32> {
-    // Convert text to byte-level tokens (GPT-2/Qwen style)
-    // Each byte maps to a special unicode char in range U+0100-U+01FF or similar
-    let mut tokens: Vec<String> = text
-        .chars()
-        .map(|c| {
-            // Convert character to byte-level BPE token
-            // Space becomes Ġ (U+0120 = 288), newline becomes Ċ, etc.
-            if c == ' ' {
-                "Ġ".to_string()
-            } else if c == '\n' {
-                "Ċ".to_string()
-            } else if c == '\t' {
-                "ĉ".to_string()
-            } else if c.is_ascii() {
-                c.to_string()
-            } else {
-                // For non-ASCII, encode as bytes
-                let mut buf = [0u8; 4];
-                let s = c.encode_utf8(&mut buf);
-                s.chars()
-                    .map(|byte_char| byte_to_bpe_char(byte_char as u8))
-                    .collect()
-            }
-        })
-        .collect();
+    let mut tokens: Vec<String> = text.chars().map(char_to_bpe_token).collect();
 
     // Apply BPE merges iteratively
     for (first, second) in merges {
         let merged = format!("{}{}", first, second);
-        loop {
-            let mut found = false;
-            let mut i = 0;
-            while i + 1 < tokens.len() {
-                if &tokens[i] == first && &tokens[i + 1] == second {
-                    tokens[i].clone_from(&merged);
-                    tokens.remove(i + 1);
-                    found = true;
-                }
-                i += 1;
-            }
-            if !found {
-                break;
-            }
-        }
+        while apply_bpe_merge(&mut tokens, first, second, &merged) {}
     }
 
     // Convert tokens to IDs
