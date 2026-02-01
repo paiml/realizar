@@ -72,7 +72,7 @@ test-probar: ## Run all probar visual tests
 test: ## Run all tests (excludes load tests - use 'make load-test' for those)
 	@echo "$(GREEN)Running tests (-j2 to prevent OOM)...$(NC)"
 	@# Exclude load-test-enabled (requires running server)
-	cargo test --features "server,cli,gpu" -- --test-threads=2
+	PROPTEST_CASES=256 QUICKCHECK_TESTS=100 cargo test --features "server,cli,gpu" -- --test-threads=2
 
 test-lib: ## Run library tests only (fast)
 	@echo "$(GREEN)Running library tests...$(NC)"
@@ -88,7 +88,7 @@ test-integration: ## Run integration tests only
 
 test-property: ## Run property-based tests (proptest)
 	@echo "$(GREEN)Running property-based tests...$(NC)"
-	cargo test --test property_*
+	PROPTEST_CASES=1000 QUICKCHECK_TESTS=1000 cargo test --test property_*
 
 load-test: ## Run HTTP API load tests (requires running server)
 	@echo "$(GREEN)Running load tests...$(NC)"
