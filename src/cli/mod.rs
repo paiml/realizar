@@ -593,38 +593,33 @@ pub fn run_benchmarks(
     Ok(())
 }
 
+/// Parse a single cargo bench output line into a JSON result
+fn parse_bench_line(line: &str, suite: Option<&str>) -> Option<serde_json::Value> {
+    if !line.contains("bench:") || !line.contains("ns/iter") {
+        return None;
+    }
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.len() < 5 {
+        return None;
+    }
+    let test_idx = parts.iter().position(|&p| p == "test")?;
+    let name = parts.get(test_idx + 1)?;
+    let bench_idx = parts.iter().position(|&p| p == "bench:")?;
+    let time_str = parts.get(bench_idx + 1)?;
+    let time_ns = time_str.replace(',', "").parse::<u64>().ok()?;
+    Some(serde_json::json!({
+        "name": name,
+        "time_ns": time_ns,
+        "suite": suite
+    }))
+}
+
 /// Parse cargo bench output to extract benchmark results
 fn parse_cargo_bench_output(output: &str, suite: Option<&str>) -> Vec<serde_json::Value> {
-    let mut results = Vec::new();
-
-    // Parse lines like: "test benchmark_name ... bench: 123 ns/iter (+/- 45)"
-    for line in output.lines() {
-        if line.contains("bench:") && line.contains("ns/iter") {
-            // Extract benchmark name and timing
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 5 {
-                // Find "test" and extract name
-                if let Some(test_idx) = parts.iter().position(|&p| p == "test") {
-                    if let Some(name) = parts.get(test_idx + 1) {
-                        // Find "bench:" and extract timing
-                        if let Some(bench_idx) = parts.iter().position(|&p| p == "bench:") {
-                            if let Some(time_str) = parts.get(bench_idx + 1) {
-                                if let Ok(time_ns) = time_str.replace(',', "").parse::<u64>() {
-                                    results.push(serde_json::json!({
-                                        "name": name,
-                                        "time_ns": time_ns,
-                                        "suite": suite
-                                    }));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    results
+    output
+        .lines()
+        .filter_map(|line| parse_bench_line(line, suite))
+        .collect()
 }
 
 /// Run external runtime benchmark using REAL HTTP calls

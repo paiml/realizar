@@ -248,6 +248,67 @@ pub fn detect_model_from_bytes(data: &[u8]) -> Result<ModelMetadata, LoadError> 
     Ok(ModelMetadata::new(format).with_file_size(data.len() as u64))
 }
 
+/// Extract model type from APR v2 JSON metadata
+///
+/// Reads the metadata offset/size from the header, parses JSON, and
+/// returns model_type or model.architecture field.
+fn read_apr_v2_model_type(data: &[u8]) -> Option<String> {
+    if data.len() < 64 {
+        return Some("Transformer".to_string()); // Default for incomplete header
+    }
+
+    let metadata_offset = u64::from_le_bytes([
+        data[12], data[13], data[14], data[15], data[16], data[17], data[18], data[19],
+    ]) as usize;
+    let metadata_size = u32::from_le_bytes([data[20], data[21], data[22], data[23]]) as usize;
+
+    if metadata_offset + metadata_size > data.len() || metadata_size == 0 {
+        return Some("Transformer".to_string());
+    }
+
+    let metadata_bytes = &data[metadata_offset..metadata_offset + metadata_size];
+    let metadata_str = std::str::from_utf8(metadata_bytes).ok()?;
+    let json: serde_json::Value = serde_json::from_str(metadata_str).ok()?;
+
+    // Check for model_type field in JSON metadata
+    if let Some(model_type) = json.get("model_type").and_then(|v| v.as_str()) {
+        if !model_type.is_empty() {
+            return Some(model_type.to_string());
+        }
+    }
+    // Check for model.architecture field (from GGUF import)
+    if let Some(arch) = json.get("model.architecture").and_then(|v| v.as_str()) {
+        return Some(format!("Transformer({})", arch));
+    }
+
+    Some("Transformer".to_string())
+}
+
+/// Map APR v1 type ID to model type name
+fn read_apr_v1_model_type(type_id: u16) -> Option<&'static str> {
+    match type_id {
+        0x0001 => Some("LinearRegression"),
+        0x0002 => Some("LogisticRegression"),
+        0x0003 => Some("DecisionTree"),
+        0x0004 => Some("RandomForest"),
+        0x0005 => Some("GradientBoosting"),
+        0x0006 => Some("KMeans"),
+        0x0007 => Some("PCA"),
+        0x0008 => Some("NaiveBayes"),
+        0x0009 => Some("KNN"),
+        0x000A => Some("SVM"),
+        0x0010 => Some("NgramLM"),
+        0x0011 => Some("TFIDF"),
+        0x0012 => Some("CountVectorizer"),
+        0x0020 => Some("NeuralSequential"),
+        0x0021 => Some("NeuralCustom"),
+        0x0030 => Some("ContentRecommender"),
+        0x0040 => Some("MixtureOfExperts"),
+        0x00FF => Some("Custom"),
+        _ => None,
+    }
+}
+
 /// Load APR model type from metadata bytes
 ///
 /// Supports both APR v1 (type in header) and APR v2 (type in JSON metadata).
@@ -264,81 +325,14 @@ pub fn read_apr_model_type(data: &[u8]) -> Option<String> {
         return None;
     }
 
-    // Check magic bytes to determine APR version
     // APR v2 magic: "APR\0" (0x41, 0x50, 0x52, 0x00)
-    // APR v1 magic: "APRN" or other variants
-    let is_v2 = data[0..4] == [0x41, 0x50, 0x52, 0x00];
-
-    if is_v2 {
-        // APR v2 header layout (64 bytes):
-        // bytes[0..4]: magic "APR\0"
-        // bytes[4]: version major (2)
-        // bytes[5]: version minor (0)
-        // bytes[6..8]: flags
-        // bytes[8..12]: tensor_count
-        // bytes[12..20]: metadata_offset (u64)
-        // bytes[20..24]: metadata_size (u32)
-        // Model type is in JSON metadata, read it from there
-
-        if data.len() < 64 {
-            return Some("Transformer".to_string()); // Default for incomplete header
-        }
-
-        let metadata_offset = u64::from_le_bytes([
-            data[12], data[13], data[14], data[15], data[16], data[17], data[18], data[19],
-        ]) as usize;
-        let metadata_size = u32::from_le_bytes([data[20], data[21], data[22], data[23]]) as usize;
-
-        if metadata_offset + metadata_size <= data.len() && metadata_size > 0 {
-            let metadata_bytes = &data[metadata_offset..metadata_offset + metadata_size];
-            if let Ok(metadata_str) = std::str::from_utf8(metadata_bytes) {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(metadata_str) {
-                    // Check for model_type field in JSON metadata
-                    if let Some(model_type) = json.get("model_type").and_then(|v| v.as_str()) {
-                        if !model_type.is_empty() {
-                            return Some(model_type.to_string());
-                        }
-                    }
-                    // Check for model.architecture field (from GGUF import)
-                    if let Some(arch) = json.get("model.architecture").and_then(|v| v.as_str()) {
-                        return Some(format!("Transformer({})", arch));
-                    }
-                }
-            }
-        }
-
-        // Default for APR v2 transformer models
-        return Some("Transformer".to_string());
+    if data[0..4] == [0x41, 0x50, 0x52, 0x00] {
+        return read_apr_v2_model_type(data);
     }
 
     // APR v1 header layout: APRN (4 bytes) + type_id (2 bytes) + version (2 bytes)
-    // Per aprender format spec
     let type_id = u16::from_le_bytes([data[4], data[5]]);
-
-    // Map type ID to name (from aprender::format::ModelType)
-    let type_name = match type_id {
-        0x0001 => "LinearRegression",
-        0x0002 => "LogisticRegression",
-        0x0003 => "DecisionTree",
-        0x0004 => "RandomForest",
-        0x0005 => "GradientBoosting",
-        0x0006 => "KMeans",
-        0x0007 => "PCA",
-        0x0008 => "NaiveBayes",
-        0x0009 => "KNN",
-        0x000A => "SVM",
-        0x0010 => "NgramLM",
-        0x0011 => "TFIDF",
-        0x0012 => "CountVectorizer",
-        0x0020 => "NeuralSequential",
-        0x0021 => "NeuralCustom",
-        0x0030 => "ContentRecommender",
-        0x0040 => "MixtureOfExperts",
-        0x00FF => "Custom",
-        _ => return None,
-    };
-
-    Some(type_name.to_string())
+    read_apr_v1_model_type(type_id).map(String::from)
 }
 
 /// Validate that loaded model matches expected type
