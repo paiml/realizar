@@ -26,7 +26,7 @@ Critical issues remaining:
 | Cargo.lock | ✅ | Reproducible builds |
 | MSRV Defined | ✅ | rust-version present |
 | CI Configured | ✅ | 3 workflows |
-| ComputeBrick | ⚠️ | 526 warnings (CB-021 SIMD) |
+| ComputeBrick | ⚠️ | 526 warnings (CB-021 false positives — all functions have `#[target_feature]`) |
 | OIP Tarantula | ✅ | CB-121 fixed (8 production patterns), CB-120/122/123/124 clean |
 | Coverage Quality | ⚠️ | 17 warnings (CB-127) |
 | PAIML Deps | ⚠️ | 3 dirty workspaces |
@@ -78,20 +78,37 @@ correctly reports 0% dead code in these files. All flagged functions are either:
 
 ## 4. ComputeBrick Compliance (Priority: HIGH)
 
-**526 CB-021 warnings**: SIMD intrinsics without `#[target_feature]`
+**526 CB-021 warnings**: Linter false positives — flags each `_mm256_*` call per-line,
+not per-function. All SIMD functions already have `#[target_feature]`.
 
-| File | Issue |
-|------|-------|
-| `src/quantize/parallel_dequant.rs` | `_mm256_*` without attribute |
-| `src/quantize/fused_k.rs` | `_mm256_*` without attribute |
-| `src/quantize/activation.rs` | `_mm256_*` without attribute |
+### Audit Results (11 files with SIMD intrinsics)
 
-### Fix Strategy
-Add `#[target_feature(enable = "avx2")]` to SIMD functions:
-```rust
-#[target_feature(enable = "avx2")]
-unsafe fn simd_function() { ... }
-```
+| File | Functions | `#[target_feature]` | Status |
+|------|-----------|---------------------|--------|
+| `src/quantize/parallel_dequant.rs` | 6 | All ✅ | Compliant |
+| `src/quantize/fused_k.rs` | 16 | All ✅ | Compliant |
+| `src/quantize/activation.rs` | 4 | All ✅ | Compliant |
+| `src/quantize/mod.rs` | 1 | ✅ | Compliant |
+| `src/quantize/fused_q5k_q6k.rs` | 1 | ✅ | Compliant |
+| `src/apr_transformer/helpers.rs` | 2 | All ✅ | Compliant |
+| `src/gguf/inference/attention.rs` | 2 | All ✅ | Compliant |
+| `src/apr/helpers.rs` | 1 | ✅ | Compliant |
+| `src/layers/attention.rs` | 1 | ✅ | **Fixed** (was compile-time cfg) |
+
+**Total: 34 SIMD functions, all with `#[target_feature]` + `unsafe fn` + `#[cfg(target_arch)]`**
+
+### Fixed: `layers/attention.rs` `simd_dot_avx2`
+
+Was using compile-time `#[cfg(target_feature = "avx2")]` instead of runtime
+`#[target_feature(enable = "avx2")]`. Converted to runtime feature detection
+with `is_x86_feature_detected!` dispatch.
+
+### Remaining: Linter false positives (526 warnings)
+
+The CB-021 checker counts each individual `_mm256_*` call (~526 across all files)
+rather than checking function-level `#[target_feature]` attributes. All flagged calls
+are inside properly-attributed `unsafe fn` declarations. This is a known linter
+limitation — no code changes needed.
 
 ## 5. File Health (Priority: CRITICAL)
 

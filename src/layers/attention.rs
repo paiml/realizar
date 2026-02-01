@@ -480,49 +480,49 @@ impl Attention {
     /// Uses AVX2 on x86_64 for 8-way f32 parallelism
     #[inline]
     fn simd_dot_product(a: &[f32], b: &[f32]) -> f32 {
-        #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+        #[cfg(target_arch = "x86_64")]
         {
-            Self::simd_dot_avx2(a, b)
+            if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+                // SAFETY: Feature detection above guarantees AVX2+FMA availability
+                return unsafe { Self::simd_dot_avx2(a, b) };
+            }
         }
 
-        #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
-        {
-            Self::scalar_dot_product(a, b)
-        }
+        Self::scalar_dot_product(a, b)
     }
 
     /// AVX2 SIMD dot product (8-way f32 parallelism)
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    ///
+    /// # Safety
+    /// Caller must ensure AVX2 and FMA are available on this CPU.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2", enable = "fma")]
     #[inline]
-    #[allow(clippy::wildcard_imports)]
-    fn simd_dot_avx2(a: &[f32], b: &[f32]) -> f32 {
+    #[allow(clippy::wildcard_imports, unsafe_op_in_unsafe_fn)]
+    unsafe fn simd_dot_avx2(a: &[f32], b: &[f32]) -> f32 {
         use std::arch::x86_64::*;
 
         let len = a.len().min(b.len());
         let chunks = len / 8;
         let remainder = len % 8;
 
-        // SIMD accumulator
-        // SAFETY: Memory safety ensured by bounds checking and alignment
-        let simd_sum = unsafe {
-            let mut acc = _mm256_setzero_ps();
+        let mut acc = _mm256_setzero_ps();
 
-            for i in 0..chunks {
-                let a_vec = _mm256_loadu_ps(a.as_ptr().add(i * 8));
-                let b_vec = _mm256_loadu_ps(b.as_ptr().add(i * 8));
-                acc = _mm256_fmadd_ps(a_vec, b_vec, acc);
-            }
+        for i in 0..chunks {
+            let a_vec = _mm256_loadu_ps(a.as_ptr().add(i * 8));
+            let b_vec = _mm256_loadu_ps(b.as_ptr().add(i * 8));
+            acc = _mm256_fmadd_ps(a_vec, b_vec, acc);
+        }
 
-            // Horizontal sum of 8 floats
-            let hi = _mm256_extractf128_ps(acc, 1);
-            let lo = _mm256_castps256_ps128(acc);
-            let sum128 = _mm_add_ps(lo, hi);
-            let hi64 = _mm_movehl_ps(sum128, sum128);
-            let sum64 = _mm_add_ps(sum128, hi64);
-            let hi32 = _mm_shuffle_ps(sum64, sum64, 0x55);
-            let sum32 = _mm_add_ss(sum64, hi32);
-            _mm_cvtss_f32(sum32)
-        };
+        // Horizontal sum of 8 floats
+        let hi = _mm256_extractf128_ps(acc, 1);
+        let lo = _mm256_castps256_ps128(acc);
+        let sum128 = _mm_add_ps(lo, hi);
+        let hi64 = _mm_movehl_ps(sum128, sum128);
+        let sum64 = _mm_add_ps(sum128, hi64);
+        let hi32 = _mm_shuffle_ps(sum64, sum64, 0x55);
+        let sum32 = _mm_add_ss(sum64, hi32);
+        let simd_sum = _mm_cvtss_f32(sum32);
 
         // Handle remainder
         let remainder_sum: f32 = (0..remainder)
@@ -533,7 +533,6 @@ impl Attention {
     }
 
     /// Scalar fallback dot product
-    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
     #[inline]
     fn scalar_dot_product(a: &[f32], b: &[f32]) -> f32 {
         a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
