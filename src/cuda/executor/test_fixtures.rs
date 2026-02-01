@@ -347,6 +347,49 @@ impl HarnessConfig {
     }
 }
 
+/// Compute Q4_K weight size: rows * cols / 256 elements per superblock * 144 bytes per superblock
+#[inline]
+fn q4k_weight_size(rows: usize, cols: usize) -> usize {
+    rows * cols / 256 * 144
+}
+
+/// Load zero-initialized Q4_K weights into executor cache
+fn load_zero_weights(
+    exec: &mut crate::cuda::executor::CudaExecutor,
+    name: &str,
+    rows: usize,
+    cols: usize,
+) -> Result<(), crate::cuda::executor::GpuError> {
+    let weights = vec![0u8; q4k_weight_size(rows, cols)];
+    exec.load_quantized_weights(name, &weights)
+}
+
+/// Load attention weights (Q/K/V/O projections) for one layer
+fn load_layer_attn_weights(
+    exec: &mut crate::cuda::executor::CudaExecutor,
+    prefix: &str,
+    config: &HarnessConfig,
+) -> Result<(), crate::cuda::executor::GpuError> {
+    let q_dim = config.num_heads * config.head_dim;
+    let kv_dim = config.num_kv_heads * config.head_dim;
+
+    load_zero_weights(exec, &format!("{prefix}.attn_q.weight"), q_dim, config.hidden_dim)?;
+    load_zero_weights(exec, &format!("{prefix}.attn_k.weight"), kv_dim, config.hidden_dim)?;
+    load_zero_weights(exec, &format!("{prefix}.attn_v.weight"), kv_dim, config.hidden_dim)?;
+    load_zero_weights(exec, &format!("{prefix}.attn_output.weight"), config.hidden_dim, q_dim)
+}
+
+/// Load FFN weights (gate/up/down projections) for one layer
+fn load_layer_ffn_weights(
+    exec: &mut crate::cuda::executor::CudaExecutor,
+    prefix: &str,
+    config: &HarnessConfig,
+) -> Result<(), crate::cuda::executor::GpuError> {
+    load_zero_weights(exec, &format!("{prefix}.ffn_gate.weight"), config.intermediate_dim, config.hidden_dim)?;
+    load_zero_weights(exec, &format!("{prefix}.ffn_up.weight"), config.intermediate_dim, config.hidden_dim)?;
+    load_zero_weights(exec, &format!("{prefix}.ffn_down.weight"), config.hidden_dim, config.intermediate_dim)
+}
+
 /// Setup executor with all required state for integration tests
 ///
 /// This is the key to reaching 95% coverage - it enables testing
@@ -360,10 +403,8 @@ pub fn setup_executor_harness(
     exec.kv_num_kv_heads = config.num_kv_heads;
     exec.kv_head_dim = config.head_dim;
 
-    // 2. Initialize workspace
+    // 2. Initialize workspace and KV cache
     exec.init_workspace(config.hidden_dim, config.intermediate_dim)?;
-
-    // 3. Initialize KV cache
     exec.init_kv_cache_gpu(
         config.num_layers,
         config.num_heads,
@@ -372,64 +413,23 @@ pub fn setup_executor_harness(
         config.max_seq_len,
     )?;
 
-    // 4. Load RMSNorm weights for each layer
+    // 3. Load RMSNorm weights for each layer + output norm
     let gamma: Vec<f32> = vec![1.0; config.hidden_dim];
     for layer_idx in 0..config.num_layers {
-        let attn_name = format!("blk.{}.attn_norm.gamma", layer_idx);
-        let ffn_name = format!("blk.{}.ffn_norm.gamma", layer_idx);
-        exec.cache_rmsnorm_gamma(&attn_name, &gamma)?;
-        exec.cache_rmsnorm_gamma(&ffn_name, &gamma)?;
+        exec.cache_rmsnorm_gamma(&format!("blk.{layer_idx}.attn_norm.gamma"), &gamma)?;
+        exec.cache_rmsnorm_gamma(&format!("blk.{layer_idx}.ffn_norm.gamma"), &gamma)?;
     }
-    // Output norm
     exec.cache_rmsnorm_gamma("output_norm.gamma", &gamma)?;
 
-    // 5. Load quantized weights for each layer (Q4_K format: 144 bytes/256 elements)
-    let q_dim = config.num_heads * config.head_dim;
-    let kv_dim = config.num_kv_heads * config.head_dim;
-
+    // 4. Load quantized weights for each layer
     for layer_idx in 0..config.num_layers {
-        let prefix = format!("blk.{}", layer_idx);
-
-        // Q projection: [q_dim, hidden_dim]
-        let q_size = q_dim * config.hidden_dim / 256 * 144;
-        let q_weights = vec![0u8; q_size];
-        exec.load_quantized_weights(&format!("{}.attn_q.weight", prefix), &q_weights)?;
-
-        // K projection: [kv_dim, hidden_dim]
-        let k_size = kv_dim * config.hidden_dim / 256 * 144;
-        let k_weights = vec![0u8; k_size];
-        exec.load_quantized_weights(&format!("{}.attn_k.weight", prefix), &k_weights)?;
-
-        // V projection: [kv_dim, hidden_dim]
-        let v_weights = vec![0u8; k_size];
-        exec.load_quantized_weights(&format!("{}.attn_v.weight", prefix), &v_weights)?;
-
-        // O projection: [hidden_dim, q_dim]
-        let o_size = config.hidden_dim * q_dim / 256 * 144;
-        let o_weights = vec![0u8; o_size];
-        exec.load_quantized_weights(&format!("{}.attn_output.weight", prefix), &o_weights)?;
-
-        // FFN gate: [intermediate_dim, hidden_dim]
-        let ffn_size = config.intermediate_dim * config.hidden_dim / 256 * 144;
-        let gate_weights = vec![0u8; ffn_size];
-        exec.load_quantized_weights(&format!("{}.ffn_gate.weight", prefix), &gate_weights)?;
-
-        // FFN up: [intermediate_dim, hidden_dim]
-        let up_weights = vec![0u8; ffn_size];
-        exec.load_quantized_weights(&format!("{}.ffn_up.weight", prefix), &up_weights)?;
-
-        // FFN down: [hidden_dim, intermediate_dim]
-        let down_size = config.hidden_dim * config.intermediate_dim / 256 * 144;
-        let down_weights = vec![0u8; down_size];
-        exec.load_quantized_weights(&format!("{}.ffn_down.weight", prefix), &down_weights)?;
+        let prefix = format!("blk.{layer_idx}");
+        load_layer_attn_weights(exec, &prefix, config)?;
+        load_layer_ffn_weights(exec, &prefix, config)?;
     }
 
-    // 6. Load LM head: [vocab_size, hidden_dim]
-    let lm_head_size = config.vocab_size * config.hidden_dim / 256 * 144;
-    let lm_head_weights = vec![0u8; lm_head_size];
-    exec.load_quantized_weights("output.weight", &lm_head_weights)?;
-
-    // 7. Build indexed weights for O(1) layer access
+    // 5. Load LM head and build indexed weights
+    load_zero_weights(exec, "output.weight", config.vocab_size, config.hidden_dim)?;
     exec.build_indexed_weights(config.num_layers, |i| format!("blk.{}", i))?;
 
     Ok(())
