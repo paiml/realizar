@@ -61,13 +61,21 @@ mod workspace;
 #[cfg(test)]
 mod tests_part_01;
 #[cfg(test)]
-mod tests_part_02;
+mod tests_part_02a;
 #[cfg(test)]
-mod tests_part_03;
+mod tests_part_02b;
 #[cfg(test)]
-mod tests_part_04;
+mod tests_part_03a;
 #[cfg(test)]
-mod tests_part_05;
+mod tests_part_03b;
+#[cfg(test)]
+mod tests_part_04a;
+#[cfg(test)]
+mod tests_part_04b;
+#[cfg(test)]
+mod tests_part_05a;
+#[cfg(test)]
+mod tests_part_05b;
 #[cfg(test)]
 mod tests_part_06a;
 #[cfg(test)]
