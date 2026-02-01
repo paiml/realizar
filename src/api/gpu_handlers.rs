@@ -21,6 +21,44 @@ use super::{
 };
 use crate::generate::{GenerationConfig, SamplingStrategy};
 use crate::registry::ModelInfo;
+use crate::tokenizer::BPETokenizer;
+
+// ============================================================================
+// Shared helpers
+// ============================================================================
+
+/// Shorthand for the error tuple used across all gpu_handlers endpoints.
+type ApiErr = (StatusCode, Json<ErrorResponse>);
+
+/// Build an API error response.
+fn api_err(status: StatusCode, msg: impl std::fmt::Display) -> ApiErr {
+    (status, Json(ErrorResponse { error: msg.to_string() }))
+}
+
+/// Get tokenizer from state or return 500.
+fn require_tok(state: &AppState) -> Result<std::sync::Arc<BPETokenizer>, ApiErr> {
+    state
+        .tokenizer
+        .clone()
+        .ok_or_else(|| api_err(StatusCode::INTERNAL_SERVER_ERROR, "No tokenizer available"))
+}
+
+/// Tokenize a prompt, returning error if empty.
+fn tokenize_prompt(tokenizer: &BPETokenizer, prompt: &str) -> Result<Vec<u32>, ApiErr> {
+    let ids = tokenizer.encode(prompt);
+    if ids.is_empty() {
+        return Err(api_err(StatusCode::BAD_REQUEST, "Prompt cannot be empty"));
+    }
+    Ok(ids)
+}
+
+/// Get the EOS token id from tokenizer.
+fn eos_id(tokenizer: &BPETokenizer) -> u32 {
+    tokenizer
+        .get_token_id("<|im_end|>")
+        .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
+        .unwrap_or(151645)
+}
 
 // ============================================================================
 // PARITY-022: GPU Batch Inference API
@@ -782,14 +820,170 @@ pub async fn tokenize_handler(
 }
 
 /// Generate text handler
+// ── generate_handler backend dispatch ────────────────────────────────
+
+#[cfg(feature = "cuda")]
+fn try_cuda_generate(
+    state: &AppState,
+    request: &GenerateRequest,
+) -> Result<Option<GenerateResponse>, ApiErr> {
+    use crate::gguf::QuantizedGenerateConfig;
+
+    let cuda_model_lock = match state.cuda_model() {
+        Some(l) => l,
+        None => return Ok(None),
+    };
+    let tokenizer = require_tok(state)?;
+    let prompt_ids = tokenize_prompt(&tokenizer, &request.prompt)?;
+    let prompt_tokens = prompt_ids.len();
+
+    let q_config = QuantizedGenerateConfig {
+        max_tokens: request.max_tokens,
+        temperature: request.temperature,
+        top_k: if request.temperature == 0.0 { 1 } else { request.top_k },
+        stop_tokens: vec![eos_id(&tokenizer)],
+        trace: false,
+    };
+
+    let mut cuda_model = cuda_model_lock
+        .write()
+        .map_err(|_| api_err(StatusCode::INTERNAL_SERVER_ERROR, "Failed to acquire CUDA model lock"))?;
+    let generated = cuda_model
+        .generate_gpu_resident(&prompt_ids, &q_config)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, format!("CUDA generation failed: {e}")))?;
+    let text = tokenizer
+        .decode(&generated)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Some(GenerateResponse {
+        num_generated: generated.len().saturating_sub(prompt_tokens),
+        token_ids: generated,
+        text,
+    }))
+}
+
+fn try_quantized_generate(
+    state: &AppState,
+    request: &GenerateRequest,
+) -> Result<Option<GenerateResponse>, ApiErr> {
+    use crate::gguf::QuantizedGenerateConfig;
+
+    let quantized_model = match state.quantized_model() {
+        Some(m) => m,
+        None => return Ok(None),
+    };
+    let tokenizer = require_tok(state)?;
+    let prompt_ids = tokenize_prompt(&tokenizer, &request.prompt)?;
+    let prompt_tokens = prompt_ids.len();
+
+    let q_config = QuantizedGenerateConfig {
+        max_tokens: request.max_tokens,
+        temperature: request.temperature,
+        top_k: if request.temperature == 0.0 { 1 } else { request.top_k },
+        stop_tokens: vec![eos_id(&tokenizer)],
+        trace: false,
+    };
+
+    let generated = quantized_model
+        .generate(&prompt_ids, &q_config)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, format!("CPU generation failed: {e}")))?;
+    let text = tokenizer
+        .decode(&generated)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Some(GenerateResponse {
+        num_generated: generated.len().saturating_sub(prompt_tokens),
+        token_ids: generated,
+        text,
+    }))
+}
+
+fn try_apr_generate(
+    state: &AppState,
+    request: &GenerateRequest,
+) -> Result<Option<GenerateResponse>, ApiErr> {
+    use crate::apr_transformer::GenerateConfig;
+
+    let apr_transformer = match state.apr_transformer() {
+        Some(m) => m,
+        None => return Ok(None),
+    };
+    let tokenizer = require_tok(state)?;
+    let prompt_ids = tokenize_prompt(&tokenizer, &request.prompt)?;
+    let prompt_tokens = prompt_ids.len();
+
+    let gen_config = GenerateConfig {
+        max_tokens: request.max_tokens,
+        temperature: request.temperature,
+        ..Default::default()
+    };
+
+    let generated = apr_transformer
+        .generate_with_cache(&prompt_ids, &gen_config)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, format!("APR generation failed: {e}")))?;
+    let text = tokenizer
+        .decode(&generated)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Some(GenerateResponse {
+        num_generated: generated.len().saturating_sub(prompt_tokens),
+        token_ids: generated,
+        text,
+    }))
+}
+
+fn registry_generate(
+    state: &AppState,
+    request: &GenerateRequest,
+) -> Result<GenerateResponse, ApiErr> {
+    let (model, tokenizer) = state
+        .get_model(request.model_id.as_deref())
+        .map_err(|e| api_err(StatusCode::NOT_FOUND, e))?;
+
+    let prompt_ids = tokenize_prompt(&tokenizer, &request.prompt)?;
+    let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
+
+    let strategy = match request.strategy.as_str() {
+        "greedy" => SamplingStrategy::Greedy,
+        "top_k" => SamplingStrategy::TopK { k: request.top_k },
+        "top_p" => SamplingStrategy::TopP { p: request.top_p },
+        other => return Err(api_err(StatusCode::BAD_REQUEST, format!("Invalid strategy: {other}"))),
+    };
+
+    let mut config = GenerationConfig::default()
+        .with_max_tokens(request.max_tokens)
+        .with_temperature(request.temperature);
+    config.strategy = strategy;
+    if let Some(seed) = request.seed {
+        config = config.with_seed(seed);
+    }
+
+    let generated = model
+        .generate(&prompt, &config)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    let token_ids: Vec<u32> = generated
+        .iter()
+        .map(|&id| u32::try_from(id).map_err(|_| api_err(StatusCode::BAD_REQUEST, format!("Token ID {id} exceeds u32 range"))))
+        .collect::<Result<Vec<_>, _>>()?;
+    let text = tokenizer
+        .decode(&token_ids)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(GenerateResponse {
+        num_generated: generated.len() - prompt.len(),
+        token_ids,
+        text,
+    })
+}
+
 pub async fn generate_handler(
     State(state): State<AppState>,
     Json(request): Json<GenerateRequest>,
-) -> Result<Json<GenerateResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<GenerateResponse>, ApiErr> {
     use std::time::Instant;
     let start = Instant::now();
 
-    // GH-152: Verbose request logging
     if state.is_verbose() {
         eprintln!(
             "[VERBOSE] POST /generate prompt={:?} max_tokens={}",
@@ -798,357 +992,25 @@ pub async fn generate_handler(
         );
     }
 
-    // PAR-113: Check for CUDA model first (PMAT-SERVE-FIX-001)
-    // When using with_cuda_model_and_vocab(), the cuda_model is set but not the registry/model
     #[cfg(feature = "cuda")]
-    if let Some(cuda_model_lock) = state.cuda_model() {
-        use crate::gguf::QuantizedGenerateConfig;
-
-        let tokenizer = match state.tokenizer.clone() {
-            Some(t) => t,
-            None => {
-                state.metrics.record_failure();
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "No tokenizer available".to_string(),
-                    }),
-                ));
-            },
-        };
-
-        // Tokenize prompt
-        let prompt_ids = tokenizer.encode(&request.prompt);
-        if prompt_ids.is_empty() {
-            state.metrics.record_failure();
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Prompt cannot be empty".to_string(),
-                }),
-            ));
-        }
-
-        let prompt_tokens = prompt_ids.len();
-        let max_tokens = request.max_tokens;
-        let temperature = request.temperature;
-
-        // Get EOS token ID for proper stop sequence
-        let eos_token_id = tokenizer
-            .get_token_id("<|im_end|>")
-            .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
-            .unwrap_or(151645);
-
-        let q_config = QuantizedGenerateConfig {
-            max_tokens,
-            temperature,
-            top_k: if temperature == 0.0 { 1 } else { request.top_k },
-            stop_tokens: vec![eos_token_id],
-            trace: false,
-        };
-
-        // Generate using CUDA model
-        let mut cuda_model = cuda_model_lock.write().map_err(|_| {
-            state.metrics.record_failure();
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "Failed to acquire CUDA model lock".to_string(),
-                }),
-            )
-        })?;
-
-        let generated = cuda_model
-            .generate_gpu_resident(&prompt_ids, &q_config)
-            .map_err(|e| {
-                state.metrics.record_failure();
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: format!("CUDA generation failed: {e}"),
-                    }),
-                )
-            })?;
-
-        // Decode tokens to text
-        let text = tokenizer.decode(&generated).map_err(|e| {
-            state.metrics.record_failure();
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
-
-        let num_generated = generated.len().saturating_sub(prompt_tokens);
-        let duration = start.elapsed();
-
-        state.metrics.record_success(num_generated, duration);
-
-        return Ok(Json(GenerateResponse {
-            token_ids: generated,
-            text,
-            num_generated,
-        }));
+    if let Some(resp) = try_cuda_generate(&state, &request)? {
+        state.metrics.record_success(resp.num_generated, start.elapsed());
+        return Ok(Json(resp));
     }
 
-    // PMAT-124: Check for quantized model (CPU mode GGUF)
-    // When using with_quantized_model_and_vocab(), the quantized_model is set but not the registry/model
-    if let Some(quantized_model) = state.quantized_model() {
-        use crate::gguf::QuantizedGenerateConfig;
-
-        let tokenizer = match state.tokenizer.clone() {
-            Some(t) => t,
-            None => {
-                state.metrics.record_failure();
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "No tokenizer available".to_string(),
-                    }),
-                ));
-            },
-        };
-
-        // Tokenize prompt
-        let prompt_ids = tokenizer.encode(&request.prompt);
-        if prompt_ids.is_empty() {
-            state.metrics.record_failure();
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Prompt cannot be empty".to_string(),
-                }),
-            ));
-        }
-
-        let prompt_tokens = prompt_ids.len();
-        let max_tokens = request.max_tokens;
-        let temperature = request.temperature;
-
-        // Get EOS token ID for proper stop sequence
-        let eos_token_id = tokenizer
-            .get_token_id("<|im_end|>")
-            .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
-            .unwrap_or(151645);
-
-        let q_config = QuantizedGenerateConfig {
-            max_tokens,
-            temperature,
-            top_k: if temperature == 0.0 { 1 } else { request.top_k },
-            stop_tokens: vec![eos_token_id],
-            trace: false,
-        };
-
-        // Generate using quantized CPU model
-        let generated = quantized_model
-            .generate(&prompt_ids, &q_config)
-            .map_err(|e| {
-                state.metrics.record_failure();
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: format!("CPU generation failed: {e}"),
-                    }),
-                )
-            })?;
-
-        // Decode tokens to text
-        let text = tokenizer.decode(&generated).map_err(|e| {
-            state.metrics.record_failure();
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
-
-        let num_generated = generated.len().saturating_sub(prompt_tokens);
-        let duration = start.elapsed();
-
-        state.metrics.record_success(num_generated, duration);
-
-        return Ok(Json(GenerateResponse {
-            token_ids: generated,
-            text,
-            num_generated,
-        }));
+    if let Some(resp) = try_quantized_generate(&state, &request)? {
+        state.metrics.record_success(resp.num_generated, start.elapsed());
+        return Ok(Json(resp));
     }
 
-    // PMAT-SERVE-FIX-001: Check for APR transformer (SafeTensors/APR CPU mode)
-    if let Some(apr_transformer) = state.apr_transformer() {
-        use crate::apr_transformer::GenerateConfig;
-
-        let tokenizer = match state.tokenizer.clone() {
-            Some(t) => t,
-            None => {
-                state.metrics.record_failure();
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "No tokenizer available".to_string(),
-                    }),
-                ));
-            },
-        };
-
-        // Tokenize prompt
-        let prompt_ids = tokenizer.encode(&request.prompt);
-        if prompt_ids.is_empty() {
-            state.metrics.record_failure();
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Prompt cannot be empty".to_string(),
-                }),
-            ));
-        }
-
-        let prompt_tokens = prompt_ids.len();
-        let max_tokens = request.max_tokens;
-        let temperature = request.temperature;
-
-        let gen_config = GenerateConfig {
-            max_tokens,
-            temperature,
-            ..Default::default()
-        };
-
-        // Generate using APR transformer
-        let generated = apr_transformer
-            .generate_with_cache(&prompt_ids, &gen_config)
-            .map_err(|e| {
-                state.metrics.record_failure();
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: format!("APR generation failed: {e}"),
-                    }),
-                )
-            })?;
-
-        // Decode tokens to text
-        let text = tokenizer.decode(&generated).map_err(|e| {
-            state.metrics.record_failure();
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
-
-        let num_generated = generated.len().saturating_sub(prompt_tokens);
-        let duration = start.elapsed();
-
-        state.metrics.record_success(num_generated, duration);
-
-        return Ok(Json(GenerateResponse {
-            token_ids: generated,
-            text,
-            num_generated,
-        }));
+    if let Some(resp) = try_apr_generate(&state, &request)? {
+        state.metrics.record_success(resp.num_generated, start.elapsed());
+        return Ok(Json(resp));
     }
 
-    // Fallback: Get model and tokenizer from registry/single-model mode
-    let (model, tokenizer) = state.get_model(request.model_id.as_deref()).map_err(|e| {
-        state.metrics.record_failure();
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
-
-    // Tokenize prompt
-    let prompt_ids = tokenizer.encode(&request.prompt);
-    if prompt_ids.is_empty() {
-        state.metrics.record_failure();
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Prompt cannot be empty".to_string(),
-            }),
-        ));
-    }
-
-    // Convert to usize for model
-    let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
-
-    // Build generation config
-    let strategy = match request.strategy.as_str() {
-        "greedy" => SamplingStrategy::Greedy,
-        "top_k" => SamplingStrategy::TopK { k: request.top_k },
-        "top_p" => SamplingStrategy::TopP { p: request.top_p },
-        _ => {
-            state.metrics.record_failure();
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: format!("Invalid strategy: {}", request.strategy),
-                }),
-            ));
-        },
-    };
-
-    let mut config = GenerationConfig::default()
-        .with_max_tokens(request.max_tokens)
-        .with_temperature(request.temperature);
-
-    config.strategy = strategy;
-    if let Some(seed) = request.seed {
-        config = config.with_seed(seed);
-    }
-
-    // Generate
-    let generated = model.generate(&prompt, &config).map_err(|e| {
-        state.metrics.record_failure();
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
-
-    // Convert back to u32 and decode, with proper overflow handling
-    let token_ids: Vec<u32> = generated
-        .iter()
-        .map(|&id| {
-            u32::try_from(id).map_err(|_| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    Json(ErrorResponse {
-                        error: format!("Token ID {id} exceeds u32 range"),
-                    }),
-                )
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let text = tokenizer.decode(&token_ids).map_err(|e| {
-        state.metrics.record_failure();
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
-
-    let num_generated = generated.len() - prompt.len();
-    let duration = start.elapsed();
-
-    // Record successful generation with metrics
-    state.metrics.record_success(num_generated, duration);
-
-    Ok(Json(GenerateResponse {
-        token_ids,
-        text,
-        num_generated,
-    }))
+    let resp = registry_generate(&state, &request)?;
+    state.metrics.record_success(resp.num_generated, start.elapsed());
+    Ok(Json(resp))
 }
 
 /// Batch tokenize handler
@@ -1193,268 +1055,163 @@ pub async fn batch_tokenize_handler(
 }
 
 /// Batch generate handler
-pub async fn batch_generate_handler(
-    State(state): State<AppState>,
-    Json(request): Json<BatchGenerateRequest>,
-) -> Result<Json<BatchGenerateResponse>, (StatusCode, Json<ErrorResponse>)> {
-    if request.prompts.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Prompts array cannot be empty".to_string(),
-            }),
-        ));
-    }
+// ── batch_generate_handler backend dispatch ─────────────────────────
 
-    // PAR-113: Check for CUDA model first (PMAT-SERVE-FIX-001)
-    #[cfg(feature = "cuda")]
-    if let Some(cuda_model_lock) = state.cuda_model() {
-        use crate::gguf::QuantizedGenerateConfig;
+#[cfg(feature = "cuda")]
+fn try_cuda_batch_generate(
+    state: &AppState,
+    request: &BatchGenerateRequest,
+) -> Result<Option<Vec<GenerateResponse>>, ApiErr> {
+    use crate::gguf::QuantizedGenerateConfig;
 
-        let tokenizer = match state.tokenizer.clone() {
-            Some(t) => t,
-            None => {
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "No tokenizer available".to_string(),
-                    }),
-                ));
-            },
-        };
+    let cuda_model_lock = match state.cuda_model() {
+        Some(l) => l,
+        None => return Ok(None),
+    };
+    let tokenizer = require_tok(state)?;
 
-        let eos_token_id = tokenizer
-            .get_token_id("<|im_end|>")
-            .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
-            .unwrap_or(151645);
+    let q_config = QuantizedGenerateConfig {
+        max_tokens: request.max_tokens,
+        temperature: request.temperature,
+        top_k: if request.temperature == 0.0 { 1 } else { request.top_k },
+        stop_tokens: vec![eos_id(&tokenizer)],
+        trace: false,
+    };
 
-        let q_config = QuantizedGenerateConfig {
-            max_tokens: request.max_tokens,
-            temperature: request.temperature,
-            top_k: if request.temperature == 0.0 {
-                1
-            } else {
-                request.top_k
-            },
-            stop_tokens: vec![eos_token_id],
-            trace: false,
-        };
+    let mut results = Vec::with_capacity(request.prompts.len());
+    let mut cuda_model = cuda_model_lock
+        .write()
+        .map_err(|_| api_err(StatusCode::INTERNAL_SERVER_ERROR, "Failed to acquire CUDA model lock"))?;
 
-        let mut results = Vec::with_capacity(request.prompts.len());
-        let mut cuda_model = cuda_model_lock.write().map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "Failed to acquire CUDA model lock".to_string(),
-                }),
-            )
-        })?;
-
-        for prompt_text in &request.prompts {
-            let prompt_ids = tokenizer.encode(prompt_text);
-            if prompt_ids.is_empty() {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(ErrorResponse {
-                        error: format!("Prompt '{prompt_text}' tokenizes to empty sequence"),
-                    }),
-                ));
-            }
-
-            let prompt_tokens = prompt_ids.len();
-            // Note: KV cache is managed internally by generate_gpu_resident
-
-            let generated = cuda_model
-                .generate_gpu_resident(&prompt_ids, &q_config)
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse {
-                            error: format!("CUDA generation failed: {e}"),
-                        }),
-                    )
-                })?;
-
-            let text = tokenizer.decode(&generated).map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: e.to_string(),
-                    }),
-                )
-            })?;
-
-            results.push(GenerateResponse {
-                token_ids: generated.clone(),
-                text,
-                num_generated: generated.len().saturating_sub(prompt_tokens),
-            });
+    for prompt_text in &request.prompts {
+        let prompt_ids = tokenizer.encode(prompt_text);
+        if prompt_ids.is_empty() {
+            return Err(api_err(StatusCode::BAD_REQUEST, format!("Prompt '{prompt_text}' tokenizes to empty sequence")));
         }
-
-        return Ok(Json(BatchGenerateResponse { results }));
+        let prompt_tokens = prompt_ids.len();
+        let generated = cuda_model
+            .generate_gpu_resident(&prompt_ids, &q_config)
+            .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, format!("CUDA generation failed: {e}")))?;
+        let text = tokenizer.decode(&generated).map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        results.push(GenerateResponse {
+            num_generated: generated.len().saturating_sub(prompt_tokens),
+            token_ids: generated,
+            text,
+        });
     }
 
-    // PMAT-SERVE-FIX-001: Check for APR transformer (SafeTensors/APR CPU mode)
-    if let Some(apr_transformer) = state.apr_transformer() {
-        use crate::apr_transformer::GenerateConfig;
+    Ok(Some(results))
+}
 
-        let tokenizer = match state.tokenizer.clone() {
-            Some(t) => t,
-            None => {
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "No tokenizer available".to_string(),
-                    }),
-                ));
-            },
-        };
+fn try_apr_batch_generate(
+    state: &AppState,
+    request: &BatchGenerateRequest,
+) -> Result<Option<Vec<GenerateResponse>>, ApiErr> {
+    use crate::apr_transformer::GenerateConfig;
 
-        let gen_config = GenerateConfig {
-            max_tokens: request.max_tokens,
-            temperature: request.temperature,
-            ..Default::default()
-        };
+    let apr_transformer = match state.apr_transformer() {
+        Some(m) => m,
+        None => return Ok(None),
+    };
+    let tokenizer = require_tok(state)?;
 
-        let mut results = Vec::with_capacity(request.prompts.len());
+    let gen_config = GenerateConfig {
+        max_tokens: request.max_tokens,
+        temperature: request.temperature,
+        ..Default::default()
+    };
 
-        for prompt_text in &request.prompts {
-            let prompt_ids = tokenizer.encode(prompt_text);
-            if prompt_ids.is_empty() {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(ErrorResponse {
-                        error: format!("Prompt '{prompt_text}' tokenizes to empty sequence"),
-                    }),
-                ));
-            }
+    let mut results = Vec::with_capacity(request.prompts.len());
 
-            let prompt_tokens = prompt_ids.len();
-
-            let generated = apr_transformer
-                .generate_with_cache(&prompt_ids, &gen_config)
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse {
-                            error: format!("APR generation failed: {e}"),
-                        }),
-                    )
-                })?;
-
-            let text = tokenizer.decode(&generated).map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: e.to_string(),
-                    }),
-                )
-            })?;
-
-            results.push(GenerateResponse {
-                token_ids: generated.clone(),
-                text,
-                num_generated: generated.len().saturating_sub(prompt_tokens),
-            });
+    for prompt_text in &request.prompts {
+        let prompt_ids = tokenizer.encode(prompt_text);
+        if prompt_ids.is_empty() {
+            return Err(api_err(StatusCode::BAD_REQUEST, format!("Prompt '{prompt_text}' tokenizes to empty sequence")));
         }
-
-        return Ok(Json(BatchGenerateResponse { results }));
+        let prompt_tokens = prompt_ids.len();
+        let generated = apr_transformer
+            .generate_with_cache(&prompt_ids, &gen_config)
+            .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, format!("APR generation failed: {e}")))?;
+        let text = tokenizer.decode(&generated).map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        results.push(GenerateResponse {
+            num_generated: generated.len().saturating_sub(prompt_tokens),
+            token_ids: generated,
+            text,
+        });
     }
 
-    // Fallback: Get model and tokenizer (use default model)
-    let (model, tokenizer) = state.get_model(None).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
+    Ok(Some(results))
+}
 
-    // Build generation config (shared across all prompts)
+fn registry_batch_generate(
+    state: &AppState,
+    request: &BatchGenerateRequest,
+) -> Result<Vec<GenerateResponse>, ApiErr> {
+    let (model, tokenizer) = state
+        .get_model(None)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
     let strategy = match request.strategy.as_str() {
         "greedy" => SamplingStrategy::Greedy,
         "top_k" => SamplingStrategy::TopK { k: request.top_k },
         "top_p" => SamplingStrategy::TopP { p: request.top_p },
-        _ => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: format!("Invalid strategy: {}", request.strategy),
-                }),
-            ));
-        },
+        other => return Err(api_err(StatusCode::BAD_REQUEST, format!("Invalid strategy: {other}"))),
     };
 
     let mut config = GenerationConfig::default()
         .with_max_tokens(request.max_tokens)
         .with_temperature(request.temperature);
-
     config.strategy = strategy;
     if let Some(seed) = request.seed {
         config = config.with_seed(seed);
     }
 
-    // Process each prompt
     let mut results = Vec::with_capacity(request.prompts.len());
 
     for prompt_text in &request.prompts {
-        // Tokenize prompt
         let prompt_ids = tokenizer.encode(prompt_text);
         if prompt_ids.is_empty() {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: format!("Prompt '{prompt_text}' tokenizes to empty sequence"),
-                }),
-            ));
+            return Err(api_err(StatusCode::BAD_REQUEST, format!("Prompt '{prompt_text}' tokenizes to empty sequence")));
         }
-
-        // Convert to usize for model
         let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
-
-        // Generate
-        let generated = model.generate(&prompt, &config).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
-
-        // Convert back to u32 and decode, with proper overflow handling
+        let generated = model
+            .generate(&prompt, &config)
+            .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
         let token_ids: Vec<u32> = generated
             .iter()
-            .map(|&id| {
-                u32::try_from(id).map_err(|_| {
-                    (
-                        StatusCode::BAD_REQUEST,
-                        Json(ErrorResponse {
-                            error: format!("Token ID {id} exceeds u32 range"),
-                        }),
-                    )
-                })
-            })
+            .map(|&id| u32::try_from(id).map_err(|_| api_err(StatusCode::BAD_REQUEST, format!("Token ID {id} exceeds u32 range"))))
             .collect::<Result<Vec<_>, _>>()?;
-        let text = tokenizer.decode(&token_ids).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            )
-        })?;
-
-        let num_generated = generated.len() - prompt.len();
-
+        let text = tokenizer
+            .decode(&token_ids)
+            .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
         results.push(GenerateResponse {
+            num_generated: generated.len() - prompt.len(),
             token_ids,
             text,
-            num_generated,
         });
     }
 
+    Ok(results)
+}
+
+pub async fn batch_generate_handler(
+    State(state): State<AppState>,
+    Json(request): Json<BatchGenerateRequest>,
+) -> Result<Json<BatchGenerateResponse>, ApiErr> {
+    if request.prompts.is_empty() {
+        return Err(api_err(StatusCode::BAD_REQUEST, "Prompts array cannot be empty"));
+    }
+
+    #[cfg(feature = "cuda")]
+    if let Some(results) = try_cuda_batch_generate(&state, &request)? {
+        return Ok(Json(BatchGenerateResponse { results }));
+    }
+
+    if let Some(results) = try_apr_batch_generate(&state, &request)? {
+        return Ok(Json(BatchGenerateResponse { results }));
+    }
+
+    let results = registry_batch_generate(&state, &request)?;
     Ok(Json(BatchGenerateResponse { results }))
 }
 
