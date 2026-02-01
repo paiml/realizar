@@ -8,10 +8,10 @@
 //! - Softmax variants (standard, online, tiled)
 //! - Tiled attention with various tile sizes
 
+use crate::gguf::test_helpers::create_test_model_with_config;
 use crate::gguf::{
     GGUFConfig, OwnedQuantizedKVCache, OwnedQuantizedModel, QuantizedGenerateConfig,
 };
-use crate::gguf::test_helpers::create_test_model_with_config;
 
 fn test_config() -> GGUFConfig {
     GGUFConfig {
@@ -77,8 +77,7 @@ fn test_generate_with_smallvec_stop_token() {
     let config = test_config();
     let model = create_test_model_with_config(&config);
     // Use token 0 as stop token (likely to be generated from zero weights)
-    let gen_config = QuantizedGenerateConfig::deterministic(10)
-        .with_stop_tokens(vec![0]);
+    let gen_config = QuantizedGenerateConfig::deterministic(10).with_stop_tokens(vec![0]);
 
     let result = model.generate_with_smallvec(&[1], &gen_config);
     assert!(result.is_ok());
@@ -132,8 +131,7 @@ fn test_batch_generate_multiple_prompts() {
 fn test_batch_generate_with_stop_tokens() {
     let config = test_config();
     let model = create_test_model_with_config(&config);
-    let gen_config = QuantizedGenerateConfig::deterministic(10)
-        .with_stop_tokens(vec![0]);
+    let gen_config = QuantizedGenerateConfig::deterministic(10).with_stop_tokens(vec![0]);
 
     let prompt1: &[u32] = &[1];
     let prompt2: &[u32] = &[2];
@@ -415,13 +413,21 @@ fn test_tiled_single_head_attention_matches_standard() {
     let scale = 1.0 / (head_dim as f32).sqrt();
 
     // Random-ish values
-    let q: Vec<f32> = (0..seq_len * head_dim).map(|i| (i % 7) as f32 * 0.1).collect();
-    let k: Vec<f32> = (0..seq_len * head_dim).map(|i| (i % 5) as f32 * 0.1).collect();
-    let v: Vec<f32> = (0..seq_len * head_dim).map(|i| (i % 3) as f32 * 0.1).collect();
+    let q: Vec<f32> = (0..seq_len * head_dim)
+        .map(|i| (i % 7) as f32 * 0.1)
+        .collect();
+    let k: Vec<f32> = (0..seq_len * head_dim)
+        .map(|i| (i % 5) as f32 * 0.1)
+        .collect();
+    let v: Vec<f32> = (0..seq_len * head_dim)
+        .map(|i| (i % 3) as f32 * 0.1)
+        .collect();
 
-    let standard = model.standard_single_head_attention(&q, &k, &v, seq_len, head_dim, scale)
+    let standard = model
+        .standard_single_head_attention(&q, &k, &v, seq_len, head_dim, scale)
         .unwrap();
-    let tiled = model.tiled_single_head_attention(&q, &k, &v, seq_len, head_dim, scale, 2)
+    let tiled = model
+        .tiled_single_head_attention(&q, &k, &v, seq_len, head_dim, scale, 2)
         .unwrap();
 
     for (s, t) in standard.iter().zip(tiled.iter()) {
@@ -438,15 +444,23 @@ fn test_tiled_single_head_attention_various_tile_sizes() {
     let head_dim = 4;
     let scale = 1.0 / (head_dim as f32).sqrt();
 
-    let q: Vec<f32> = (0..seq_len * head_dim).map(|i| (i % 7) as f32 * 0.1).collect();
-    let k: Vec<f32> = (0..seq_len * head_dim).map(|i| (i % 5) as f32 * 0.1).collect();
-    let v: Vec<f32> = (0..seq_len * head_dim).map(|i| (i % 3) as f32 * 0.1).collect();
+    let q: Vec<f32> = (0..seq_len * head_dim)
+        .map(|i| (i % 7) as f32 * 0.1)
+        .collect();
+    let k: Vec<f32> = (0..seq_len * head_dim)
+        .map(|i| (i % 5) as f32 * 0.1)
+        .collect();
+    let v: Vec<f32> = (0..seq_len * head_dim)
+        .map(|i| (i % 3) as f32 * 0.1)
+        .collect();
 
-    let standard = model.standard_single_head_attention(&q, &k, &v, seq_len, head_dim, scale)
+    let standard = model
+        .standard_single_head_attention(&q, &k, &v, seq_len, head_dim, scale)
         .unwrap();
 
     for tile_size in [1, 2, 3, 4, 8] {
-        let tiled = model.tiled_single_head_attention(&q, &k, &v, seq_len, head_dim, scale, tile_size)
+        let tiled = model
+            .tiled_single_head_attention(&q, &k, &v, seq_len, head_dim, scale, tile_size)
             .unwrap();
         for (s, t) in standard.iter().zip(tiled.iter()) {
             assert!((s - t).abs() < 1e-4, "tile_size={}", tile_size);
@@ -509,16 +523,24 @@ fn test_tiled_causal_attention_various_tile_sizes() {
     let head_dim = 4;
     let scale = 1.0 / (head_dim as f32).sqrt();
 
-    let q: Vec<f32> = (0..seq_len * head_dim).map(|i| (i % 7) as f32 * 0.1).collect();
-    let k: Vec<f32> = (0..seq_len * head_dim).map(|i| (i % 5) as f32 * 0.1).collect();
-    let v: Vec<f32> = (0..seq_len * head_dim).map(|i| (i % 3) as f32 * 0.1).collect();
+    let q: Vec<f32> = (0..seq_len * head_dim)
+        .map(|i| (i % 7) as f32 * 0.1)
+        .collect();
+    let k: Vec<f32> = (0..seq_len * head_dim)
+        .map(|i| (i % 5) as f32 * 0.1)
+        .collect();
+    let v: Vec<f32> = (0..seq_len * head_dim)
+        .map(|i| (i % 3) as f32 * 0.1)
+        .collect();
 
     // Use tile_size=1 as reference
-    let reference = model.tiled_causal_attention(&q, &k, &v, seq_len, head_dim, scale, 1)
+    let reference = model
+        .tiled_causal_attention(&q, &k, &v, seq_len, head_dim, scale, 1)
         .unwrap();
 
     for tile_size in [2, 3, 4, 8] {
-        let tiled = model.tiled_causal_attention(&q, &k, &v, seq_len, head_dim, scale, tile_size)
+        let tiled = model
+            .tiled_causal_attention(&q, &k, &v, seq_len, head_dim, scale, tile_size)
             .unwrap();
         for (r, t) in reference.iter().zip(tiled.iter()) {
             assert!((r - t).abs() < 1e-4, "tile_size={}", tile_size);
@@ -533,8 +555,8 @@ fn test_tiled_causal_attention_various_tile_sizes() {
 #[cfg(feature = "gpu")]
 mod gpu_tests {
     use super::*;
-    use std::sync::Arc;
     use crate::gguf::DispatchMetrics;
+    use std::sync::Arc;
 
     #[test]
     fn test_forward_batch_with_cache_empty_tokens_error() {
@@ -645,11 +667,7 @@ mod gpu_tests {
 
         let seq_len = 3;
         // 3x3 scores
-        let scores: Vec<f32> = vec![
-            1.0, 2.0, 3.0,
-            1.0, 2.0, 3.0,
-            1.0, 2.0, 3.0,
-        ];
+        let scores: Vec<f32> = vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 1.0, 2.0, 3.0];
 
         let weights = model.apply_causal_mask_softmax(&scores, seq_len);
         assert_eq!(weights.len(), seq_len * seq_len);

@@ -1643,7 +1643,7 @@ mod tests {
         let moved = cache.defragment();
         // Whether pages are moved depends on allocation patterns
         // The important thing is that the code path is exercised
-        assert!(moved >= 0);
+        let _ = moved; // Result verified by compiling without panic
     }
 
     #[test]
@@ -2169,14 +2169,14 @@ mod tests {
         // Different sequences should produce different hashes (with high probability)
         let hashes: Vec<u64> = (0..100)
             .map(|i| {
-                let tokens: Vec<u32> = (0..i + 1).map(|j| j as u32).collect();
+                let tokens: Vec<u32> = (0..=i).map(|j| j as u32).collect();
                 compute_prefix_hash(&tokens)
             })
             .collect();
 
         // Check for uniqueness
         let mut unique = hashes.clone();
-        unique.sort();
+        unique.sort_unstable();
         unique.dedup();
         assert_eq!(unique.len(), hashes.len(), "All hashes should be unique");
     }

@@ -28,6 +28,7 @@ fn main() -> Result<(), RealizarError> {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
     let _ = model.generate_with_cache(&prompt, &config)?;
 
@@ -40,6 +41,7 @@ fn main() -> Result<(), RealizarError> {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     let start = Instant::now();

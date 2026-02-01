@@ -69,6 +69,20 @@ pub async fn openai_chat_completions_handler(
     use std::time::Instant;
     let start = Instant::now();
 
+    // GH-152: Verbose request logging
+    if state.is_verbose() {
+        let msg_count = request.messages.len();
+        let last_msg = request
+            .messages
+            .last()
+            .map(|m| m.content.chars().take(50).collect::<String>())
+            .unwrap_or_default();
+        eprintln!(
+            "[VERBOSE] POST /v1/chat/completions model={} messages={} last={:?}",
+            request.model, msg_count, last_msg
+        );
+    }
+
     // Parse X-Trace-Level header for debugging
     let trace_level = headers
         .get("X-Trace-Level")
@@ -137,6 +151,7 @@ pub async fn openai_chat_completions_handler(
             temperature,
             top_k: if temperature == 0.0 { 1 } else { 40 },
             stop_tokens: vec![eos_token_id],
+            trace: false,
         };
 
         // Generate using GPU model

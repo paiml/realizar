@@ -7,9 +7,7 @@
 //! - horizontal_max/sum AVX2 helpers via specific input patterns
 //! - quantize_rmsnorm_q8_0_into with exact block boundaries
 
-use crate::quantize::activation::{
-    fused_swiglu_scalar, quantize_rmsnorm_q8_0_scalar, softmax_scalar,
-};
+use crate::quantize::activation::{fused_swiglu_scalar, softmax_scalar};
 use crate::quantize::{
     fused_rmsnorm_ffn_up_gate, fused_rmsnorm_q4_0_matmul, fused_swiglu_simd,
     quantize_activations_q8_0, quantize_rmsnorm_q8_0, quantize_rmsnorm_q8_0_into, softmax_simd,
@@ -71,8 +69,8 @@ fn test_quantize_rmsnorm_q8_0_size_57_horizontal_sum() {
 
     assert_eq!(scales.len(), 2); // ceil(57/32)
                                  // Should produce valid quantized output
-    for q in &quants[..57] {
-        assert!(*q >= i8::MIN && *q <= i8::MAX);
+    for _q in &quants[..57] {
+        assert!(true /* i8 always in range */);
     }
 }
 
@@ -449,7 +447,7 @@ fn test_quantize_activations_q8_0_large_positive() {
 fn test_quantize_activations_q8_0_mixed_large() {
     let large_val = 1e10;
     let activations = vec![large_val, -large_val, large_val, -large_val];
-    let (scales, quants) = quantize_activations_q8_0(&activations);
+    let (_scales, quants) = quantize_activations_q8_0(&activations);
 
     // Should correctly quantize to extremes
     assert_eq!(quants[0], 127);
@@ -535,7 +533,7 @@ fn test_quantize_rmsnorm_q8_0_varying_block_weights() {
     norm_weight.extend(vec![10.0f32; 32]);
     let eps = 1e-5;
 
-    let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+    let (scales, _quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
 
     // First block should have smaller scale than second block
     assert!(
@@ -575,7 +573,7 @@ fn test_quantize_rmsnorm_q8_0_negative_epsilon() {
     let norm_weight = vec![1.0f32; 32];
     let eps = -1e-5; // Negative epsilon (unusual but valid float)
 
-    let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+    let (scales, _quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
 
     // Should still produce valid output (mean_sq is 1.0, so 1.0 + (-1e-5) > 0)
     assert!(scales[0].is_finite());
@@ -611,7 +609,7 @@ fn test_quantize_rmsnorm_q8_0_spike_input() {
     let norm_weight = vec![1.0f32; 32];
     let eps = 1e-5;
 
-    let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+    let (_scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
 
     // Only first element should have non-zero quant
     assert_eq!(quants[0], 127);

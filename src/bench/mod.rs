@@ -20,9 +20,6 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "bench-http")]
-use crate::http_client::{CompletionRequest, ModelHttpClient, OllamaOptions, OllamaRequest};
-
 // PMAT-802: Extracted modules
 mod gpu_parity;
 mod load_testing;
@@ -1483,3 +1480,8 @@ mod bench_tests;
 #[cfg(test)]
 #[path = "tests_part_02.rs"]
 mod bench_tests_part_02;
+
+// Part 3 tests: T-COV-95 Popper Phase 2 - Non-HTTP Coverage
+#[cfg(test)]
+#[path = "tests_part_03.rs"]
+mod bench_tests_part_03;

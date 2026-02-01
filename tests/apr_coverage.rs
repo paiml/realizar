@@ -620,6 +620,7 @@ fn test_bpe_tokenizer_encode_empty() {
         merge_rules: vec![],
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
     let encoded = tokenizer.encode("");
     assert!(encoded.is_empty());
@@ -635,6 +636,7 @@ fn test_bpe_tokenizer_encode_single_char() {
         merge_rules: vec![],
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
     let encoded = tokenizer.encode("a");
     assert_eq!(encoded, vec![0]);
@@ -653,6 +655,7 @@ fn test_bpe_tokenizer_encode_with_merges() {
         merge_rules: vec![("a".to_string(), "b".to_string())],
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
     let encoded = tokenizer.encode("ab");
     assert!(!encoded.is_empty());
@@ -666,6 +669,7 @@ fn test_bpe_tokenizer_decode_empty() {
         merge_rules: vec![],
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
     let decoded = tokenizer.decode(&[]);
     assert!(decoded.is_empty());
@@ -679,6 +683,7 @@ fn test_bpe_tokenizer_decode_valid() {
         merge_rules: vec![],
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
     let decoded = tokenizer.decode(&[0, 1]);
     assert!(decoded.contains("hello"));
@@ -693,6 +698,7 @@ fn test_bpe_tokenizer_decode_out_of_bounds() {
         merge_rules: vec![],
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
     let decoded = tokenizer.decode(&[0, 100]);
     assert!(decoded.contains("a"));
@@ -707,6 +713,7 @@ fn test_bpe_tokenizer_bos_eos() {
         merge_rules: vec![],
         bos_id: Some(1),
         eos_id: Some(2),
+        special_tokens: HashMap::new(),
     };
     assert_eq!(tokenizer.bos_id, Some(1));
     assert_eq!(tokenizer.eos_id, Some(2));
@@ -1448,6 +1455,7 @@ fn test_generate_config_custom() {
         top_p: 0.95,
         top_k: 50,
         repetition_penalty: 1.2,
+        trace: false,
     };
     assert_eq!(config.max_tokens, 100);
     assert!((config.temperature - 0.7).abs() < 0.001);
@@ -1786,6 +1794,7 @@ fn test_bpe_tokenizer_encode_multiple_chars() {
         ],
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
 
     let encoded = tokenizer.encode("hello");
@@ -1800,6 +1809,7 @@ fn test_bpe_tokenizer_clone() {
         merge_rules: vec![],
         bos_id: Some(1),
         eos_id: Some(2),
+        special_tokens: HashMap::new(),
     };
     let cloned = tokenizer;
     assert_eq!(cloned.bos_id, Some(1));
@@ -2741,6 +2751,7 @@ fn test_bpe_tokenizer_known_token_handling() {
         merge_rules: vec![],
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
 
     // Encode text with known characters
@@ -2764,6 +2775,7 @@ fn test_bpe_tokenizer_bpe_style_whitespace() {
         merge_rules: vec![],
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
 
     let encoded_space = tokenizer.encode(" ");
@@ -3452,6 +3464,7 @@ fn test_bpe_tokenizer_encode_unicode() {
         merge_rules: vec![],
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
 
     // Non-ASCII chars may not be in vocab, so result may be empty or partial
@@ -3473,6 +3486,7 @@ fn test_bpe_tokenizer_merge_application() {
         merge_rules: vec![("a".to_string(), "b".to_string())],
         bos_id: None,
         eos_id: None,
+        special_tokens: HashMap::new(),
     };
 
     let encoded = tokenizer.encode("ab");

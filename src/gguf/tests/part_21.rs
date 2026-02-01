@@ -7,6 +7,8 @@
 //!
 //! Located in lib tests to be included in `cargo test --lib` coverage
 
+#![allow(clippy::match_wildcard_for_single_variants)]
+
 use crate::gguf::quantized::QuantizedTensorRef;
 use crate::gguf::types::{
     GGUF_TYPE_F32, GGUF_TYPE_Q2_K, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0,
@@ -362,7 +364,7 @@ fn test_phase34_phi2_style_layers() {
     // Phi-2 uses fused QKV projection
     let hidden_dim = 2560;
     let num_heads = 32;
-    let head_dim = hidden_dim / num_heads; // 80
+    let _head_dim = hidden_dim / num_heads; // 80
 
     // Fused QKV: hidden -> 3 * hidden
     let qkv_out_dim = 3 * hidden_dim;
@@ -1099,7 +1101,7 @@ fn test_phase35_data_factory_helpers() {
     assert_eq!(q8_0.len(), 2 * 34); // 64/32 = 2 blocks * 34 bytes
 
     let q4_k = create_q4_k_data(256);
-    assert_eq!(q4_k.len(), 1 * 144); // 256/256 = 1 super-block * 144 bytes
+    assert_eq!(q4_k.len(), 144); // 256/256 = 1 super-block * 144 bytes
 
     let q5_k = create_q5_k_data(512);
     assert_eq!(q5_k.len(), 2 * 176); // 512/256 = 2 super-blocks * 176 bytes

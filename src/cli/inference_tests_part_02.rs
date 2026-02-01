@@ -316,7 +316,7 @@ mod inference_additional_coverage {
             RealizarError::UnsupportedOperation { operation, reason } => {
                 assert_eq!(operation, "mmap_gguf");
                 assert!(reason.contains("Failed") || reason.contains("mmap"));
-            }
+            },
             other => panic!("Expected UnsupportedOperation, got: {:?}", other),
         }
     }
@@ -338,7 +338,7 @@ mod inference_additional_coverage {
             RealizarError::UnsupportedOperation { operation, reason } => {
                 assert_eq!(operation, "parse_apr");
                 assert!(reason.contains("APR") || reason.contains("parse"));
-            }
+            },
             other => panic!("Expected UnsupportedOperation, got: {:?}", other),
         }
     }
@@ -357,7 +357,7 @@ mod inference_additional_coverage {
             RealizarError::UnsupportedOperation { operation, reason } => {
                 assert_eq!(operation, "convert_safetensors");
                 assert!(reason.contains("SafeTensors") || reason.contains("convert"));
-            }
+            },
             other => panic!("Expected UnsupportedOperation, got: {:?}", other),
         }
     }
@@ -746,7 +746,7 @@ mod inference_additional_coverage {
 // =========================================================================
 #[cfg(all(test, feature = "server"))]
 mod server_inference_tests {
-    use crate::cli::{ModelType, PreparedServer};
+    use crate::cli::ModelType;
 
     #[test]
     fn test_model_type_display_gguf() {
@@ -776,7 +776,7 @@ mod server_inference_tests {
     #[test]
     fn test_model_type_clone() {
         let mt = ModelType::Gguf;
-        let cloned = mt.clone();
+        let cloned = mt;
         assert_eq!(mt, cloned);
     }
 

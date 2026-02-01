@@ -6,7 +6,9 @@
 //! - f16 conversion: `f16_to_f32`, `read_f16`
 //! - Scale extraction: `extract_scale_min`, `extract_scale_min_from_slice`
 //! - Horizontal sum helpers: `hsum_epi32_128`, `hsum_epi32_256`, etc.
-//! - SIMD activations: `softmax_simd`, `fused_swiglu_simd`, `apply_rope_rotation_simd`
+//!
+//! Note: SIMD activations (`softmax_simd`, `fused_swiglu_simd`, `apply_rope_rotation_simd`)
+//! are exported from `activation.rs` and `parallel_dequant.rs` respectively.
 
 // ============================================================================
 // f16 Conversion (Manual Implementation)
@@ -216,338 +218,202 @@ pub unsafe fn hsum_epi32(v: std::arch::x86_64::__m256i) -> i32 {
     _mm_cvtsi128_si32(sum32)
 }
 
-// ============================================================================
-// SIMD Activation Functions
-// ============================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// SIMD-accelerated in-place softmax
-///
-/// Uses AVX2 for parallel max-finding and normalization.
-/// Falls back to scalar on non-x86_64 or when AVX2 is unavailable.
-///
-/// # Arguments
-/// * `x` - Input/output slice, modified in-place to contain softmax values
-pub fn softmax_simd(x: &mut [f32]) {
-    if x.is_empty() {
-        return;
+    // ============= f16_to_f32 tests =============
+
+    #[test]
+    fn test_f16_to_f32_zero() {
+        assert_eq!(f16_to_f32(0x0000), 0.0);
+    }
+
+    #[test]
+    fn test_f16_to_f32_negative_zero() {
+        let val = f16_to_f32(0x8000);
+        assert!(val == 0.0 && val.is_sign_negative());
+    }
+
+    #[test]
+    fn test_f16_to_f32_one() {
+        let val = f16_to_f32(0x3C00);
+        assert!((val - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_f16_to_f32_negative_one() {
+        let val = f16_to_f32(0xBC00);
+        assert!((val - (-1.0)).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_f16_to_f32_two() {
+        let val = f16_to_f32(0x4000);
+        assert!((val - 2.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_f16_to_f32_half() {
+        let val = f16_to_f32(0x3800);
+        assert!((val - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_f16_to_f32_infinity() {
+        assert_eq!(f16_to_f32(0x7C00), f32::INFINITY);
+    }
+
+    #[test]
+    fn test_f16_to_f32_neg_infinity() {
+        assert_eq!(f16_to_f32(0xFC00), f32::NEG_INFINITY);
+    }
+
+    #[test]
+    fn test_f16_to_f32_nan() {
+        assert!(f16_to_f32(0x7C01).is_nan());
+    }
+
+    #[test]
+    fn test_f16_to_f32_subnormal() {
+        // Smallest positive subnormal: 2^-24
+        let val = f16_to_f32(0x0001);
+        assert!(val > 0.0);
+        assert!(val < 0.0001);
+    }
+
+    // ============= read_f16 tests =============
+
+    #[test]
+    fn test_read_f16_one() {
+        let bytes = 0x3C00u16.to_le_bytes();
+        let val = read_f16(&bytes);
+        assert!((val - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_read_f16_two() {
+        let bytes = 0x4000u16.to_le_bytes();
+        let val = read_f16(&bytes);
+        assert!((val - 2.0).abs() < 0.001);
+    }
+
+    // ============= extract_scale_min tests =============
+
+    #[test]
+    fn test_extract_scale_min_first_block() {
+        let scales: [u8; 12] = [10, 20, 30, 40, 5, 15, 25, 35, 0, 0, 0, 0];
+        let (scale, min) = extract_scale_min(&scales, 0);
+        assert_eq!(scale, 10.0); // scales[0] & 63
+        assert_eq!(min, 5.0); // scales[4] & 63
+    }
+
+    #[test]
+    fn test_extract_scale_min_second_block() {
+        let scales: [u8; 12] = [10, 20, 30, 40, 5, 15, 25, 35, 0, 0, 0, 0];
+        let (scale, min) = extract_scale_min(&scales, 1);
+        assert_eq!(scale, 20.0);
+        assert_eq!(min, 15.0);
+    }
+
+    #[test]
+    fn test_extract_scale_min_packed_block() {
+        // Block 4+ uses packed layout
+        let mut scales: [u8; 12] = [0; 12];
+        scales[0] = 0b11_000010; // high bits for block 4
+        scales[8] = 0b0011_0001; // low bits: scale=0x31, min high nibble=0x3
+
+        let (scale, min) = extract_scale_min(&scales, 4);
+        // scale = (scales[8] & 0x0F) | ((scales[0] >> 6) << 4) = 1 | (3 << 4) = 1 | 48 = 49
+        // min = (scales[8] >> 4) | ((scales[4] >> 6) << 4) = 3 | 0 = 3
+        assert_eq!(scale, 49.0);
+        assert_eq!(min, 3.0);
+    }
+
+    // ============= extract_scale_min_from_slice tests =============
+
+    #[test]
+    fn test_extract_scale_min_from_slice_even() {
+        let scales: [u8; 8] = [10, 20, 30, 40, 5, 15, 25, 35];
+        let (scale, min) = extract_scale_min_from_slice(&scales, 0);
+        assert_eq!(scale, 10.0);
+        assert_eq!(min, 5.0);
+    }
+
+    // ============= hsum tests (x86_64 only) =============
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_hsum_epi32_128() {
+        if !is_x86_feature_detected!("avx2") {
+            return;
+        }
+
+        unsafe {
+            use std::arch::x86_64::_mm_setr_epi32;
+            let v = _mm_setr_epi32(1, 2, 3, 4);
+            let sum = hsum_epi32_128(v);
+            assert_eq!(sum, 10);
+        }
     }
 
     #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") && x.len() >= 8 {
-            // SAFETY: AVX2 is available and slice is large enough
-            unsafe {
-                softmax_simd_avx2(x);
-            }
+    #[test]
+    fn test_hsum_epi32_256() {
+        if !is_x86_feature_detected!("avx2") {
             return;
         }
-    }
 
-    // Scalar fallback
-    softmax_scalar(x);
-}
-
-/// Scalar softmax implementation
-fn softmax_scalar(x: &mut [f32]) {
-    // Find max for numerical stability
-    let max_val = x.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-
-    // Compute exp(x - max) and sum
-    let mut sum = 0.0f32;
-    for val in x.iter_mut() {
-        *val = (*val - max_val).exp();
-        sum += *val;
-    }
-
-    // Normalize
-    let inv_sum = 1.0 / sum;
-    for val in x.iter_mut() {
-        *val *= inv_sum;
-    }
-}
-
-/// AVX2 softmax implementation
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn softmax_simd_avx2(x: &mut [f32]) {
-    #[allow(clippy::wildcard_imports)]
-    use std::arch::x86_64::*;
-
-    let len = x.len();
-
-    // Phase 1: Find max using SIMD
-    let mut max_vec = _mm256_set1_ps(f32::NEG_INFINITY);
-    let chunks = len / 8;
-
-    for i in 0..chunks {
-        let v = _mm256_loadu_ps(x.as_ptr().add(i * 8));
-        max_vec = _mm256_max_ps(max_vec, v);
-    }
-
-    // Horizontal max
-    let max_128 = _mm_max_ps(
-        _mm256_castps256_ps128(max_vec),
-        _mm256_extractf128_ps(max_vec, 1),
-    );
-    let max_64 = _mm_max_ps(max_128, _mm_movehl_ps(max_128, max_128));
-    let max_32 = _mm_max_ss(max_64, _mm_shuffle_ps(max_64, max_64, 1));
-    let mut max_val = _mm_cvtss_f32(max_32);
-
-    // Check remaining elements
-    for i in (chunks * 8)..len {
-        max_val = max_val.max(x[i]);
-    }
-
-    // Phase 2: Compute exp(x - max) and sum using SIMD
-    let max_vec = _mm256_set1_ps(max_val);
-    let mut sum_vec = _mm256_setzero_ps();
-
-    for i in 0..chunks {
-        let v = _mm256_loadu_ps(x.as_ptr().add(i * 8));
-        let diff = _mm256_sub_ps(v, max_vec);
-
-        // Use polynomial approximation for exp (faster but less accurate)
-        // For production, could use vectorized exp from a math library
-        // Here we fall back to scalar exp for accuracy
-        let mut exp_vals = [0.0f32; 8];
-        let diff_arr: [f32; 8] = std::mem::transmute(diff);
-        for (j, &d) in diff_arr.iter().enumerate() {
-            exp_vals[j] = d.exp();
+        unsafe {
+            use std::arch::x86_64::_mm256_setr_epi32;
+            let v = _mm256_setr_epi32(1, 2, 3, 4, 5, 6, 7, 8);
+            let sum = hsum_epi32_256(v);
+            assert_eq!(sum, 36);
         }
-        let exp_vec = _mm256_loadu_ps(exp_vals.as_ptr());
-
-        _mm256_storeu_ps(x.as_mut_ptr().add(i * 8), exp_vec);
-        sum_vec = _mm256_add_ps(sum_vec, exp_vec);
     }
-
-    // Handle remaining elements
-    let mut sum_scalar = 0.0f32;
-    for i in (chunks * 8)..len {
-        x[i] = (x[i] - max_val).exp();
-        sum_scalar += x[i];
-    }
-
-    // Horizontal sum
-    let sum_128 = _mm_add_ps(
-        _mm256_castps256_ps128(sum_vec),
-        _mm256_extractf128_ps(sum_vec, 1),
-    );
-    let sum_64 = _mm_add_ps(sum_128, _mm_movehl_ps(sum_128, sum_128));
-    let sum_32 = _mm_add_ss(sum_64, _mm_shuffle_ps(sum_64, sum_64, 1));
-    let sum = _mm_cvtss_f32(sum_32) + sum_scalar;
-
-    // Phase 3: Normalize
-    let inv_sum = 1.0 / sum;
-    let inv_sum_vec = _mm256_set1_ps(inv_sum);
-
-    for i in 0..chunks {
-        let v = _mm256_loadu_ps(x.as_ptr().add(i * 8));
-        let normalized = _mm256_mul_ps(v, inv_sum_vec);
-        _mm256_storeu_ps(x.as_mut_ptr().add(i * 8), normalized);
-    }
-
-    for i in (chunks * 8)..len {
-        x[i] *= inv_sum;
-    }
-}
-
-/// Fused SiLU (Swish) with gating: gate = gate * sigmoid(gate) * up
-///
-/// Modifies `gate` in-place: gate[i] = silu(gate[i]) * up[i]
-///
-/// # Arguments
-/// * `gate` - Gate values, modified in-place
-/// * `up` - Up-projection values (must be same length as gate)
-///
-/// # Panics
-/// Panics if `gate.len() != up.len()`
-pub fn fused_swiglu_simd(gate: &mut [f32], up: &[f32]) {
-    assert_eq!(
-        gate.len(),
-        up.len(),
-        "fused_swiglu_simd: gate and up must have same length"
-    );
 
     #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") && gate.len() >= 8 {
-            // SAFETY: AVX2+FMA available, slices are same length
-            unsafe {
-                fused_swiglu_simd_avx2(gate, up);
-            }
+    #[test]
+    fn test_horizontal_sum_epi32_256() {
+        if !is_x86_feature_detected!("avx2") {
             return;
         }
-    }
 
-    // Scalar fallback
-    fused_swiglu_scalar(gate, up);
-}
-
-/// Scalar SwiGLU implementation
-fn fused_swiglu_scalar(gate: &mut [f32], up: &[f32]) {
-    for (g, &u) in gate.iter_mut().zip(up.iter()) {
-        // SiLU: x * sigmoid(x) = x / (1 + exp(-x))
-        let silu = *g / (1.0 + (-*g).exp());
-        *g = silu * u;
-    }
-}
-
-/// AVX2 SwiGLU implementation
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2", enable = "fma")]
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn fused_swiglu_simd_avx2(gate: &mut [f32], up: &[f32]) {
-    #[allow(clippy::wildcard_imports)]
-    use std::arch::x86_64::*;
-
-    let len = gate.len();
-    let chunks = len / 8;
-    let _one = _mm256_set1_ps(1.0);
-
-    for i in 0..chunks {
-        let g = _mm256_loadu_ps(gate.as_ptr().add(i * 8));
-        let u = _mm256_loadu_ps(up.as_ptr().add(i * 8));
-
-        // Compute sigmoid using scalar (for accuracy)
-        // A fully vectorized version would use polynomial approximation
-        let mut sigmoid_vals = [0.0f32; 8];
-        let g_arr: [f32; 8] = std::mem::transmute(g);
-        for (j, &gv) in g_arr.iter().enumerate() {
-            sigmoid_vals[j] = 1.0 / (1.0 + (-gv).exp());
+        unsafe {
+            use std::arch::x86_64::_mm256_setr_epi32;
+            let v = _mm256_setr_epi32(10, 20, 30, 40, 50, 60, 70, 80);
+            let sum = horizontal_sum_epi32_256(v);
+            assert_eq!(sum, 360);
         }
-        let sigmoid = _mm256_loadu_ps(sigmoid_vals.as_ptr());
-
-        // SiLU = g * sigmoid(g)
-        let silu = _mm256_mul_ps(g, sigmoid);
-
-        // Result = silu * up
-        let result = _mm256_mul_ps(silu, u);
-
-        _mm256_storeu_ps(gate.as_mut_ptr().add(i * 8), result);
     }
-
-    // Handle remaining elements
-    for i in (chunks * 8)..len {
-        let g = gate[i];
-        let sigmoid = 1.0 / (1.0 + (-g).exp());
-        gate[i] = g * sigmoid * up[i];
-    }
-}
-
-/// Apply RoPE (Rotary Position Embeddings) rotation with SIMD
-///
-/// Applies rotary position encoding to query/key vectors.
-///
-/// # Arguments
-/// * `x` - Input tensor, modified in-place (shape: [seq_len, num_heads, head_dim])
-/// * `freqs_cis` - Complex exponentials (cos, sin) for each position
-/// * `head_dim` - Dimension per head (must be even)
-pub fn apply_rope_rotation_simd(
-    x: &mut [f32],
-    freqs_cos: &[f32],
-    freqs_sin: &[f32],
-    head_dim: usize,
-) {
-    debug_assert!(head_dim.is_multiple_of(2), "head_dim must be even");
-    debug_assert_eq!(freqs_cos.len(), freqs_sin.len());
-
-    let half_dim = head_dim / 2;
 
     #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") && half_dim >= 8 {
-            // SAFETY: AVX2+FMA available
-            unsafe {
-                apply_rope_rotation_avx2(x, freqs_cos, freqs_sin, head_dim);
-            }
+    #[test]
+    fn test_horizontal_sum_epi16_256() {
+        if !is_x86_feature_detected!("avx2") {
             return;
         }
+
+        unsafe {
+            use std::arch::x86_64::_mm256_setr_epi16;
+            let v = _mm256_setr_epi16(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+            let sum = horizontal_sum_epi16_256(v);
+            assert_eq!(sum, 136); // 1+2+...+16 = 136
+        }
     }
 
-    // Scalar fallback
-    apply_rope_rotation_scalar(x, freqs_cos, freqs_sin, head_dim);
-}
-
-/// Scalar RoPE implementation
-fn apply_rope_rotation_scalar(
-    x: &mut [f32],
-    freqs_cos: &[f32],
-    freqs_sin: &[f32],
-    head_dim: usize,
-) {
-    let half_dim = head_dim / 2;
-
-    // Process pairs of values
-    for i in 0..half_dim {
-        if i >= freqs_cos.len() {
-            break;
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_hsum_epi32() {
+        if !is_x86_feature_detected!("avx2") {
+            return;
         }
 
-        let cos = freqs_cos[i];
-        let sin = freqs_sin[i];
-
-        let x0 = x[i];
-        let x1 = x[i + half_dim];
-
-        // Apply rotation: [cos -sin; sin cos] @ [x0; x1]
-        x[i] = x0 * cos - x1 * sin;
-        x[i + half_dim] = x0 * sin + x1 * cos;
-    }
-}
-
-/// AVX2 RoPE implementation
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2", enable = "fma")]
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn apply_rope_rotation_avx2(
-    x: &mut [f32],
-    freqs_cos: &[f32],
-    freqs_sin: &[f32],
-    head_dim: usize,
-) {
-    #[allow(clippy::wildcard_imports)]
-    use std::arch::x86_64::*;
-
-    let half_dim = head_dim / 2;
-    let chunks = half_dim / 8;
-
-    for i in 0..chunks {
-        let offset = i * 8;
-
-        // Load x0 and x1 (first and second half of dimension)
-        let x0 = _mm256_loadu_ps(x.as_ptr().add(offset));
-        let x1 = _mm256_loadu_ps(x.as_ptr().add(offset + half_dim));
-
-        // Load cos and sin values
-        let cos = _mm256_loadu_ps(freqs_cos.as_ptr().add(offset));
-        let sin = _mm256_loadu_ps(freqs_sin.as_ptr().add(offset));
-
-        // Compute: x0' = x0 * cos - x1 * sin
-        let x0_new = _mm256_fmsub_ps(x0, cos, _mm256_mul_ps(x1, sin));
-
-        // Compute: x1' = x0 * sin + x1 * cos
-        let x1_new = _mm256_fmadd_ps(x0, sin, _mm256_mul_ps(x1, cos));
-
-        // Store results
-        _mm256_storeu_ps(x.as_mut_ptr().add(offset), x0_new);
-        _mm256_storeu_ps(x.as_mut_ptr().add(offset + half_dim), x1_new);
-    }
-
-    // Handle remaining elements
-    let remaining_start = chunks * 8;
-    for i in remaining_start..half_dim {
-        if i >= freqs_cos.len() {
-            break;
+        unsafe {
+            use std::arch::x86_64::_mm256_setr_epi32;
+            let v = _mm256_setr_epi32(-1, 2, -3, 4, -5, 6, -7, 8);
+            let sum = hsum_epi32(v);
+            assert_eq!(sum, 4); // (-1+2-3+4-5+6-7+8) = 4
         }
-
-        let cos = freqs_cos[i];
-        let sin = freqs_sin[i];
-
-        let x0 = x[i];
-        let x1 = x[i + half_dim];
-
-        x[i] = x0 * cos - x1 * sin;
-        x[i + half_dim] = x0 * sin + x1 * cos;
     }
 }

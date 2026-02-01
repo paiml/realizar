@@ -118,6 +118,12 @@ pub struct Tokenizer {
 ///
 /// Implements subword tokenization using byte pair encoding algorithm.
 /// Used by GPT-2, GPT-3, and many other models.
+///
+/// ## vLLM-Style Property Caching (PMAT-805)
+///
+/// Properties like vocab_size and max_token_id are cached at construction
+/// to avoid repeated HashMap operations during hot inference paths.
+/// This is especially important for large vocabularies (e.g., Qwen2's 151K tokens).
 #[derive(Debug, Clone)]
 pub struct BPETokenizer {
     /// Token to ID mapping
@@ -128,6 +134,10 @@ pub struct BPETokenizer {
     merges: Vec<(String, String)>,
     /// Unknown token ID
     unk_token_id: u32,
+    /// Cached vocabulary size (PMAT-805: vLLM pattern)
+    vocab_size: usize,
+    /// Cached maximum token ID (PMAT-805: vLLM pattern)
+    max_token_id: u32,
 }
 
 impl BPETokenizer {
@@ -170,12 +180,28 @@ impl BPETokenizer {
                     reason: format!("Unknown token '{unk_token}' not in vocabulary"),
                 })?;
 
+        // PMAT-805: Cache vocabulary properties at construction (vLLM pattern)
+        // This avoids repeated HashMap operations during inference
+        let vocab_size = token_to_id.len();
+        let max_token_id = id_to_token.keys().copied().max().unwrap_or(0);
+
         Ok(Self {
             token_to_id,
             id_to_token,
             merges,
             unk_token_id,
+            vocab_size,
+            max_token_id,
         })
+    }
+
+    /// Get maximum token ID (cached, O(1))
+    ///
+    /// PMAT-805: Returns pre-computed max token ID for fast access
+    #[inline]
+    #[must_use]
+    pub fn max_token_id(&self) -> u32 {
+        self.max_token_id
     }
 
     /// Encode text to token IDs using greedy longest match
@@ -365,10 +391,14 @@ impl BPETokenizer {
         }
     }
 
-    /// Get vocabulary size
+    /// Get vocabulary size (cached, O(1))
+    ///
+    /// PMAT-805: Returns pre-computed vocab size for fast access.
+    /// Avoids repeated HashMap::len() calls during inference.
+    #[inline]
     #[must_use]
     pub fn vocab_size(&self) -> usize {
-        self.token_to_id.len()
+        self.vocab_size
     }
 
     /// Get token ID for a token

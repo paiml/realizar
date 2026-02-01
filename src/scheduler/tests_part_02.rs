@@ -8,7 +8,6 @@ mod tests {
     use crate::paged_kv::{PagedKvCache, SeqId};
     use crate::scheduler::*;
     use std::collections::HashMap;
-    use std::time::Duration;
 
     // ========================================================================
     // Request Handling Tests
@@ -507,7 +506,7 @@ mod tests {
     fn test_priority_clone_copy() {
         let p1 = Priority::High;
         let p2 = p1; // Copy
-        let p3 = p1.clone();
+        let p3 = p1;
         assert_eq!(p1, p2);
         assert_eq!(p2, p3);
     }

@@ -175,6 +175,7 @@ pub mod cache;
 /// Auto-detects format from model name.
 pub mod chat_template;
 /// CLI command implementations (extracted for testability)
+#[cfg(feature = "cli")]
 pub mod cli;
 /// GGUF to APR Transformer converter
 ///
@@ -216,13 +217,6 @@ pub mod explain;
 /// with automatic temporary file cleanup via TempDir.
 #[cfg(test)]
 pub mod fixtures;
-/// Model fixture testing infrastructure with PyTorch-style patterns.
-///
-/// Provides standardized testing for model formats (GGUF, APR, SafeTensors)
-/// across devices (CPU, CUDA) with combinatorial coverage and Popperian falsification.
-/// Per spec: docs/specifications/model-fixture-setup-teardown.md
-#[cfg(test)]
-pub mod testing;
 /// Unified model format detection (APR, GGUF, SafeTensors)
 ///
 /// Per spec §3: Format Support Matrix - auto-detect from magic bytes.
@@ -343,6 +337,12 @@ pub mod registry;
 #[cfg(all(test, feature = "server"))]
 mod registry_tests_part_02;
 pub mod safetensors;
+/// SafeTensors CUDA inference (PMAT-116)
+///
+/// Direct GPU loading for HuggingFace SafeTensors models.
+/// Achieves GGUF GPU parity (200+ tok/s).
+#[cfg(feature = "cuda")]
+pub mod safetensors_cuda;
 /// SafeTensors inference support (PAR-301)
 ///
 /// Converts HuggingFace SafeTensors models to AprTransformer for inference.
@@ -369,6 +369,13 @@ pub mod serve;
 pub mod speculative;
 pub mod stats;
 pub mod tensor;
+/// Model fixture testing infrastructure with PyTorch-style patterns.
+///
+/// Provides standardized testing for model formats (GGUF, APR, SafeTensors)
+/// across devices (CPU, CUDA) with combinatorial coverage and Popperian falsification.
+/// Per spec: docs/specifications/model-fixture-setup-teardown.md
+#[cfg(test)]
+pub mod testing;
 /// TUI monitoring for inference performance
 pub mod tui;
 pub mod viz;
@@ -457,5 +464,61 @@ mod tests {
         assert!(VERSION.starts_with("0."));
         assert!(VERSION.len() >= 3); // At least "0.x"
         assert!(VERSION.contains('.'));
+    }
+
+    #[test]
+    fn test_version_parts() {
+        let parts: Vec<&str> = VERSION.split('.').collect();
+        assert!(parts.len() >= 2); // At least major.minor
+    }
+
+    #[test]
+    fn test_tensor_reexport() {
+        // Test that Tensor is properly re-exported
+        let t = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        assert_eq!(t.shape(), &[2, 2]);
+        assert_eq!(t.ndim(), 2);
+        assert_eq!(t.size(), 4);
+    }
+
+    #[test]
+    fn test_error_reexport() {
+        // Test that RealizarError is properly re-exported
+        let err = RealizarError::InvalidShape {
+            reason: "test".to_string(),
+        };
+        assert!(err.to_string().contains("test"));
+    }
+
+    #[test]
+    fn test_result_type() {
+        // Test that Result type alias works
+        fn test_fn() -> Result<i32> {
+            Ok(42)
+        }
+        assert_eq!(test_fn().unwrap(), 42);
+    }
+
+    #[test]
+    fn test_inference_config_reexport() {
+        // Test InferenceConfig is properly re-exported
+        let config = InferenceConfig::new("/dev/null");
+        // Just verify the config can be created
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("InferenceConfig"));
+    }
+
+    #[test]
+    fn test_trace_step_reexport() {
+        // Test TraceStep is properly re-exported
+        let step = TraceStep::Tokenize;
+        assert!(format!("{:?}", step).contains("Tokenize"));
+    }
+
+    #[test]
+    fn test_trace_config_reexport() {
+        // Test TraceConfig is properly re-exported
+        let config = TraceConfig::default();
+        assert!(!config.enabled);
     }
 }

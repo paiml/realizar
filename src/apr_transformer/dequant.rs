@@ -214,4 +214,232 @@ pub(crate) fn dequantize_q6_k_apr(data: &[u8], num_elements: usize) -> Vec<f32> 
     result
 }
 
-// Tests moved to tests/ directory (PMAT-803)
+/// Dequantize Q8_0 format for APR tensors (GH-191)
+///
+/// Q8_0 block layout (per GGML):
+/// - scale: 2 bytes (f16)
+/// - quants: 32 bytes (i8 values)
+///   Total: 34 bytes per block, 32 elements per block
+pub(crate) fn dequantize_q8_0_apr(data: &[u8], num_elements: usize) -> Vec<f32> {
+    const BLOCK_SIZE: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
+    const ELEMENTS_PER_BLOCK: usize = 32;
+
+    let num_blocks = num_elements.div_ceil(ELEMENTS_PER_BLOCK);
+    let total_bytes = num_blocks * BLOCK_SIZE;
+
+    if total_bytes > data.len() {
+        return vec![0.0; num_elements];
+    }
+
+    let mut result = vec![0.0f32; num_blocks * ELEMENTS_PER_BLOCK];
+
+    for blk in 0..num_blocks {
+        let blk_start = blk * BLOCK_SIZE;
+        let out_start = blk * ELEMENTS_PER_BLOCK;
+
+        // Read scale (f16 → f32)
+        let scale = f16_to_f32(u16::from_le_bytes([data[blk_start], data[blk_start + 1]]));
+
+        // Dequantize 32 i8 values
+        #[allow(clippy::cast_possible_wrap)]
+        for i in 0..ELEMENTS_PER_BLOCK {
+            let q = data[blk_start + 2 + i] as i8;
+            result[out_start + i] = scale * (q as f32);
+        }
+    }
+
+    result.truncate(num_elements);
+    result
+}
+
+// ============================================================================
+// Tests for Dequantization Helpers (PMAT-802: T-COV-95)
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -------------------------------------------------------------------------
+    // f16_to_f32 Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_f16_to_f32_zero() {
+        // +0.0 in f16 = 0x0000
+        assert!((f16_to_f32(0x0000) - 0.0).abs() < 0.0001);
+        // -0.0 in f16 = 0x8000
+        assert!((f16_to_f32(0x8000) - (-0.0)).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_f16_to_f32_one() {
+        // 1.0 in f16 = 0x3C00
+        assert!((f16_to_f32(0x3C00) - 1.0).abs() < 0.0001);
+        // -1.0 in f16 = 0xBC00
+        assert!((f16_to_f32(0xBC00) - (-1.0)).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_f16_to_f32_half() {
+        // 0.5 in f16 = 0x3800
+        assert!((f16_to_f32(0x3800) - 0.5).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_f16_to_f32_two() {
+        // 2.0 in f16 = 0x4000
+        assert!((f16_to_f32(0x4000) - 2.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_f16_to_f32_infinity() {
+        // +Inf in f16 = 0x7C00
+        assert!(f16_to_f32(0x7C00).is_infinite());
+        assert!(f16_to_f32(0x7C00) > 0.0);
+        // -Inf in f16 = 0xFC00
+        assert!(f16_to_f32(0xFC00).is_infinite());
+        assert!(f16_to_f32(0xFC00) < 0.0);
+    }
+
+    #[test]
+    fn test_f16_to_f32_nan() {
+        // NaN in f16: exp=31, mantissa!=0
+        assert!(f16_to_f32(0x7C01).is_nan());
+        assert!(f16_to_f32(0x7FFF).is_nan());
+    }
+
+    #[test]
+    fn test_f16_to_f32_subnormal() {
+        // Smallest positive subnormal: 0x0001 = 2^-24
+        let result = f16_to_f32(0x0001);
+        assert!(result > 0.0);
+        assert!(result < 0.001); // Very small
+    }
+
+    // -------------------------------------------------------------------------
+    // extract_scale_min_apr Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_extract_scale_min_apr_first_four_blocks() {
+        // 12 bytes of scales
+        let scales = [10, 20, 30, 40, 5, 15, 25, 35, 0, 0, 0, 0];
+
+        // Block 0: scale = scales[0] & 63 = 10, min = scales[4] & 63 = 5
+        let (s, m) = extract_scale_min_apr(&scales, 0);
+        assert!((s - 10.0).abs() < 0.001);
+        assert!((m - 5.0).abs() < 0.001);
+
+        // Block 1: scale = scales[1] & 63 = 20, min = scales[5] & 63 = 15
+        let (s, m) = extract_scale_min_apr(&scales, 1);
+        assert!((s - 20.0).abs() < 0.001);
+        assert!((m - 15.0).abs() < 0.001);
+
+        // Block 3: scale = scales[3] & 63 = 40, min = scales[7] & 63 = 35
+        let (s, m) = extract_scale_min_apr(&scales, 3);
+        assert!((s - 40.0).abs() < 0.001);
+        assert!((m - 35.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_extract_scale_min_apr_last_four_blocks() {
+        // 12 bytes of scales with specific values for testing packed layout
+        // For block 4+: d = (scales[j+4] & 0x0F) | ((scales[j-4] >> 6) << 4)
+        //               m = (scales[j+4] >> 4) | ((scales[j] >> 6) << 4)
+        let scales = [0, 0, 0, 0, 0, 0, 0, 0, 0x12, 0x34, 0x56, 0x78];
+
+        // Block 4: j=4, uses scales[8] and scales[0]
+        let (s, m) = extract_scale_min_apr(&scales, 4);
+        // scale = (scales[8] & 0x0F) | ((scales[0] >> 6) << 4)
+        //       = (0x12 & 0x0F) | ((0 >> 6) << 4) = 0x02 = 2
+        // min = (scales[8] >> 4) | ((scales[4] >> 6) << 4)
+        //     = (0x12 >> 4) | ((0 >> 6) << 4) = 0x01 = 1
+        assert!((s - 2.0).abs() < 0.001);
+        assert!((m - 1.0).abs() < 0.001);
+    }
+
+    // -------------------------------------------------------------------------
+    // dequantize_q4_k_apr Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_dequantize_q4_k_apr_empty() {
+        let data: Vec<u8> = vec![];
+        let result = dequantize_q4_k_apr(&data, 0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_dequantize_q4_k_apr_insufficient_data() {
+        let data: Vec<u8> = vec![0; 10]; // Less than 144 bytes
+        let result = dequantize_q4_k_apr(&data, 256);
+        // Should return zeros when data is insufficient
+        assert_eq!(result.len(), 256);
+        assert!(result.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn test_dequantize_q4_k_apr_zeros() {
+        // 144 bytes of zeros (one super-block)
+        let data = vec![0u8; 144];
+        let result = dequantize_q4_k_apr(&data, 256);
+        assert_eq!(result.len(), 256);
+        // With d=0.0, all values should be 0.0
+        assert!(result.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn test_dequantize_q4_k_apr_truncation() {
+        // Request fewer elements than super-block size
+        let data = vec![0u8; 144];
+        let result = dequantize_q4_k_apr(&data, 100);
+        assert_eq!(result.len(), 100);
+    }
+
+    // -------------------------------------------------------------------------
+    // dequantize_q6_k_apr Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_dequantize_q6_k_apr_empty() {
+        let data: Vec<u8> = vec![];
+        let result = dequantize_q6_k_apr(&data, 0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_dequantize_q6_k_apr_insufficient_data() {
+        let data: Vec<u8> = vec![0; 100]; // Less than 210 bytes
+        let result = dequantize_q6_k_apr(&data, 256);
+        // Should return zeros when data is insufficient
+        assert_eq!(result.len(), 256);
+        assert!(result.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn test_dequantize_q6_k_apr_zeros() {
+        // 210 bytes of zeros (one super-block)
+        let data = vec![0u8; 210];
+        let result = dequantize_q6_k_apr(&data, 256);
+        assert_eq!(result.len(), 256);
+        // With d=0.0, all values should be 0.0
+        assert!(result.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn test_dequantize_q6_k_apr_truncation() {
+        // Request fewer elements than super-block size
+        let data = vec![0u8; 210];
+        let result = dequantize_q6_k_apr(&data, 100);
+        assert_eq!(result.len(), 100);
+    }
+
+    #[test]
+    fn test_dequantize_q6_k_apr_multiple_blocks() {
+        // Two super-blocks (420 bytes)
+        let data = vec![0u8; 420];
+        let result = dequantize_q6_k_apr(&data, 512);
+        assert_eq!(result.len(), 512);
+    }
+}

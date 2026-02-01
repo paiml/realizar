@@ -48,8 +48,8 @@ mod tests {
         // Set all scales to 1 (indices 4-15)
         // Scale packing: lower 4 bits of scales[i] for block i, upper bits for block i+8
         // For simplicity, set all scale bytes to 0x11 (scale = 1 for both packed values)
-        for i in 4..16 {
-            sb[i] = 0x11; // Both nibbles = 1
+        for byte in sb[4..16].iter_mut() {
+            *byte = 0x11; // Both nibbles = 1
         }
 
         // Set quantized values (indices 16-143)
@@ -59,8 +59,8 @@ mod tests {
         //
         // Create an identity-like pattern: first value = 9 (dequant to 1*1*(9-8) = 1)
         // Rest = 8 (dequant to 0)
-        for i in 16..Q4K_SUPER_BLOCK_BYTES {
-            sb[i] = 0x88; // Both nibbles = 8 (zero after centering)
+        for byte in sb[16..Q4K_SUPER_BLOCK_BYTES].iter_mut() {
+            *byte = 0x88; // Both nibbles = 8 (zero after centering)
         }
         // First nibble = 9 (will dequant to 1.0 after d * (9-8) * scale)
         sb[16] = 0x89; // Low nibble = 9, high nibble = 8
@@ -81,15 +81,15 @@ mod tests {
         sb[3] = 0x00;
 
         // scales = 1
-        for i in 4..16 {
-            sb[i] = 0x11;
+        for byte in sb[4..16].iter_mut() {
+            *byte = 0x11;
         }
 
         // All nibbles set to (value + 8) to represent the centered value
         let nibble = ((value + 8) as u8) & 0x0F;
         let packed = (nibble << 4) | nibble;
-        for i in 16..Q4K_SUPER_BLOCK_BYTES {
-            sb[i] = packed;
+        for byte in sb[16..Q4K_SUPER_BLOCK_BYTES].iter_mut() {
+            *byte = packed;
         }
 
         sb
@@ -341,8 +341,8 @@ mod tests {
         let scales: Vec<f32> = (0..8)
             .map(|i| {
                 let byte = sb[4 + i];
-                let scale = (byte & 0x0F) as f32;
-                scale
+
+                (byte & 0x0F) as f32
             })
             .collect();
         eprintln!("  scales: {:?}", scales);
@@ -512,7 +512,7 @@ mod tests {
         let in_dim = tensor.dims[1] as usize; // K = 2048
 
         let data_start = mapped.model.tensor_data_start + tensor.offset as usize;
-        let n_super_blocks = (in_dim + 255) / 256; // 8 for K=2048
+        let n_super_blocks = in_dim.div_ceil(256); // 8 for K=2048
         let bytes_per_row = n_super_blocks * 144; // 8 * 144 = 1152
 
         eprintln!("Weight layout:");
@@ -639,7 +639,7 @@ mod tests {
         let in_dim = tensor.dims[1] as usize; // K = 2048
 
         let data_start = mapped.model.tensor_data_start + tensor.offset as usize;
-        let n_super_blocks = (in_dim + 255) / 256;
+        let n_super_blocks = in_dim.div_ceil(256);
         let bytes_per_row = n_super_blocks * 144;
         let total_bytes = out_dim * bytes_per_row;
 
@@ -1136,7 +1136,7 @@ mod tests {
         // Use internal forward logic to capture hidden states
         // We need to trace through manually since forward_cached doesn't expose intermediates
 
-        let mut cpu_hidden = cpu_model.embed(&[bos_token]);
+        let cpu_hidden = cpu_model.embed(&[bos_token]);
         eprintln!("After embedding:");
         eprintln!(
             "  CPU L2: {:.6}",
@@ -1283,7 +1283,7 @@ mod tests {
         // Create test input - use random-ish values (normalized to reasonable range)
         let mut input = vec![0.0f32; ffn_down.in_dim];
         for (i, v) in input.iter_mut().enumerate() {
-            *v = ((i as f32 * 0.1234).sin() * 0.1) as f32;
+            *v = (i as f32 * 0.1234).sin() * 0.1;
         }
         let input_l2 = input.iter().map(|x| x * x).sum::<f32>().sqrt();
         eprintln!("Test input L2: {:.6}", input_l2);
@@ -1407,7 +1407,7 @@ mod tests {
         // Create test input - simulate attention output
         let mut input = vec![0.0f32; attn_output.in_dim];
         for (i, v) in input.iter_mut().enumerate() {
-            *v = ((i as f32 * 0.1234).sin() * 0.1) as f32;
+            *v = (i as f32 * 0.1234).sin() * 0.1;
         }
         eprintln!(
             "Test input L2: {:.6}",
@@ -1505,7 +1505,7 @@ mod tests {
         let in_dim = layer0.ffn_up_weight.in_dim;
         let mut input = vec![0.0f32; in_dim];
         for (i, v) in input.iter_mut().enumerate() {
-            *v = ((i as f32 * 0.1234).sin() * 0.1) as f32;
+            *v = (i as f32 * 0.1234).sin() * 0.1;
         }
         eprintln!(
             "Test input L2: {:.6}",
@@ -1670,6 +1670,7 @@ mod tests {
                     temperature: 0.0,
                     top_k: 1,
                     stop_tokens: vec![],
+                    trace: false,
                 };
 
                 let tokens = vec![bos_token];
@@ -1866,7 +1867,7 @@ mod tests {
             rms_norm_standalone(&embedding, &layer.attn_norm_weight, config.eps)
         } else {
             eprintln!("  Using LayerNorm (not RMSNorm)");
-            embedding.clone()
+            embedding
         };
         let normed_l2 = normed.iter().map(|x| x * x).sum::<f32>().sqrt();
         eprintln!("  L2: {:.6}", normed_l2);

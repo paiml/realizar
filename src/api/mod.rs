@@ -131,6 +131,11 @@ pub struct AppState {
     /// Uses pre-uploaded weights and batched workspaces for 755+ tok/s (2.6x Ollama)
     #[cfg(feature = "cuda")]
     cuda_model: Option<Arc<std::sync::RwLock<crate::gguf::OwnedQuantizedModelCuda>>>,
+    /// APR Transformer for SafeTensors/APR inference (PMAT-SERVE-FIX-001)
+    /// Supports F32 weights from SafeTensors or APR format
+    apr_transformer: Option<Arc<crate::apr_transformer::AprTransformer>>,
+    /// GH-152: Enable verbose request/response logging
+    verbose: bool,
 }
 
 /// Helper to create default audit infrastructure
@@ -188,6 +193,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
+            verbose: false,
         }
     }
 
@@ -235,6 +242,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
+            verbose: false,
         })
     }
 
@@ -323,6 +332,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
+            verbose: false,
         }
     }
 
@@ -383,6 +394,52 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
+            verbose: false,
+        })
+    }
+
+    /// Create a MOCK demo state for fast HTTP handler testing (no inference)
+    ///
+    /// This creates an AppState with NO model loaded, so all inference endpoints
+    /// return errors immediately. Used for testing HTTP handler code paths
+    /// without the ~0.5s overhead of model creation per test.
+    ///
+    /// # Performance (Dr. Popper's "Tax of Setup" Fix)
+    /// - `demo()`: ~0.5s (creates real model)
+    /// - `demo_mock()`: ~0.001s (no model, instant errors)
+    ///
+    /// # When to use
+    /// - Use `demo_mock()` for HTTP routing/parsing tests (95% of API tests)
+    /// - Use `demo()` only when you need actual inference output
+    pub fn demo_mock() -> Result<Self, RealizarError> {
+        let (audit_logger, audit_sink) = create_audit_state();
+        Ok(Self {
+            model: None, // No model = instant "model not loaded" errors
+            tokenizer: None,
+            cache: None,
+            cache_key: None,
+            metrics: Arc::new(MetricsCollector::new()),
+            registry: None,
+            default_model_id: None,
+            apr_model: None,
+            audit_logger,
+            audit_sink,
+            #[cfg(feature = "gpu")]
+            gpu_model: None,
+            quantized_model: None,
+            #[cfg(feature = "gpu")]
+            cached_model: None,
+            #[cfg(feature = "gpu")]
+            dispatch_metrics: None,
+            #[cfg(feature = "gpu")]
+            batch_request_tx: None,
+            #[cfg(feature = "gpu")]
+            batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: None,
+            apr_transformer: None,
+            verbose: false,
         })
     }
 
@@ -430,6 +487,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
+            verbose: false,
         })
     }
 
@@ -472,6 +531,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
+            verbose: false,
         })
     }
 
@@ -527,6 +588,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
+            verbose: false,
         })
     }
 
@@ -580,6 +643,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
+            verbose: false,
         })
     }
 
@@ -622,6 +687,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
+            verbose: false,
         })
     }
 
@@ -668,6 +735,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            apr_transformer: None,
+            verbose: false,
         })
     }
 
@@ -717,6 +786,57 @@ impl AppState {
             #[cfg(feature = "gpu")]
             batch_config: None,
             cuda_model: Some(Arc::new(std::sync::RwLock::new(cuda_model))),
+            apr_transformer: None,
+            verbose: false,
+        })
+    }
+
+    /// Create application state with APR Transformer for SafeTensors/APR inference (PMAT-SERVE-FIX-001)
+    ///
+    /// This enables the `/generate` and `/batch/generate` endpoints for SafeTensors and APR models.
+    /// Uses F32 weights for inference, achieving ~1-10 tok/s on CPU.
+    ///
+    /// # Arguments
+    ///
+    /// * `transformer` - APR Transformer loaded from SafeTensors or APR file
+    /// * `vocab` - Vocabulary tokens for tokenization
+    ///
+    /// # Errors
+    ///
+    /// Returns error if tokenizer creation fails
+    pub fn with_apr_transformer_and_vocab(
+        transformer: crate::apr_transformer::AprTransformer,
+        vocab: Vec<String>,
+    ) -> Result<Self, RealizarError> {
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>")?;
+
+        let (audit_logger, audit_sink) = create_audit_state();
+        Ok(Self {
+            model: None,
+            tokenizer: Some(Arc::new(tokenizer)),
+            cache: None,
+            cache_key: None,
+            metrics: Arc::new(MetricsCollector::new()),
+            registry: None,
+            default_model_id: None,
+            apr_model: None,
+            audit_logger,
+            audit_sink,
+            #[cfg(feature = "gpu")]
+            gpu_model: None,
+            quantized_model: None,
+            #[cfg(feature = "gpu")]
+            cached_model: None,
+            #[cfg(feature = "gpu")]
+            dispatch_metrics: None,
+            #[cfg(feature = "gpu")]
+            batch_request_tx: None,
+            #[cfg(feature = "gpu")]
+            batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: None,
+            apr_transformer: Some(Arc::new(transformer)),
+            verbose: false,
         })
     }
 
@@ -729,6 +849,17 @@ impl AppState {
     /// Get the quantized model for inference (IMP-100)
     pub fn quantized_model(&self) -> Option<&Arc<crate::gguf::OwnedQuantizedModel>> {
         self.quantized_model.as_ref()
+    }
+
+    /// Check if this AppState has an APR transformer (PMAT-SERVE-FIX-001)
+    #[must_use]
+    pub fn has_apr_transformer(&self) -> bool {
+        self.apr_transformer.is_some()
+    }
+
+    /// Get the APR transformer for inference (PMAT-SERVE-FIX-001)
+    pub fn apr_transformer(&self) -> Option<&Arc<crate::apr_transformer::AprTransformer>> {
+        self.apr_transformer.as_ref()
     }
 
     /// Check if this AppState has a GPU model (M33: IMP-084)
@@ -817,6 +948,19 @@ impl AppState {
         self.batch_request_tx = Some(batch_request_tx);
         self.batch_config = Some(batch_config);
         self
+    }
+
+    /// GH-152: Enable verbose request/response logging
+    #[must_use]
+    pub fn with_verbose(mut self, verbose: bool) -> Self {
+        self.verbose = verbose;
+        self
+    }
+
+    /// GH-152: Check if verbose logging is enabled
+    #[must_use]
+    pub fn is_verbose(&self) -> bool {
+        self.verbose
     }
 }
 
@@ -1504,6 +1648,11 @@ pub fn create_router(state: AppState) -> Router {
 
 /// Health check handler
 async fn health_handler(State(state): State<AppState>) -> Json<HealthResponse> {
+    // GH-152: Verbose request logging
+    if state.is_verbose() {
+        eprintln!("[VERBOSE] GET /health");
+    }
+
     // Determine compute mode based on what's available
     #[cfg(feature = "gpu")]
     let compute_mode = if state.has_gpu_model() || state.cached_model.is_some() {
@@ -1514,11 +1663,18 @@ async fn health_handler(State(state): State<AppState>) -> Json<HealthResponse> {
     #[cfg(not(feature = "gpu"))]
     let compute_mode = "cpu";
 
-    Json(HealthResponse {
+    let response = HealthResponse {
         status: "healthy".to_string(),
         version: crate::VERSION.to_string(),
         compute_mode: compute_mode.to_string(),
-    })
+    };
+
+    // GH-152: Verbose response logging
+    if state.is_verbose() {
+        eprintln!("[VERBOSE] GET /health -> status={}", response.status);
+    }
+
+    Json(response)
 }
 
 /// Metrics handler - returns Prometheus-formatted metrics

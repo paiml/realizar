@@ -104,6 +104,19 @@ impl GGUFModel {
             })?;
         let tensor_count = u64::from_le_bytes(buf8);
 
+        // Bounds check: Prevent allocation attacks from corrupted headers
+        // Reasonable limit: no model has >100,000 tensors
+        const MAX_TENSOR_COUNT: u64 = 100_000;
+        if tensor_count > MAX_TENSOR_COUNT {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "parse_gguf".to_string(),
+                reason: format!(
+                    "tensor_count {} exceeds maximum allowed {} (corrupted header?)",
+                    tensor_count, MAX_TENSOR_COUNT
+                ),
+            });
+        }
+
         // Read metadata_count
         cursor
             .read_exact(&mut buf8)
@@ -112,6 +125,19 @@ impl GGUFModel {
                 reason: e.to_string(),
             })?;
         let metadata_count = u64::from_le_bytes(buf8);
+
+        // Bounds check: Prevent allocation attacks
+        // Reasonable limit: no model has >10,000 metadata entries
+        const MAX_METADATA_COUNT: u64 = 10_000;
+        if metadata_count > MAX_METADATA_COUNT {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "parse_gguf".to_string(),
+                reason: format!(
+                    "metadata_count {} exceeds maximum allowed {} (corrupted header?)",
+                    metadata_count, MAX_METADATA_COUNT
+                ),
+            });
+        }
 
         Ok(GGUFHeader {
             magic,
@@ -196,6 +222,17 @@ impl GGUFModel {
                 // Array: element_type (u32) + array_len (u64) + elements
                 let element_type = Self::read_u32(cursor)?;
                 let array_len = Self::read_u64(cursor)?;
+
+                // Bounds check: Limit array length to prevent allocation attacks
+                const MAX_ARRAY_LEN: u64 = 10_000_000; // 10M elements max
+                if array_len > MAX_ARRAY_LEN {
+                    return Err(RealizarError::InvalidShape {
+                        reason: format!(
+                            "Array length {} exceeds maximum {} (corrupted?)",
+                            array_len, MAX_ARRAY_LEN
+                        ),
+                    });
+                }
 
                 // Safely convert array_len to usize
                 let len = usize::try_from(array_len).map_err(|_| RealizarError::InvalidShape {
@@ -360,6 +397,18 @@ impl GGUFModel {
 
             // Read n_dims (u32)
             let n_dims = Self::read_u32(cursor)?;
+
+            // Bounds check: Tensors have at most 8 dimensions (typically 1-4)
+            const MAX_DIMS: u32 = 8;
+            if n_dims > MAX_DIMS {
+                return Err(RealizarError::UnsupportedOperation {
+                    operation: "parse_tensor_info".to_string(),
+                    reason: format!(
+                        "tensor '{}' has {} dimensions, max allowed is {} (corrupted?)",
+                        name, n_dims, MAX_DIMS
+                    ),
+                });
+            }
 
             // Read dimensions array
             // GGUF stores dimensions in GGML order (reversed from standard row-major)
@@ -1708,24 +1757,34 @@ impl OwnedQuantizedModel {
         }
 
         // Helper to convert dtype string to byte for binary tensor entry
+        // GH-191 FIX: Use GGML dtype values directly so they match TensorEntry::from_binary reader.
+        // The reader maps these bytes back to dtype strings; mismatched values caused
+        // all quantized tensors to silently fall through to F32.
         fn dtype_to_byte(dtype: &str) -> u8 {
             match dtype {
                 "F32" => 0,
                 "F16" => 1,
-                "BF16" => 2,
-                "I8" => 3,
-                "I16" => 4,
-                "I32" => 5,
-                "I64" => 6,
-                "U8" => 7,
-                "Q4_K" => 8,
-                "Q6_K" => 9,
-                "Q8_0" => 10,
-                "Q4_0" => 11,
-                "Q5_K" => 12,
-                "Q3_K" => 13,
-                "Q2_K" => 14,
-                _ => 0,
+                "BF16" => 30,    // GGML BF16 type
+                "Q4_0" => 2,     // GGML type 2
+                "Q4_1" => 3,     // GGML type 3
+                "Q5_0" => 6,     // GGML type 6
+                "Q5_1" => 7,     // GGML type 7
+                "Q8_0" => 8,     // GGML type 8
+                "Q8_1" => 9,     // GGML type 9
+                "Q2_K" => 10,    // GGML type 10
+                "Q3_K" => 11,    // GGML type 11
+                "Q4_K" => 12,    // GGML type 12
+                "Q5_K" => 13,    // GGML type 13
+                "Q6_K" => 14,    // GGML type 14
+                "IQ2_XXS" => 16, // GGML type 16
+                "IQ2_XS" => 17,  // GGML type 17
+                _ => {
+                    eprintln!(
+                        "WARN: Unknown dtype '{}' in dtype_to_byte, writing as F32",
+                        dtype
+                    );
+                    0
+                },
             }
         }
 
@@ -1971,5 +2030,233 @@ impl OwnedQuantizedModel {
         result.extend_from_slice(&tensor_data_bytes);
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gguf::test_factory::{build_minimal_llama_gguf, build_minimal_phi2_gguf};
+
+    // ============================================================================
+    // GGUFModel parsing tests
+    // ============================================================================
+
+    #[test]
+    fn test_gguf_model_from_bytes_llama() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data);
+        assert!(model.is_ok(), "Failed to parse GGUF: {:?}", model.err());
+
+        let model = model.unwrap();
+        assert_eq!(model.header.magic, GGUF_MAGIC);
+        assert_eq!(model.header.version, GGUF_VERSION_V3);
+    }
+
+    #[test]
+    fn test_gguf_model_from_bytes_phi2() {
+        let data = build_minimal_phi2_gguf(100, 64, 256, 4);
+        let model = GGUFModel::from_bytes(&data);
+        assert!(model.is_ok(), "Failed to parse GGUF: {:?}", model.err());
+    }
+
+    #[test]
+    fn test_gguf_model_tensors_parsed() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+
+        // Should have multiple tensors (embedding, layer weights, etc.)
+        assert!(!model.tensors.is_empty());
+    }
+
+    #[test]
+    fn test_gguf_model_metadata_parsed() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+
+        // Should have metadata (architecture, hidden_dim, etc.)
+        assert!(!model.metadata.is_empty());
+    }
+
+    #[test]
+    fn test_gguf_model_tensor_data_start() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+
+        // tensor_data_start should be 32-byte aligned
+        assert!(model.tensor_data_start.is_multiple_of(GGUF_ALIGNMENT));
+    }
+
+    #[test]
+    fn test_gguf_model_invalid_magic() {
+        let mut data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        // Corrupt the magic number
+        data[0] = 0xFF;
+        data[1] = 0xFF;
+        data[2] = 0xFF;
+        data[3] = 0xFF;
+
+        let result = GGUFModel::from_bytes(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_gguf_model_architecture() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+
+        let arch = model.architecture();
+        assert!(arch.is_some());
+    }
+
+    #[test]
+    fn test_gguf_model_embedding_dim() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+
+        let dim = model.embedding_dim();
+        assert!(dim.is_some());
+        assert_eq!(dim.unwrap(), 64);
+    }
+
+    #[test]
+    fn test_gguf_model_num_layers() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+
+        let layers = model.num_layers();
+        assert!(layers.is_some());
+    }
+
+    #[test]
+    fn test_gguf_model_num_heads() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+
+        let heads = model.num_heads();
+        assert!(heads.is_some());
+        assert_eq!(heads.unwrap(), 4);
+    }
+
+    #[test]
+    fn test_gguf_model_num_kv_heads() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 2); // num_kv_heads=2
+        let model = GGUFModel::from_bytes(&data).unwrap();
+
+        let kv_heads = model.num_kv_heads();
+        assert!(kv_heads.is_some());
+    }
+
+    #[test]
+    fn test_gguf_model_context_length() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+
+        let ctx = model.context_length();
+        // May or may not be present depending on test factory
+        assert!(ctx.is_none() || ctx.unwrap() > 0);
+    }
+
+    #[test]
+    fn test_gguf_model_rope_freq_base() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+
+        // May have rope_freq_base metadata
+        let _theta = model.rope_freq_base();
+    }
+
+    #[test]
+    fn test_gguf_model_get_tensor_f32() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+
+        // Try to get token embedding (should be F32)
+        let emb = model.get_tensor_f32("token_embd.weight", &data);
+        assert!(emb.is_ok());
+        let emb = emb.unwrap();
+        assert!(!emb.is_empty());
+    }
+
+    #[test]
+    fn test_gguf_model_get_tensor_f32_not_found() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+
+        let result = model.get_tensor_f32("nonexistent_tensor", &data);
+        assert!(result.is_err());
+    }
+
+    // ============================================================================
+    // GGUFTransformer tests
+    // ============================================================================
+
+    #[test]
+    fn test_gguf_transformer_from_mapped() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        let transformer = GGUFTransformer::from_gguf(&model, &data);
+
+        assert!(transformer.is_ok(), "Failed: {:?}", transformer.err());
+    }
+
+    #[test]
+    fn test_gguf_transformer_config() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        let transformer = GGUFTransformer::from_gguf(&model, &data).unwrap();
+
+        assert_eq!(transformer.config.hidden_dim, 64);
+        assert_eq!(transformer.config.num_heads, 4);
+    }
+
+    #[test]
+    fn test_gguf_transformer_layers() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        let transformer = GGUFTransformer::from_gguf(&model, &data).unwrap();
+
+        // Should have at least 1 layer
+        assert!(!transformer.layers.is_empty());
+    }
+
+    #[test]
+    fn test_gguf_transformer_token_embedding() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        let transformer = GGUFTransformer::from_gguf(&model, &data).unwrap();
+
+        // token_embedding should be vocab_size * hidden_dim
+        assert_eq!(transformer.token_embedding.len(), 100 * 64);
+    }
+
+    #[test]
+    fn test_gguf_transformer_output_norm() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        let transformer = GGUFTransformer::from_gguf(&model, &data).unwrap();
+
+        // output_norm_weight should be hidden_dim
+        assert_eq!(transformer.output_norm_weight.len(), 64);
+    }
+
+    #[test]
+    fn test_gguf_transformer_lm_head() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        let transformer = GGUFTransformer::from_gguf(&model, &data).unwrap();
+
+        // lm_head should be vocab_size * hidden_dim
+        assert!(!transformer.lm_head_weight.is_empty());
+    }
+
+    #[test]
+    fn test_gguf_transformer_layer_attn_norm() {
+        let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
+        let model = GGUFModel::from_bytes(&data).unwrap();
+        let transformer = GGUFTransformer::from_gguf(&model, &data).unwrap();
+
+        let layer = &transformer.layers[0];
+        assert_eq!(layer.attn_norm_weight.len(), 64);
     }
 }

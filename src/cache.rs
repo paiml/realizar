@@ -503,4 +503,166 @@ mod tests {
         assert_eq!(metrics.hits, initial_hits + 5); // Exactly 5 hits
         assert_eq!(metrics.misses, initial_misses); // No new misses
     }
+
+    // ==========================================================================
+    // Additional T-COV-95 Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_cache_key_equality() {
+        let key1 = CacheKey::new("same".to_string());
+        let key2 = CacheKey::new("same".to_string());
+        let key3 = CacheKey::new("different".to_string());
+
+        assert_eq!(key1, key2);
+        assert_ne!(key1, key3);
+    }
+
+    #[test]
+    fn test_cache_key_hash() {
+        use std::collections::HashSet;
+
+        let key1 = CacheKey::new("model_a".to_string());
+        let key2 = CacheKey::new("model_a".to_string());
+        let key3 = CacheKey::new("model_b".to_string());
+
+        let mut set = HashSet::new();
+        set.insert(key1.clone());
+        set.insert(key2.clone()); // Same as key1, should not increase size
+        set.insert(key3.clone());
+
+        assert_eq!(set.len(), 2); // Only 2 unique keys
+        assert!(set.contains(&key1));
+        assert!(set.contains(&key3));
+    }
+
+    #[test]
+    fn test_cache_key_debug_clone() {
+        let key = CacheKey::new("test_model".to_string());
+        let cloned = key.clone();
+        let debug_str = format!("{:?}", key);
+
+        assert_eq!(key, cloned);
+        assert!(debug_str.contains("test_model"));
+    }
+
+    #[test]
+    fn test_cache_metrics_clone_debug() {
+        let metrics = CacheMetrics {
+            hits: 10,
+            misses: 5,
+            evictions: 2,
+            size: 3,
+        };
+        let cloned = metrics.clone();
+        let debug_str = format!("{:?}", metrics);
+
+        assert_eq!(cloned.hits, 10);
+        assert_eq!(cloned.misses, 5);
+        assert!(debug_str.contains("10"));
+    }
+
+    #[test]
+    fn test_cache_metrics_default() {
+        let metrics = CacheMetrics::default();
+
+        assert_eq!(metrics.hits, 0);
+        assert_eq!(metrics.misses, 0);
+        assert_eq!(metrics.evictions, 0);
+        assert_eq!(metrics.size, 0);
+    }
+
+    #[test]
+    fn test_hit_rate_zero_total() {
+        let metrics = CacheMetrics::default();
+        // When both hits and misses are 0, hit_rate should be 0.0
+        assert!((metrics.hit_rate() - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_hit_rate_all_misses() {
+        let metrics = CacheMetrics {
+            hits: 0,
+            misses: 100,
+            evictions: 0,
+            size: 0,
+        };
+        assert!((metrics.hit_rate() - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_cache_capacity_one() {
+        let cache = ModelCache::new(1);
+        let key1 = CacheKey::new("model1".to_string());
+        let key2 = CacheKey::new("model2".to_string());
+
+        cache
+            .get_or_load(&key1, || create_test_model(50))
+            .expect("test");
+        assert_eq!(cache.len(), 1);
+
+        // Adding second model should evict first
+        cache
+            .get_or_load(&key2, || create_test_model(60))
+            .expect("test");
+        assert_eq!(cache.len(), 1);
+
+        let metrics = cache.metrics();
+        assert_eq!(metrics.evictions, 1);
+    }
+
+    #[test]
+    fn test_cache_loader_error_propagation() {
+        let cache = ModelCache::new(10);
+        let key = CacheKey::new("error_model".to_string());
+
+        // Loader that returns an error
+        let result = cache.get_or_load(&key, || {
+            Err(RealizarError::InvalidConfiguration(
+                "test error".to_string(),
+            ))
+        });
+
+        assert!(result.is_err());
+        // Cache should not contain the failed entry
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn test_multiple_evictions() {
+        let cache = ModelCache::new(2);
+
+        // Fill beyond capacity multiple times
+        for i in 0..5 {
+            let key = CacheKey::new(format!("model{i}"));
+            cache
+                .get_or_load(&key, || create_test_model(50 + i))
+                .expect("test");
+        }
+
+        // Should have exactly 2 entries (capacity) and 3 evictions
+        assert_eq!(cache.len(), 2);
+        let metrics = cache.metrics();
+        assert_eq!(metrics.evictions, 3); // 5 loads - 2 capacity = 3 evictions
+    }
+
+    #[test]
+    fn test_cache_clear_resets_len() {
+        let cache = ModelCache::new(10);
+
+        for i in 0..5 {
+            let key = CacheKey::new(format!("model{i}"));
+            cache
+                .get_or_load(&key, || create_test_model(50))
+                .expect("test");
+        }
+
+        assert_eq!(cache.len(), 5);
+        assert!(!cache.is_empty());
+
+        cache.clear();
+
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
+    }
 }

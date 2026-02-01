@@ -5,7 +5,9 @@
 //! ## Contents
 //! - `AprV2ModelCuda` - CUDA wrapper for APR models (2x Ollama target)
 
-use super::{dtype_to_ggml_qtype, rms_norm, simple_attention, transpose_matrix, AprV2Model};
+use super::{
+    apply_rope_norm, dtype_to_ggml_qtype, rms_norm, simple_attention, transpose_matrix, AprV2Model,
+};
 use crate::error::{RealizarError, Result};
 
 // ============================================================================
@@ -49,6 +51,9 @@ pub struct AprV2ModelCuda {
     hidden_dim: usize,
     /// Current KV cache position (increments with each decoded token)
     kv_position: u32,
+    /// PMAT-110: Track if KV cache was populated via FALLBACK PATH
+    /// When true, decode must also use FALLBACK PATH for consistency
+    fallback_kv_used: bool,
     /// Phase 45: Test executor for dependency injection
     ///
     /// When present, this executor is used instead of CudaExecutor for GEMM operations.
@@ -128,6 +133,23 @@ impl AprV2ModelCuda {
         // CORRECTNESS-011: Set RoPE type (0=NORM adjacent pairs, 2=NEOX split halves)
         // Five-Whys: GPU garbage output → wrong RoPE style → rope_type not set for APR models
         let rope_type = model.metadata.rope_type.unwrap_or(0);
+        let rms_norm_eps = model.metadata.rms_norm_eps.unwrap_or(1e-6);
+
+        // PMAT-114: Trace model configuration for precision debugging
+        if std::env::var("APR_TRACE_CONFIG").is_ok() {
+            eprintln!(
+                "[APR CONFIG] rope_theta={} (raw={:?})",
+                rope_theta, model.metadata.rope_theta
+            );
+            eprintln!(
+                "[APR CONFIG] rope_type={} (raw={:?})",
+                rope_type, model.metadata.rope_type
+            );
+            eprintln!(
+                "[APR CONFIG] rms_norm_eps={} (raw={:?})",
+                rms_norm_eps, model.metadata.rms_norm_eps
+            );
+        }
         executor.set_rope_type(rope_type);
 
         let hidden_dim = model.metadata.hidden_size.unwrap_or(0);
@@ -140,8 +162,9 @@ impl AprV2ModelCuda {
             weight_cache: std::collections::HashMap::new(),
             embedding_cache: None, // Lazy-loaded on first forward
             hidden_dim,
-            kv_position: 0,      // Start at position 0
-            test_executor: None, // Phase 45: No test executor by default
+            kv_position: 0,          // Start at position 0
+            fallback_kv_used: false, // PMAT-110: No fallback KV yet
+            test_executor: None,     // Phase 45: No test executor by default
         };
 
         // Pre-cache all transposed weights on GPU for 2x performance
@@ -163,6 +186,12 @@ impl AprV2ModelCuda {
     #[must_use]
     pub fn num_devices() -> usize {
         crate::cuda::CudaExecutor::num_devices()
+    }
+
+    /// Get reference to the inner APR model (PMAT-APR-CUDA-001)
+    #[must_use]
+    pub fn model(&self) -> &AprV2Model {
+        &self.model
     }
 
     /// Phase 45: Inject a test executor for dependency injection.
@@ -256,6 +285,7 @@ impl AprV2ModelCuda {
     /// KV cache state from the previous conversation.
     pub fn reset_kv_cache(&mut self) {
         self.kv_position = 0;
+        self.fallback_kv_used = false; // PMAT-110: Reset fallback flag
         self.executor.reset_kv_cache_gpu();
     }
 
@@ -288,7 +318,7 @@ impl AprV2ModelCuda {
         } else {
             0
         };
-        let _kv_dim = num_kv_heads * head_dim;
+        let kv_dim = num_kv_heads * head_dim;
 
         if hidden_dim == 0 || num_layers == 0 {
             return Ok(()); // Non-transformer model, nothing to cache
@@ -299,30 +329,41 @@ impl AprV2ModelCuda {
 
         // Helper to upload a weight tensor (quantized or F32)
         // Uses GGUF-style cache names for compatibility with build_indexed_weights()
+        // PMAT-113: Now caches F32 weights for GPU GEMM (was causing APR CUDA hang)
         let upload_weight = |executor: &mut crate::cuda::CudaExecutor,
                              model: &AprV2Model,
                              src_name: &str,
                              cache_name: &str|
-         -> usize {
+         -> (usize, bool) {
+            // Returns (bytes_uploaded, is_quantized)
             if let Some(entry) = model.get_tensor(src_name) {
                 if let Some(qtype) = dtype_to_ggml_qtype(&entry.dtype) {
                     // Quantized: upload raw bytes to quantized_weight_cache
                     if let Ok(bytes) = model.get_tensor_bytes(src_name) {
-                        executor
+                        let size = executor
                             .load_quantized_weights_with_type(cache_name, bytes, qtype)
-                            .unwrap_or(0)
+                            .unwrap_or(0);
+                        (size, true)
                     } else {
-                        0
+                        (0, false)
                     }
                 } else {
-                    // F32/F16: dequantize and upload to weight_cache (legacy path)
-                    // This path is only used for non-quantized models
-                    0 // Skip F32 weights - they'll be loaded on demand
+                    // PMAT-113: F32/F16 - cache on GPU for fallback GEMM path
+                    // Previously skipped, causing "No matching tensor found" during inference
+                    if let Ok(weights) = model.get_tensor_f32(src_name) {
+                        let size = executor.load_weights(cache_name, &weights).unwrap_or(0);
+                        (size, false)
+                    } else {
+                        (0, false)
+                    }
                 }
             } else {
-                0
+                (0, false)
             }
         };
+
+        // Track F32 weight count for fallback path
+        let mut f32_weight_count = 0usize;
 
         // Cache per-layer weights using GGUF naming convention
         // This matches build_indexed_weights() expectations
@@ -395,11 +436,209 @@ impl AprV2ModelCuda {
                 let patterns_ref: Vec<&str> = patterns.iter().map(String::as_str).collect();
                 if let Ok(src_name) = self.model.find_tensor_name(&patterns_ref) {
                     let cache_name = format!("{prefix}.{suffix}");
-                    let bytes =
+                    let (bytes, is_quantized) =
                         upload_weight(&mut self.executor, &self.model, &src_name, &cache_name);
                     if bytes > 0 {
                         total_bytes += bytes;
-                        quantized_count += 1;
+                        if is_quantized {
+                            quantized_count += 1;
+                        } else {
+                            f32_weight_count += 1;
+                        }
+                    }
+                }
+            }
+
+            // PMAT-113: Cache fused QKV from APR import (PMAT-101)
+            // APR models from HuggingFace have Q/K/V fused into qkv_proj.weight
+            // Unfuse and cache as separate Q/K/V with names the forward path expects
+            // NOTE: P1 quality issue exists (SATD-WARNING in generate_cuda_with_cache)
+            // The APR import has corrupt tensor layouts - this caching doesn't fix that
+            let fused_qkv_patterns = vec![format!(
+                "model.layers.{layer_idx}.self_attn.qkv_proj.weight"
+            )];
+            let fused_patterns_ref: Vec<&str> =
+                fused_qkv_patterns.iter().map(String::as_str).collect();
+            if let Ok(src_name) = self.model.find_tensor_name(&fused_patterns_ref) {
+                // Load and unfuse QKV for F32 models
+                if let Ok(qkv_weight) = self.model.get_tensor_f32(&src_name) {
+                    // Unfuse: Q is first hidden_dim rows, K is next kv_dim, V is last kv_dim
+                    let q_size = hidden_dim * hidden_dim;
+                    let k_size = kv_dim * hidden_dim;
+                    let v_size = kv_dim * hidden_dim;
+
+                    if qkv_weight.len() >= q_size + k_size + v_size {
+                        // Cache unfused Q/K/V with forward path naming convention
+                        let q_weight: Vec<f32> = qkv_weight[0..q_size].to_vec();
+                        let k_weight: Vec<f32> = qkv_weight[q_size..q_size + k_size].to_vec();
+                        let v_weight: Vec<f32> =
+                            qkv_weight[q_size + k_size..q_size + k_size + v_size].to_vec();
+
+                        // PMAT-114: Trace K weight for layer 0 to debug 100x difference
+                        if layer_idx == 0 && std::env::var("APR_TRACE_LAYERS").is_ok() {
+                            let k_sum: f32 = k_weight.iter().sum();
+                            let k_mean = k_sum / k_weight.len() as f32;
+                            let k_min = k_weight.iter().cloned().fold(f32::INFINITY, f32::min);
+                            let k_max = k_weight.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                            eprintln!("[PMAT-114] L0 K weight (pre-transpose): mean={:.6}, min={:.6}, max={:.6}, len={}",
+                                k_mean, k_min, k_max, k_weight.len());
+                            eprintln!(
+                                "[PMAT-114] L0 K weight first10={:?}",
+                                &k_weight[..10.min(k_weight.len())]
+                            );
+                        }
+
+                        // Transpose for GPU GEMM (row-major to column-major)
+                        let q_weight_t = transpose_matrix(&q_weight, hidden_dim, hidden_dim);
+                        let k_weight_t = transpose_matrix(&k_weight, kv_dim, hidden_dim);
+                        let v_weight_t = transpose_matrix(&v_weight, kv_dim, hidden_dim);
+
+                        // PMAT-114: Trace K weight after transpose
+                        if layer_idx == 0 && std::env::var("APR_TRACE_LAYERS").is_ok() {
+                            let k_sum: f32 = k_weight_t.iter().sum();
+                            let k_mean = k_sum / k_weight_t.len() as f32;
+                            eprintln!(
+                                "[PMAT-114] L0 K weight (post-transpose): mean={:.6}, len={}",
+                                k_mean,
+                                k_weight_t.len()
+                            );
+                            eprintln!(
+                                "[PMAT-114] L0 K weight_t first10={:?}",
+                                &k_weight_t[..10.min(k_weight_t.len())]
+                            );
+                        }
+
+                        // Cache with GGUF-style naming to match forward path (PMAT-805)
+                        let q_cache_name = format!("blk.{layer_idx}.attn_q.weight");
+                        let k_cache_name = format!("blk.{layer_idx}.attn_k.weight");
+                        let v_cache_name = format!("blk.{layer_idx}.attn_v.weight");
+
+                        if let Ok(bytes) = self.executor.load_weights(&q_cache_name, &q_weight_t) {
+                            total_bytes += bytes;
+                            f32_weight_count += 1;
+                        }
+                        if let Ok(bytes) = self.executor.load_weights(&k_cache_name, &k_weight_t) {
+                            total_bytes += bytes;
+                            f32_weight_count += 1;
+                        }
+                        if let Ok(bytes) = self.executor.load_weights(&v_cache_name, &v_weight_t) {
+                            total_bytes += bytes;
+                            f32_weight_count += 1;
+                        }
+                    }
+                }
+            }
+
+            // PMAT-114: Cache fused QKV bias if present (Qwen2 has attention bias)
+            let fused_qkv_bias_patterns =
+                vec![format!("model.layers.{layer_idx}.self_attn.qkv_proj.bias")];
+            let fused_bias_patterns_ref: Vec<&str> =
+                fused_qkv_bias_patterns.iter().map(String::as_str).collect();
+            if let Ok(src_name) = self.model.find_tensor_name(&fused_bias_patterns_ref) {
+                if let Ok(qkv_bias) = self.model.get_tensor_f32(&src_name) {
+                    // Unfuse: Q_bias is first hidden_dim, K_bias is next kv_dim, V_bias is last kv_dim
+                    let q_bias_size = hidden_dim;
+                    let k_bias_size = kv_dim;
+                    let v_bias_size = kv_dim;
+
+                    if qkv_bias.len() >= q_bias_size + k_bias_size + v_bias_size {
+                        let q_bias: Vec<f32> = qkv_bias[0..q_bias_size].to_vec();
+                        let k_bias: Vec<f32> =
+                            qkv_bias[q_bias_size..q_bias_size + k_bias_size].to_vec();
+                        let v_bias: Vec<f32> = qkv_bias
+                            [q_bias_size + k_bias_size..q_bias_size + k_bias_size + v_bias_size]
+                            .to_vec();
+
+                        // PMAT-114: Trace K bias for layer 0 to verify import
+                        if layer_idx == 0 && std::env::var("APR_TRACE_LAYERS").is_ok() {
+                            let k_bias_sum: f32 = k_bias.iter().sum();
+                            let k_bias_mean = k_bias_sum / k_bias.len() as f32;
+                            eprintln!(
+                                "[PMAT-114] L0 K bias loaded: mean={:.6}, len={}",
+                                k_bias_mean,
+                                k_bias.len()
+                            );
+                        }
+
+                        // Cache with forward path naming: layer_{}_q_bias, etc.
+                        let q_bias_cache_name = format!("layer_{layer_idx}_q_bias");
+                        let k_bias_cache_name = format!("layer_{layer_idx}_k_bias");
+                        let v_bias_cache_name = format!("layer_{layer_idx}_v_bias");
+
+                        if let Ok(bytes) = self.executor.load_weights(&q_bias_cache_name, &q_bias) {
+                            total_bytes += bytes;
+                        }
+                        if let Ok(bytes) = self.executor.load_weights(&k_bias_cache_name, &k_bias) {
+                            total_bytes += bytes;
+                        }
+                        if let Ok(bytes) = self.executor.load_weights(&v_bias_cache_name, &v_bias) {
+                            total_bytes += bytes;
+                        }
+                    }
+                }
+            }
+
+            // PMAT-113: Cache O projection with forward path naming
+            let o_patterns = vec![
+                format!("model.layers.{layer_idx}.self_attn.o_proj.weight"),
+                format!("layers.{layer_idx}.self_attn.o_proj.weight"),
+                format!("blk.{layer_idx}.attn_output.weight"),
+            ];
+            let o_patterns_ref: Vec<&str> = o_patterns.iter().map(String::as_str).collect();
+            if let Ok(src_name) = self.model.find_tensor_name(&o_patterns_ref) {
+                if let Ok(o_weight) = self.model.get_tensor_f32(&src_name) {
+                    let o_weight_t = transpose_matrix(&o_weight, hidden_dim, hidden_dim);
+                    let o_cache_name = format!("layer_{layer_idx}_o_proj");
+                    if let Ok(bytes) = self.executor.load_weights(&o_cache_name, &o_weight_t) {
+                        total_bytes += bytes;
+                        f32_weight_count += 1;
+                    }
+                }
+            }
+
+            // PMAT-113: Cache FFN weights with forward path naming
+            let ffn_patterns = [
+                (
+                    vec![
+                        format!("model.layers.{layer_idx}.mlp.gate_proj.weight"),
+                        format!("layers.{layer_idx}.mlp.gate_proj.weight"),
+                        format!("blk.{layer_idx}.ffn_gate.weight"),
+                    ],
+                    format!("layer_{layer_idx}_gate_proj"),
+                    intermediate_dim,
+                    hidden_dim,
+                ),
+                (
+                    vec![
+                        format!("model.layers.{layer_idx}.mlp.up_proj.weight"),
+                        format!("layers.{layer_idx}.mlp.up_proj.weight"),
+                        format!("blk.{layer_idx}.ffn_up.weight"),
+                    ],
+                    format!("layer_{layer_idx}_up_proj"),
+                    intermediate_dim,
+                    hidden_dim,
+                ),
+                (
+                    vec![
+                        format!("model.layers.{layer_idx}.mlp.down_proj.weight"),
+                        format!("layers.{layer_idx}.mlp.down_proj.weight"),
+                        format!("blk.{layer_idx}.ffn_down.weight"),
+                    ],
+                    format!("layer_{layer_idx}_down_proj"),
+                    hidden_dim,
+                    intermediate_dim,
+                ),
+            ];
+
+            for (patterns, cache_name, out_dim, in_dim) in ffn_patterns {
+                let patterns_ref: Vec<&str> = patterns.iter().map(String::as_str).collect();
+                if let Ok(src_name) = self.model.find_tensor_name(&patterns_ref) {
+                    if let Ok(weight) = self.model.get_tensor_f32(&src_name) {
+                        let weight_t = transpose_matrix(&weight, out_dim, in_dim);
+                        if let Ok(bytes) = self.executor.load_weights(&cache_name, &weight_t) {
+                            total_bytes += bytes;
+                            f32_weight_count += 1;
+                        }
                     }
                 }
             }
@@ -523,11 +762,13 @@ impl AprV2ModelCuda {
             }
         }
 
+        // PMAT-113: Log both quantized and F32 weight counts
         eprintln!(
-            "[AprV2ModelCuda] Pre-cached {} MB of weights on GPU ({} layers, {} quantized tensors)",
+            "[AprV2ModelCuda] Pre-cached {} MB of weights on GPU ({} layers, {} quantized, {} F32 tensors)",
             total_bytes / (1024 * 1024),
             num_layers,
-            quantized_count
+            quantized_count,
+            f32_weight_count
         );
 
         Ok(())
@@ -652,7 +893,7 @@ impl AprV2ModelCuda {
                 let (top_idx, _) = output
                     .iter()
                     .enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("APR operation failed"))
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                     .ok_or_else(|| RealizarError::InvalidShape {
                         reason: "Empty logits".to_string(),
                     })?;
@@ -678,7 +919,7 @@ impl AprV2ModelCuda {
         let (top_idx, _) = logits
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("APR operation failed"))
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .ok_or_else(|| RealizarError::InvalidShape {
                 reason: "Empty logits".to_string(),
             })?;
@@ -731,8 +972,14 @@ impl AprV2ModelCuda {
         // This path uses fused dequant+matmul kernels + graph replay for
         // 500x reduction in kernel launch overhead (5.6ms → 0.01ms per token)
         // Phase 45: Skip fast path when test_executor is present
+        // PMAT-110: Skip fast path if KV cache was populated via fallback path
+        //           (RoPE numerical differences cause inconsistency)
         // =========================================================================
-        if self.test_executor.is_none() && self.executor.has_indexed_weights() && seq_len == 1 {
+        if self.test_executor.is_none()
+            && self.executor.has_indexed_weights()
+            && seq_len == 1
+            && !self.fallback_kv_used
+        {
             // Single-token decode: use the optimized Q4K GEMV path with graphs
             let token_id = token_ids[0];
             let position = self.kv_position;
@@ -810,6 +1057,36 @@ impl AprV2ModelCuda {
             self.executor.profiler_mut().stop(t, seq_len as u64);
         }
 
+        // PMAT-114: Layer tracing for Five-Whys analysis
+        let trace_layers = std::env::var("APR_TRACE_LAYERS").is_ok();
+        if trace_layers {
+            // PMAT-114: Trace token IDs being processed
+            eprintln!(
+                "[PMAT-114] Input tokens ({} total): {:?}",
+                token_ids.len(),
+                &token_ids[..token_ids.len().min(20)]
+            );
+            if let Some(&last_token) = token_ids.last() {
+                eprintln!("[PMAT-114] Last token ID: {}", last_token);
+            }
+
+            let last_hidden = &hidden[hidden.len() - hidden_dim..];
+            let sum: f32 = last_hidden.iter().sum();
+            let mean = sum / hidden_dim as f32;
+            let min = last_hidden.iter().cloned().fold(f32::INFINITY, f32::min);
+            let max = last_hidden
+                .iter()
+                .cloned()
+                .fold(f32::NEG_INFINITY, f32::max);
+            eprintln!(
+                "[PMAT-114] After embed: mean={:.6}, min={:.6}, max={:.6}, first5={:?}",
+                mean,
+                min,
+                max,
+                &last_hidden[..5.min(hidden_dim)]
+            );
+        }
+
         // 2. Process through transformer layers
         for layer_idx in 0..num_layers {
             // Get weight tensors (HuggingFace, SafeTensors, GPT-2, LLaMA, GGUF)
@@ -820,27 +1097,42 @@ impl AprV2ModelCuda {
                 &format!("layers.{layer_idx}.attention_norm.weight"),
                 &format!("blk.{layer_idx}.attn_norm.weight"), // GGUF
             ])?;
-            let q_name = self.model.find_tensor_name(&[
-                &format!("model.layers.{layer_idx}.self_attn.q_proj.weight"),
-                &format!("layers.{layer_idx}.self_attn.q_proj.weight"),
-                &format!("transformer.h.{layer_idx}.attn.q_proj.weight"),
-                &format!("layers.{layer_idx}.attention.wq.weight"),
-                &format!("blk.{layer_idx}.attn_q.weight"), // GGUF
-            ])?;
-            let k_name = self.model.find_tensor_name(&[
-                &format!("model.layers.{layer_idx}.self_attn.k_proj.weight"),
-                &format!("layers.{layer_idx}.self_attn.k_proj.weight"),
-                &format!("transformer.h.{layer_idx}.attn.k_proj.weight"),
-                &format!("layers.{layer_idx}.attention.wk.weight"),
-                &format!("blk.{layer_idx}.attn_k.weight"), // GGUF
-            ])?;
-            let v_name = self.model.find_tensor_name(&[
-                &format!("model.layers.{layer_idx}.self_attn.v_proj.weight"),
-                &format!("layers.{layer_idx}.self_attn.v_proj.weight"),
-                &format!("transformer.h.{layer_idx}.attn.v_proj.weight"),
-                &format!("layers.{layer_idx}.attention.wv.weight"),
-                &format!("blk.{layer_idx}.attn_v.weight"), // GGUF
-            ])?;
+
+            // PMAT-APR-CUDA-002: Check for fused QKV first (from APR import)
+            // APR import fuses Q/K/V into qkv_proj.weight for AprTransformer compatibility
+            let fused_qkv_name = self.model.find_tensor_name(&[&format!(
+                "model.layers.{layer_idx}.self_attn.qkv_proj.weight"
+            )]);
+            let has_fused_qkv = fused_qkv_name.is_ok();
+
+            // Only look for separate Q/K/V if fused is not available
+            let (q_name, k_name, v_name) = if !has_fused_qkv {
+                let q = self.model.find_tensor_name(&[
+                    &format!("model.layers.{layer_idx}.self_attn.q_proj.weight"),
+                    &format!("layers.{layer_idx}.self_attn.q_proj.weight"),
+                    &format!("transformer.h.{layer_idx}.attn.q_proj.weight"),
+                    &format!("layers.{layer_idx}.attention.wq.weight"),
+                    &format!("blk.{layer_idx}.attn_q.weight"), // GGUF
+                ])?;
+                let k = self.model.find_tensor_name(&[
+                    &format!("model.layers.{layer_idx}.self_attn.k_proj.weight"),
+                    &format!("layers.{layer_idx}.self_attn.k_proj.weight"),
+                    &format!("transformer.h.{layer_idx}.attn.k_proj.weight"),
+                    &format!("layers.{layer_idx}.attention.wk.weight"),
+                    &format!("blk.{layer_idx}.attn_k.weight"), // GGUF
+                ])?;
+                let v = self.model.find_tensor_name(&[
+                    &format!("model.layers.{layer_idx}.self_attn.v_proj.weight"),
+                    &format!("layers.{layer_idx}.self_attn.v_proj.weight"),
+                    &format!("transformer.h.{layer_idx}.attn.v_proj.weight"),
+                    &format!("layers.{layer_idx}.attention.wv.weight"),
+                    &format!("blk.{layer_idx}.attn_v.weight"), // GGUF
+                ])?;
+                (Some(q), Some(k), Some(v))
+            } else {
+                (None, None, None)
+            };
+
             let o_name = self.model.find_tensor_name(&[
                 &format!("model.layers.{layer_idx}.self_attn.o_proj.weight"),
                 &format!("layers.{layer_idx}.self_attn.o_proj.weight"),
@@ -863,12 +1155,25 @@ impl AprV2ModelCuda {
                 self.executor.profiler_mut().stop(t, seq_len as u64);
             }
 
+            // PMAT-114: Detailed layer 0 tracing
+            if trace_layers && layer_idx == 0 {
+                let last = &normed[normed.len() - hidden_dim..];
+                let sum: f32 = last.iter().sum();
+                let mean = sum / hidden_dim as f32;
+                eprintln!(
+                    "[PMAT-114] L0 after RMSNorm: mean={:.6}, first5={:?}",
+                    mean,
+                    &last[..5]
+                );
+            }
+
             // Q, K, V projections (GPU GEMM for 2x speedup)
             // Use cached weights if available (avoids repeated transpose + upload)
-            let q_cache_name = format!("layer_{}_q_proj", layer_idx);
-            let k_cache_name = format!("layer_{}_k_proj", layer_idx);
-            let v_cache_name = format!("layer_{}_v_proj", layer_idx);
-            let o_cache_name = format!("layer_{}_o_proj", layer_idx);
+            // PMAT-805 FIX: Use GGUF-style cache names to match pre_cache_weights()
+            let q_cache_name = format!("blk.{}.attn_q.weight", layer_idx);
+            let k_cache_name = format!("blk.{}.attn_k.weight", layer_idx);
+            let v_cache_name = format!("blk.{}.attn_v.weight", layer_idx);
+            let o_cache_name = format!("blk.{}.attn_output.weight", layer_idx);
 
             let timer_qkv = if profiling {
                 let _ = self.executor.synchronize();
@@ -885,11 +1190,53 @@ impl AprV2ModelCuda {
                 let v =
                     self.gemm_cached_gpu(&v_cache_name, &normed, seq_len, hidden_dim, kv_dim)?;
                 (q, k, v)
+            } else if has_fused_qkv {
+                // PMAT-APR-CUDA-002: Handle fused QKV from APR import
+                // qkv_proj.weight is [qkv_dim, hidden_dim] where qkv_dim = hidden_dim + 2*kv_dim
+                let fused_name = fused_qkv_name.expect("checked above");
+                let qkv_weight = self.model.get_tensor_f32(&fused_name)?;
+
+                // Unfuse into Q, K, V: Q is first hidden_dim rows, K is next kv_dim, V is last kv_dim
+                let q_size = hidden_dim * hidden_dim;
+                let k_size = kv_dim * hidden_dim;
+                let v_size = kv_dim * hidden_dim;
+
+                if qkv_weight.len() < q_size + k_size + v_size {
+                    return Err(RealizarError::InvalidShape {
+                        reason: format!(
+                            "Fused QKV weight too small: {} < {} (expected Q={}, K={}, V={})",
+                            qkv_weight.len(),
+                            q_size + k_size + v_size,
+                            q_size,
+                            k_size,
+                            v_size
+                        ),
+                    });
+                }
+
+                let q_weight: Vec<f32> = qkv_weight[0..q_size].to_vec();
+                let k_weight: Vec<f32> = qkv_weight[q_size..q_size + k_size].to_vec();
+                let v_weight: Vec<f32> =
+                    qkv_weight[q_size + k_size..q_size + k_size + v_size].to_vec();
+
+                let q_weight_t = transpose_matrix(&q_weight, hidden_dim, hidden_dim);
+                let k_weight_t = transpose_matrix(&k_weight, kv_dim, hidden_dim);
+                let v_weight_t = transpose_matrix(&v_weight, kv_dim, hidden_dim);
+                let q = self.gemm_gpu(&normed, &q_weight_t, seq_len, hidden_dim, hidden_dim)?;
+                let k = self.gemm_gpu(&normed, &k_weight_t, seq_len, hidden_dim, kv_dim)?;
+                let v = self.gemm_gpu(&normed, &v_weight_t, seq_len, hidden_dim, kv_dim)?;
+                (q, k, v)
             } else {
-                // Fallback: load, transpose, and upload weights each time
-                let q_weight = self.model.get_tensor_f32(&q_name)?;
-                let k_weight = self.model.get_tensor_f32(&k_name)?;
-                let v_weight = self.model.get_tensor_f32(&v_name)?;
+                // Fallback: load separate Q/K/V, transpose, and upload weights each time
+                let q_weight = self
+                    .model
+                    .get_tensor_f32(q_name.as_ref().expect("checked above"))?;
+                let k_weight = self
+                    .model
+                    .get_tensor_f32(k_name.as_ref().expect("checked above"))?;
+                let v_weight = self
+                    .model
+                    .get_tensor_f32(v_name.as_ref().expect("checked above"))?;
                 let q_weight_t = transpose_matrix(&q_weight, hidden_dim, hidden_dim);
                 let k_weight_t = transpose_matrix(&k_weight, kv_dim, hidden_dim);
                 let v_weight_t = transpose_matrix(&v_weight, kv_dim, hidden_dim);
@@ -898,18 +1245,223 @@ impl AprV2ModelCuda {
                 let v = self.gemm_gpu(&normed, &v_weight_t, seq_len, hidden_dim, kv_dim)?;
                 (q, k, v)
             };
+
+            // PMAT-114: Apply QKV bias if present (Qwen2 has attention bias)
+            // Handle both fused (qkv_proj.bias) and separate (q_proj.bias, k_proj.bias, v_proj.bias) formats
+            let fused_bias_name = format!("model.layers.{layer_idx}.self_attn.qkv_proj.bias");
+            let (mut q, mut k, mut v) = (q, k, v);
+            let mut bias_applied = false;
+
+            // Try fused bias first (HuggingFace import with fused QKV)
+            if let Ok(qkv_bias) = self.model.get_tensor_f32(&fused_bias_name) {
+                // Unfuse: Q_bias is first hidden_dim, K_bias is next kv_dim, V_bias is last kv_dim
+                let q_bias_size = hidden_dim;
+                let k_bias_size = kv_dim;
+                let v_bias_size = kv_dim;
+
+                if qkv_bias.len() >= q_bias_size + k_bias_size + v_bias_size {
+                    let q_bias = &qkv_bias[0..q_bias_size];
+                    let k_bias = &qkv_bias[q_bias_size..q_bias_size + k_bias_size];
+                    let v_bias = &qkv_bias
+                        [q_bias_size + k_bias_size..q_bias_size + k_bias_size + v_bias_size];
+
+                    // Add bias to each position in Q, K, V
+                    for pos in 0..seq_len {
+                        let q_start = pos * hidden_dim;
+                        let k_start = pos * kv_dim;
+                        let v_start = pos * kv_dim;
+
+                        for (i, bias_val) in q_bias.iter().enumerate() {
+                            q[q_start + i] += bias_val;
+                        }
+                        for (i, bias_val) in k_bias.iter().enumerate() {
+                            k[k_start + i] += bias_val;
+                        }
+                        for (i, bias_val) in v_bias.iter().enumerate() {
+                            v[v_start + i] += bias_val;
+                        }
+                    }
+
+                    bias_applied = true;
+                    // PMAT-114: Trace bias application for layer 0
+                    if trace_layers && layer_idx == 0 {
+                        let k_bias_mean: f32 = k_bias.iter().sum::<f32>() / k_bias.len() as f32;
+                        eprintln!(
+                            "[PMAT-114-APR] L0 has_qkv_bias=true (fused), K bias mean={:.6}",
+                            k_bias_mean
+                        );
+                    }
+                }
+            }
+
+            // PMAT-113 FIX: Try separate Q/K/V biases (APR converted from GGUF)
+            // GGUF models have separate q_proj.bias, k_proj.bias, v_proj.bias
+            if !bias_applied {
+                let q_bias_name = format!("model.layers.{layer_idx}.self_attn.q_proj.bias");
+                let k_bias_name = format!("model.layers.{layer_idx}.self_attn.k_proj.bias");
+                let v_bias_name = format!("model.layers.{layer_idx}.self_attn.v_proj.bias");
+
+                // Try to load separate biases
+                let q_bias = self.model.get_tensor_f32(&q_bias_name).ok();
+                let k_bias = self.model.get_tensor_f32(&k_bias_name).ok();
+                let v_bias = self.model.get_tensor_f32(&v_bias_name).ok();
+
+                // Apply Q bias
+                if let Some(ref bias) = q_bias {
+                    if bias.len() == hidden_dim {
+                        for pos in 0..seq_len {
+                            let start = pos * hidden_dim;
+                            for (i, bias_val) in bias.iter().enumerate() {
+                                q[start + i] += bias_val;
+                            }
+                        }
+                    }
+                }
+
+                // Apply K bias
+                if let Some(ref bias) = k_bias {
+                    if bias.len() == kv_dim {
+                        for pos in 0..seq_len {
+                            let start = pos * kv_dim;
+                            for (i, bias_val) in bias.iter().enumerate() {
+                                k[start + i] += bias_val;
+                            }
+                        }
+                        bias_applied = true;
+                    }
+                }
+
+                // Apply V bias
+                if let Some(ref bias) = v_bias {
+                    if bias.len() == kv_dim {
+                        for pos in 0..seq_len {
+                            let start = pos * kv_dim;
+                            for (i, bias_val) in bias.iter().enumerate() {
+                                v[start + i] += bias_val;
+                            }
+                        }
+                    }
+                }
+
+                // PMAT-114: Trace separate bias application for layer 0
+                if trace_layers && layer_idx == 0 && bias_applied {
+                    if let Some(ref kb) = k_bias {
+                        let k_bias_mean: f32 = kb.iter().sum::<f32>() / kb.len() as f32;
+                        eprintln!(
+                            "[PMAT-114-APR] L0 has_qkv_bias=true (separate), K bias mean={:.6}",
+                            k_bias_mean
+                        );
+                    }
+                }
+            }
+
             if let Some(t) = timer_qkv {
                 let _ = self.executor.synchronize();
                 self.executor.profiler_mut().stop(t, seq_len as u64);
             }
 
-            // Attention (CPU for now - complex control flow)
+            // PMAT-114: Trace QKV for layer 0
+            if trace_layers && layer_idx == 0 {
+                let q_last = &q[q.len() - hidden_dim..];
+                let k_last = &k[k.len() - kv_dim..];
+                let v_last = &v[v.len() - kv_dim..];
+                let q_mean: f32 = q_last.iter().sum::<f32>() / hidden_dim as f32;
+                let k_mean: f32 = k_last.iter().sum::<f32>() / kv_dim as f32;
+                let v_mean: f32 = v_last.iter().sum::<f32>() / kv_dim as f32;
+                eprintln!(
+                    "[PMAT-114] L0 after QKV: Q mean={:.6}, K mean={:.6}, V mean={:.6}",
+                    q_mean, k_mean, v_mean
+                );
+                eprintln!("[PMAT-114] L0 Q first5={:?}", &q_last[..5]);
+                eprintln!(
+                    "[PMAT-114] L0 shapes: q={}, k={}, v={}, hidden_dim={}, kv_dim={}",
+                    q.len(),
+                    k.len(),
+                    v.len(),
+                    hidden_dim,
+                    kv_dim
+                );
+                eprintln!(
+                    "[PMAT-114] L0 has_fused_qkv={}, has_cached_q={}",
+                    has_fused_qkv,
+                    self.has_cached_weight(&q_cache_name)
+                );
+            }
+
+            // PMAT-110: Attention with KV cache for proper generation
+            // Process each token position and use incremental_attention_gpu to:
+            // 1. Apply RoPE to Q and K
+            // 2. Append K/V to GPU cache
+            // 3. Compute attention against all cached K/V
             let timer_attn = if profiling {
                 Some(self.executor.profiler_mut().start("apr.Attention"))
             } else {
                 None
             };
-            let attn_out = simple_attention(&q, &k, &v, seq_len, num_heads, num_kv_heads, head_dim);
+
+            let rope_theta = self.model.metadata.rope_theta.unwrap_or(10000.0);
+            let rope_type = self.model.metadata.rope_type.unwrap_or(0);
+            let mut attn_out = vec![0.0f32; seq_len * hidden_dim];
+
+            for pos in 0..seq_len {
+                // Extract Q, K, V for this position
+                let q_pos_start = pos * hidden_dim;
+                let k_pos_start = pos * kv_dim;
+                let v_pos_start = pos * kv_dim;
+
+                let mut q_pos = q[q_pos_start..q_pos_start + hidden_dim].to_vec();
+                let mut k_pos = k[k_pos_start..k_pos_start + kv_dim].to_vec();
+                let v_pos = v[v_pos_start..v_pos_start + kv_dim].to_vec();
+
+                // Apply RoPE to Q and K (position = kv_position + pos)
+                // CORRECTNESS-011: Use correct RoPE style based on rope_type
+                let abs_position = self.kv_position as usize + pos;
+                if rope_type == 2 {
+                    // NEOX style: split halves (i, i + half_dim) - used by Qwen2.5, etc.
+                    crate::inference::apply_rope(
+                        &mut q_pos,
+                        hidden_dim,
+                        num_heads,
+                        abs_position,
+                        rope_theta,
+                    );
+                    crate::inference::apply_rope(
+                        &mut k_pos,
+                        kv_dim,
+                        num_kv_heads,
+                        abs_position,
+                        rope_theta,
+                    );
+                } else {
+                    // NORM style: adjacent pairs (2*i, 2*i+1) - standard RoPE
+                    apply_rope_norm(&mut q_pos, num_heads, head_dim, abs_position, rope_theta);
+                    apply_rope_norm(&mut k_pos, num_kv_heads, head_dim, abs_position, rope_theta);
+                }
+
+                // Use incremental_attention_gpu to append K/V to cache and compute attention
+                let mut out_pos = vec![0.0f32; hidden_dim];
+                if let Err(e) = self.executor.incremental_attention_gpu(
+                    layer_idx,
+                    &q_pos,
+                    &k_pos,
+                    &v_pos,
+                    &mut out_pos,
+                ) {
+                    // Fallback to simple_attention if GPU KV cache fails
+                    // This shouldn't happen if init_kv_cache_gpu succeeded
+                    eprintln!(
+                        "PMAT-110 WARNING: incremental_attention_gpu failed: {e}, using fallback"
+                    );
+                    let simple_out =
+                        simple_attention(&q, &k, &v, seq_len, num_heads, num_kv_heads, head_dim);
+                    attn_out = simple_out;
+                    break;
+                }
+
+                // Copy output to attn_out
+                attn_out[q_pos_start..q_pos_start + hidden_dim].copy_from_slice(&out_pos);
+            }
+
             if let Some(t) = timer_attn {
                 self.executor.profiler_mut().stop(t, seq_len as u64);
             }
@@ -989,9 +1541,10 @@ impl AprV2ModelCuda {
             }
 
             // FFN projections (GPU GEMM) - use cached weights if available
-            let gate_cache_name = format!("layer_{}_gate_proj", layer_idx);
-            let up_cache_name = format!("layer_{}_up_proj", layer_idx);
-            let down_cache_name = format!("layer_{}_down_proj", layer_idx);
+            // PMAT-805 FIX: Use GGUF-style cache names to match pre_cache_weights()
+            let gate_cache_name = format!("blk.{}.ffn_gate.weight", layer_idx);
+            let up_cache_name = format!("blk.{}.ffn_up.weight", layer_idx);
+            let down_cache_name = format!("blk.{}.ffn_down.weight", layer_idx);
 
             let timer_ffn = if profiling {
                 let _ = self.executor.synchronize();
@@ -1066,7 +1619,34 @@ impl AprV2ModelCuda {
             if let Some(t) = timer_res2 {
                 self.executor.profiler_mut().stop(t, seq_len as u64);
             }
+
+            // PMAT-114: Layer tracing for Five-Whys analysis
+            if trace_layers && (layer_idx < 2 || layer_idx == num_layers - 1) {
+                let last_hidden = &hidden[hidden.len() - hidden_dim..];
+                let sum: f32 = last_hidden.iter().sum();
+                let mean = sum / hidden_dim as f32;
+                let min = last_hidden.iter().cloned().fold(f32::INFINITY, f32::min);
+                let max = last_hidden
+                    .iter()
+                    .cloned()
+                    .fold(f32::NEG_INFINITY, f32::max);
+                eprintln!(
+                    "[PMAT-114] After layer {}: mean={:.6}, min={:.6}, max={:.6}, first5={:?}",
+                    layer_idx,
+                    mean,
+                    min,
+                    max,
+                    &last_hidden[..5.min(hidden_dim)]
+                );
+            }
         }
+
+        // PMAT-110: Update KV cache position after processing all tokens
+        // This ensures subsequent forward_single_cuda calls have correct context
+        self.kv_position += seq_len as u32;
+        // PMAT-110: Mark that FALLBACK PATH was used for KV cache
+        // Subsequent decode calls must also use FALLBACK PATH for consistency
+        self.fallback_kv_used = true;
 
         // 3. Final layer norm (CPU)
         let timer_finalnorm = if profiling {
@@ -1101,16 +1681,32 @@ impl AprV2ModelCuda {
             // Fast path: use pre-cached transposed LM head
             self.gemm_cached_gpu("lm_head", last_hidden, 1, hidden_dim, vocab_size)?
         } else {
-            // Fallback: load, transpose, and upload
+            // Fallback: load, transpose (if needed), and upload
+            // BUG-APR-001: Add token_embd.weight for GGUF weight tying
             let lm_head_name = self.model.find_tensor_name(&[
                 "lm_head.weight",
                 "output.weight", // GGUF uses this
                 "model.embed_tokens.weight",
                 "embed_tokens.weight",
+                "token_embd.weight", // GGUF tied embeddings
             ])?;
             let lm_head = self.model.get_tensor_f32(&lm_head_name)?;
-            let lm_head_t = transpose_matrix(&lm_head, vocab_size, hidden_dim);
-            self.gemm_gpu(last_hidden, &lm_head_t, 1, hidden_dim, vocab_size)?
+
+            // BUG-APR-001-FIX: Detect weight tying and handle transposed layout
+            // GGUF token_embd.weight is stored as [hidden_dim, vocab_size] - already correct for GEMM
+            // Regular lm_head.weight is stored as [vocab_size, hidden_dim] - needs transpose
+            let is_tied_embedding = lm_head_name == "token_embd.weight"
+                || lm_head_name.ends_with("embed_tokens.weight");
+
+            let lm_head_for_gemm = if is_tied_embedding && lm_head.len() == hidden_dim * vocab_size
+            {
+                // Tied embedding: already [hidden_dim, vocab_size], use as-is
+                lm_head.clone()
+            } else {
+                // Regular lm_head: [vocab_size, hidden_dim], need transpose to [hidden_dim, vocab_size]
+                transpose_matrix(&lm_head, vocab_size, hidden_dim)
+            };
+            self.gemm_gpu(last_hidden, &lm_head_for_gemm, 1, hidden_dim, vocab_size)?
         };
         if let Some(t) = timer_lmhead {
             let _ = self.executor.synchronize();
@@ -1265,16 +1861,65 @@ impl AprV2ModelCuda {
         max_new_tokens: usize,
         eos_id: u32,
     ) -> Result<Vec<u32>> {
-        // Prefill: process entire prompt
+        // PMAT-113-F: Diagnostic tracing for "helf" output bug
+        let trace_enabled = std::env::var("APR_TRACE_LOGITS").is_ok();
+
+        // PMAT-114: Fixed prefill - KEEP logits from last token (like GGUF)
+        // The logits from processing token[n-1] at position n-1 predict token[n]
+        // This matches the GGUF pattern in generate_with_cache (lines 171-183)
         let mut tokens = prompt.to_vec();
-        let _ = self.forward_cuda(&tokens)?;
+        let mut logits = self.forward_cuda(&tokens)?;
 
         // Decode: generate one token at a time
-        for _i in 0..max_new_tokens {
-            let position = tokens.len();
-            let last_token = *tokens.last().unwrap_or(&1);
+        // First iteration uses logits from prefill (no extra forward needed)
+        for i in 0..max_new_tokens {
+            // For subsequent tokens, run forward pass on the newly generated token
+            if i > 0 {
+                let position = tokens.len();
+                let last_token = *tokens.last().unwrap_or(&1);
+                logits = self.forward_single_cuda(last_token, position)?;
+            }
 
-            let logits = self.forward_single_cuda(last_token, position)?;
+            // PMAT-113-F: Diagnostic tracing for Q1-Q3
+            if trace_enabled && i < 3 {
+                let nan_count = logits.iter().filter(|x| x.is_nan()).count();
+                let inf_count = logits.iter().filter(|x| x.is_infinite()).count();
+                let min = logits.iter().cloned().fold(f32::INFINITY, f32::min);
+                let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                let sum: f32 = logits.iter().sum();
+                let mean = sum / logits.len() as f32;
+                let variance: f32 =
+                    logits.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / logits.len() as f32;
+
+                eprintln!("[PMAT-113-F] Token {}: logits stats:", i);
+                eprintln!(
+                    "  NaN: {}, Inf: {}, len: {}",
+                    nan_count,
+                    inf_count,
+                    logits.len()
+                );
+                eprintln!(
+                    "  min: {:.4}, max: {:.4}, mean: {:.4}, var: {:.4}",
+                    min, max, mean, variance
+                );
+                eprintln!(
+                    "  kv_position: {}, kv_cache_len[0]: {:?}",
+                    self.kv_position,
+                    self.executor.kv_cache_len(0)
+                );
+
+                // Show top 5 token predictions
+                let mut indexed: Vec<_> = logits.iter().enumerate().collect();
+                indexed.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+                eprintln!(
+                    "  Top 5 tokens: {:?}",
+                    indexed
+                        .iter()
+                        .take(5)
+                        .map(|(i, v)| (*i, **v))
+                        .collect::<Vec<_>>()
+                );
+            }
 
             // Greedy sampling
             let next_token = logits
@@ -1282,6 +1927,14 @@ impl AprV2ModelCuda {
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .map_or(eos_id, |(idx, _)| idx as u32);
+
+            if trace_enabled && i < 3 {
+                eprintln!(
+                    "  Selected token: {} (logit: {:.4})",
+                    next_token,
+                    logits.get(next_token as usize).unwrap_or(&0.0)
+                );
+            }
 
             if next_token == eos_id {
                 break;

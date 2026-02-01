@@ -510,6 +510,7 @@ fn test_generate_config_clone() {
         top_p: 0.8,
         top_k: 20,
         repetition_penalty: 1.2,
+        trace: false,
     };
     let cloned = config.clone();
     assert_eq!(config.max_tokens, cloned.max_tokens);

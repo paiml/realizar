@@ -715,7 +715,7 @@ fn test_weight_type_enum() {
     let lm_head = WeightType::LmHead;
 
     // Clone test
-    let _cloned = qkv.clone();
+    let _cloned = qkv;
 
     // Debug test
     let _ = format!("{:?}", output);

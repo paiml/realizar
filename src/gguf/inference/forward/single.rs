@@ -65,7 +65,30 @@ impl OwnedQuantizedModel {
             let rms = (sq_sum / hidden.len() as f32).sqrt();
             eprintln!(
                 "[GQA-DEBUG-CPU-EMBED] Embedding before L0: first 5 = {:?}, sum={:.4}, rms={:.4}",
-                &hidden[..5.min(hidden.len())], embed_sum, rms
+                &hidden[..5.min(hidden.len())],
+                embed_sum,
+                rms
+            );
+        }
+
+        // PMAT-114: Embedding trace for Five-Whys comparison with APR
+        if std::env::var("APR_TRACE_LAYERS").is_ok() {
+            // PMAT-114: Trace token ID being processed
+            eprintln!(
+                "[PMAT-114-GGUF] Token ID: {}, position: {}",
+                token_id, position
+            );
+
+            let sum: f32 = hidden.iter().sum();
+            let mean = sum / hidden_dim as f32;
+            let min = hidden.iter().cloned().fold(f32::INFINITY, f32::min);
+            let max = hidden.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            eprintln!(
+                "[PMAT-114-GGUF] After embed: mean={:.6}, min={:.6}, max={:.6}, first5={:?}",
+                mean,
+                min,
+                max,
+                &hidden[..5.min(hidden.len())]
             );
         }
 
@@ -90,6 +113,17 @@ impl OwnedQuantizedModel {
                 );
                 self.qkv_matmul(&normed, &layer.qkv_weight)?
             };
+
+            // PMAT-114: Trace QKV BEFORE bias to isolate the issue
+            if std::env::var("APR_TRACE_LAYERS").is_ok() && layer_idx == 0 {
+                let num_kv_heads_trace = self.config.num_kv_heads;
+                let head_dim_trace = hidden_dim / self.config.num_heads;
+                let kv_dim_trace = num_kv_heads_trace * head_dim_trace;
+                let k = &qkv[hidden_dim..hidden_dim + kv_dim_trace];
+                let k_mean: f32 = k.iter().sum::<f32>() / kv_dim_trace as f32;
+                eprintln!("[PMAT-114-GGUF] L0 K BEFORE bias: mean={:.6}", k_mean);
+            }
+
             if let Some(ref bias) = layer.qkv_bias {
                 ops::add_bias(&mut qkv, bias);
             }
@@ -102,6 +136,33 @@ impl OwnedQuantizedModel {
             let num_kv_heads = self.config.num_kv_heads;
             let head_dim = hidden_dim / self.config.num_heads;
             let kv_dim = num_kv_heads * head_dim;
+
+            // PMAT-114: Trace QKV for layer 0 (before RoPE)
+            if std::env::var("APR_TRACE_LAYERS").is_ok() && layer_idx == 0 {
+                // Check if bias exists
+                eprintln!(
+                    "[PMAT-114-GGUF] L0 has_qkv_bias={}",
+                    layer.qkv_bias.is_some()
+                );
+                if let Some(ref bias) = layer.qkv_bias {
+                    let k_bias = &bias[hidden_dim..hidden_dim + kv_dim];
+                    let k_bias_mean: f32 = k_bias.iter().sum::<f32>() / kv_dim as f32;
+                    eprintln!(
+                        "[PMAT-114-GGUF] L0 K bias mean={:.6}, first5={:?}",
+                        k_bias_mean,
+                        &k_bias[..5.min(kv_dim)]
+                    );
+                }
+
+                let q = &qkv[0..hidden_dim];
+                let k = &qkv[hidden_dim..hidden_dim + kv_dim];
+                let v = &qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim];
+                let q_mean: f32 = q.iter().sum::<f32>() / hidden_dim as f32;
+                let k_mean: f32 = k.iter().sum::<f32>() / kv_dim as f32;
+                let v_mean: f32 = v.iter().sum::<f32>() / kv_dim as f32;
+                eprintln!("[PMAT-114-GGUF] L0 after QKV (pre-RoPE): Q mean={:.6}, K mean={:.6}, V mean={:.6}", q_mean, k_mean, v_mean);
+                eprintln!("[PMAT-114-GGUF] L0 Q first5={:?}", &q[..5]);
+            }
 
             // Apply RoPE in-place to Q and K within QKV buffer
             self.apply_rope(&mut qkv[0..hidden_dim], position, self.config.num_heads);
@@ -282,7 +343,27 @@ impl OwnedQuantizedModel {
                 let rms = (sq_sum / hidden.len() as f32).sqrt();
                 eprintln!(
                     "[GQA-DEBUG-CPU-L0] After layer 0: first 5 = {:?}, sum={:.4}, rms={:.4}",
-                    &hidden[..5.min(hidden.len())], hidden_sum, rms
+                    &hidden[..5.min(hidden.len())],
+                    hidden_sum,
+                    rms
+                );
+            }
+
+            // PMAT-114: Layer tracing for Five-Whys comparison with APR
+            if std::env::var("APR_TRACE_LAYERS").is_ok()
+                && (layer_idx < 2 || layer_idx == self.layers.len() - 1)
+            {
+                let sum: f32 = hidden.iter().sum();
+                let mean = sum / hidden_dim as f32;
+                let min = hidden.iter().cloned().fold(f32::INFINITY, f32::min);
+                let max = hidden.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                eprintln!(
+                    "[PMAT-114-GGUF] After layer {}: mean={:.6}, min={:.6}, max={:.6}, first5={:?}",
+                    layer_idx,
+                    mean,
+                    min,
+                    max,
+                    &hidden[..5.min(hidden.len())]
                 );
             }
         }

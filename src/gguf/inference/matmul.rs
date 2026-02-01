@@ -542,6 +542,36 @@ impl OwnedQuantizedModel {
                 // For separate Q/K/V, normalize once and reuse
                 let normed = ops::rms_norm(input, norm_weight, eps);
 
+                // PMAT-114: Trace K weight to compare with APR
+                static ONCE: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if std::env::var("APR_TRACE_WEIGHTS").is_ok()
+                    && !ONCE.swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    eprintln!(
+                        "[PMAT-114-GGUF] K weight: in_dim={}, out_dim={}, qtype={}, data_len={}",
+                        k.in_dim,
+                        k.out_dim,
+                        k.qtype,
+                        k.data.len()
+                    );
+                    // Dequantize first row completely to compare with APR
+                    // Q4K: 144 bytes per super-block of 256 values, so first row = in_dim/256 super-blocks
+                    let bytes_per_row = (k.in_dim.div_ceil(256)) * 144;
+                    use crate::quantize::dequantize_q4_k_parallel;
+                    if let Ok(dequant) = dequantize_q4_k_parallel(&k.data[0..bytes_per_row]) {
+                        let row_mean: f32 = dequant.iter().sum::<f32>() / dequant.len() as f32;
+                        let row_min = dequant.iter().cloned().fold(f32::INFINITY, f32::min);
+                        let row_max = dequant.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                        eprintln!("[PMAT-114-GGUF] K weight row 0 (dequant): mean={:.6}, min={:.6}, max={:.6}, len={}",
+                            row_mean, row_min, row_max, dequant.len());
+                        eprintln!(
+                            "[PMAT-114-GGUF] K weight row 0 first10={:?}",
+                            &dequant[..10.min(dequant.len())]
+                        );
+                    }
+                }
+
                 let q_out = self.fused_matmul(&normed, q)?;
                 let k_out = self.fused_matmul(&normed, k)?;
                 let v_out = self.fused_matmul(&normed, v)?;
@@ -626,8 +656,7 @@ impl OwnedQuantizedModel {
         scales: &[f32],
         quants: &[i8],
     ) -> Result<()> {
-        // Fall back to regular qkv_matmul_into for now
-        // TODO: Implement Q8K-accelerated path using pre-quantized activations
+        // Fall back to regular qkv_matmul_into (Q8K acceleration deferred)
         self.qkv_matmul_into(input, qkv, output)
     }
 

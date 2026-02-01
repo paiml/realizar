@@ -973,10 +973,10 @@ mod tests {
     #[test]
     fn test_model_info_empty_strings() {
         let info = ModelInfo {
-            id: "".to_string(),
-            name: "".to_string(),
-            description: "".to_string(),
-            format: "".to_string(),
+            id: String::new(),
+            name: String::new(),
+            description: String::new(),
+            format: String::new(),
             loaded: false,
         };
 

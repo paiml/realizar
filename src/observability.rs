@@ -2394,7 +2394,7 @@ mod tests {
 
     #[test]
     fn test_observer_default_trait() {
-        let observer: Observer = Default::default();
+        let observer = Observer::default();
         let id = observer.next_request_id();
         assert_eq!(id, 0);
     }
@@ -2596,7 +2596,7 @@ mod tests {
         }
 
         let mut ids: Vec<u64> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        ids.sort();
+        ids.sort_unstable();
 
         // All IDs should be unique (0-9)
         for (i, id) in ids.iter().enumerate() {

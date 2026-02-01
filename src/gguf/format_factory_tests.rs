@@ -23,7 +23,7 @@ use super::format_factory::{
 #[test]
 fn test_safetensors_builder_default() {
     // Test Default trait implementation
-    let builder: SafetensorsBuilder = Default::default();
+    let builder = SafetensorsBuilder::default();
     let data = builder.build();
 
     // Should produce valid empty SafeTensors
@@ -166,7 +166,7 @@ fn test_safetensors_mixed_dtypes() {
 #[test]
 fn test_apr_builder_default() {
     // Test Default trait implementation
-    let builder: AprBuilder = Default::default();
+    let builder = AprBuilder::default();
     let data = builder.build();
 
     // Should produce valid empty APR file
@@ -486,8 +486,7 @@ fn test_apr_64_byte_alignment() {
     assert!(data.len() >= 64);
 
     // Data offset should be 64-byte aligned
-    let data_offset =
-        u64::from_le_bytes(data[32..40].try_into().unwrap_or([0; 8]).try_into().unwrap());
+    let data_offset = u64::from_le_bytes(data[32..40].try_into().unwrap_or([0; 8]));
     assert_eq!(data_offset % 64, 0);
 }
 

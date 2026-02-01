@@ -731,7 +731,6 @@ mod inference_coverage {
 
     #[test]
     fn test_inference_functions_are_thread_safe() {
-        use std::sync::Arc;
         use std::thread;
 
         let handles: Vec<_> = (0..4)
@@ -767,8 +766,8 @@ mod inference_coverage {
         let temps = [0.0, 0.01, 0.5, 1.0];
         let formats = ["json", "text"];
         let gpu_flags = [false, true];
-        let verbose_flags = [false, true];
-        let trace_flags = [false, true];
+        let _verbose_flags = [false, true];
+        let _trace_flags = [false, true];
 
         for &temp in &temps {
             for &format in &formats {

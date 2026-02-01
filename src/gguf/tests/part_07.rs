@@ -322,7 +322,10 @@ fn test_parity006a_batch_generate_exists() {
     let results = cached
         .model()
         .batch_generate(
-            &prompts.iter().map(|p| p.as_slice()).collect::<Vec<_>>(),
+            &prompts
+                .iter()
+                .map(std::vec::Vec::as_slice)
+                .collect::<Vec<_>>(),
             &gen_config,
         )
         .expect("PARITY-006a: batch_generate should exist and succeed");
@@ -376,7 +379,10 @@ fn test_parity006b_single_prompt_optimization() {
     let batch_results = cached
         .model()
         .batch_generate(
-            &prompts.iter().map(|p| p.as_slice()).collect::<Vec<_>>(),
+            &prompts
+                .iter()
+                .map(std::vec::Vec::as_slice)
+                .collect::<Vec<_>>(),
             &gen_config,
         )
         .expect("Batch generate should work");
@@ -420,7 +426,10 @@ fn test_parity006c_batch_output_validity() {
     let results = cached
         .model()
         .batch_generate(
-            &prompts.iter().map(|p| p.as_slice()).collect::<Vec<_>>(),
+            &prompts
+                .iter()
+                .map(std::vec::Vec::as_slice)
+                .collect::<Vec<_>>(),
             &gen_config,
         )
         .expect("PARITY-006c: Batch generate should succeed");
@@ -515,7 +524,10 @@ fn test_parity006e_batch_performance_comparison() {
     let cached = OwnedQuantizedModelCached::new(model);
     let start = Instant::now();
     let _ = cached.model().batch_generate(
-        &prompts.iter().map(|p| p.as_slice()).collect::<Vec<_>>(),
+        &prompts
+            .iter()
+            .map(std::vec::Vec::as_slice)
+            .collect::<Vec<_>>(),
         &gen_config,
     );
     let batch_time = start.elapsed();
@@ -666,7 +678,7 @@ fn test_parity007c_hardware_info() {
 #[test]
 fn test_parity007d_percentile_calculation() {
     let mut values: Vec<f64> = (1..=100).map(|i| i as f64).collect();
-    values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     let p50_idx = (values.len() as f64 * 0.50) as usize - 1;
     let p95_idx = (values.len() as f64 * 0.95) as usize - 1;
@@ -1266,10 +1278,10 @@ fn test_parity009d_outlier_detection_mad() {
     /// Median Absolute Deviation (MAD) outlier detection
     /// Per Fleming & Wallace: MAD is robust to outliers
     fn median(values: &mut [f64]) -> f64 {
-        values.sort_by(|a, b| a.partial_cmp(b).expect("test"));
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let mid = values.len() / 2;
-        if values.len() % 2 == 0 {
-            (values[mid - 1] + values[mid]) / 2.0
+        if values.len().is_multiple_of(2) {
+            f64::midpoint(values[mid - 1], values[mid])
         } else {
             values[mid]
         }
@@ -1339,7 +1351,7 @@ fn test_parity009e_latency_percentiles() {
     impl LatencyStats {
         fn from_latencies(latencies: &[f64]) -> Self {
             let mut sorted = latencies.to_vec();
-            sorted.sort_by(|a, b| a.partial_cmp(b).expect("test"));
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
             let percentile = |p: f64| -> f64 {
                 let idx = ((sorted.len() as f64 - 1.0) * p).round() as usize;

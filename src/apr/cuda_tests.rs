@@ -423,13 +423,160 @@ mod tests {
         }
     }
 
+    /// PMAT-110: Test that APR CUDA generation produces valid logits (not -inf)
+    ///
+    /// This test verifies that forward_single_cuda returns valid logits
+    /// after prefill, which is required for generation to work.
+    #[test]
+    fn test_apr_cuda_forward_produces_valid_logits() {
+        let model = create_transformer_model();
+
+        if let Ok(mut cuda_model) = AprV2ModelCuda::new(model, 0) {
+            // Skip if no GPU available
+            if !AprV2ModelCuda::is_available() {
+                println!("CUDA not available, skipping test");
+                return;
+            }
+
+            // Prefill with a simple prompt
+            let prompt = vec![1_u32, 2, 3]; // Simple token sequence
+            let prefill_result = cuda_model.forward_cuda(&prompt);
+
+            // Prefill should succeed
+            assert!(
+                prefill_result.is_ok(),
+                "Prefill failed: {:?}",
+                prefill_result
+            );
+            let prefill_logits = prefill_result.unwrap();
+
+            // CRITICAL: Logits must not be all -inf or NaN
+            let max_logit = prefill_logits
+                .iter()
+                .cloned()
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert!(max_logit.is_finite(), "Prefill logits are all -inf or NaN");
+
+            // Now test single token decode (the problematic path)
+            let decode_result = cuda_model.forward_single_cuda(4, prompt.len());
+
+            // Decode should succeed
+            assert!(decode_result.is_ok(), "Decode failed: {:?}", decode_result);
+            let decode_logits = decode_result.unwrap();
+
+            // CRITICAL: Decode logits must ALSO not be all -inf or NaN
+            let decode_max = decode_logits
+                .iter()
+                .cloned()
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert!(
+                decode_max.is_finite(),
+                "PMAT-110 FAILURE: forward_single_cuda returns invalid logits (max={}).\n\
+                 This indicates KV cache is not working for APR CUDA.",
+                decode_max
+            );
+
+            println!("Prefill max logit: {:.2}", max_logit);
+            println!("Decode max logit: {:.2}", decode_max);
+        }
+    }
+
+    /// PMAT-110: Integration test with real APR model file
+    ///
+    /// This test loads an actual APR model and verifies that generation
+    /// produces valid (non-empty, non-garbage) output.
+    #[test]
+    #[ignore] // Run with: cargo test --features cuda -- --ignored
+    fn test_apr_cuda_real_model_generation() {
+        use std::path::Path;
+
+        // Path to real APR model (Qwen2.5-Coder-1.5B Q4K)
+        let model_path = Path::new(env!("HOME")).join(".apr/models/qwen2.5-coder-1.5b-q4k.apr");
+
+        if !model_path.exists() {
+            println!("Skipping: APR model not found at {:?}", model_path);
+            return;
+        }
+
+        if !AprV2ModelCuda::is_available() {
+            println!("Skipping: CUDA not available");
+            return;
+        }
+
+        // Load model
+        let model_bytes = std::fs::read(&model_path).expect("Failed to read APR file");
+        let model = AprV2Model::from_bytes(model_bytes).expect("Failed to parse APR model");
+
+        println!("Loaded model: {:?}", model.metadata.name);
+        println!("  hidden_size: {:?}", model.metadata.hidden_size);
+        println!("  num_layers: {:?}", model.metadata.num_layers);
+        println!("  vocab_size: {:?}", model.metadata.vocab_size);
+
+        let mut cuda_model = AprV2ModelCuda::new(model, 0).expect("Failed to create CUDA model");
+
+        // Simple prompt: "What is 2+2?" tokenized (approximate)
+        // Using raw token IDs that are likely valid
+        let prompt = vec![1_u32, 100, 200, 300]; // Placeholder tokens
+
+        // Test prefill
+        let prefill_result = cuda_model.forward_cuda(&prompt);
+        assert!(
+            prefill_result.is_ok(),
+            "Prefill failed: {:?}",
+            prefill_result
+        );
+        let prefill_logits = prefill_result.unwrap();
+
+        let prefill_max = prefill_logits
+            .iter()
+            .cloned()
+            .fold(f32::NEG_INFINITY, f32::max);
+        println!("Prefill max logit: {:.2}", prefill_max);
+        assert!(prefill_max.is_finite(), "Prefill logits are -inf");
+
+        // Test single token decode (THIS IS THE BUG)
+        let decode_result = cuda_model.forward_single_cuda(400, prompt.len());
+        assert!(decode_result.is_ok(), "Decode failed: {:?}", decode_result);
+        let decode_logits = decode_result.unwrap();
+
+        let decode_max = decode_logits
+            .iter()
+            .cloned()
+            .fold(f32::NEG_INFINITY, f32::max);
+        println!("Decode max logit: {:.2}", decode_max);
+
+        // THIS ASSERTION WILL FAIL - proving the bug exists
+        assert!(
+            decode_max.is_finite() && decode_max != prefill_max,
+            "PMAT-110 BUG CONFIRMED: forward_single_cuda returns invalid logits.\n\
+             Prefill max: {}, Decode max: {}\n\
+             The single-token decode path has no KV cache context.",
+            prefill_max,
+            decode_max
+        );
+
+        // Test full generation
+        let gen_result = cuda_model.generate_cuda_with_cache(&prompt, 5, 151645);
+        println!("Generation result: {:?}", gen_result);
+
+        if let Ok(tokens) = gen_result {
+            println!("Generated {} tokens", tokens.len() - prompt.len());
+            // Should generate at least 1 token (not immediately hit EOS)
+            assert!(
+                tokens.len() > prompt.len(),
+                "PMAT-110: Generation produced no new tokens (EOS immediately)"
+            );
+        }
+    }
+
     /// Helper to create a transformer model with minimal weights
     fn create_transformer_model() -> AprV2Model {
         // Metadata with transformer config
+        // NOTE: Uses hidden_size (not hidden_dim) to match AprMetadata struct
         let metadata = r#"{
             "model_type": "transformer",
             "name": "test-transformer",
-            "hidden_dim": 32,
+            "hidden_size": 32,
             "num_layers": 1,
             "num_heads": 2,
             "num_kv_heads": 2,

@@ -120,7 +120,13 @@ mod tests {
         let result = run_inference(&config);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.to_string().contains("Failed to read model"));
+        // F-SEC-222: validate_model_path now catches nonexistent files early
+        assert!(
+            err.to_string().contains("File not found")
+                || err.to_string().contains("Failed to read model"),
+            "Expected file not found error, got: {}",
+            err
+        );
     }
 
     #[test]
@@ -745,6 +751,7 @@ mod tests {
             trace_output: Some(PathBuf::from("/trace.json")),
             trace_steps: Some(vec!["embedding".to_string(), "attention".to_string()]),
             verbose: false,
+            use_mock_backend: false,
         };
         let debug_str = format!("{:?}", config);
         assert!(debug_str.contains("trace_verbose"));
@@ -767,6 +774,7 @@ mod tests {
             trace_output: None,
             trace_steps: None,
             verbose: true,
+            use_mock_backend: false,
         };
         let cloned = config.clone();
         assert_eq!(cloned.trace_verbose, config.trace_verbose);
@@ -1925,7 +1933,7 @@ mod tests {
             config.trace_output,
             Some(PathBuf::from("/trace/output.json"))
         );
-        assert_eq!(config.trace_steps.as_ref().map(|s| s.len()), Some(3));
+        assert_eq!(config.trace_steps.as_ref().map(std::vec::Vec::len), Some(3));
     }
 
     #[test]
@@ -2330,6 +2338,7 @@ mod tests {
             trace_output: Some(PathBuf::from("/trace.json")),
             trace_steps: Some(vec!["embed".to_string()]),
             verbose: true,
+            use_mock_backend: false,
         };
 
         let debug = format!("{:?}", config);
@@ -2362,6 +2371,7 @@ mod tests {
             trace_output: Some(PathBuf::from("/out.json")),
             trace_steps: Some(vec!["a".to_string(), "b".to_string()]),
             verbose: true,
+            use_mock_backend: false,
         };
 
         let cloned = original.clone();
@@ -2868,12 +2878,12 @@ mod tests {
 
     #[test]
     fn test_clean_model_output_complex_conversation() {
-        let raw = r#"<|im_start|>system
+        let raw = r"<|im_start|>system
 You are a helpful assistant.<|im_end|>
 <|im_start|>user
 Hello!<|im_end|>
 <|im_start|>assistant
-Hi there! How can I help?<|im_end|><|endoftext|>"#;
+Hi there! How can I help?<|im_end|><|endoftext|>";
         let cleaned = clean_model_output(raw);
         // All markers removed, content preserved
         assert!(!cleaned.contains("<|im_start|>"));
@@ -3000,7 +3010,7 @@ fn main() {
         assert!(config.trace);
         assert!(config.trace_verbose);
         assert_eq!(config.trace_output, Some(PathBuf::from("/tmp/trace.json")));
-        assert_eq!(config.trace_steps.as_ref().map(|s| s.len()), Some(2));
+        assert_eq!(config.trace_steps.as_ref().map(std::vec::Vec::len), Some(2));
     }
 
     // --- no_gpu flag tests ---
@@ -3034,6 +3044,7 @@ fn main() {
             trace_output: Some(PathBuf::from("/trace.json")),
             trace_steps: Some(vec!["a".to_string()]),
             verbose: true,
+            use_mock_backend: false,
         };
 
         let debug = format!("{:?}", config);
@@ -3348,15 +3359,21 @@ fn main() {
 
     #[test]
     fn test_eos_token_detection_all_variants() {
+        // Define EOS tokens to check against
+        let eos_tokens = [151645u32, 151643, 2];
+
+        // Helper to check if token is EOS
+        let is_eos = |token: u32| eos_tokens.contains(&token);
+
         // Qwen2 EOS
-        assert!(151645u32 == 151645 || 151645u32 == 151643 || 151645u32 == 2);
+        assert!(is_eos(151645));
         // Qwen2 BOS (also stops)
-        assert!(151643u32 == 151645 || 151643u32 == 151643 || 151643u32 == 2);
+        assert!(is_eos(151643));
         // Standard EOS
-        assert!(2u32 == 151645 || 2u32 == 151643 || 2u32 == 2);
+        assert!(is_eos(2));
         // Not EOS tokens
-        assert!(!(1u32 == 151645 || 1u32 == 151643 || 1u32 == 2));
-        assert!(!(1000u32 == 151645 || 1000u32 == 151643 || 1000u32 == 2));
+        assert!(!is_eos(1));
+        assert!(!is_eos(1000));
     }
 
     // --- Max tokens capping in different formats ---

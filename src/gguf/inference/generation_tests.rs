@@ -6,7 +6,7 @@
 //! - Stopping conditions (stop_tokens, max_tokens)
 //! - Streaming callback (generate_with_cache_streaming)
 
-use crate::gguf::test_helpers::{create_q4k_test_data, create_test_model_with_config};
+use crate::gguf::test_helpers::create_test_model_with_config;
 use crate::gguf::{GGUFConfig, OwnedQuantizedModel, QuantizedGenerateConfig};
 
 /// Create a minimal test config for generation tests
@@ -41,14 +41,20 @@ fn test_argmax_basic() {
 fn test_argmax_first_element() {
     let logits = vec![1.0, 0.5, 0.3, 0.2];
     let result = OwnedQuantizedModel::argmax(&logits);
-    assert_eq!(result, 0, "argmax should return 0 when first element is max");
+    assert_eq!(
+        result, 0,
+        "argmax should return 0 when first element is max"
+    );
 }
 
 #[test]
 fn test_argmax_last_element() {
     let logits = vec![0.1, 0.2, 0.3, 0.9];
     let result = OwnedQuantizedModel::argmax(&logits);
-    assert_eq!(result, 3, "argmax should return last index when last element is max");
+    assert_eq!(
+        result, 3,
+        "argmax should return last index when last element is max"
+    );
 }
 
 #[test]
@@ -87,7 +93,10 @@ fn test_argmax_with_nan_handling() {
     let logits = vec![0.1, 0.5, f32::NAN, 0.3];
     let result = OwnedQuantizedModel::argmax(&logits);
     // NaN comparison returns Equal, so last element (0.3 at index 3) becomes max
-    assert_eq!(result, 3, "NaN treated as Equal causes last element to be returned");
+    assert_eq!(
+        result, 3,
+        "NaN treated as Equal causes last element to be returned"
+    );
 }
 
 #[test]
@@ -297,12 +306,14 @@ fn test_generate_stops_on_stop_token() {
     // Use a stop token that matches whatever the model generates
     // Since test model is deterministic, first generated token will be consistent
     let prompt = vec![1];
-    let first_gen = model.generate(&prompt, &QuantizedGenerateConfig::deterministic(1)).unwrap();
+    let first_gen = model
+        .generate(&prompt, &QuantizedGenerateConfig::deterministic(1))
+        .unwrap();
 
     if first_gen.len() > 1 {
         let stop_token = first_gen[1];
-        let gen_config = QuantizedGenerateConfig::deterministic(10)
-            .with_stop_tokens(vec![stop_token]);
+        let gen_config =
+            QuantizedGenerateConfig::deterministic(10).with_stop_tokens(vec![stop_token]);
 
         let result = model.generate(&prompt, &gen_config).unwrap();
 
@@ -377,7 +388,10 @@ fn test_generate_with_cache_deterministic() {
     let result1 = model.generate_with_cache(&prompt, &gen_config).unwrap();
     let result2 = model.generate_with_cache(&prompt, &gen_config).unwrap();
 
-    assert_eq!(result1, result2, "Greedy decoding with cache should be deterministic");
+    assert_eq!(
+        result1, result2,
+        "Greedy decoding with cache should be deterministic"
+    );
 }
 
 // =============================================================================
@@ -500,7 +514,10 @@ fn test_predict_next_basic() {
     assert!(result.is_ok(), "predict_next should succeed");
 
     let token = result.unwrap();
-    assert!(token < cfg.vocab_size as u32, "Token should be in vocab range");
+    assert!(
+        token < cfg.vocab_size as u32,
+        "Token should be in vocab range"
+    );
 }
 
 #[test]
@@ -512,4 +529,92 @@ fn test_predict_next_deterministic() {
     let result2 = model.predict_next(&[1, 2]).unwrap();
 
     assert_eq!(result1, result2, "predict_next should be deterministic");
+}
+
+// =============================================================================
+// GH-167: Context Limit Exceeded Tests (F-QUAL-037)
+// =============================================================================
+
+/// GH-167: Test that prompt exceeding context_length returns clear error
+#[test]
+fn test_gh167_context_limit_exceeded_returns_clean_error() {
+    // Create model with small context_length
+    let mut cfg = make_test_config();
+    cfg.context_length = 10; // Very small context window
+    let model = create_test_model_with_config(&cfg);
+
+    // Create prompt that exceeds context limit
+    let oversized_prompt: Vec<u32> = (0..15).collect(); // 15 tokens > 10 context
+    let gen_config = QuantizedGenerateConfig::deterministic(5);
+
+    let result = model.generate(&oversized_prompt, &gen_config);
+    assert!(
+        result.is_err(),
+        "Should error when prompt exceeds context limit"
+    );
+
+    let err = result.unwrap_err();
+    let err_str = err.to_string();
+
+    // Error message should be user-friendly, not CUDA_ERROR_UNKNOWN
+    assert!(
+        err_str.contains("Context")
+            || err_str.contains("context")
+            || err_str.contains("limit")
+            || err_str.contains("exceeded"),
+        "Error should mention context limit, got: {}",
+        err_str
+    );
+    assert!(
+        !err_str.contains("CUDA_ERROR"),
+        "Error should NOT be a cryptic CUDA error, got: {}",
+        err_str
+    );
+}
+
+/// GH-167: Test that prompt exactly at context_length is allowed
+#[test]
+fn test_gh167_context_limit_exact_allowed() {
+    let mut cfg = make_test_config();
+    cfg.context_length = 10;
+    let model = create_test_model_with_config(&cfg);
+
+    // Prompt at exactly context limit (no room for generation, but should not error on limit check)
+    let prompt: Vec<u32> = (0..10).collect();
+    let gen_config = QuantizedGenerateConfig::deterministic(0); // No new tokens
+
+    // This should succeed (or fail for other reasons, not context limit)
+    let result = model.generate(&prompt, &gen_config);
+    // Note: May succeed or fail, but should not give cryptic CUDA error
+    if let Err(e) = result {
+        let err_str = e.to_string();
+        assert!(
+            !err_str.contains("CUDA_ERROR"),
+            "Should not give CUDA error for edge case"
+        );
+    }
+}
+
+/// GH-167: Test generate_with_cache also checks context limit
+#[test]
+fn test_gh167_generate_with_cache_checks_context_limit() {
+    let mut cfg = make_test_config();
+    cfg.context_length = 8;
+    let model = create_test_model_with_config(&cfg);
+
+    let oversized_prompt: Vec<u32> = (0..12).collect();
+    let gen_config = QuantizedGenerateConfig::deterministic(5);
+
+    let result = model.generate_with_cache(&oversized_prompt, &gen_config);
+    assert!(
+        result.is_err(),
+        "generate_with_cache should check context limit"
+    );
+
+    let err_str = result.unwrap_err().to_string();
+    assert!(
+        err_str.contains("Context") || err_str.contains("context") || err_str.contains("exceeded"),
+        "Should give clear context error, got: {}",
+        err_str
+    );
 }

@@ -31,6 +31,10 @@ pub use fused::{CoalescedDp4aBrick, FusedFfnBrick};
 pub mod tracer;
 pub use tracer::{BrickTracer, TraceComparison, TraceDiff, TraceEvent};
 
+// PMAT-112: BrickProfiler for real-time inference telemetry
+pub mod profiler;
+pub use profiler::{BrickProfiler, OpStats, ProfileReport};
+
 // ============================================================================
 // Core Types
 // ============================================================================
@@ -1769,6 +1773,11 @@ mod brick_tests_part_02;
 #[cfg(test)]
 #[path = "tests_part_03.rs"]
 mod brick_tests_part_03;
+
+// BrickProfiler tests (PMAT-112)
+#[cfg(test)]
+#[path = "profiler_tests.rs"]
+mod profiler_tests;
 
 // Fused ops tests (cuda feature)
 #[cfg(all(test, feature = "cuda"))]

@@ -63,8 +63,7 @@ fn test_sliding_window_bidirectional_mode() {
 
     let q = Tensor::from_vec(vec![4, 4], vec![0.1; 16]).expect("test");
     let k = Tensor::from_vec(vec![4, 4], vec![0.2; 16]).expect("test");
-    let v = Tensor::from_vec(vec![4, 4], (1..17).map(|x| x as f32 * 0.1).collect())
-        .expect("test");
+    let v = Tensor::from_vec(vec![4, 4], (1..17).map(|x| x as f32 * 0.1).collect()).expect("test");
 
     // Test causal=false (bidirectional)
     let bidirectional = swa.forward_with_mask(&q, &k, &v, false).expect("test");
@@ -134,12 +133,18 @@ fn test_flash_forward_1d_inputs() {
 fn test_simd_remainder_paths() {
     // head_dim = 9 (8 SIMD + 1 remainder)
     let attn9 = Attention::new(9).expect("test");
-    let q9 = Tensor::from_vec(vec![2, 9], (0..18).map(|i| (i as f32 * 0.1).sin()).collect())
-        .expect("test");
-    let k9 = Tensor::from_vec(vec![2, 9], (0..18).map(|i| (i as f32 * 0.1).cos()).collect())
-        .expect("test");
-    let v9 = Tensor::from_vec(vec![2, 9], (0..18).map(|i| i as f32 * 0.05).collect())
-        .expect("test");
+    let q9 = Tensor::from_vec(
+        vec![2, 9],
+        (0..18).map(|i| (i as f32 * 0.1).sin()).collect(),
+    )
+    .expect("test");
+    let k9 = Tensor::from_vec(
+        vec![2, 9],
+        (0..18).map(|i| (i as f32 * 0.1).cos()).collect(),
+    )
+    .expect("test");
+    let v9 =
+        Tensor::from_vec(vec![2, 9], (0..18).map(|i| i as f32 * 0.05).collect()).expect("test");
 
     let std9 = attn9.forward(&q9, &k9, &v9).expect("test");
     let v2_9 = attn9.flash_forward_v2(&q9, &k9, &v9, 1).expect("test");
@@ -152,11 +157,13 @@ fn test_simd_remainder_paths() {
     let attn15 = Attention::new(15).expect("test");
     let q15 = Tensor::from_vec(vec![2, 15], vec![0.1; 30]).expect("test");
     let k15 = Tensor::from_vec(vec![2, 15], vec![0.2; 30]).expect("test");
-    let v15 = Tensor::from_vec(vec![2, 15], (0..30).map(|i| i as f32 * 0.02).collect())
-        .expect("test");
+    let v15 =
+        Tensor::from_vec(vec![2, 15], (0..30).map(|i| i as f32 * 0.02).collect()).expect("test");
 
     let std15 = attn15.forward(&q15, &k15, &v15).expect("test");
-    let par15 = attn15.flash_forward_parallel(&q15, &k15, &v15, 2).expect("test");
+    let par15 = attn15
+        .flash_forward_parallel(&q15, &k15, &v15, 2)
+        .expect("test");
 
     for i in 0..std15.data().len() {
         assert!((std15.data()[i] - par15.data()[i]).abs() < 1e-4);
@@ -248,8 +255,7 @@ fn test_attention_cross_attention_shape() {
 
     let q = Tensor::from_vec(vec![2, 4], vec![1.0; 8]).expect("test");
     let k = Tensor::from_vec(vec![3, 4], vec![1.0; 12]).expect("test");
-    let v = Tensor::from_vec(vec![3, 4], (1..13).map(|x| x as f32 * 0.1).collect())
-        .expect("test");
+    let v = Tensor::from_vec(vec![3, 4], (1..13).map(|x| x as f32 * 0.1).collect()).expect("test");
 
     let output = attn.forward(&q, &k, &v).expect("test");
     assert_eq!(output.shape(), &[2, 4]); // Q's seq_len
@@ -261,8 +267,8 @@ fn test_attention_long_sequence() {
 
     let q = Tensor::from_vec(vec![64, 8], vec![0.1; 512]).expect("test");
     let k = Tensor::from_vec(vec![64, 8], vec![0.1; 512]).expect("test");
-    let v = Tensor::from_vec(vec![64, 8], (0..512).map(|i| i as f32 * 0.001).collect())
-        .expect("test");
+    let v =
+        Tensor::from_vec(vec![64, 8], (0..512).map(|i| i as f32 * 0.001).collect()).expect("test");
 
     let output = attn.forward(&q, &k, &v).expect("test");
     assert_eq!(output.shape(), &[64, 8]);
@@ -282,8 +288,7 @@ fn test_flash_block_larger_than_seq() {
 
     let q = Tensor::from_vec(vec![4, 8], vec![0.1; 32]).expect("test");
     let k = Tensor::from_vec(vec![4, 8], vec![0.2; 32]).expect("test");
-    let v = Tensor::from_vec(vec![4, 8], (0..32).map(|i| i as f32 * 0.05).collect())
-        .expect("test");
+    let v = Tensor::from_vec(vec![4, 8], (0..32).map(|i| i as f32 * 0.05).collect()).expect("test");
 
     let standard = attn.forward(&q, &k, &v).expect("test");
     let flash = attn.flash_forward(&q, &k, &v, 16).expect("test");
@@ -305,12 +310,17 @@ fn test_flash_block_larger_than_seq() {
 fn test_sliding_window_bidirectional_vs_causal() {
     let swa = SlidingWindowAttention::new(4, 5).expect("test");
 
-    let q = Tensor::from_vec(vec![6, 4], (0..24).map(|i| (i as f32 * 0.15).sin()).collect())
-        .expect("test");
-    let k = Tensor::from_vec(vec![6, 4], (0..24).map(|i| (i as f32 * 0.15).cos()).collect())
-        .expect("test");
-    let v = Tensor::from_vec(vec![6, 4], (0..24).map(|i| i as f32 * 0.1).collect())
-        .expect("test");
+    let q = Tensor::from_vec(
+        vec![6, 4],
+        (0..24).map(|i| (i as f32 * 0.15).sin()).collect(),
+    )
+    .expect("test");
+    let k = Tensor::from_vec(
+        vec![6, 4],
+        (0..24).map(|i| (i as f32 * 0.15).cos()).collect(),
+    )
+    .expect("test");
+    let v = Tensor::from_vec(vec![6, 4], (0..24).map(|i| i as f32 * 0.1).collect()).expect("test");
 
     let causal = swa.forward(&q, &k, &v).expect("test");
     let bidirectional = swa.forward_with_mask(&q, &k, &v, false).expect("test");

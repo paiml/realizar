@@ -179,8 +179,8 @@ fn test_quantize_rmsnorm_q8_0_subnormal_input() {
     assert!(scales[0].is_finite());
     assert!(scales[0] > 0.0);
     // Quants should be valid
-    for q in &quants {
-        assert!(*q >= i8::MIN && *q <= i8::MAX);
+    for _q in &quants {
+        assert!(true /* i8 values always in range */);
     }
 }
 
@@ -195,8 +195,8 @@ fn test_quantize_rmsnorm_q8_0_scalar_subnormal() {
 
     assert!(scales[0].is_finite());
     // Due to eps, inv_rms will be large but finite
-    for q in &quants {
-        assert!(*q >= i8::MIN && *q <= i8::MAX);
+    for _q in &quants {
+        assert!(true /* i8 values always in range */);
     }
 }
 
@@ -228,7 +228,7 @@ fn test_quantize_rmsnorm_q8_0_produces_min_quant() {
     let norm_weight = vec![1.0f32; 32];
     let eps = 1e-5;
 
-    let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+    let (_scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
 
     // After RMSNorm with uniform negative input, all values are -1.0
     // So all quants should be -127
@@ -251,7 +251,7 @@ fn test_quantize_activations_q8_0_boundary_127() {
 #[test]
 fn test_quantize_activations_q8_0_boundary_negative_127() {
     let activations = vec![-127.0f32; 16];
-    let (scales, quants) = quantize_activations_q8_0(&activations);
+    let (_scales, quants) = quantize_activations_q8_0(&activations);
 
     // Min should map to -127
     assert_eq!(quants[0], -127);
@@ -265,7 +265,7 @@ fn test_quantize_activations_q8_0_mixed_extremes() {
     activations[15] = 63.5;
     activations[16] = -63.5;
 
-    let (scales, quants) = quantize_activations_q8_0(&activations);
+    let (_scales, quants) = quantize_activations_q8_0(&activations);
 
     // First element should be 127, second -127
     assert_eq!(quants[0], 127);
@@ -290,8 +290,8 @@ fn test_quantize_rmsnorm_q8_0_zero_epsilon() {
     // Should still produce valid output
     assert!(scales[0].is_finite());
     assert!(scales[0] > 0.0);
-    for q in &quants {
-        assert!(*q >= i8::MIN && *q <= i8::MAX);
+    for _q in &quants {
+        assert!(true /* i8 values always in range */);
     }
 }
 
@@ -304,8 +304,8 @@ fn test_quantize_rmsnorm_q8_0_scalar_zero_epsilon() {
     let (scales, quants) = quantize_rmsnorm_q8_0_scalar(&input, &norm_weight, eps);
 
     assert!(scales[0].is_finite());
-    for q in &quants {
-        assert!(*q >= i8::MIN && *q <= i8::MAX);
+    for _q in &quants {
+        assert!(true /* i8 values always in range */);
     }
 }
 
@@ -316,7 +316,7 @@ fn test_quantize_rmsnorm_q8_0_huge_epsilon() {
     let norm_weight = vec![1.0f32; 32];
     let eps = 1000.0;
 
-    let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+    let (scales, _quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
 
     // Large epsilon means inv_rms will be small
     // So normalized values will be small
@@ -351,7 +351,7 @@ fn test_quantize_rmsnorm_q8_0_mixed_large_small() {
     let norm_weight = vec![1.0f32; 32];
     let eps = 1e-5;
 
-    let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+    let (scales, _quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
 
     // Should produce valid output
     assert!(scales[0].is_finite());
@@ -462,7 +462,7 @@ fn test_quantize_rmsnorm_q8_0_size_1() {
 #[test]
 fn test_quantize_rmsnorm_q8_0_size_8() {
     // Exactly one SIMD iteration
-    let input: Vec<f32> = (0..8).map(|i| (i as f32 - 4.0)).collect();
+    let input: Vec<f32> = (0..8).map(|i| i as f32 - 4.0).collect();
     let norm_weight = vec![1.0f32; 8];
     let eps = 1e-5;
 
@@ -479,7 +479,7 @@ fn test_quantize_rmsnorm_q8_0_size_16() {
     let norm_weight = vec![1.0f32; 16];
     let eps = 1e-5;
 
-    let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+    let (scales, _quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
 
     assert_eq!(scales.len(), 1);
 }
@@ -491,7 +491,7 @@ fn test_quantize_rmsnorm_q8_0_size_24() {
     let norm_weight = vec![1.0f32; 24];
     let eps = 1e-5;
 
-    let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+    let (scales, _quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
 
     assert_eq!(scales.len(), 1);
 }
@@ -559,7 +559,7 @@ fn test_softmax_simd_size_16() {
 
 #[test]
 fn test_fused_swiglu_simd_up_zeros() {
-    let mut gate: Vec<f32> = (0..16).map(|i| (i as f32 - 8.0)).collect();
+    let mut gate: Vec<f32> = (0..16).map(|i| i as f32 - 8.0).collect();
     let up = vec![0.0f32; 16];
 
     fused_swiglu_simd(&mut gate, &up);
@@ -634,7 +634,7 @@ fn test_quantize_rmsnorm_q8_0_numerical_stability() {
     let norm_weight = vec![1.0f32; 64];
     let eps = 1e-5;
 
-    let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
+    let (scales, _quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
 
     // Should produce valid output
     assert!(scales[0].is_finite());
@@ -765,7 +765,7 @@ fn test_quantize_activations_q8_0_negative_infinity() {
 #[test]
 fn test_quantize_activations_q8_0_nan() {
     let activations = vec![f32::NAN, 1.0, 2.0];
-    let (scales, quants) = quantize_activations_q8_0(&activations);
+    let (scales, _quants) = quantize_activations_q8_0(&activations);
 
     // NaN in max calculation propagates
     assert!(scales[0].is_nan() || scales[0] > 0.0);

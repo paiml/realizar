@@ -171,6 +171,8 @@ pub struct GpuGenerateConfig {
     pub top_k: usize,
     /// Stop token IDs
     pub stop_tokens: Vec<usize>,
+    /// Enable debug tracing (F-COV-95: Added for cli/inference.rs compatibility)
+    pub trace: bool,
 }
 
 impl Default for GpuGenerateConfig {
@@ -180,6 +182,7 @@ impl Default for GpuGenerateConfig {
             temperature: 0.0,
             top_k: 1,
             stop_tokens: Vec::new(),
+            trace: false,
         }
     }
 }
@@ -193,6 +196,7 @@ impl GpuGenerateConfig {
             temperature: 0.0,
             top_k: 1,
             stop_tokens: Vec::new(),
+            trace: false,
         }
     }
 
@@ -204,6 +208,7 @@ impl GpuGenerateConfig {
             temperature,
             top_k,
             stop_tokens: Vec::new(),
+            trace: false,
         }
     }
 
@@ -751,10 +756,32 @@ impl GpuModel {
             qkv_dim,
         )?;
 
+        // F-REGR-231 FIX: Add QKV bias (critical for correct attention)
+        // The GGUF path applies bias after matmul, APR must do the same
+        let qkv_bias = &self.block_weights[block_idx].qkv_bias;
+        if debug_this_call {
+            eprintln!(
+                "[PHASE21-BIAS] qkv_bias len: {}, qkv len: {}, bias first 5: {:?}",
+                qkv_bias.len(),
+                qkv.len(),
+                &qkv_bias[..5.min(qkv_bias.len())]
+            );
+        }
+        if !qkv_bias.is_empty() && qkv_bias.len() == qkv.len() {
+            for (q, b) in qkv.iter_mut().zip(qkv_bias.iter()) {
+                *q += *b;
+            }
+        }
+
         if debug_this_call {
             eprintln!(
                 "[PHASE21] QKV L2: {:.4}",
                 qkv.iter().map(|x| x * x).sum::<f32>().sqrt()
+            );
+            // F-REGR-231 DEBUG: Show Q values after bias
+            eprintln!(
+                "[PHASE21] Q after bias first 5: {:?}",
+                &qkv[..5.min(qkv.len())]
             );
         }
 
@@ -784,6 +811,15 @@ impl GpuModel {
         let q = qkv[0..hidden_dim].to_vec();
         let k_new = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
         let v_new = qkv[hidden_dim + kv_dim..].to_vec();
+
+        // F-REGR-231 DEBUG: Show K and V values after bias and RoPE
+        if debug_this_call {
+            eprintln!(
+                "[PHASE21] K after RoPE first 5: {:?}",
+                &k_new[..5.min(k_new.len())]
+            );
+            eprintln!("[PHASE21] V first 5: {:?}", &v_new[..5.min(v_new.len())]);
+        }
 
         // Get cached K/V and clone to avoid borrow issues with kv_cache
         let (cached_k, cached_v) = kv_cache.get_valid(block_idx);
@@ -1043,27 +1079,50 @@ impl GpuModel {
 
         let mut tokens = prompt.to_vec();
 
-        // Process prompt tokens to populate KV cache
-        for &token_id in prompt {
+        // F-REGR-231 FIX: Process prefill correctly
+        // Process all but last prompt token to populate KV cache (discard logits)
+        // Then process last token to get logits for first generation
+        let prompt_len = prompt.len();
+        for &token_id in &prompt[..prompt_len.saturating_sub(1)] {
             let _ = self.forward_refcell(token_id, &mut kv_cache)?;
         }
 
+        // Process last prompt token to get logits for first generated token
+        let last_prompt_token = prompt[prompt_len - 1];
+        let mut current_logits = self.forward_refcell(last_prompt_token, &mut kv_cache)?;
+
+        // F-REGR-231 DEBUG: Show logits from last prompt token
+        let argmax = current_logits
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map_or(0, |(idx, _)| idx);
+        let argmax_val = current_logits.get(argmax).copied().unwrap_or(0.0);
+        eprintln!(
+            "[PHASE21-GEN] Last prompt token: {}, logits argmax: {} (val: {:.4}), top5 logits: {:?}",
+            last_prompt_token,
+            argmax,
+            argmax_val,
+            {
+                let mut indexed: Vec<(usize, f32)> = current_logits.iter().cloned().enumerate().collect();
+                indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                indexed.into_iter().take(5).collect::<Vec<_>>()
+            }
+        );
+
         // Generate new tokens
         for _ in 0..config.max_tokens {
-            let last_token = *tokens.last().unwrap_or(&0);
-            let logits = self.forward_refcell(last_token, &mut kv_cache)?;
-
             // Sample next token (greedy when temperature=0, otherwise top-k)
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                 // Greedy decoding
-                logits
+                current_logits
                     .iter()
                     .enumerate()
                     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                     .map_or(0, |(idx, _)| idx)
             } else {
                 // Top-k sampling with temperature
-                Self::sample_topk_generate(&logits, config.temperature, config.top_k)
+                Self::sample_topk_generate(&current_logits, config.temperature, config.top_k)
             };
 
             tokens.push(next_token);
@@ -1072,6 +1131,9 @@ impl GpuModel {
             if config.stop_tokens.contains(&next_token) {
                 break;
             }
+
+            // F-REGR-231: Get logits for next iteration by processing the new token
+            current_logits = self.forward_refcell(next_token, &mut kv_cache)?;
         }
 
         Ok(tokens)
@@ -2387,5 +2449,418 @@ impl GpuModel {
     /// Optimized GQA attention using GPU for matmul operations (wrapper)
     fn optimized_gqa_attention(&mut self, qkv: &[f32], seq_len: usize) -> Result<Vec<f32>> {
         super::batch::optimized_gqa_attention(self, qkv, seq_len)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // GpuModelConfig tests
+    // ========================================================================
+
+    #[test]
+    fn test_gpu_model_config_head_dim() {
+        let config = GpuModelConfig {
+            vocab_size: 32000,
+            hidden_dim: 256,
+            num_heads: 8,
+            num_kv_heads: 8,
+            num_layers: 4,
+            intermediate_dim: 512,
+            eps: 1e-5,
+            rope_theta: 10000.0,
+        };
+        assert_eq!(config.head_dim(), 32);
+    }
+
+    #[test]
+    fn test_gpu_model_config_kv_dim() {
+        let config = GpuModelConfig {
+            vocab_size: 32000,
+            hidden_dim: 256,
+            num_heads: 8,
+            num_kv_heads: 4, // GQA: fewer KV heads
+            num_layers: 4,
+            intermediate_dim: 512,
+            eps: 1e-5,
+            rope_theta: 10000.0,
+        };
+        // kv_dim = num_kv_heads * head_dim = 4 * 32 = 128
+        assert_eq!(config.kv_dim(), 128);
+    }
+
+    #[test]
+    fn test_gpu_model_config_qkv_dim_mha() {
+        // Multi-head attention: num_kv_heads == num_heads
+        let config = GpuModelConfig {
+            vocab_size: 32000,
+            hidden_dim: 256,
+            num_heads: 8,
+            num_kv_heads: 8,
+            num_layers: 4,
+            intermediate_dim: 512,
+            eps: 1e-5,
+            rope_theta: 10000.0,
+        };
+        // MHA: qkv_dim = hidden_dim + 2 * kv_dim = 256 + 2 * 256 = 768
+        assert_eq!(config.qkv_dim(), 768);
+    }
+
+    #[test]
+    fn test_gpu_model_config_qkv_dim_gqa() {
+        // Grouped query attention: num_kv_heads < num_heads
+        let config = GpuModelConfig {
+            vocab_size: 32000,
+            hidden_dim: 256,
+            num_heads: 8,
+            num_kv_heads: 2, // GQA: 4x fewer KV heads
+            num_layers: 4,
+            intermediate_dim: 512,
+            eps: 1e-5,
+            rope_theta: 10000.0,
+        };
+        // GQA: qkv_dim = hidden_dim + 2 * kv_dim = 256 + 2 * 64 = 384
+        assert_eq!(config.qkv_dim(), 384);
+    }
+
+    #[test]
+    fn test_gpu_model_config_is_gqa() {
+        // MHA
+        let mha_config = GpuModelConfig {
+            vocab_size: 32000,
+            hidden_dim: 256,
+            num_heads: 8,
+            num_kv_heads: 8,
+            num_layers: 4,
+            intermediate_dim: 512,
+            eps: 1e-5,
+            rope_theta: 10000.0,
+        };
+        assert!(!mha_config.is_gqa());
+
+        // GQA
+        let gqa_config = GpuModelConfig {
+            vocab_size: 32000,
+            hidden_dim: 256,
+            num_heads: 8,
+            num_kv_heads: 2,
+            num_layers: 4,
+            intermediate_dim: 512,
+            eps: 1e-5,
+            rope_theta: 10000.0,
+        };
+        assert!(gqa_config.is_gqa());
+    }
+
+    #[test]
+    fn test_gpu_model_config_clone() {
+        let config = GpuModelConfig {
+            vocab_size: 32000,
+            hidden_dim: 256,
+            num_heads: 8,
+            num_kv_heads: 4,
+            num_layers: 4,
+            intermediate_dim: 512,
+            eps: 1e-5,
+            rope_theta: 10000.0,
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.vocab_size, 32000);
+        assert_eq!(cloned.hidden_dim, 256);
+    }
+
+    #[test]
+    fn test_gpu_model_config_debug() {
+        let config = GpuModelConfig {
+            vocab_size: 32000,
+            hidden_dim: 256,
+            num_heads: 8,
+            num_kv_heads: 8,
+            num_layers: 4,
+            intermediate_dim: 512,
+            eps: 1e-5,
+            rope_theta: 10000.0,
+        };
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("GpuModelConfig"));
+        assert!(debug_str.contains("vocab_size: 32000"));
+    }
+
+    // ========================================================================
+    // GpuGenerateConfig tests
+    // ========================================================================
+
+    #[test]
+    fn test_gpu_generate_config_default() {
+        let config = GpuGenerateConfig::default();
+        assert_eq!(config.max_tokens, 64);
+        assert_eq!(config.temperature, 0.0);
+        assert_eq!(config.top_k, 1);
+        assert!(config.stop_tokens.is_empty());
+    }
+
+    #[test]
+    fn test_gpu_generate_config_deterministic() {
+        let config = GpuGenerateConfig::deterministic(128);
+        assert_eq!(config.max_tokens, 128);
+        assert_eq!(config.temperature, 0.0);
+        assert_eq!(config.top_k, 1);
+    }
+
+    #[test]
+    fn test_gpu_generate_config_with_sampling() {
+        let config = GpuGenerateConfig::with_sampling(256, 0.7, 40);
+        assert_eq!(config.max_tokens, 256);
+        assert_eq!(config.temperature, 0.7);
+        assert_eq!(config.top_k, 40);
+    }
+
+    #[test]
+    fn test_gpu_generate_config_with_stop_tokens() {
+        let config = GpuGenerateConfig::deterministic(64).with_stop_tokens(vec![0, 2]);
+        assert_eq!(config.stop_tokens, vec![0, 2]);
+    }
+
+    #[test]
+    fn test_gpu_generate_config_clone() {
+        let config = GpuGenerateConfig::with_sampling(100, 0.5, 20);
+        let cloned = config.clone();
+        assert_eq!(cloned.max_tokens, 100);
+        assert_eq!(cloned.temperature, 0.5);
+    }
+
+    #[test]
+    fn test_gpu_generate_config_debug() {
+        let config = GpuGenerateConfig::default();
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("GpuGenerateConfig"));
+    }
+
+    // ========================================================================
+    // AttentionBuffers tests
+    // ========================================================================
+
+    #[test]
+    fn test_attention_buffers_new() {
+        let model_config = GpuModelConfig {
+            vocab_size: 32000,
+            hidden_dim: 64,
+            num_heads: 4,
+            num_kv_heads: 4,
+            num_layers: 2,
+            intermediate_dim: 128,
+            eps: 1e-5,
+            rope_theta: 10000.0,
+        };
+        let buffers = AttentionBuffers::new(&model_config, 512);
+        assert_eq!(buffers.q_buffer.len(), 64); // hidden_dim
+        assert_eq!(buffers.scores_buffer.len(), 4 * 512); // num_heads * max_seq_len
+        assert_eq!(buffers.output_buffer.len(), 64);
+        assert_eq!(buffers.kv_proj_buffer.len(), 64);
+        assert_eq!(buffers.ffn_buffer.len(), 128); // intermediate_dim
+        assert_eq!(buffers.max_seq_len, 512);
+    }
+
+    #[test]
+    fn test_attention_buffers_reset() {
+        let model_config = GpuModelConfig {
+            vocab_size: 32000,
+            hidden_dim: 32,
+            num_heads: 2,
+            num_kv_heads: 2,
+            num_layers: 1,
+            intermediate_dim: 64,
+            eps: 1e-5,
+            rope_theta: 10000.0,
+        };
+        let mut buffers = AttentionBuffers::new(&model_config, 128);
+
+        // Modify buffers
+        buffers.q_buffer[0] = 1.0;
+        buffers.scores_buffer[0] = 2.0;
+        buffers.output_buffer[0] = 3.0;
+        buffers.kv_proj_buffer[0] = 4.0;
+        buffers.ffn_buffer[0] = 5.0;
+
+        // Reset
+        buffers.reset();
+
+        // All should be zero
+        assert!(buffers.q_buffer.iter().all(|&x| x == 0.0));
+        assert!(buffers.scores_buffer.iter().all(|&x| x == 0.0));
+        assert!(buffers.output_buffer.iter().all(|&x| x == 0.0));
+        assert!(buffers.kv_proj_buffer.iter().all(|&x| x == 0.0));
+        assert!(buffers.ffn_buffer.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn test_attention_buffers_debug() {
+        let model_config = GpuModelConfig {
+            vocab_size: 32000,
+            hidden_dim: 32,
+            num_heads: 2,
+            num_kv_heads: 2,
+            num_layers: 1,
+            intermediate_dim: 64,
+            eps: 1e-5,
+            rope_theta: 10000.0,
+        };
+        let buffers = AttentionBuffers::new(&model_config, 128);
+        let debug_str = format!("{:?}", buffers);
+        assert!(debug_str.contains("AttentionBuffers"));
+    }
+
+    // ========================================================================
+    // WeightType tests
+    // ========================================================================
+
+    #[test]
+    fn test_weight_type_debug() {
+        let wt = WeightType::Qkv;
+        let debug_str = format!("{:?}", wt);
+        assert!(debug_str.contains("Qkv"));
+    }
+
+    #[test]
+    fn test_weight_type_clone() {
+        let wt = WeightType::Output;
+        let cloned = wt;
+        assert!(matches!(cloned, WeightType::Output));
+    }
+
+    #[test]
+    fn test_weight_type_copy() {
+        let wt = WeightType::FfnFc1;
+        let copied = wt;
+        assert!(matches!(copied, WeightType::FfnFc1));
+        assert!(matches!(wt, WeightType::FfnFc1)); // Original still valid (Copy)
+    }
+
+    #[test]
+    fn test_weight_type_all_variants() {
+        let variants = [
+            WeightType::Qkv,
+            WeightType::Output,
+            WeightType::FfnFc1,
+            WeightType::FfnFc2,
+            WeightType::LmHead,
+        ];
+        assert_eq!(variants.len(), 5);
+    }
+
+    // ========================================================================
+    // layer_norm_static tests
+    // ========================================================================
+
+    #[test]
+    fn test_layer_norm_static_single_row() {
+        let input = vec![1.0, 2.0, 3.0, 4.0];
+        let weight = vec![1.0, 1.0, 1.0, 1.0];
+        let bias = vec![0.0, 0.0, 0.0, 0.0];
+        let eps = 1e-5;
+
+        let output = GpuModel::layer_norm_static(&input, &weight, &bias, 4, eps);
+        assert_eq!(output.len(), 4);
+
+        // Verify RMSNorm: each element is x / rms
+        let sum_sq: f32 = input.iter().map(|x| x * x).sum();
+        let rms = (sum_sq / 4.0 + eps).sqrt();
+        for (i, &x) in input.iter().enumerate() {
+            let expected = x / rms;
+            assert!((output[i] - expected).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn test_layer_norm_static_with_weight_bias() {
+        let input = vec![2.0, 2.0, 2.0, 2.0];
+        let weight = vec![2.0, 2.0, 2.0, 2.0];
+        let bias = vec![0.5, 0.5, 0.5, 0.5];
+        let eps = 1e-5;
+
+        let output = GpuModel::layer_norm_static(&input, &weight, &bias, 4, eps);
+
+        // RMS of [2,2,2,2] = sqrt(16/4 + eps) = sqrt(4 + eps) ≈ 2.0
+        // Normalized: 2.0 / 2.0 = 1.0
+        // Scaled: 1.0 * 2.0 + 0.5 = 2.5
+        for &val in &output {
+            assert!((val - 2.5).abs() < 0.01);
+        }
+    }
+
+    #[test]
+    fn test_layer_norm_static_multi_row() {
+        let input = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]; // 2 rows of 4
+        let weight = vec![1.0, 1.0, 1.0, 1.0];
+        let bias = vec![0.0, 0.0, 0.0, 0.0];
+        let eps = 1e-5;
+
+        let output = GpuModel::layer_norm_static(&input, &weight, &bias, 4, eps);
+        assert_eq!(output.len(), 8);
+    }
+
+    #[test]
+    fn test_layer_norm_static_eps_effect() {
+        // Near-zero input tests eps stabilization
+        let input = vec![0.001, 0.001, 0.001, 0.001];
+        let weight = vec![1.0, 1.0, 1.0, 1.0];
+        let bias = vec![0.0, 0.0, 0.0, 0.0];
+
+        let output_small_eps = GpuModel::layer_norm_static(&input, &weight, &bias, 4, 1e-10);
+        let output_large_eps = GpuModel::layer_norm_static(&input, &weight, &bias, 4, 1e-2);
+
+        // Both should produce valid results
+        assert!(output_small_eps.iter().all(|x| x.is_finite()));
+        assert!(output_large_eps.iter().all(|x| x.is_finite()));
+    }
+
+    // ========================================================================
+    // BlockWeights tests
+    // ========================================================================
+
+    #[test]
+    fn test_block_weights_structure() {
+        let block = BlockWeights {
+            attn_norm_weight: vec![1.0; 64],
+            attn_norm_bias: vec![0.0; 64],
+            qkv_weight: vec![0.01; 64 * 192], // hidden_dim * 3*hidden_dim
+            qkv_bias: vec![0.0; 192],
+            out_weight: vec![0.01; 64 * 64],
+            out_bias: vec![0.0; 64],
+            ffn_norm_weight: vec![1.0; 64],
+            ffn_norm_bias: vec![0.0; 64],
+            ffn_fc1_weight: vec![0.01; 64 * 256],
+            ffn_fc1_bias: vec![0.0; 256],
+            ffn_fc2_weight: vec![0.01; 256 * 64],
+            ffn_fc2_bias: vec![0.0; 64],
+            ffn_gate_weight: None,
+        };
+
+        assert_eq!(block.attn_norm_weight.len(), 64);
+        assert!(block.ffn_gate_weight.is_none());
+    }
+
+    #[test]
+    fn test_block_weights_with_swiglu() {
+        let block = BlockWeights {
+            attn_norm_weight: vec![1.0; 64],
+            attn_norm_bias: vec![0.0; 64],
+            qkv_weight: vec![0.01; 64 * 192],
+            qkv_bias: vec![0.0; 192],
+            out_weight: vec![0.01; 64 * 64],
+            out_bias: vec![0.0; 64],
+            ffn_norm_weight: vec![1.0; 64],
+            ffn_norm_bias: vec![0.0; 64],
+            ffn_fc1_weight: vec![0.01; 64 * 256],
+            ffn_fc1_bias: vec![0.0; 256],
+            ffn_fc2_weight: vec![0.01; 256 * 64],
+            ffn_fc2_bias: vec![0.0; 64],
+            ffn_gate_weight: Some(vec![0.01; 64 * 256]), // SwiGLU gate
+        };
+
+        assert!(block.ffn_gate_weight.is_some());
+        assert_eq!(block.ffn_gate_weight.as_ref().unwrap().len(), 64 * 256);
     }
 }

@@ -141,6 +141,7 @@ fn main() {
         temperature: 0.0,
         top_k: 1,
         stop_tokens: vec![],
+        trace: false,
     };
 
     // Sample prompt tokens (The capital of France is)

@@ -43,7 +43,7 @@ mod q4_simd;
 pub use config::{
     AprKVCache, AprTransformerConfig, AprTransformerLayer, GenerateConfig, Q4KLayerWeights,
 };
-use dequant::{dequantize_q4_k_apr, dequantize_q6_k_apr};
+use dequant::{dequantize_q4_k_apr, dequantize_q6_k_apr, dequantize_q8_0_apr, f16_to_f32};
 use helpers::{matmul_q4k_rowmajor, matmul_q6k_rowmajor, simd_add_weighted, simd_dot_f32};
 pub use loader::{
     AprQuantizationType, MmapAprTransformer, QuantizedAprTransformer, APR_TRANSFORMER_HEADER_SIZE,
@@ -240,7 +240,18 @@ impl AprTransformer {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(2048) as usize;
 
+        // PMAT-125: Extract architecture from metadata (was missing, defaulted to "unknown")
+        // Check "architecture" first (APR v2 standard), then "model_type" (fallback)
+        let architecture = metadata
+            .get("architecture")
+            .or_else(|| metadata.get("model_type"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_lowercase)
+            .filter(|s| s != "auto" && !s.is_empty()) // "Auto" is not a valid architecture
+            .unwrap_or_else(|| "unknown".to_string());
+
         let config = AprTransformerConfig {
+            architecture,
             hidden_dim,
             num_layers,
             num_heads,
@@ -250,8 +261,12 @@ impl AprTransformer {
             context_length: max_position,
             rope_theta,
             eps: rms_norm_eps,
-            ..Default::default()
         };
+
+        if std::env::var("REALIZE_DEBUG").is_ok() {
+            eprintln!("[DEBUG] AprTransformerConfig: hidden_dim={}, num_layers={}, num_heads={}, num_kv_heads={}, vocab_size={}, intermediate_dim={}",
+                hidden_dim, num_layers, num_heads, num_kv_heads, vocab_size, intermediate_dim);
+        }
 
         // Parse tensor index
         // APR v2 TensorIndexEntry format:
@@ -350,17 +365,34 @@ impl AprTransformer {
                 }
                 let tensor_data = &data[*offset..end];
 
+                // GH-191 FIX: Match on GGML dtype values written by converter.
+                // Converter now writes GGML types directly: 12=Q4_K, 13=Q5_K, 14=Q6_K, 8=Q8_0
                 match dtype {
-                    // Q4_K: converter dtype=8 or APR v2 native dtype=12
-                    8 | 12 => {
+                    // Q4_K (GGML type 12)
+                    12 => {
                         let num_elements: usize = dims.iter().product();
                         dequantize_q4_k_apr(tensor_data, num_elements)
                     },
-                    // Q6_K: converter dtype=9 or APR v2 native dtype=14
-                    9 | 14 => {
+                    // Q5_K (GGML type 13) - use Q4_K dequant (compatible layout)
+                    13 => {
+                        let num_elements: usize = dims.iter().product();
+                        dequantize_q4_k_apr(tensor_data, num_elements)
+                    },
+                    // Q6_K (GGML type 14)
+                    14 => {
                         let num_elements: usize = dims.iter().product();
                         dequantize_q6_k_apr(tensor_data, num_elements)
                     },
+                    // Q8_0 (GGML type 8): 34 bytes per block (2 f16 scale + 32 i8 quants)
+                    8 => {
+                        let num_elements: usize = dims.iter().product();
+                        dequantize_q8_0_apr(tensor_data, num_elements)
+                    },
+                    // F16 (GGML type 1): convert f16 to f32
+                    1 => tensor_data
+                        .chunks_exact(2)
+                        .map(|c| f16_to_f32(u16::from_le_bytes([c[0], c[1]])))
+                        .collect(),
                     // F32 (dtype=0) or other: interpret as raw F32
                     _ => tensor_data
                         .chunks_exact(4)
@@ -371,16 +403,12 @@ impl AprTransformer {
         };
 
         // PMAT-103 FIX: Helper to get raw Q4K bytes (no dequantization) for fused kernel
-        // Returns None if tensor is not Q4K/Q5K/Q6K format
-        // APR dtype mapping (from GgufToAprQ4KConverter):
-        //   8 = Q4_K (GGML 12) or Q5_K (GGML 13)
-        //   9 = Q6_K (GGML 14)
-        //  10 = Q8_0 (GGML 8)
-        //  12 = Q4_K (APR v2 native)
+        // GH-191 FIX: Use GGML dtype values (converter now writes these directly)
+        //   12 = Q4_K, 13 = Q5_K (treated as Q4_K layout)
         let get_q4k_raw_bytes = |name: &str| -> Option<Vec<u8>> {
             tensors.get(name).and_then(|(offset, size, _dims, dtype)| {
-                // Accept Q4K tensors from either converter dtype (8) or APR v2 native dtype (12)
-                if *dtype != 8 && *dtype != 12 {
+                // Accept Q4_K (GGML 12) or Q5_K (GGML 13)
+                if *dtype != 12 && *dtype != 13 {
                     return None;
                 }
                 let end = offset + size;
@@ -392,10 +420,11 @@ impl AprTransformer {
         };
 
         // PMAT-103 FIX: Also extract Q6K raw bytes for fused kernel
+        // GH-191 FIX: Use GGML dtype value 14 = Q6_K
         let get_q6k_raw_bytes = |name: &str| -> Option<Vec<u8>> {
             tensors.get(name).and_then(|(offset, size, _dims, dtype)| {
-                // Accept Q6K tensors from either converter dtype (9) or APR v2 native dtype (14)
-                if *dtype != 9 && *dtype != 14 {
+                // Accept Q6_K (GGML 14)
+                if *dtype != 14 {
                     return None;
                 }
                 let end = offset + size;
@@ -413,7 +442,9 @@ impl AprTransformer {
             eprintln!("[DEBUG] Available tensor names (first 10):");
             for (i, (name, (offset, size, dims, dtype))) in tensors.iter().enumerate() {
                 if i < 10 {
-                    eprintln!("  {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
+                    eprintln!(
+                        "  {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}"
+                    );
                 }
             }
         }
@@ -444,17 +475,23 @@ impl AprTransformer {
             eprintln!("[DEBUG] is_gguf_model={is_gguf_model}");
         }
 
-        // PMAT-086: Debug - check which embedding tensor names exist
+        // GH-187: Enhanced logging for embedding tensor (ALWAYS log, not just debug)
+        // This class of bug (transposition mismatch) has occurred 50+ times
         let embed_names = [
             "model.embed_tokens.weight",
             "token_embd.weight",
             "tok_embeddings.weight",
         ];
-        if debug_enabled {
-            for name in &embed_names {
-                if let Some((offset, size, dims, dtype)) = tensors.get(*name) {
-                    eprintln!("[DEBUG] Found embedding {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
-                }
+        let mut embed_dims: Option<Vec<usize>> = None;
+        for name in &embed_names {
+            if let Some((_offset, _size, dims, _dtype)) = tensors.get(*name) {
+                embed_dims = Some(dims.clone());
+                // ALWAYS log embedding info - this is critical for debugging
+                eprintln!(
+                    "[APR-LOAD] Embedding tensor '{}': dims={:?}, expected [vocab={}, hidden={}]",
+                    name, dims, vocab_size, hidden_dim
+                );
+                break;
             }
         }
 
@@ -463,84 +500,147 @@ impl AprTransformer {
             .or_else(|| get_f32_tensor("token_embd.weight"))
             .or_else(|| get_f32_tensor("tok_embeddings.weight"))
             .unwrap_or_else(|| {
-                if debug_enabled {
-                    eprintln!("[DEBUG] WARNING: No embedding tensor found! Using zeros.");
-                }
+                eprintln!("[APR-LOAD] WARNING: No embedding tensor found! Using zeros.");
                 vec![0.0; vocab_size * hidden_dim]
             });
 
-        // PMAT-086 FIX: APR stores GGUF data in row-major [vocab_size, hidden_dim] layout
-        // even though the dims metadata says [hidden_dim, vocab_size] (GGML column-major convention)
-        // The data is already correct - DO NOT transpose!
-        let token_embedding = token_embedding_raw;
+        // GH-187 FIX: Detect and fix embedding transposition
+        // GGML stores as [hidden_dim, vocab_size] but embed() needs [vocab_size, hidden_dim]
+        // Check dims to detect if transposition is needed
+        let needs_transpose = if let Some(ref dims) = embed_dims {
+            // If dims[0] == hidden_dim and dims[1] == vocab_size, data is in GGML layout
+            // and needs transposition for embed() to work correctly
+            dims.len() == 2 && dims[0] == hidden_dim && dims[1] == vocab_size
+        } else {
+            false
+        };
 
-        if debug_enabled {
+        let token_embedding = if needs_transpose {
             eprintln!(
-                "[DEBUG] token_embedding loaded: {} elements, first 5: {:?}",
-                token_embedding.len(),
-                &token_embedding[..5.min(token_embedding.len())]
+                "[APR-LOAD] Transposing embedding from GGML [{}x{}] to [{}x{}] layout",
+                hidden_dim, vocab_size, vocab_size, hidden_dim
+            );
+            // Transpose from [hidden_dim, vocab_size] to [vocab_size, hidden_dim]
+            let mut transposed = vec![0.0f32; vocab_size * hidden_dim];
+            for v in 0..vocab_size {
+                for h in 0..hidden_dim {
+                    // Source: row h, col v -> index h * vocab_size + v
+                    // Dest: row v, col h -> index v * hidden_dim + h
+                    let src_idx = h * vocab_size + v;
+                    let dst_idx = v * hidden_dim + h;
+                    if src_idx < token_embedding_raw.len() {
+                        transposed[dst_idx] = token_embedding_raw[src_idx];
+                    }
+                }
+            }
+            transposed
+        } else {
+            eprintln!("[APR-LOAD] Embedding already in correct [vocab, hidden] layout");
+            token_embedding_raw
+        };
+
+        // GH-187: Sanity check - verify embedding produces non-garbage for token 0
+        if token_embedding.len() >= hidden_dim {
+            let first_embed = &token_embedding[0..hidden_dim];
+            let all_zero = first_embed.iter().all(|&x| x == 0.0);
+            let has_nan = first_embed.iter().any(|x| x.is_nan());
+            let has_inf = first_embed.iter().any(|x| x.is_infinite());
+            if all_zero {
+                eprintln!(
+                    "[APR-LOAD] WARNING: Token 0 embedding is all zeros - possible load failure"
+                );
+            }
+            if has_nan || has_inf {
+                eprintln!(
+                    "[APR-LOAD] ERROR: Token 0 embedding contains NaN/Inf - data corruption!"
+                );
+            }
+            eprintln!(
+                "[APR-LOAD] Token 0 embedding sample: [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
+                first_embed[0],
+                first_embed.get(1).unwrap_or(&0.0),
+                first_embed.get(2).unwrap_or(&0.0),
+                first_embed.get(3).unwrap_or(&0.0),
+                first_embed.get(4).unwrap_or(&0.0)
             );
         }
+
+        // Log total embedding size (always, for diagnostics)
+        eprintln!(
+            "[APR-LOAD] Embedding loaded: {} elements (vocab={} x hidden={})",
+            token_embedding.len(),
+            vocab_size,
+            hidden_dim
+        );
 
         // Load output norm
         let output_norm_weight = get_f32_tensor("model.norm.weight")
             .or_else(|| get_f32_tensor("output_norm.weight"))
             .unwrap_or_else(|| vec![1.0; hidden_dim]);
 
-        // Debug: check output.weight / lm_head.weight
-        if debug_enabled {
-            for name in &["output.weight", "lm_head.weight"] {
-                if let Some((offset, size, dims, dtype)) = tensors.get(*name) {
-                    eprintln!("[DEBUG] Found lm_head {name}: offset={offset}, size={size}, dims={dims:?}, dtype={dtype}");
-                }
+        // GH-187: Enhanced logging for lm_head tensor
+        for name in &["lm_head.weight", "output.weight"] {
+            if let Some((_offset, _size, dims, dtype)) = tensors.get(*name) {
+                eprintln!(
+                    "[APR-LOAD] LM head tensor '{}': dims={:?}, dtype={}, expected [vocab={}, hidden={}]",
+                    name, dims, dtype, vocab_size, hidden_dim
+                );
+                break;
             }
         }
 
         // Load LM head
         // For tied embeddings (common in Qwen, LLaMA models), use embed_tokens as fallback
-        let lm_head_raw = get_f32_tensor("lm_head.weight")
-            .or_else(|| get_f32_tensor("output.weight"));
+        let lm_head_raw =
+            get_f32_tensor("lm_head.weight").or_else(|| get_f32_tensor("output.weight"));
         let (lm_head_raw, used_tied_weights) = if let Some(lm_head) = lm_head_raw {
             (lm_head, false)
         } else {
             // Weight tying: use embedding weights for lm_head
+            eprintln!("[APR-LOAD] No lm_head found, using tied embedding weights");
             let tied = get_f32_tensor("model.embed_tokens.weight")
                 .or_else(|| get_f32_tensor("token_embd.weight"));
             if let Some(t) = tied {
                 (t, true)
             } else {
+                eprintln!("[APR-LOAD] WARNING: No lm_head tensor found! Using zeros.");
                 (vec![0.0; hidden_dim * vocab_size], false)
             }
         };
-        if debug_enabled {
-            if used_tied_weights {
-                eprintln!("[DEBUG] Using tied weights: embedding -> lm_head");
-            }
-            if lm_head_raw.iter().all(|&x| x == 0.0) {
-                eprintln!("[DEBUG] WARNING: No lm_head tensor found! Using zeros.");
-            }
-            eprintln!(
-                "[DEBUG] lm_head_raw: {} elements, first 5: {:?}",
-                lm_head_raw.len(),
-                &lm_head_raw[..5.min(lm_head_raw.len())]
-            );
+        if used_tied_weights {
+            eprintln!("[APR-LOAD] Using tied weights: embedding -> lm_head");
         }
-        // PMAT-086 FIX: APR stores GGUF data in row-major [vocab_size, hidden_dim] layout
-        // even though the dims metadata says [hidden_dim, vocab_size] (GGML column-major convention)
-        // The data is already correct - DO NOT transpose!
+
+        // GH-187: lm_head is used for matmul (not lookup), so GGML layout is correct
+        // lm_head: y = x @ W where W is [hidden_dim, vocab_size] in GGML convention
+        // This matches fused_q4k_parallel_matvec(weights, x, in_dim=hidden, out_dim=vocab)
+        // NO transposition needed for lm_head (unlike embedding)
         let lm_head_weight = lm_head_raw;
+        eprintln!(
+            "[APR-LOAD] LM head loaded: {} elements (hidden={} x vocab={})",
+            lm_head_weight.len(),
+            hidden_dim,
+            vocab_size
+        );
 
         // PMAT-103: Load lm_head Q4K/Q6K raw bytes for fused kernel inference
         let lm_head_weight_q4k =
             get_q4k_raw_bytes("lm_head.weight").or_else(|| get_q4k_raw_bytes("output.weight"));
         let lm_head_weight_q6k =
             get_q6k_raw_bytes("lm_head.weight").or_else(|| get_q6k_raw_bytes("output.weight"));
-        if debug_enabled {
-            if lm_head_weight_q4k.is_some() {
-                eprintln!("[DEBUG] Loaded lm_head Q4K raw bytes for fused kernel");
-            } else if lm_head_weight_q6k.is_some() {
-                eprintln!("[DEBUG] Loaded lm_head Q6K raw bytes for fused kernel");
-            }
+        // GH-187: Always log quantization path for lm_head
+        if let Some(ref bytes) = lm_head_weight_q4k {
+            eprintln!(
+                "[APR-LOAD] LM head using Q4K fused kernel ({} bytes)",
+                bytes.len()
+            );
+        } else if let Some(ref bytes) = lm_head_weight_q6k {
+            eprintln!(
+                "[APR-LOAD] LM head using Q6K fused kernel ({} bytes)",
+                bytes.len()
+            );
+        } else {
+            eprintln!("[APR-LOAD] LM head using F32 matmul (no Q4K/Q6K found)");
         }
 
         // Compute KV dimension from config
@@ -597,23 +697,32 @@ impl AprTransformer {
             };
 
             // Get Q/K/V biases (optional, for Qwen models)
-            let q_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.q_proj.bias"))
-                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_q.bias")));
-            let k_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.k_proj.bias"))
-                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_k.bias")));
-            let v_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.v_proj.bias"))
-                .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_v.bias")));
+            // PMAT-114 FIX: Also check for fused QKV bias from APR converter
+            let qkv_bias = if let Some(fused_bias) =
+                get_f32_tensor(&format!("{hf_prefix}.self_attn.qkv_proj.bias"))
+            {
+                // Fused QKV bias from APR converter - use directly
+                Some(fused_bias)
+            } else {
+                // Try separate Q/K/V biases
+                let q_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.q_proj.bias"))
+                    .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_q.bias")));
+                let k_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.k_proj.bias"))
+                    .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_k.bias")));
+                let v_bias = get_f32_tensor(&format!("{hf_prefix}.self_attn.v_proj.bias"))
+                    .or_else(|| get_f32_tensor(&format!("{gguf_prefix}.attn_v.bias")));
 
-            // Combine biases if present
-            let qkv_bias = match (&q_bias, &k_bias, &v_bias) {
-                (Some(q), Some(k), Some(v)) => {
-                    let mut bias = Vec::with_capacity(qkv_out_dim);
-                    bias.extend_from_slice(q);
-                    bias.extend_from_slice(k);
-                    bias.extend_from_slice(v);
-                    Some(bias)
-                },
-                _ => None,
+                // Combine biases if present
+                match (&q_bias, &k_bias, &v_bias) {
+                    (Some(q), Some(k), Some(v)) => {
+                        let mut bias = Vec::with_capacity(qkv_out_dim);
+                        bias.extend_from_slice(q);
+                        bias.extend_from_slice(k);
+                        bias.extend_from_slice(v);
+                        Some(bias)
+                    },
+                    _ => None,
+                }
             };
 
             // PMAT-086 FIX: Both HF and GGUF data are in [out_dim, in_dim] layout - no transpose needed
@@ -814,14 +923,31 @@ impl AprTransformer {
     #[must_use]
     pub fn embed(&self, token_ids: &[u32]) -> Vec<f32> {
         let hidden_dim = self.config.hidden_dim;
+        let debug = std::env::var("REALIZE_DEBUG").is_ok();
         let mut embeddings = Vec::with_capacity(token_ids.len() * hidden_dim);
 
         for &token_id in token_ids {
             let offset = (token_id as usize) * hidden_dim;
             if offset + hidden_dim <= self.token_embedding.len() {
+                if debug && token_id < 10 {
+                    eprintln!(
+                        "[DEBUG] embed token {}: offset={}, first 5: {:?}",
+                        token_id,
+                        offset,
+                        &self.token_embedding[offset..offset + 5.min(hidden_dim)]
+                    );
+                }
                 embeddings.extend_from_slice(&self.token_embedding[offset..offset + hidden_dim]);
             } else {
                 // Out of vocab - return zeros
+                if debug {
+                    eprintln!(
+                        "[DEBUG] embed token {}: OUT OF VOCAB (offset {} > {})",
+                        token_id,
+                        offset,
+                        self.token_embedding.len()
+                    );
+                }
                 embeddings.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }
@@ -1170,7 +1296,7 @@ impl AprTransformer {
                 for s in 0..seq_len {
                     let input_slice = &attn_out[s * hidden_dim..(s + 1) * hidden_dim];
                     let pos_out =
-                        matmul_q4k_rowmajor(q4k_bytes, input_slice, hidden_dim, hidden_dim);
+                        matmul_q4k_rowmajor(q4k_bytes, input_slice, hidden_dim, hidden_dim)?;
                     output.extend(pos_out);
                 }
                 output
@@ -1204,7 +1330,7 @@ impl AprTransformer {
             // 2g. FFN projection (SwiGLU or standard GELU)
             // PMAT-103: Use Q4K fused kernel when available for FFN
             let seq_len = token_ids.len();
-            let ffn_output = if let Some(ref _gate_weight) = layer.ffn_gate_weight {
+            let ffn_output = if let Some(ref gate_weight) = layer.ffn_gate_weight {
                 // SwiGLU: down(SiLU(gate(x)) * up(x))
                 // PMAT-103: Check for Q4K gate weight
                 let gate =
@@ -1222,17 +1348,13 @@ impl AprTransformer {
                                 input_slice,
                                 intermediate_dim,
                                 hidden_dim,
-                            );
+                            )?;
                             output.extend(pos_out);
                         }
                         output
                     } else {
-                        self.matmul(
-                            &ffn_input,
-                            layer.ffn_gate_weight.as_ref().expect("gate weight"),
-                            hidden_dim,
-                            intermediate_dim,
-                        )
+                        // AUDIT-301: Use already-bound _gate_weight instead of expect()
+                        self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim)
                     };
 
                 // PMAT-103: Check for Q4K up weight
@@ -1250,7 +1372,7 @@ impl AprTransformer {
                             input_slice,
                             intermediate_dim,
                             hidden_dim,
-                        );
+                        )?;
                         output.extend(pos_out);
                     }
                     output
@@ -1289,7 +1411,7 @@ impl AprTransformer {
                             input_slice,
                             hidden_dim,
                             intermediate_dim,
-                        );
+                        )?;
                         output.extend(pos_out);
                     }
                     output
@@ -1308,7 +1430,7 @@ impl AprTransformer {
                             input_slice,
                             hidden_dim,
                             intermediate_dim,
-                        );
+                        )?;
                         output.extend(pos_out);
                     }
                     output
@@ -1342,7 +1464,7 @@ impl AprTransformer {
                                 input_slice,
                                 intermediate_dim,
                                 hidden_dim,
-                            );
+                            )?;
                             output.extend(pos_out);
                         }
                         output
@@ -1371,7 +1493,7 @@ impl AprTransformer {
                                 input_slice,
                                 hidden_dim,
                                 intermediate_dim,
-                            );
+                            )?;
                             output.extend(pos_out);
                         }
                         output
@@ -1495,6 +1617,14 @@ impl AprTransformer {
                 self.config.eps,
             );
 
+            // F-REGR-231: Debug normed input
+            if trace_enabled && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[TRACE-CACHE] Layer 0: normed[0..5] = {:?}",
+                    &normed[..5.min(normed.len())]
+                );
+            }
+
             // 2b. QKV projection (single token)
             // PMAT-103: Use fused Q4K kernels for separate Q, K, V weights when available
             let kv_size = num_kv_heads * head_dim;
@@ -1504,7 +1634,7 @@ impl AprTransformer {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: Q projection using Q4K fused kernel");
                     }
-                    matmul_q4k_rowmajor(q_bytes, &normed, hidden_dim, hidden_dim)
+                    matmul_q4k_rowmajor(q_bytes, &normed, hidden_dim, hidden_dim)?
                 } else {
                     // Fallback to F32 for Q (should not happen for GGUF models)
                     let q_weight = &layer.qkv_weight[0..hidden_dim * hidden_dim];
@@ -1515,7 +1645,7 @@ impl AprTransformer {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: K projection using Q4K fused kernel");
                     }
-                    matmul_q4k_rowmajor(k_bytes, &normed, kv_size, hidden_dim)
+                    matmul_q4k_rowmajor(k_bytes, &normed, kv_size, hidden_dim)?
                 } else {
                     let k_start = hidden_dim * hidden_dim;
                     let k_weight = &layer.qkv_weight[k_start..k_start + kv_size * hidden_dim];
@@ -1527,12 +1657,12 @@ impl AprTransformer {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: V projection using Q4K fused kernel");
                     }
-                    matmul_q4k_rowmajor(v_bytes, &normed, kv_size, hidden_dim)
+                    matmul_q4k_rowmajor(v_bytes, &normed, kv_size, hidden_dim)?
                 } else if let Some(ref v_bytes) = q4k.attn_v_weight_q6k {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: V projection using Q6K fused kernel");
                     }
-                    matmul_q6k_rowmajor(v_bytes, &normed, kv_size, hidden_dim)
+                    matmul_q6k_rowmajor(v_bytes, &normed, kv_size, hidden_dim)?
                 } else {
                     let v_start = hidden_dim * hidden_dim + kv_size * hidden_dim;
                     let v_weight = &layer.qkv_weight[v_start..v_start + kv_size * hidden_dim];
@@ -1580,64 +1710,125 @@ impl AprTransformer {
             }
             let v = v_mut;
 
+            // F-REGR-231: Debug K after bias
+            if trace_enabled && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[TRACE-CACHE] Layer 0: K after bias[0..5] = {:?}",
+                    &k[..5.min(k.len())]
+                );
+                eprintln!(
+                    "[TRACE-CACHE] Layer 0: V after bias[0..5] = {:?}",
+                    &v[..5.min(v.len())]
+                );
+            }
+
             // PMAT-103: Apply RoPE to Q and K at current position
             // This was missing, causing garbage output
             self.apply_rope_f32(&mut q, position, num_heads, head_dim);
             self.apply_rope_f32(&mut k, position, num_kv_heads, head_dim);
+
+            // F-REGR-231: Debug K after RoPE
+            if trace_enabled && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[TRACE-CACHE] Layer 0: K after RoPE[0..5] = {:?}",
+                    &k[..5.min(k.len())]
+                );
+            }
 
             // 2c. Append K, V to cache (K now has RoPE applied)
             cache.append(layer_idx, &k, &v);
 
             // 2d. Compute attention with full cache
             let (k_cache, v_cache) = cache.get(layer_idx);
-            let seq_len = cache.len();
+            let cache_len = cache.len();
 
-            // Simplified attention: compute Q·K^T / sqrt(d), softmax, then V
-            let mut attn_out = vec![0.0f32; hidden_dim];
+            // F-REGR-231 FIX: Handle first token specially
+            // When cache is empty (cache_len = 0), we just appended K/V but len isn't incremented yet.
+            // For the first token, attention(single token) = V directly (since softmax of one score = 1.0).
+            let attn_out = if cache_len == 0 {
+                // First token: just use V directly (expanded via GQA)
+                let group_size = num_heads / num_kv_heads;
+                (0..num_heads)
+                    .flat_map(|h| {
+                        let kv_head = h / group_size;
+                        let start = kv_head * head_dim;
+                        v[start..start + head_dim].iter().copied()
+                    })
+                    .collect()
+            } else {
+                // Subsequent tokens: use full attention with cache + current K/V
+                let mut attn_out = vec![0.0f32; hidden_dim];
+                let scale = 1.0 / (head_dim as f32).sqrt();
 
-            // PMAT-103: SIMD-accelerated attention computation
-            let scale = 1.0 / (head_dim as f32).sqrt();
+                // seq_len includes cached positions plus current position
+                let seq_len = cache_len + 1;
 
-            for h in 0..num_heads {
-                let kv_head = h * num_kv_heads / num_heads; // GQA mapping
-                let q_start = h * head_dim;
-                let q_slice = &q[q_start..q_start + head_dim]; // q is now Vec with RoPE applied
+                for h in 0..num_heads {
+                    let kv_head = h * num_kv_heads / num_heads; // GQA mapping
+                    let q_start = h * head_dim;
+                    let q_slice = &q[q_start..q_start + head_dim];
 
-                // Compute attention scores with SIMD dot product
-                let mut scores = Vec::with_capacity(seq_len);
-                for pos in 0..seq_len {
-                    let k_start = pos * kv_size + kv_head * head_dim;
-                    let k_slice = &k_cache[k_start..k_start + head_dim];
-                    // SIMD dot product (AVX2 when available)
+                    // Compute attention scores with SIMD dot product
+                    let mut scores = Vec::with_capacity(seq_len);
+
+                    // Scores for cached positions
+                    for pos in 0..cache_len {
+                        let k_start = pos * kv_size + kv_head * head_dim;
+                        let k_slice = &k_cache[k_start..k_start + head_dim];
+                        let dot = simd_dot_f32(q_slice, k_slice);
+                        scores.push(dot * scale);
+                    }
+
+                    // Score for current position (using current K)
+                    let k_start = kv_head * head_dim;
+                    let k_slice = &k[k_start..k_start + head_dim];
                     let dot = simd_dot_f32(q_slice, k_slice);
                     scores.push(dot * scale);
-                }
 
-                // Causal mask: only attend to positions <= current
-                for pos in (position + 1)..seq_len {
-                    scores[pos] = f32::NEG_INFINITY;
-                }
-
-                // Softmax (scalar - typically small seq_len during decode)
-                let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                let mut exp_scores: Vec<f32> =
-                    scores.iter().map(|s| (s - max_score).exp()).collect();
-                let sum: f32 = exp_scores.iter().sum();
-                if sum > 0.0 {
-                    let inv_sum = 1.0 / sum;
-                    for s in &mut exp_scores {
-                        *s *= inv_sum;
+                    // Causal mask: only attend to positions <= current
+                    for pos in (position + 1)..seq_len {
+                        scores[pos] = f32::NEG_INFINITY;
                     }
+
+                    // Softmax
+                    let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    let mut exp_scores: Vec<f32> =
+                        scores.iter().map(|s| (s - max_score).exp()).collect();
+                    let sum: f32 = exp_scores.iter().sum();
+                    if sum > 0.0 {
+                        let inv_sum = 1.0 / sum;
+                        for s in &mut exp_scores {
+                            *s *= inv_sum;
+                        }
+                    }
+
+                    // Weighted sum of V
+                    let attn_out_head = &mut attn_out[q_start..q_start + head_dim];
+
+                    // From cached positions
+                    for pos in 0..cache_len {
+                        let v_start = pos * kv_size + kv_head * head_dim;
+                        let v_slice = &v_cache[v_start..v_start + head_dim];
+                        simd_add_weighted(attn_out_head, v_slice, exp_scores[pos]);
+                    }
+
+                    // From current position (using current V)
+                    let v_start = kv_head * head_dim;
+                    let v_slice = &v[v_start..v_start + head_dim];
+                    simd_add_weighted(attn_out_head, v_slice, exp_scores[cache_len]);
                 }
 
-                // Weighted sum of V with SIMD accumulation
-                let attn_out_head = &mut attn_out[q_start..q_start + head_dim];
-                for pos in 0..seq_len {
-                    let v_start = pos * kv_size + kv_head * head_dim;
-                    let v_slice = &v_cache[v_start..v_start + head_dim];
-                    // SIMD weighted accumulation (AVX2 when available)
-                    simd_add_weighted(attn_out_head, v_slice, exp_scores[pos]);
-                }
+                attn_out
+            };
+
+            // F-REGR-231: Debug attn_out before projection
+            if trace_enabled && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[TRACE-CACHE] Layer 0: attn_out[0..5] = {:?} (before output projection)",
+                    &attn_out[..5.min(attn_out.len())]
+                );
+                let attn_out_sum: f32 = attn_out.iter().sum();
+                eprintln!("[TRACE-CACHE] Layer 0: attn_out sum = {:.4}", attn_out_sum);
             }
 
             // 2e. Attention output projection
@@ -1647,7 +1838,7 @@ impl AprTransformer {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: attn_output using Q4K fused kernel");
                     }
-                    matmul_q4k_rowmajor(q4k_bytes, &attn_out, hidden_dim, hidden_dim)
+                    matmul_q4k_rowmajor(q4k_bytes, &attn_out, hidden_dim, hidden_dim)?
                 } else {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: attn_output using F32 fallback (slow!)");
@@ -1664,9 +1855,25 @@ impl AprTransformer {
                 self.add_bias(&mut attn_output, bias);
             }
 
+            // F-REGR-231: Debug attn_output after projection
+            if trace_enabled && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[TRACE-CACHE] Layer 0: attn_output[0..5] = {:?} (after output projection)",
+                    &attn_output[..5.min(attn_output.len())]
+                );
+            }
+
             // 2f. Residual connection
             for i in 0..hidden.len() {
                 hidden[i] += attn_output[i];
+            }
+
+            // F-REGR-231: Debug hidden after attention
+            if trace_enabled && layer_idx == 0 && position == 0 {
+                eprintln!(
+                    "[TRACE-CACHE] Layer 0: hidden_after_attn[0..5] = {:?}",
+                    &hidden[..5.min(hidden.len())]
+                );
             }
 
             // 2g. Apply FFN norm if present (post_attention_layernorm)
@@ -1684,7 +1891,7 @@ impl AprTransformer {
             // 2h. FFN projection (SwiGLU or standard GELU)
             // PMAT-103 FIX: Use Q4K/Q6K fused kernels when available (single token path)
             let intermediate_dim = self.config.intermediate_dim;
-            let ffn_output = if let Some(ref _gate_weight) = layer.ffn_gate_weight {
+            let ffn_output = if let Some(ref gate_weight) = layer.ffn_gate_weight {
                 // SwiGLU: down(SiLU(gate(x)) * up(x))
                 // PMAT-103: Check for Q4K gate weight
                 let gate = if !force_f32 {
@@ -1692,28 +1899,20 @@ impl AprTransformer {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using Q4K fused kernel");
                         }
-                        matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)
+                        matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)?
                     } else {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using F32 fallback (slow!)");
                         }
-                        self.matmul(
-                            &ffn_input,
-                            layer.ffn_gate_weight.as_ref().expect("gate weight"),
-                            hidden_dim,
-                            intermediate_dim,
-                        )
+                        // AUDIT-301: Use already-bound _gate_weight instead of expect()
+                        self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim)
                     }
                 } else {
                     if trace_enabled && layer_idx == 0 && position == 0 {
                         eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using F32 (APR_FORCE_F32)");
                     }
-                    self.matmul(
-                        &ffn_input,
-                        layer.ffn_gate_weight.as_ref().expect("gate weight"),
-                        hidden_dim,
-                        intermediate_dim,
-                    )
+                    // AUDIT-301: Use already-bound _gate_weight instead of expect()
+                    self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim)
                 };
 
                 // PMAT-103: Check for Q4K/Q6K up weight
@@ -1722,14 +1921,14 @@ impl AprTransformer {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_up using Q4K fused kernel");
                         }
-                        matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)
+                        matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)?
                     } else if let Some(q6k_bytes) =
                         q4k_layer.and_then(|q| q.ffn_up_weight_q6k.as_ref())
                     {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_up using Q6K fused kernel");
                         }
-                        matmul_q6k_rowmajor(q6k_bytes, &ffn_input, intermediate_dim, hidden_dim)
+                        matmul_q6k_rowmajor(q6k_bytes, &ffn_input, intermediate_dim, hidden_dim)?
                     } else {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_up using F32 fallback (slow!)");
@@ -1766,14 +1965,14 @@ impl AprTransformer {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_down using Q4K fused kernel");
                         }
-                        matmul_q4k_rowmajor(q4k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)
+                        matmul_q4k_rowmajor(q4k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)?
                     } else if let Some(q6k_bytes) =
                         q4k_layer.and_then(|q| q.ffn_down_weight_q6k.as_ref())
                     {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_down using Q6K fused kernel");
                         }
-                        matmul_q6k_rowmajor(q6k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)
+                        matmul_q6k_rowmajor(q6k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)?
                     } else {
                         if trace_enabled && layer_idx == 0 && position == 0 {
                             eprintln!("[TRACE-CACHE] Layer 0: ffn_down using F32 fallback (slow!)");
@@ -1805,7 +2004,7 @@ impl AprTransformer {
                 // PMAT-103: Check for Q4K up weight
                 let mut ffn_hidden =
                     if let Some(q4k_bytes) = q4k_layer.and_then(|q| q.ffn_up_weight.as_ref()) {
-                        matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)
+                        matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)?
                     } else {
                         self.matmul(
                             &ffn_input,
@@ -1822,7 +2021,7 @@ impl AprTransformer {
                 // PMAT-103: Check for Q4K down weight
                 let mut out =
                     if let Some(q4k_bytes) = q4k_layer.and_then(|q| q.ffn_down_weight.as_ref()) {
-                        matmul_q4k_rowmajor(q4k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)
+                        matmul_q4k_rowmajor(q4k_bytes, &ffn_hidden, hidden_dim, intermediate_dim)?
                     } else {
                         self.matmul(
                             &ffn_hidden,
@@ -1841,6 +2040,15 @@ impl AprTransformer {
             for i in 0..hidden.len() {
                 hidden[i] += ffn_output[i];
             }
+
+            // F-REGR-231: Debug hidden state after each layer
+            if trace_enabled && layer_idx < 2 && position == 0 {
+                eprintln!(
+                    "[TRACE-CACHE] After layer {}: hidden[0..5] = {:?}",
+                    layer_idx,
+                    &hidden[..5.min(hidden.len())]
+                );
+            }
         }
         if trace_enabled {
             eprintln!(
@@ -1850,6 +2058,9 @@ impl AprTransformer {
                 layers_start.elapsed()
             );
         }
+
+        // NOTE: No advance() needed here - append() auto-advances on the last layer
+        // (see F-REGR-231 fix in config.rs)
 
         // 3. Final layer norm
         let normed = self.layer_norm(
@@ -1867,10 +2078,10 @@ impl AprTransformer {
                 if trace_enabled {
                     eprintln!("[TRACE-CACHE] lm_head using Q4K fused kernel");
                 }
-                matmul_q4k_rowmajor(q4k_bytes, &normed, self.config.vocab_size, hidden_dim)
+                matmul_q4k_rowmajor(q4k_bytes, &normed, self.config.vocab_size, hidden_dim)?
             } else if let Some(ref q6k_bytes) = self.lm_head_weight_q6k {
                 let result =
-                    matmul_q6k_rowmajor(q6k_bytes, &normed, self.config.vocab_size, hidden_dim);
+                    matmul_q6k_rowmajor(q6k_bytes, &normed, self.config.vocab_size, hidden_dim)?;
                 if trace_enabled {
                     eprintln!("[TRACE-CACHE] lm_head Q6K took {:?}", lm_start.elapsed());
                 }

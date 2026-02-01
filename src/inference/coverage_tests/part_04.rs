@@ -117,7 +117,7 @@ fn test_thread_config_default_multiple_calls() {
 #[test]
 fn test_thread_config_explicit_clone() {
     let config = ThreadConfig::new(32, 16);
-    let cloned = config.clone();
+    let cloned = config;
 
     assert_eq!(config.n_threads_batch, cloned.n_threads_batch);
     assert_eq!(config.n_threads_decode, cloned.n_threads_decode);
@@ -136,7 +136,7 @@ fn test_thread_config_copy_semantics() {
 #[test]
 fn test_thread_config_clone_and_modify_independence() {
     let config = ThreadConfig::new(20, 10);
-    let cloned = config.clone();
+    let cloned = config;
 
     // Since ThreadConfig has pub fields, verify clone is independent
     assert_eq!(config.n_threads_batch, cloned.n_threads_batch);
@@ -222,7 +222,7 @@ fn test_inference_mode_copy_trait() {
 #[test]
 fn test_inference_mode_clone_trait() {
     let mode = InferenceMode::Decode;
-    let cloned = mode.clone();
+    let cloned = mode;
     assert_eq!(mode, cloned);
 }
 

@@ -1,5 +1,4 @@
 use crate::quantize::*;
-use crate::quantize::*;
 
 #[test]
 fn test_dequantize_q4_0_single_block() {

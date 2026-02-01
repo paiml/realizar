@@ -177,4 +177,153 @@ mod tests {
         assert_eq!(model.layers.len(), 1);
         assert_eq!(model.token_embedding.len(), 100 * 64);
     }
+
+    #[test]
+    fn test_create_q4k_test_data_small_input() {
+        // Less than 256 still needs 1 super-block
+        let tensor = create_q4k_test_data(64, 16);
+        assert_eq!(tensor.in_dim, 64);
+        assert_eq!(tensor.out_dim, 16);
+        // ceil(64/256) = 1 super-block per row
+        assert_eq!(tensor.data.len(), 16 * 144);
+    }
+
+    #[test]
+    fn test_create_q4k_test_data_large_dimensions() {
+        let tensor = create_q4k_test_data(1024, 128);
+        assert_eq!(tensor.in_dim, 1024);
+        assert_eq!(tensor.out_dim, 128);
+        // ceil(1024/256) = 4 super-blocks per row
+        assert_eq!(tensor.data.len(), 128 * 4 * 144);
+    }
+
+    #[test]
+    fn test_create_q4k_test_data_d_value() {
+        // Check that d=1.0 is properly encoded in f16
+        let tensor = create_q4k_test_data(256, 1);
+        // First 2 bytes of first super-block should be 0x3C00 (1.0 in f16)
+        assert_eq!(tensor.data[0], 0x00);
+        assert_eq!(tensor.data[1], 0x3C);
+    }
+
+    #[test]
+    fn test_create_q4k_test_data_dmin_value() {
+        // Check that dmin=0 is properly encoded
+        let tensor = create_q4k_test_data(256, 1);
+        // Bytes 2-3 of first super-block should be 0x0000
+        assert_eq!(tensor.data[2], 0x00);
+        assert_eq!(tensor.data[3], 0x00);
+    }
+
+    #[test]
+    fn test_create_test_model_with_config_gqa() {
+        // Test with GQA (different num_heads and num_kv_heads)
+        let config = GGUFConfig {
+            architecture: "gqa_test".to_string(),
+            hidden_dim: 128,
+            intermediate_dim: 256,
+            num_heads: 8,
+            num_kv_heads: 2, // GQA: 4 Q heads per KV head
+            num_layers: 1,
+            vocab_size: 100,
+            rope_theta: 10000.0,
+            context_length: 512,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+
+        let model = create_test_model_with_config(&config);
+        assert_eq!(model.config.num_heads, 8);
+        assert_eq!(model.config.num_kv_heads, 2);
+    }
+
+    #[test]
+    fn test_create_test_model_output_norm() {
+        let config = GGUFConfig {
+            architecture: "test".to_string(),
+            hidden_dim: 32,
+            intermediate_dim: 64,
+            num_heads: 2,
+            num_kv_heads: 2,
+            num_layers: 1,
+            vocab_size: 50,
+            rope_theta: 10000.0,
+            context_length: 256,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+
+        let model = create_test_model_with_config(&config);
+        assert_eq!(model.output_norm_weight.len(), 32);
+        // Output norm should be initialized to 1.0
+        assert!(model
+            .output_norm_weight
+            .iter()
+            .all(|&w| (w - 1.0).abs() < f32::EPSILON));
+    }
+
+    #[test]
+    fn test_create_test_model_lm_head() {
+        let config = GGUFConfig {
+            architecture: "test".to_string(),
+            hidden_dim: 64,
+            intermediate_dim: 128,
+            num_heads: 4,
+            num_kv_heads: 4,
+            num_layers: 1,
+            vocab_size: 100,
+            rope_theta: 10000.0,
+            context_length: 512,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+
+        let model = create_test_model_with_config(&config);
+        // LM head maps hidden_dim -> vocab_size
+        assert_eq!(model.lm_head_weight.in_dim, 64);
+        assert_eq!(model.lm_head_weight.out_dim, 100);
+    }
+
+    #[test]
+    fn test_create_test_model_layer_attn_norm() {
+        let config = GGUFConfig {
+            architecture: "test".to_string(),
+            hidden_dim: 48,
+            intermediate_dim: 96,
+            num_heads: 3,
+            num_kv_heads: 3,
+            num_layers: 1,
+            vocab_size: 50,
+            rope_theta: 10000.0,
+            context_length: 256,
+            eps: 1e-5,
+            rope_type: 0,
+        };
+
+        let model = create_test_model_with_config(&config);
+        assert_eq!(model.layers[0].attn_norm_weight.len(), 48);
+        // Attention norm should be initialized to 1.0
+        assert!(model.layers[0]
+            .attn_norm_weight
+            .iter()
+            .all(|&w| (w - 1.0).abs() < f32::EPSILON));
+    }
+
+    #[test]
+    fn test_create_q4k_test_data_boundary() {
+        // Test exactly at super-block boundary (256)
+        let tensor = create_q4k_test_data(256, 1);
+        assert_eq!(tensor.in_dim, 256);
+        let expected_size = 144; // 1 row * 1 super-block * 144 bytes
+        assert_eq!(tensor.data.len(), expected_size);
+    }
+
+    #[test]
+    fn test_create_q4k_test_data_just_over_boundary() {
+        // Test just over super-block boundary (257 needs 2 super-blocks)
+        let tensor = create_q4k_test_data(257, 1);
+        assert_eq!(tensor.in_dim, 257);
+        let expected_size = 2 * 144; // 1 row * 2 super-blocks * 144 bytes
+        assert_eq!(tensor.data.len(), expected_size);
+    }
 }

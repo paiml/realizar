@@ -12,6 +12,8 @@
 //! cargo test --test phase21_trace_divergence --features "cuda trace" -- --nocapture
 //! ```
 
+#![allow(unused_variables)]
+
 #[cfg(all(test, feature = "cuda"))]
 mod tests {
     use realizar::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
@@ -424,7 +426,7 @@ mod tests {
         eprintln!("  CPU embedding L2: {:.6}", cpu_embed_l2);
 
         // Create GPU model
-        let mut gpu_model = AprF32ToGpuAdapter::to_gpu_model(&apr_model).unwrap();
+        let gpu_model = AprF32ToGpuAdapter::to_gpu_model(&apr_model).unwrap();
 
         // Key insight: The GPU forward_gpu uses forward_block_idx
         // which does QKV projection differently from APR forward
@@ -474,7 +476,7 @@ mod tests {
         );
         eprintln!("  This implies APR matmul does: input @ W where W is read as [hidden, qkv_out]");
         eprintln!("  But W is stored as [qkv_out, hidden], so APR must be transposing internally");
-        eprintln!("");
+        eprintln!();
         eprintln!("  GPU adapter transposes: [qkv_out, hidden] -> [hidden, qkv_out]");
         eprintln!("  GPU matmul does: input @ W where W is [hidden, qkv_out]");
         eprintln!("  This should match... unless the transpose is wrong or dimensions mismatch");

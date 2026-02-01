@@ -2,6 +2,7 @@
 //!
 //! Computes attention manually using the same Q, K, V values to verify
 //! what the correct output should be.
+#![allow(unused_variables, clippy::needless_range_loop)]
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Values from debug output at position 1, layer 0
@@ -88,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Analysis ===");
     println!("GPU output[4] = -0.737 ≈ V0[4] = -0.735 → GPU softmax weight0 ≈ 1.0");
     println!("CPU output[4] = -0.0015 → CPU softmax weight0 much smaller");
-    println!("");
+    println!();
     println!("This suggests GPU is computing score0 >> score1, while CPU computes score0 ≈ score1");
     println!("The bug might be in how the GPU computes or reads K values.");
 

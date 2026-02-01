@@ -476,6 +476,7 @@ fn test_cov_quantized_generate_config_custom() {
         temperature: 0.7,
         top_k: 20,
         stop_tokens: vec![1, 2, 3],
+        trace: false,
     };
 
     assert_eq!(config.max_tokens, 50);

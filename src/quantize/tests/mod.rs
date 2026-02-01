@@ -2,7 +2,8 @@ mod part_01;
 mod part_02;
 mod part_03;
 mod part_04;
-mod part_05;
+mod part_05a;
+mod part_05b;
 mod part_06;
 mod part_07;
 mod part_08; // Phase 36: Fused K-quantization math kernel tests (proptest)
@@ -21,3 +22,11 @@ mod part_21; // Phase 46: Comprehensive activation.rs coverage
 mod part_23; // Additional SIMD coverage: f16 subnormal, extract_scale_min odd idx, horizontal sums, AVX2 RoPE
 mod part_24; // Comprehensive coverage for quantize/mod.rs functions (f16 LUT, Q8K into, InterleavedQ4K, fused matvec)
 mod part_25; // Popperian SIMD Falsification: performance tests, SIMD/scalar parity, path verification
+mod part_26; // T-COV-001: Error path and edge case coverage tests
+mod part_27; // T-COV-95 Directive 3: Scalar exhaustion for fused_k.rs
+mod part_28; // T-COV-95 Directive 4: Performance Falsification Gate (SIMD vs scalar)
+mod part_29; // T-COV-95 Coverage Bridge B7 (Q4_1, Q5_0, Q5_1, Q2_K dequantization)
+mod part_30; // T-COV-95 Deep Coverage Bridge (q8k_into, q8_blocks, InterleavedQ4K, f16 LUT)
+mod part_31; // T-COV-95 Coverage Bridge (fused Q4_0/Q8_0 matvec, extract_scale_min blocks 4-7)
+mod part_32; // T-COV-95 Coverage Bridge (q8k_into, dequant q4_0/q8_0/q4_1/q5_0/q5_1)
+mod part_33; // T-COV-95 Extended Coverage (Q8 blocks, dequant edge cases, block boundaries)

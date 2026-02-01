@@ -255,7 +255,10 @@ fn test_fixture_cleanup() {
         p
     };
     // After fixture drops, file should be cleaned up
-    assert!(!path.exists(), "File should be cleaned up after fixture drops");
+    assert!(
+        !path.exists(),
+        "File should be cleaned up after fixture drops"
+    );
 }
 
 /// Test multiple fixtures in same test
@@ -289,7 +292,10 @@ fn test_fixture_load_embedding_tensor() {
 
     // Find and load embedding
     let embed_tensor = model.tensors.iter().find(|t| t.name == "token_embd.weight");
-    assert!(embed_tensor.is_some(), "Should have token_embd.weight tensor");
+    assert!(
+        embed_tensor.is_some(),
+        "Should have token_embd.weight tensor"
+    );
 
     let tensor_info = embed_tensor.unwrap();
     let embed_data = model.get_tensor_f32(&tensor_info.name, &bytes);
@@ -322,7 +328,10 @@ fn test_fixture_load_f32_tensor() {
     let model = GGUFModel::from_bytes(&bytes).expect("parse GGUF");
 
     // Find norm tensor (should be F32)
-    let norm_tensor = model.tensors.iter().find(|t| t.name.contains("output_norm"));
+    let norm_tensor = model
+        .tensors
+        .iter()
+        .find(|t| t.name.contains("output_norm"));
     assert!(norm_tensor.is_some(), "Should have output_norm tensor");
 
     let tensor_info = norm_tensor.unwrap();

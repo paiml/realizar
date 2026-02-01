@@ -126,6 +126,13 @@ pub enum RealizarError {
         message: String,
     },
 
+    /// Security error (F-SEC-222: path traversal, unauthorized access)
+    #[error("Security error: {reason}")]
+    SecurityError {
+        /// Reason for security error
+        reason: String,
+    },
+
     /// Connection error (network/HTTP)
     #[error("Connection error: {0}")]
     ConnectionError(String),
@@ -144,6 +151,15 @@ pub enum RealizarError {
     /// Inference execution error
     #[error("Inference error: {0}")]
     InferenceError(String),
+
+    /// GH-167: Context limit exceeded (prompt too long for model)
+    #[error("Context limit exceeded: {provided} tokens > max {maximum}. Hint: Use --truncate or reduce prompt length.")]
+    ContextLimitExceeded {
+        /// Number of tokens provided
+        provided: usize,
+        /// Maximum context length
+        maximum: usize,
+    },
 }
 
 #[cfg(test)]
@@ -336,5 +352,22 @@ mod tests {
         };
         let cloned = err.clone();
         assert_eq!(err, cloned);
+    }
+
+    /// GH-167: Test ContextLimitExceeded error formatting
+    #[test]
+    fn test_context_limit_exceeded_display() {
+        let err = RealizarError::ContextLimitExceeded {
+            provided: 8192,
+            maximum: 4096,
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("8192"), "Should show provided tokens");
+        assert!(msg.contains("4096"), "Should show maximum allowed");
+        assert!(
+            msg.contains("Context") || msg.contains("context"),
+            "Should mention context"
+        );
+        assert!(msg.contains("Hint"), "Should provide helpful hint");
     }
 }

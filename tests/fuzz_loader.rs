@@ -435,7 +435,7 @@ fn test_fuzz_loader_metadata_i32() {
 
 #[test]
 fn test_fuzz_loader_metadata_f32() {
-    let data = build_metadata_test(6, &3.14f32.to_le_bytes());
+    let data = build_metadata_test(6, &std::f32::consts::PI.to_le_bytes());
     let result = GGUFModel::from_bytes(&data);
     assert!(result.is_ok(), "Float32 metadata should parse");
 }
@@ -470,7 +470,7 @@ fn test_fuzz_loader_metadata_i64() {
 
 #[test]
 fn test_fuzz_loader_metadata_f64() {
-    let data = build_metadata_test(12, &2.718281828f64.to_le_bytes());
+    let data = build_metadata_test(12, &std::f64::consts::E.to_le_bytes());
     let result = GGUFModel::from_bytes(&data);
     assert!(result.is_ok(), "Float64 metadata should parse");
 }

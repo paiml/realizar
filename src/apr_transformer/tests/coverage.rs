@@ -18,7 +18,7 @@ use crate::apr_transformer::{
 
 #[test]
 fn test_quantization_type_default() {
-    let qt: AprQuantizationType = Default::default();
+    let qt = AprQuantizationType::default();
     assert_eq!(qt, AprQuantizationType::F32);
 }
 
@@ -356,6 +356,7 @@ fn test_kv_cache_append_and_get() {
 
     // Append to layer 0
     cache.append(0, &k, &v);
+    cache.advance(); // F-REGR-231: explicit advance required
 
     assert_eq!(cache.len(), 1);
     assert!(!cache.is_empty());
@@ -380,10 +381,11 @@ fn test_kv_cache_append_multiple_positions() {
         let k = vec![(i + 1) as f32; kv_size];
         let v = vec![(i + 10) as f32; kv_size];
 
-        // Append to all layers
+        // Append to all layers (last layer auto-advances)
         for layer in 0..config.num_layers {
             cache.append(layer, &k, &v);
         }
+        // No advance() needed - append() auto-advances on last layer
     }
 
     assert_eq!(cache.len(), 3);
@@ -404,6 +406,7 @@ fn test_kv_cache_clear() {
     let v = vec![2.0f32; kv_size];
 
     cache.append(0, &k, &v);
+    cache.advance(); // F-REGR-231: explicit advance required
     assert_eq!(cache.len(), 1);
 
     cache.clear();
@@ -654,7 +657,7 @@ fn test_layer_serialization() {
 
 #[test]
 fn test_q4k_layer_weights_default() {
-    let weights: Q4KLayerWeights = Default::default();
+    let weights = Q4KLayerWeights::default();
 
     assert!(weights.qkv_weight.is_none());
     assert!(weights.attn_q_weight.is_none());

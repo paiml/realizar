@@ -9,9 +9,9 @@
 //! - Popper, K. (1959). "The Logic of Scientific Discovery"
 //! - Popper, K. (1963). "Conjectures and Refutations"
 
-use super::{Device, ModelConfig, ModelFormat, QuantType};
-use super::fixtures::{GgufFixture, AprFixture, ModelFixture};
+use super::fixtures::{GgufFixture, ModelFixture};
 use super::generators::SyntheticWeightGenerator;
+use super::{Device, ModelConfig, ModelFormat, QuantType};
 
 /// Falsification threshold for quantization RMSE
 /// If RMSE exceeds this, the quantization is considered refuted.
@@ -33,10 +33,7 @@ fn rmse(a: &[f32], b: &[f32]) -> f32 {
     if a.is_empty() {
         return 0.0;
     }
-    let sum_sq: f32 = a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| (x - y).powi(2))
-        .sum();
+    let sum_sq: f32 = a.iter().zip(b.iter()).map(|(x, y)| (x - y).powi(2)).sum();
     (sum_sq / a.len() as f32).sqrt()
 }
 
@@ -88,8 +85,8 @@ fn test_f101_quantization_rmse_gate_q8_0() {
     let q8_weights = gen.generate_model_weights(&config, QuantType::Q8_0);
 
     // Q8_0 should be ~4x smaller than F32
-    let compression_ratio = f32_weights.embed_weights.len() as f32
-        / q8_weights.embed_weights.len() as f32;
+    let compression_ratio =
+        f32_weights.embed_weights.len() as f32 / q8_weights.embed_weights.len() as f32;
     assert!(
         compression_ratio > 2.0 && compression_ratio < 6.0,
         "Q8_0 compression ratio {} outside expected range [2, 6]",
@@ -106,8 +103,6 @@ fn test_f101_quantization_rmse_gate_q8_0() {
 /// Prohibition: If output differs between 1 thread and N threads, determinism is refuted.
 #[test]
 fn test_f102_thread_invariance() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
     let config = ModelConfig::tiny();
     let fixture = GgufFixture::new(config, QuantType::F32, 42);
     let tokens = vec![1, 2, 3, 4, 5];
@@ -142,7 +137,9 @@ fn test_f102_thread_invariance() {
         assert!(
             (a - b).abs() <= THREAD_INVARIANCE_TOLERANCE,
             "Thread invariance violated at index {}: 1-thread={}, 8-threads={}",
-            i, a, b
+            i,
+            a,
+            b
         );
     }
 }
@@ -163,8 +160,7 @@ fn test_f103_seed_reproducibility() {
 
     // Must be bit-exact
     assert_eq!(
-        weights1.embed_weights,
-        weights2.embed_weights,
+        weights1.embed_weights, weights2.embed_weights,
         "Same seed produced different embedding weights"
     );
 }
@@ -184,8 +180,7 @@ fn test_f104_seed_variation() {
 
     // Must differ
     assert_ne!(
-        weights1.embed_weights,
-        weights2.embed_weights,
+        weights1.embed_weights, weights2.embed_weights,
         "Different seeds produced identical weights - RNG may be broken"
     );
 }
@@ -214,10 +209,10 @@ fn test_f105_empty_input_handling() {
                 "Unexpected output length {} for empty input",
                 output.len()
             );
-        }
+        },
         Err(_) => {
             // Error is acceptable for empty input
-        }
+        },
     }
 }
 
@@ -259,9 +254,7 @@ fn test_f108_oov_token_handling() {
     let tokens = vec![oov_token];
 
     // Should not panic - current impl may clamp or return error
-    let result = std::panic::catch_unwind(|| {
-        fixture.forward(Device::Cpu, &tokens)
-    });
+    let result = std::panic::catch_unwind(|| fixture.forward(Device::Cpu, &tokens));
 
     assert!(result.is_ok(), "OOV token {} caused panic", oov_token);
 }
@@ -389,18 +382,17 @@ fn test_f114_concurrent_fixture_creation() {
         let cfg = Arc::clone(&config);
         handles.push(thread::spawn(move || {
             for j in 0..100 {
-                let fixture = GgufFixture::new(
-                    (*cfg).clone(),
-                    QuantType::F32,
-                    (i * 100 + j) as u64
-                );
+                let fixture =
+                    GgufFixture::new((*cfg).clone(), QuantType::F32, (i * 100 + j) as u64);
                 let _ = fixture.forward(Device::Cpu, &[1, 2, 3]);
             }
         }));
     }
 
     for handle in handles {
-        handle.join().expect("Thread panicked during concurrent fixture creation");
+        handle
+            .join()
+            .expect("Thread panicked during concurrent fixture creation");
     }
 }
 
@@ -489,14 +481,12 @@ fn test_f118_hidden_dim_divisibility() {
         config.hidden_dim % config.num_heads,
         0,
         "hidden_dim {} must be divisible by num_heads {}",
-        config.hidden_dim, config.num_heads
+        config.hidden_dim,
+        config.num_heads
     );
 
     // Verify head_dim computation
-    assert_eq!(
-        config.head_dim() * config.num_heads,
-        config.hidden_dim
-    );
+    assert_eq!(config.head_dim() * config.num_heads, config.hidden_dim);
 }
 
 /// F119: RoPE Theta Sanity
@@ -517,10 +507,7 @@ fn test_f119_rope_theta_sanity() {
             "rope_theta {} must be positive",
             config.rope_theta
         );
-        assert!(
-            config.rope_theta.is_finite(),
-            "rope_theta must be finite"
-        );
+        assert!(config.rope_theta.is_finite(), "rope_theta must be finite");
     }
 }
 

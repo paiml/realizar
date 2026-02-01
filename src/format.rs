@@ -142,11 +142,15 @@ pub fn detect_format(data: &[u8]) -> Result<ModelFormat, FormatError> {
         return Err(FormatError::TooShort { len: data.len() });
     }
 
-    // Check APR magic - first 3 bytes are "APR", 4th byte is version (1, 2, or 0 for legacy)
+    // Check APR magic - first 3 bytes are "APR", 4th byte is version
+    // F-COV-95: Accept multiple APR variants:
+    //   - 'N' (0x4E): APR v1 from aprender (APRN format)
+    //   - '1' (0x31): APR v1 explicit
+    //   - '2' (0x32): APR v2 (transformer models)
+    //   - 0x00: Legacy APR
     if &data[0..3] == APR_MAGIC {
         let version = data[3];
-        // Accept version 1, 2, or legacy (0)
-        if version == b'1' || version == b'2' || version == 0 {
+        if version == b'N' || version == b'1' || version == b'2' || version == 0 {
             return Ok(ModelFormat::Apr);
         }
     }

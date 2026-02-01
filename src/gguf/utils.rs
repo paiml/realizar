@@ -101,4 +101,109 @@ mod tests {
         let bytes = decode_gpt2_token_to_bytes("A\u{0120}B");
         assert_eq!(bytes, vec![0x41, 0x20, 0x42]); // A, space, B
     }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_null() {
+        // NUL character (0x00) encoded as U+0100
+        assert_eq!(gpt2_unicode_to_byte('\u{0100}'), Some(0x00));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_tab() {
+        // TAB (0x09) encoded as U+0109
+        assert_eq!(gpt2_unicode_to_byte('\u{0109}'), Some(0x09));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_newline() {
+        // Newline (0x0A) encoded as U+010A
+        assert_eq!(gpt2_unicode_to_byte('\u{010A}'), Some(0x0A));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_carriage_return() {
+        // CR (0x0D) encoded as U+010D
+        assert_eq!(gpt2_unicode_to_byte('\u{010D}'), Some(0x0D));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_latin1() {
+        // Latin-1 characters (0xA1-0xAC, 0xAE-0xFF) map to themselves
+        assert_eq!(gpt2_unicode_to_byte('¡'), Some(0xA1)); // Inverted exclamation
+        assert_eq!(gpt2_unicode_to_byte('ñ'), Some(0xF1)); // N with tilde
+        assert_eq!(gpt2_unicode_to_byte('ÿ'), Some(0xFF)); // Y with diaeresis
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_extended_special() {
+        // Extended special range (0x80-0xA0)
+        assert_eq!(gpt2_unicode_to_byte('\u{0122}'), Some(0x80)); // offset 34 -> 0x80
+        assert_eq!(gpt2_unicode_to_byte('\u{0142}'), Some(0xA0)); // offset 66 -> 0xA0
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_soft_hyphen() {
+        // Soft hyphen (0xAD) encoded as U+0143
+        assert_eq!(gpt2_unicode_to_byte('\u{0143}'), Some(0xAD));
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_out_of_range() {
+        // Characters outside the valid range return None
+        assert_eq!(gpt2_unicode_to_byte('\u{0200}'), None);
+        assert_eq!(gpt2_unicode_to_byte('\u{1000}'), None);
+        assert_eq!(gpt2_unicode_to_byte('🎉'), None);
+    }
+
+    #[test]
+    fn test_decode_gpt2_token_empty() {
+        let bytes = decode_gpt2_token_to_bytes("");
+        assert!(bytes.is_empty());
+    }
+
+    #[test]
+    fn test_decode_gpt2_token_numbers() {
+        let bytes = decode_gpt2_token_to_bytes("12345");
+        assert_eq!(bytes, b"12345");
+    }
+
+    #[test]
+    fn test_decode_gpt2_token_punctuation() {
+        let bytes = decode_gpt2_token_to_bytes("!@#$%");
+        assert_eq!(bytes, b"!@#$%");
+    }
+
+    #[test]
+    fn test_decode_gpt2_token_mixed() {
+        // Mix of printable ASCII and encoded special chars
+        let bytes = decode_gpt2_token_to_bytes("Hello\u{010A}World");
+        assert_eq!(
+            bytes,
+            vec![0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x0A, 0x57, 0x6F, 0x72, 0x6C, 0x64]
+        );
+    }
+
+    #[test]
+    fn test_decode_gpt2_token_filters_invalid() {
+        // Characters that can't be decoded are filtered out
+        let bytes = decode_gpt2_token_to_bytes("A🎉B");
+        assert_eq!(bytes, vec![0x41, 0x42]); // A, B - emoji filtered
+    }
+
+    #[test]
+    fn test_gpt2_unicode_to_byte_all_printable_ascii() {
+        // Test all printable ASCII (0x21-0x7E)
+        for byte in 0x21u8..=0x7E {
+            let c = byte as char;
+            assert_eq!(gpt2_unicode_to_byte(c), Some(byte));
+        }
+    }
+
+    #[test]
+    fn test_verbose_returns_consistent() {
+        // Calling verbose multiple times should return the same value
+        let first = verbose();
+        let second = verbose();
+        assert_eq!(first, second);
+    }
 }

@@ -22,10 +22,9 @@
 //! - **Layer 3**: Component tests (attention, FFN, etc.)
 //! - **Layer 4**: Integration tests (full model inference)
 
-#![cfg(test)]
 #![cfg(feature = "cuda")]
 
-use super::test_fixtures::{generate_q4_0_weights, generate_q5_0_weights, GqaConfig};
+use super::test_fixtures::{generate_q4_0_weights, generate_q5_0_weights};
 use crate::cuda::CudaExecutor;
 use crate::gguf::ops;
 use crate::quantize::dequant::{dequantize_q4_0, dequantize_q5_0};
@@ -64,10 +63,8 @@ fn test_gqa_rmsnorm_cpu_gpu_parity() {
     let cpu_output = ops::layer_norm(&input, &gamma, None, epsilon);
 
     // GPU RMSNorm
-    let input_buf = GpuBuffer::from_host(&executor.context, &input)
-        .expect("upload input");
-    let gamma_buf = GpuBuffer::from_host(&executor.context, &gamma)
-        .expect("upload gamma");
+    let input_buf = GpuBuffer::from_host(&executor.context, &input).expect("upload input");
+    let gamma_buf = GpuBuffer::from_host(&executor.context, &gamma).expect("upload gamma");
 
     let gpu_output_buf = executor
         .rmsnorm_gpu(&input_buf, &gamma_buf, hidden_dim as u32, epsilon)
@@ -133,15 +130,18 @@ fn test_gqa_rmsnorm_into_parity() {
     let cpu_output = ops::layer_norm(&input, &gamma, None, epsilon);
 
     // GPU with rmsnorm_into
-    let input_buf = GpuBuffer::from_host(&executor.context, &input)
-        .expect("upload input");
-    let gamma_buf = GpuBuffer::from_host(&executor.context, &gamma)
-        .expect("upload gamma");
-    let output_buf =
-        GpuBuffer::<f32>::new(&executor.context, hidden_dim).expect("output buf");
+    let input_buf = GpuBuffer::from_host(&executor.context, &input).expect("upload input");
+    let gamma_buf = GpuBuffer::from_host(&executor.context, &gamma).expect("upload gamma");
+    let output_buf = GpuBuffer::<f32>::new(&executor.context, hidden_dim).expect("output buf");
 
     executor
-        .rmsnorm_into(&input_buf, &gamma_buf, &output_buf, hidden_dim as u32, epsilon)
+        .rmsnorm_into(
+            &input_buf,
+            &gamma_buf,
+            &output_buf,
+            hidden_dim as u32,
+            epsilon,
+        )
         .expect("GPU RMSNorm into");
 
     executor.stream.synchronize().expect("sync");
@@ -204,7 +204,10 @@ fn test_gqa_qkv_dimension_correctness() {
     println!("num_heads: {}", num_heads);
     println!("num_kv_heads: {}", num_kv_heads);
     println!("head_dim: {}", head_dim);
-    println!("Expected q_dim: {} (num_heads * head_dim)", num_heads * head_dim);
+    println!(
+        "Expected q_dim: {} (num_heads * head_dim)",
+        num_heads * head_dim
+    );
     println!("Actual q_dim: {}", q_dim);
     println!(
         "Expected kv_dim: {} (num_kv_heads * head_dim)",
@@ -235,7 +238,10 @@ fn test_gqa_qkv_dimension_correctness() {
         q_dim
     );
 
-    println!("GQA dimensions VERIFIED: q_dim={}, kv_dim={}", q_dim, kv_dim);
+    println!(
+        "GQA dimensions VERIFIED: q_dim={}, kv_dim={}",
+        q_dim, kv_dim
+    );
 }
 
 /// Test workspace buffer allocation with GQA dimensions
@@ -343,7 +349,10 @@ fn test_gqa_transformer_layer_no_crash() {
     println!("=== GQA Transformer Layer Smoke Test ===");
     println!("Hidden dim: {}", hidden_dim);
     println!("Intermediate dim: {}", intermediate_dim);
-    println!("num_heads: {}, num_kv_heads: {}, head_dim: {}", num_heads, num_kv_heads, head_dim);
+    println!(
+        "num_heads: {}, num_kv_heads: {}, head_dim: {}",
+        num_heads, num_kv_heads, head_dim
+    );
     println!("Q dim: {}, KV dim: {}", q_dim, kv_dim);
     println!("Epsilon: {}", epsilon);
 
@@ -394,15 +403,17 @@ fn test_q4_0_gemv_parity() {
     let input: Vec<f32> = (0..k).map(|i| (i as f32 * 0.01).sin()).collect();
 
     // CPU matmul: dot product for single row
-    let cpu_output: f32 = weights_f32.iter().zip(input.iter()).map(|(w, x)| w * x).sum();
+    let cpu_output: f32 = weights_f32
+        .iter()
+        .zip(input.iter())
+        .map(|(w, x)| w * x)
+        .sum();
 
     // GPU path - upload weights as bytes, get raw device pointer
-    let weights_buf = GpuBuffer::from_host(&executor.context, &weights_q4_0)
-        .expect("upload weights");
-    let input_buf =
-        GpuBuffer::from_host(&executor.context, &input).expect("upload input");
-    let output_buf =
-        GpuBuffer::<f32>::new(&executor.context, n).expect("output buffer");
+    let weights_buf =
+        GpuBuffer::from_host(&executor.context, &weights_q4_0).expect("upload weights");
+    let input_buf = GpuBuffer::from_host(&executor.context, &input).expect("upload input");
+    let output_buf = GpuBuffer::<f32>::new(&executor.context, n).expect("output buffer");
 
     // Execute Q4_0 GEMV using _into variant with raw device pointer
     let weight_ptr = weights_buf.as_ptr();
@@ -464,15 +475,17 @@ fn test_q5_0_gemv_parity() {
     let input: Vec<f32> = (0..k).map(|i| (i as f32 * 0.01).sin()).collect();
 
     // CPU matmul: dot product for single row
-    let cpu_output: f32 = weights_f32.iter().zip(input.iter()).map(|(w, x)| w * x).sum();
+    let cpu_output: f32 = weights_f32
+        .iter()
+        .zip(input.iter())
+        .map(|(w, x)| w * x)
+        .sum();
 
     // GPU path - upload weights as bytes, get raw device pointer
-    let weights_buf = GpuBuffer::from_host(&executor.context, &weights_q5_0)
-        .expect("upload weights");
-    let input_buf =
-        GpuBuffer::from_host(&executor.context, &input).expect("upload input");
-    let output_buf =
-        GpuBuffer::<f32>::new(&executor.context, n).expect("output buffer");
+    let weights_buf =
+        GpuBuffer::from_host(&executor.context, &weights_q5_0).expect("upload weights");
+    let input_buf = GpuBuffer::from_host(&executor.context, &input).expect("upload input");
+    let output_buf = GpuBuffer::<f32>::new(&executor.context, n).expect("output buffer");
 
     // Execute Q5_0 GEMV using _into variant with raw device pointer
     let weight_ptr = weights_buf.as_ptr();
@@ -553,12 +566,10 @@ fn test_q5_0_gemv_qwen_k_dimensions() {
     }
 
     // GPU path - upload weights as bytes, get raw device pointer
-    let weights_buf = GpuBuffer::from_host(&executor.context, &weights_q5_0)
-        .expect("upload weights");
-    let input_buf =
-        GpuBuffer::from_host(&executor.context, &input).expect("upload input");
-    let output_buf =
-        GpuBuffer::<f32>::new(&executor.context, kv_dim).expect("output buffer");
+    let weights_buf =
+        GpuBuffer::from_host(&executor.context, &weights_q5_0).expect("upload weights");
+    let input_buf = GpuBuffer::from_host(&executor.context, &input).expect("upload input");
+    let output_buf = GpuBuffer::<f32>::new(&executor.context, kv_dim).expect("output buffer");
 
     // Execute Q5_0 GEMV using _into variant with raw device pointer
     let weight_ptr = weights_buf.as_ptr();

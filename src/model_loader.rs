@@ -250,7 +250,7 @@ pub fn detect_model_from_bytes(data: &[u8]) -> Result<ModelMetadata, LoadError> 
 
 /// Load APR model type from metadata bytes
 ///
-/// Reads model type from APR header (bytes 4-6 after magic).
+/// Supports both APR v1 (type in header) and APR v2 (type in JSON metadata).
 ///
 /// # Arguments
 ///
@@ -258,13 +258,60 @@ pub fn detect_model_from_bytes(data: &[u8]) -> Result<ModelMetadata, LoadError> 
 ///
 /// # Returns
 ///
-/// APR model type string (e.g., "LogisticRegression")
+/// APR model type string (e.g., "LogisticRegression", "Transformer")
 pub fn read_apr_model_type(data: &[u8]) -> Option<String> {
     if data.len() < 8 {
         return None;
     }
 
-    // APR header layout: APRN (4 bytes) + type_id (2 bytes) + version (2 bytes)
+    // Check magic bytes to determine APR version
+    // APR v2 magic: "APR\0" (0x41, 0x50, 0x52, 0x00)
+    // APR v1 magic: "APRN" or other variants
+    let is_v2 = data[0..4] == [0x41, 0x50, 0x52, 0x00];
+
+    if is_v2 {
+        // APR v2 header layout (64 bytes):
+        // bytes[0..4]: magic "APR\0"
+        // bytes[4]: version major (2)
+        // bytes[5]: version minor (0)
+        // bytes[6..8]: flags
+        // bytes[8..12]: tensor_count
+        // bytes[12..20]: metadata_offset (u64)
+        // bytes[20..24]: metadata_size (u32)
+        // Model type is in JSON metadata, read it from there
+
+        if data.len() < 64 {
+            return Some("Transformer".to_string()); // Default for incomplete header
+        }
+
+        let metadata_offset = u64::from_le_bytes([
+            data[12], data[13], data[14], data[15], data[16], data[17], data[18], data[19],
+        ]) as usize;
+        let metadata_size = u32::from_le_bytes([data[20], data[21], data[22], data[23]]) as usize;
+
+        if metadata_offset + metadata_size <= data.len() && metadata_size > 0 {
+            let metadata_bytes = &data[metadata_offset..metadata_offset + metadata_size];
+            if let Ok(metadata_str) = std::str::from_utf8(metadata_bytes) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(metadata_str) {
+                    // Check for model_type field in JSON metadata
+                    if let Some(model_type) = json.get("model_type").and_then(|v| v.as_str()) {
+                        if !model_type.is_empty() {
+                            return Some(model_type.to_string());
+                        }
+                    }
+                    // Check for model.architecture field (from GGUF import)
+                    if let Some(arch) = json.get("model.architecture").and_then(|v| v.as_str()) {
+                        return Some(format!("Transformer({})", arch));
+                    }
+                }
+            }
+        }
+
+        // Default for APR v2 transformer models
+        return Some("Transformer".to_string());
+    }
+
+    // APR v1 header layout: APRN (4 bytes) + type_id (2 bytes) + version (2 bytes)
     // Per aprender format spec
     let type_id = u16::from_le_bytes([data[4], data[5]]);
 
@@ -443,7 +490,8 @@ mod tests {
 
     #[test]
     fn test_detect_model_from_bytes_apr() {
-        let mut data = b"APR\0".to_vec();
+        // F-COV-95: APR v1 uses "APRN" magic, v2 uses "APR\0"
+        let mut data = b"APRN".to_vec();
         data.extend_from_slice(&[0x02, 0x00, 0x01, 0x00]); // LogisticRegression type
         data.extend_from_slice(&[0u8; 100]); // Padding
 
@@ -483,7 +531,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_linear_regression() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0001u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -495,7 +543,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_logistic_regression() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0002u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -507,7 +555,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_decision_tree() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0003u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -516,7 +564,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_random_forest() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0004u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -525,7 +573,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_gradient_boosting() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0005u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -537,7 +585,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_kmeans() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0006u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -546,7 +594,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_pca() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0007u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -555,7 +603,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_naive_bayes() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0008u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -564,7 +612,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_knn() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0009u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -573,7 +621,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_svm() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x000Au16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -582,7 +630,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_ngram_lm() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0010u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -591,7 +639,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_tfidf() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0011u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -600,7 +648,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_count_vectorizer() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0012u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -612,7 +660,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_neural_sequential() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0020u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -624,7 +672,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_neural_custom() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0021u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -633,7 +681,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_content_recommender() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0030u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -645,7 +693,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_mixture_of_experts() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0040u16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -657,7 +705,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_custom() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x00FFu16.to_le_bytes());
         data.extend_from_slice(&[0, 0]);
 
@@ -666,7 +714,7 @@ mod tests {
 
     #[test]
     fn test_read_apr_model_type_unknown() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0xFFFFu16.to_le_bytes()); // Unknown type
         data.extend_from_slice(&[0, 0]);
 
@@ -712,7 +760,7 @@ mod tests {
     #[test]
     fn test_detect_and_extract_apr_type() {
         // Simulate APR file with LogisticRegression type
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0002u16.to_le_bytes()); // LogisticRegression
         data.extend_from_slice(&[0, 0]); // version placeholder
         data.extend_from_slice(&[0u8; 100]); // Padding
@@ -726,7 +774,7 @@ mod tests {
 
     #[test]
     fn test_full_metadata_extraction() {
-        let mut data = b"APR\0".to_vec();
+        let mut data = b"APRN".to_vec(); // F-COV-95: APR v1 uses APRN magic
         data.extend_from_slice(&0x0004u16.to_le_bytes()); // RandomForest
         data.extend_from_slice(&[0, 0]);
         data.extend_from_slice(&[0u8; 500]);

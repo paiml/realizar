@@ -413,6 +413,7 @@ fn test_generate_with_cache_top_k_sampling() {
         top_k: 10, // Top-k sampling
         top_p: 1.0,
         repetition_penalty: 1.0,
+        trace: false,
     };
 
     let result = transformer.generate_with_cache(&[0, 1], &gen_config);
@@ -430,6 +431,7 @@ fn test_generate_with_cache_top_p_sampling() {
         top_k: 0,
         top_p: 0.5, // Nucleus sampling
         repetition_penalty: 1.0,
+        trace: false,
     };
 
     let result = transformer.generate_with_cache(&[0], &gen_config);
@@ -447,6 +449,7 @@ fn test_generate_with_cache_repetition_penalty() {
         top_k: 0,
         top_p: 1.0,
         repetition_penalty: 1.5, // Strong repetition penalty
+        trace: false,
     };
 
     let result = transformer.generate_with_cache(&[0, 1, 2], &gen_config);
@@ -488,10 +491,11 @@ fn test_kv_cache_append_all_layers() {
     let k = vec![1.0f32; kv_size];
     let v = vec![2.0f32; kv_size];
 
-    // Append to all layers
+    // Append to all layers (last layer auto-advances)
     for layer in 0..config.num_layers {
         cache.append(layer, &k, &v);
     }
+    // No advance() needed - append() auto-advances on last layer
 
     // Cache length is counted per position, not per layer
     // After appending once to each layer at position 0
@@ -513,6 +517,7 @@ fn test_kv_cache_multiple_positions_all_layers() {
         for layer in 0..config.num_layers {
             cache.append(layer, &k, &v);
         }
+        // No advance() needed - append() auto-advances on last layer
     }
 
     assert_eq!(cache.len(), 5);

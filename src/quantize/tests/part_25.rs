@@ -14,9 +14,8 @@
 use std::time::Instant;
 
 use crate::quantize::{
-    fused_q4_0_q8_0_dot_scalar, fused_q4_0_q8_0_parallel_matvec,
-    fused_q8_0_q8_0_dot_scalar, fused_q8_0_q8_0_parallel_matvec,
-    InterleavedQ4K,
+    fused_q4_0_q8_0_dot_scalar, fused_q4_0_q8_0_parallel_matvec, fused_q8_0_q8_0_dot_scalar,
+    fused_q8_0_q8_0_parallel_matvec, InterleavedQ4K,
 };
 
 // =============================================================================
@@ -83,7 +82,10 @@ fn test_f201_avx2_large_vector_path() {
     let activations = vec![1.0f32; in_dim];
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
-    assert!(result.is_ok(), "Large vector matvec should succeed with AVX2");
+    assert!(
+        result.is_ok(),
+        "Large vector matvec should succeed with AVX2"
+    );
 
     // The fact that it completes without error corroborates the AVX2 path
     println!("F201: AVX2 4-block path executed for {} elements", in_dim);
@@ -139,21 +141,21 @@ fn test_f203_simd_faster_than_scalar_q4_0() {
     // Measure scalar time
     let scalar_start = Instant::now();
     for _ in 0..iterations {
-        let mut _sum = 0.0f32;
+        let mut sum = 0.0f32;
         for row in 0..out_dim {
             let row_start = row * bytes_per_row;
             let row_data = &weight_data[row_start..row_start + bytes_per_row];
-            _sum += fused_q4_0_q8_0_dot_scalar(row_data, &q8_scales, &q8_quants, in_dim);
+            sum += fused_q4_0_q8_0_dot_scalar(row_data, &q8_scales, &q8_quants, in_dim);
         }
-        std::hint::black_box(_sum);
+        std::hint::black_box(sum);
     }
     let scalar_time = scalar_start.elapsed();
 
     // Measure SIMD time (via parallel_matvec which uses SIMD internally)
     let simd_start = Instant::now();
     for _ in 0..iterations {
-        let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim)
-            .unwrap();
+        let result =
+            fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim).unwrap();
         std::hint::black_box(result);
     }
     let simd_time = simd_start.elapsed();
@@ -206,21 +208,21 @@ fn test_f204_simd_performance_q8_0() {
     // Scalar
     let scalar_start = Instant::now();
     for _ in 0..iterations {
-        let mut _sum = 0.0f32;
+        let mut sum = 0.0f32;
         for row in 0..out_dim {
             let row_start = row * bytes_per_row;
             let row_data = &weight_data[row_start..row_start + bytes_per_row];
-            _sum += fused_q8_0_q8_0_dot_scalar(row_data, &q8_scales, &q8_quants, in_dim);
+            sum += fused_q8_0_q8_0_dot_scalar(row_data, &q8_scales, &q8_quants, in_dim);
         }
-        std::hint::black_box(_sum);
+        std::hint::black_box(sum);
     }
     let scalar_time = scalar_start.elapsed();
 
     // SIMD (includes activation quantization overhead)
     let simd_start = Instant::now();
     for _ in 0..iterations {
-        let result = fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim)
-            .unwrap();
+        let result =
+            fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim).unwrap();
         std::hint::black_box(result);
     }
     let simd_time = simd_start.elapsed();
@@ -321,9 +323,7 @@ fn test_f206_simd_scalar_numerical_parity_q4_0() {
         }
     }
 
-    let activations: Vec<f32> = (0..in_dim)
-        .map(|i| (i as f32) / 100.0)
-        .collect();
+    let activations: Vec<f32> = (0..in_dim).map(|i| (i as f32) / 100.0).collect();
 
     let (q8_scales, q8_quants) = crate::quantize::quantize_activations_q8_0(&activations);
 
@@ -331,8 +331,8 @@ fn test_f206_simd_scalar_numerical_parity_q4_0() {
     let scalar_result = fused_q4_0_q8_0_dot_scalar(&weight_data, &q8_scales, &q8_quants, in_dim);
 
     // Compute SIMD result (via single-row matvec)
-    let simd_results = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, 1)
-        .unwrap();
+    let simd_results =
+        fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, 1).unwrap();
     let simd_result = simd_results[0];
 
     println!("F206: Q4_0 SIMD/Scalar Numerical Parity");
@@ -378,8 +378,8 @@ fn test_f207_simd_scalar_numerical_parity_q8_0() {
 
     let scalar_result = fused_q8_0_q8_0_dot_scalar(&weight_data, &q8_scales, &q8_quants, in_dim);
 
-    let simd_results = fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, 1)
-        .unwrap();
+    let simd_results =
+        fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, 1).unwrap();
     let simd_result = simd_results[0];
 
     let diff = (scalar_result - simd_result).abs();
@@ -390,10 +390,7 @@ fn test_f207_simd_scalar_numerical_parity_q8_0() {
     println!("  SIMD:   {}", simd_result);
     println!("  Rel diff: {:.2e}", rel_diff);
 
-    assert!(
-        rel_diff < 1e-4,
-        "Q8_0 SIMD and Scalar results diverge"
-    );
+    assert!(rel_diff < 1e-4, "Q8_0 SIMD and Scalar results diverge");
 }
 
 // =============================================================================

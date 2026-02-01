@@ -393,7 +393,8 @@ fn test_phase35_rope_type_neox_architectures() {
         let arch_value = build_gguf_string(arch);
         data.extend(build_gguf_metadata("general.architecture", 8, &arch_value));
 
-        let model = GGUFModel::from_bytes(&data).expect(&format!("Should parse {}", arch));
+        let model =
+            GGUFModel::from_bytes(&data).unwrap_or_else(|_| panic!("Should parse {}", arch));
         assert_eq!(
             model.rope_type(),
             Some(2),
@@ -413,7 +414,8 @@ fn test_phase35_rope_type_norm_architectures() {
         let arch_value = build_gguf_string(arch);
         data.extend(build_gguf_metadata("general.architecture", 8, &arch_value));
 
-        let model = GGUFModel::from_bytes(&data).expect(&format!("Should parse {}", arch));
+        let model =
+            GGUFModel::from_bytes(&data).unwrap_or_else(|_| panic!("Should parse {}", arch));
         assert_eq!(
             model.rope_type(),
             Some(0),

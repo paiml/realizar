@@ -1,6 +1,7 @@
 //! Additional coverage tests for attention.rs
 //!
 //! Targets uncovered paths in:
+#![allow(clippy::many_single_char_names)]
 //! - Attention: empty tensor errors, head_dim validation
 //! - Flash Attention: block_size=0, shape mismatches
 //! - Flash Attention v2: shape validation, SIMD paths
@@ -617,10 +618,13 @@ fn test_mha_gqa_various_group_sizes() {
     ];
 
     for (hidden_dim, num_heads, num_kv_heads) in test_cases {
-        let mha = MultiHeadAttention::new(hidden_dim, num_heads, num_kv_heads).expect(&format!(
-            "Should create MHA with ({}, {}, {})",
-            hidden_dim, num_heads, num_kv_heads
-        ));
+        let mha =
+            MultiHeadAttention::new(hidden_dim, num_heads, num_kv_heads).unwrap_or_else(|_| {
+                panic!(
+                    "Should create MHA with ({}, {}, {})",
+                    hidden_dim, num_heads, num_kv_heads
+                )
+            });
 
         let input = Tensor::from_vec(vec![4, hidden_dim], vec![0.1; 4 * hidden_dim]).expect("test");
         let output = mha.forward(&input).expect("test");

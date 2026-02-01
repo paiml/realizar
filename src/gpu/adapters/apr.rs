@@ -112,14 +112,20 @@ impl AprF32ToGpuAdapter {
             .unwrap_or_else(|| vec![0.0; config.vocab_size]);
 
         // Create GpuModel using internal constructor
+        // F-REGR-231 FIX: The from_apr_weights function expects:
+        //   - lm_head_weight: [hidden_dim, vocab_size] for GPU matmul
+        //   - lm_head_weight_t: [vocab_size, hidden_dim] for CPU matmul
+        // APR stores as [vocab_size, hidden_dim], so:
+        //   - Pass lm_head_weight_t (transposed to [hidden_dim, vocab_size]) as first
+        //   - Pass lm_head_weight (original [vocab_size, hidden_dim]) as second
         GpuModel::from_apr_weights(
             config,
             embedding_weights,
             block_weights,
             final_norm_weight,
             final_norm_bias,
-            lm_head_weight,
-            lm_head_weight_t,
+            lm_head_weight_t, // [hidden_dim, vocab_size] for GPU
+            lm_head_weight,   // [vocab_size, hidden_dim] for CPU
             lm_head_bias,
         )
     }
@@ -304,6 +310,11 @@ impl AprToGpuAdapter {
         let config = Self::config_to_gpu(&apr.config);
         let hidden_dim = config.hidden_dim;
         let intermediate_dim = config.intermediate_dim;
+        let num_heads = config.num_heads;
+        let num_kv_heads = config.num_kv_heads;
+        let head_dim = hidden_dim / num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let qkv_out_dim = hidden_dim + 2 * kv_dim;
 
         // Embedding weights (already F32 in APR)
         let embedding_weights = apr.token_embedding.clone();
@@ -336,23 +347,34 @@ impl AprToGpuAdapter {
                 None
             };
 
+            // F-REGR-231 FIX: Transpose all weight matrices from [out_dim, in_dim] to [in_dim, out_dim]
+            // This matches the F32 path in AprF32ToGpuAdapter::convert_layer
+            // APR/GGUF stores weights as [out_dim, in_dim] row-major, but GpuModel matmul expects [in_dim, out_dim]
+            let qkv_weight_t = transpose_matrix(&qkv, qkv_out_dim, hidden_dim);
+            let out_weight_t = transpose_matrix(&out, hidden_dim, hidden_dim);
+            let fc1_weight_t = transpose_matrix(&fc1, intermediate_dim, hidden_dim);
+            let fc2_weight_t = transpose_matrix(&fc2, hidden_dim, intermediate_dim);
+            let gate_weight_t = ffn_gate_weight
+                .as_ref()
+                .map(|w| transpose_matrix(w, intermediate_dim, hidden_dim));
+
             block_weights.push(BlockWeights {
                 attn_norm_weight: layer.attn_norm_weight.clone(),
                 attn_norm_bias: vec![0.0; hidden_dim], // APR doesn't use bias
-                qkv_weight: qkv,
+                qkv_weight: qkv_weight_t,
                 qkv_bias: vec![], // No bias in APR
-                out_weight: out,
+                out_weight: out_weight_t,
                 out_bias: vec![0.0; hidden_dim],
                 ffn_norm_weight: layer
                     .ffn_norm_weight
                     .clone()
                     .unwrap_or_else(|| vec![1.0; hidden_dim]),
                 ffn_norm_bias: vec![0.0; hidden_dim],
-                ffn_fc1_weight: fc1,
+                ffn_fc1_weight: fc1_weight_t,
                 ffn_fc1_bias: vec![0.0; intermediate_dim],
-                ffn_fc2_weight: fc2,
+                ffn_fc2_weight: fc2_weight_t,
                 ffn_fc2_bias: vec![0.0; hidden_dim],
-                ffn_gate_weight,
+                ffn_gate_weight: gate_weight_t,
             });
         }
 
@@ -364,14 +386,20 @@ impl AprToGpuAdapter {
         let lm_head_bias = vec![0.0; config.vocab_size];
 
         // Create GpuModel using internal constructor
+        // F-REGR-231 FIX: The from_apr_weights function expects:
+        //   - lm_head_weight: [hidden_dim, vocab_size] for GPU matmul
+        //   - lm_head_weight_t: [vocab_size, hidden_dim] for CPU matmul
+        // APR stores as [vocab_size, hidden_dim], so:
+        //   - Pass lm_head_weight_t (transposed to [hidden_dim, vocab_size]) as first
+        //   - Pass lm_head_weight (original [vocab_size, hidden_dim]) as second
         GpuModel::from_apr_weights(
             config,
             embedding_weights,
             block_weights,
             final_norm_weight,
             final_norm_bias,
-            lm_head_weight,
-            lm_head_weight_t,
+            lm_head_weight_t, // [hidden_dim, vocab_size] for GPU
+            lm_head_weight,   // [vocab_size, hidden_dim] for CPU
             lm_head_bias,
         )
     }
@@ -434,5 +462,138 @@ mod tests {
         let transposed = transpose_matrix(&data, 2, 2);
 
         assert_eq!(transposed, vec![1.0, 3.0, 2.0, 4.0]);
+    }
+
+    #[test]
+    fn test_transpose_single_row() {
+        let data = vec![1.0, 2.0, 3.0, 4.0]; // 1x4
+        let transposed = transpose_matrix(&data, 1, 4); // 4x1
+
+        assert_eq!(transposed, vec![1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_transpose_single_col() {
+        let data = vec![1.0, 2.0, 3.0, 4.0]; // 4x1
+        let transposed = transpose_matrix(&data, 4, 1); // 1x4
+
+        assert_eq!(transposed, vec![1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_transpose_3x4() {
+        let data: Vec<f32> = (1..=12).map(|x| x as f32).collect(); // 3x4
+        let transposed = transpose_matrix(&data, 3, 4); // 4x3
+
+        // Original: [[1,2,3,4], [5,6,7,8], [9,10,11,12]]
+        // Transposed: [[1,5,9], [2,6,10], [3,7,11], [4,8,12]]
+        assert_eq!(transposed[0], 1.0);
+        assert_eq!(transposed[1], 5.0);
+        assert_eq!(transposed[2], 9.0);
+        assert_eq!(transposed[3], 2.0);
+        assert_eq!(transposed[4], 6.0);
+    }
+
+    #[test]
+    fn test_transpose_double_transpose_is_identity() {
+        let data: Vec<f32> = (1..=20).map(|x| x as f32).collect();
+        let rows = 4;
+        let cols = 5;
+
+        let transposed1 = transpose_matrix(&data, rows, cols);
+        let transposed2 = transpose_matrix(&transposed1, cols, rows);
+
+        assert_eq!(transposed2, data);
+    }
+
+    #[test]
+    fn test_apr_gpu_error_dequant_display() {
+        let err = AprGpuError::DequantError("test error".to_string());
+        let display = format!("{}", err);
+        assert!(display.contains("dequantize"));
+        assert!(display.contains("test error"));
+    }
+
+    #[test]
+    fn test_apr_gpu_error_dimension_mismatch_display() {
+        let err = AprGpuError::DimensionMismatch {
+            expected: 100,
+            actual: 50,
+        };
+        let display = format!("{}", err);
+        assert!(display.contains("dimension mismatch"));
+        assert!(display.contains("100"));
+        assert!(display.contains("50"));
+    }
+
+    #[test]
+    fn test_apr_gpu_error_gpu_model_error_display() {
+        let err = AprGpuError::GpuModelError("creation failed".to_string());
+        let display = format!("{}", err);
+        assert!(display.contains("GpuModel"));
+        assert!(display.contains("creation failed"));
+    }
+
+    #[test]
+    fn test_config_to_gpu_with_gqa() {
+        // Test Grouped Query Attention config
+        let apr_config = AprTransformerConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 4096,
+            num_layers: 32,
+            num_heads: 32,
+            num_kv_heads: 8, // GQA: fewer KV heads
+            vocab_size: 32000,
+            intermediate_dim: 11008,
+            context_length: 4096,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+        };
+
+        let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);
+
+        assert_eq!(gpu_config.num_heads, 32);
+        assert_eq!(gpu_config.num_kv_heads, 8);
+        // Verify GQA ratio
+        assert_eq!(gpu_config.num_heads / gpu_config.num_kv_heads, 4);
+    }
+
+    #[test]
+    fn test_config_to_gpu_with_mha() {
+        // Test Multi-Head Attention config (num_heads == num_kv_heads)
+        let apr_config = AprTransformerConfig {
+            architecture: "phi".to_string(),
+            hidden_dim: 2560,
+            num_layers: 32,
+            num_heads: 32,
+            num_kv_heads: 32, // MHA: same as num_heads
+            vocab_size: 51200,
+            intermediate_dim: 10240,
+            context_length: 2048,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+        };
+
+        let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);
+
+        assert_eq!(gpu_config.num_heads, gpu_config.num_kv_heads);
+    }
+
+    #[test]
+    fn test_apr_gpu_error_debug() {
+        let err = AprGpuError::DequantError("debug test".to_string());
+        let debug = format!("{:?}", err);
+        assert!(debug.contains("DequantError"));
+        assert!(debug.contains("debug test"));
+    }
+
+    #[test]
+    fn test_transpose_preserves_sum() {
+        let data: Vec<f32> = (1..=24).map(|x| x as f32).collect();
+        let transposed = transpose_matrix(&data, 4, 6);
+
+        let original_sum: f32 = data.iter().sum();
+        let transposed_sum: f32 = transposed.iter().sum();
+        assert!((original_sum - transposed_sum).abs() < 1e-6);
     }
 }

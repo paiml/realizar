@@ -234,7 +234,7 @@ fn test_launch_config_matches_kernel_expectation() {
     println!("  ✓ MATCH: Output first, weights second, input third, dims last");
 
     // This test documents the verified configuration
-    assert!(true, "Launch configuration verified via manual audit");
+    // Test passes by reaching this point without errors
 }
 
 // =============================================================================
@@ -338,7 +338,7 @@ fn test_q4k_gemv_correctness_known_pattern() {
     // Expected dequant per element: 2 * 1 * 2 - 0 = 4
     // Expected sum: 256 * 4 * 1.0 (input) = 1024
     let d2_f16 = half::f16::from_f32(2.0).to_le_bytes();
-    weights[144 + 0] = d2_f16[0];
+    weights[144] = d2_f16[0];
     weights[144 + 1] = d2_f16[1];
     weights[144 + 2] = dmin_f16[0];
     weights[144 + 3] = dmin_f16[1];
@@ -420,5 +420,5 @@ fn test_q4_0_vs_q4k_format_differences() {
     println!("\n⚠️  CRITICAL: TinyLlama GGUF is Q4_K, NOT Q4_0!");
     println!("    If we're using Q4_0 kernel for Q4_K weights, output will be CORRUPTED.");
 
-    assert!(true, "Format comparison documented");
+    // Test passes by documenting the format comparison
 }

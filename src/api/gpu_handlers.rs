@@ -789,7 +789,270 @@ pub async fn generate_handler(
     use std::time::Instant;
     let start = Instant::now();
 
-    // Get model and tokenizer
+    // GH-152: Verbose request logging
+    if state.is_verbose() {
+        eprintln!(
+            "[VERBOSE] POST /generate prompt={:?} max_tokens={}",
+            &request.prompt.chars().take(50).collect::<String>(),
+            request.max_tokens
+        );
+    }
+
+    // PAR-113: Check for CUDA model first (PMAT-SERVE-FIX-001)
+    // When using with_cuda_model_and_vocab(), the cuda_model is set but not the registry/model
+    #[cfg(feature = "cuda")]
+    if let Some(cuda_model_lock) = state.cuda_model() {
+        use crate::gguf::QuantizedGenerateConfig;
+
+        let tokenizer = match state.tokenizer.clone() {
+            Some(t) => t,
+            None => {
+                state.metrics.record_failure();
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "No tokenizer available".to_string(),
+                    }),
+                ));
+            },
+        };
+
+        // Tokenize prompt
+        let prompt_ids = tokenizer.encode(&request.prompt);
+        if prompt_ids.is_empty() {
+            state.metrics.record_failure();
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Prompt cannot be empty".to_string(),
+                }),
+            ));
+        }
+
+        let prompt_tokens = prompt_ids.len();
+        let max_tokens = request.max_tokens;
+        let temperature = request.temperature;
+
+        // Get EOS token ID for proper stop sequence
+        let eos_token_id = tokenizer
+            .get_token_id("<|im_end|>")
+            .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
+            .unwrap_or(151645);
+
+        let q_config = QuantizedGenerateConfig {
+            max_tokens,
+            temperature,
+            top_k: if temperature == 0.0 { 1 } else { request.top_k },
+            stop_tokens: vec![eos_token_id],
+            trace: false,
+        };
+
+        // Generate using CUDA model
+        let mut cuda_model = cuda_model_lock.write().map_err(|_| {
+            state.metrics.record_failure();
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Failed to acquire CUDA model lock".to_string(),
+                }),
+            )
+        })?;
+
+        let generated = cuda_model
+            .generate_gpu_resident(&prompt_ids, &q_config)
+            .map_err(|e| {
+                state.metrics.record_failure();
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("CUDA generation failed: {e}"),
+                    }),
+                )
+            })?;
+
+        // Decode tokens to text
+        let text = tokenizer.decode(&generated).map_err(|e| {
+            state.metrics.record_failure();
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+        let num_generated = generated.len().saturating_sub(prompt_tokens);
+        let duration = start.elapsed();
+
+        state.metrics.record_success(num_generated, duration);
+
+        return Ok(Json(GenerateResponse {
+            token_ids: generated,
+            text,
+            num_generated,
+        }));
+    }
+
+    // PMAT-124: Check for quantized model (CPU mode GGUF)
+    // When using with_quantized_model_and_vocab(), the quantized_model is set but not the registry/model
+    if let Some(quantized_model) = state.quantized_model() {
+        use crate::gguf::QuantizedGenerateConfig;
+
+        let tokenizer = match state.tokenizer.clone() {
+            Some(t) => t,
+            None => {
+                state.metrics.record_failure();
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "No tokenizer available".to_string(),
+                    }),
+                ));
+            },
+        };
+
+        // Tokenize prompt
+        let prompt_ids = tokenizer.encode(&request.prompt);
+        if prompt_ids.is_empty() {
+            state.metrics.record_failure();
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Prompt cannot be empty".to_string(),
+                }),
+            ));
+        }
+
+        let prompt_tokens = prompt_ids.len();
+        let max_tokens = request.max_tokens;
+        let temperature = request.temperature;
+
+        // Get EOS token ID for proper stop sequence
+        let eos_token_id = tokenizer
+            .get_token_id("<|im_end|>")
+            .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
+            .unwrap_or(151645);
+
+        let q_config = QuantizedGenerateConfig {
+            max_tokens,
+            temperature,
+            top_k: if temperature == 0.0 { 1 } else { request.top_k },
+            stop_tokens: vec![eos_token_id],
+            trace: false,
+        };
+
+        // Generate using quantized CPU model
+        let generated = quantized_model
+            .generate(&prompt_ids, &q_config)
+            .map_err(|e| {
+                state.metrics.record_failure();
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("CPU generation failed: {e}"),
+                    }),
+                )
+            })?;
+
+        // Decode tokens to text
+        let text = tokenizer.decode(&generated).map_err(|e| {
+            state.metrics.record_failure();
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+        let num_generated = generated.len().saturating_sub(prompt_tokens);
+        let duration = start.elapsed();
+
+        state.metrics.record_success(num_generated, duration);
+
+        return Ok(Json(GenerateResponse {
+            token_ids: generated,
+            text,
+            num_generated,
+        }));
+    }
+
+    // PMAT-SERVE-FIX-001: Check for APR transformer (SafeTensors/APR CPU mode)
+    if let Some(apr_transformer) = state.apr_transformer() {
+        use crate::apr_transformer::GenerateConfig;
+
+        let tokenizer = match state.tokenizer.clone() {
+            Some(t) => t,
+            None => {
+                state.metrics.record_failure();
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "No tokenizer available".to_string(),
+                    }),
+                ));
+            },
+        };
+
+        // Tokenize prompt
+        let prompt_ids = tokenizer.encode(&request.prompt);
+        if prompt_ids.is_empty() {
+            state.metrics.record_failure();
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Prompt cannot be empty".to_string(),
+                }),
+            ));
+        }
+
+        let prompt_tokens = prompt_ids.len();
+        let max_tokens = request.max_tokens;
+        let temperature = request.temperature;
+
+        let gen_config = GenerateConfig {
+            max_tokens,
+            temperature,
+            ..Default::default()
+        };
+
+        // Generate using APR transformer
+        let generated = apr_transformer
+            .generate_with_cache(&prompt_ids, &gen_config)
+            .map_err(|e| {
+                state.metrics.record_failure();
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("APR generation failed: {e}"),
+                    }),
+                )
+            })?;
+
+        // Decode tokens to text
+        let text = tokenizer.decode(&generated).map_err(|e| {
+            state.metrics.record_failure();
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+        let num_generated = generated.len().saturating_sub(prompt_tokens);
+        let duration = start.elapsed();
+
+        state.metrics.record_success(num_generated, duration);
+
+        return Ok(Json(GenerateResponse {
+            token_ids: generated,
+            text,
+            num_generated,
+        }));
+    }
+
+    // Fallback: Get model and tokenizer from registry/single-model mode
     let (model, tokenizer) = state.get_model(request.model_id.as_deref()).map_err(|e| {
         state.metrics.record_failure();
         (
@@ -943,7 +1206,162 @@ pub async fn batch_generate_handler(
         ));
     }
 
-    // Get model and tokenizer (use default model)
+    // PAR-113: Check for CUDA model first (PMAT-SERVE-FIX-001)
+    #[cfg(feature = "cuda")]
+    if let Some(cuda_model_lock) = state.cuda_model() {
+        use crate::gguf::QuantizedGenerateConfig;
+
+        let tokenizer = match state.tokenizer.clone() {
+            Some(t) => t,
+            None => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "No tokenizer available".to_string(),
+                    }),
+                ));
+            },
+        };
+
+        let eos_token_id = tokenizer
+            .get_token_id("<|im_end|>")
+            .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
+            .unwrap_or(151645);
+
+        let q_config = QuantizedGenerateConfig {
+            max_tokens: request.max_tokens,
+            temperature: request.temperature,
+            top_k: if request.temperature == 0.0 {
+                1
+            } else {
+                request.top_k
+            },
+            stop_tokens: vec![eos_token_id],
+            trace: false,
+        };
+
+        let mut results = Vec::with_capacity(request.prompts.len());
+        let mut cuda_model = cuda_model_lock.write().map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Failed to acquire CUDA model lock".to_string(),
+                }),
+            )
+        })?;
+
+        for prompt_text in &request.prompts {
+            let prompt_ids = tokenizer.encode(prompt_text);
+            if prompt_ids.is_empty() {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: format!("Prompt '{prompt_text}' tokenizes to empty sequence"),
+                    }),
+                ));
+            }
+
+            let prompt_tokens = prompt_ids.len();
+            // Note: KV cache is managed internally by generate_gpu_resident
+
+            let generated = cuda_model
+                .generate_gpu_resident(&prompt_ids, &q_config)
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: format!("CUDA generation failed: {e}"),
+                        }),
+                    )
+                })?;
+
+            let text = tokenizer.decode(&generated).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                    }),
+                )
+            })?;
+
+            results.push(GenerateResponse {
+                token_ids: generated.clone(),
+                text,
+                num_generated: generated.len().saturating_sub(prompt_tokens),
+            });
+        }
+
+        return Ok(Json(BatchGenerateResponse { results }));
+    }
+
+    // PMAT-SERVE-FIX-001: Check for APR transformer (SafeTensors/APR CPU mode)
+    if let Some(apr_transformer) = state.apr_transformer() {
+        use crate::apr_transformer::GenerateConfig;
+
+        let tokenizer = match state.tokenizer.clone() {
+            Some(t) => t,
+            None => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "No tokenizer available".to_string(),
+                    }),
+                ));
+            },
+        };
+
+        let gen_config = GenerateConfig {
+            max_tokens: request.max_tokens,
+            temperature: request.temperature,
+            ..Default::default()
+        };
+
+        let mut results = Vec::with_capacity(request.prompts.len());
+
+        for prompt_text in &request.prompts {
+            let prompt_ids = tokenizer.encode(prompt_text);
+            if prompt_ids.is_empty() {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: format!("Prompt '{prompt_text}' tokenizes to empty sequence"),
+                    }),
+                ));
+            }
+
+            let prompt_tokens = prompt_ids.len();
+
+            let generated = apr_transformer
+                .generate_with_cache(&prompt_ids, &gen_config)
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: format!("APR generation failed: {e}"),
+                        }),
+                    )
+                })?;
+
+            let text = tokenizer.decode(&generated).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                    }),
+                )
+            })?;
+
+            results.push(GenerateResponse {
+                token_ids: generated.clone(),
+                text,
+                num_generated: generated.len().saturating_sub(prompt_tokens),
+            });
+        }
+
+        return Ok(Json(BatchGenerateResponse { results }));
+    }
+
+    // Fallback: Get model and tokenizer (use default model)
     let (model, tokenizer) = state.get_model(None).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1045,6 +1463,9 @@ pub async fn stream_generate_handler(
     State(state): State<AppState>,
     Json(request): Json<GenerateRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+    // NOTE: Streaming via CUDA model uses /v1/chat/completions endpoint with stream=true
+    // This handler uses the CPU model path; for GPU streaming use OpenAI-compatible endpoint
+
     // Get model and tokenizer
     let (model, tokenizer) = state.get_model(request.model_id.as_deref()).map_err(|e| {
         (
@@ -1152,4 +1573,552 @@ pub async fn stream_generate_handler(
     };
 
     Ok(Sse::new(stream))
+}
+
+// ============================================================================
+// Tests (PMAT-802: T-COV-95)
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // =========================================================================
+    // GpuBatchRequest tests
+    // =========================================================================
+
+    #[test]
+    fn test_gpu_batch_request_basic() {
+        let request = GpuBatchRequest {
+            prompts: vec!["Hello".to_string(), "World".to_string()],
+            max_tokens: 50,
+            temperature: 0.7,
+            top_k: 40,
+            stop: vec![],
+        };
+        assert_eq!(request.prompts.len(), 2);
+        assert_eq!(request.max_tokens, 50);
+        assert!((request.temperature - 0.7).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_gpu_batch_request_serialization() {
+        let request = GpuBatchRequest {
+            prompts: vec!["test".to_string()],
+            max_tokens: 100,
+            temperature: 0.5,
+            top_k: 10,
+            stop: vec!["END".to_string()],
+        };
+        let json = serde_json::to_string(&request).expect("serialize");
+        assert!(json.contains("test"));
+        assert!(json.contains("100"));
+        assert!(json.contains("END"));
+    }
+
+    #[test]
+    fn test_gpu_batch_request_deserialization() {
+        let json = r#"{"prompts": ["hello", "world"], "max_tokens": 50}"#;
+        let request: GpuBatchRequest = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(request.prompts.len(), 2);
+        assert_eq!(request.max_tokens, 50);
+    }
+
+    #[test]
+    fn test_gpu_batch_request_clone() {
+        let request = GpuBatchRequest {
+            prompts: vec!["a".to_string()],
+            max_tokens: 10,
+            temperature: 0.0,
+            top_k: 1,
+            stop: vec![],
+        };
+        let cloned = request.clone();
+        assert_eq!(request.prompts, cloned.prompts);
+    }
+
+    #[test]
+    fn test_gpu_batch_request_debug() {
+        let request = GpuBatchRequest {
+            prompts: vec![],
+            max_tokens: 10,
+            temperature: 0.0,
+            top_k: 1,
+            stop: vec![],
+        };
+        let debug = format!("{:?}", request);
+        assert!(debug.contains("GpuBatchRequest"));
+    }
+
+    // =========================================================================
+    // GpuBatchResponse tests
+    // =========================================================================
+
+    #[test]
+    fn test_gpu_batch_response_basic() {
+        let response = GpuBatchResponse {
+            results: vec![GpuBatchResult {
+                index: 0,
+                token_ids: vec![1, 2, 3],
+                text: "hello".to_string(),
+                num_generated: 3,
+            }],
+            stats: GpuBatchStats {
+                batch_size: 1,
+                gpu_used: true,
+                total_tokens: 3,
+                processing_time_ms: 10.0,
+                throughput_tps: 300.0,
+            },
+        };
+        assert_eq!(response.results.len(), 1);
+        assert!(response.stats.gpu_used);
+    }
+
+    #[test]
+    fn test_gpu_batch_response_serialization() {
+        let response = GpuBatchResponse {
+            results: vec![],
+            stats: GpuBatchStats {
+                batch_size: 4,
+                gpu_used: false,
+                total_tokens: 100,
+                processing_time_ms: 50.0,
+                throughput_tps: 2000.0,
+            },
+        };
+        let json = serde_json::to_string(&response).expect("serialize");
+        assert!(json.contains("batch_size"));
+        assert!(json.contains("gpu_used"));
+    }
+
+    #[test]
+    fn test_gpu_batch_response_clone() {
+        let response = GpuBatchResponse {
+            results: vec![],
+            stats: GpuBatchStats {
+                batch_size: 1,
+                gpu_used: false,
+                total_tokens: 10,
+                processing_time_ms: 5.0,
+                throughput_tps: 2000.0,
+            },
+        };
+        let cloned = response.clone();
+        assert_eq!(response.stats.batch_size, cloned.stats.batch_size);
+    }
+
+    // =========================================================================
+    // GpuBatchResult tests
+    // =========================================================================
+
+    #[test]
+    fn test_gpu_batch_result_basic() {
+        let result = GpuBatchResult {
+            index: 5,
+            token_ids: vec![10, 20, 30],
+            text: "generated text".to_string(),
+            num_generated: 3,
+        };
+        assert_eq!(result.index, 5);
+        assert_eq!(result.token_ids.len(), 3);
+        assert_eq!(result.num_generated, 3);
+    }
+
+    #[test]
+    fn test_gpu_batch_result_serialization() {
+        let result = GpuBatchResult {
+            index: 0,
+            token_ids: vec![1, 2],
+            text: "hi".to_string(),
+            num_generated: 2,
+        };
+        let json = serde_json::to_string(&result).expect("serialize");
+        assert!(json.contains("index"));
+        assert!(json.contains("token_ids"));
+        assert!(json.contains("hi"));
+    }
+
+    #[test]
+    fn test_gpu_batch_result_clone() {
+        let result = GpuBatchResult {
+            index: 0,
+            token_ids: vec![1],
+            text: "test".to_string(),
+            num_generated: 1,
+        };
+        let cloned = result.clone();
+        assert_eq!(result.text, cloned.text);
+    }
+
+    #[test]
+    fn test_gpu_batch_result_debug() {
+        let result = GpuBatchResult {
+            index: 0,
+            token_ids: vec![],
+            text: String::new(),
+            num_generated: 0,
+        };
+        let debug = format!("{:?}", result);
+        assert!(debug.contains("GpuBatchResult"));
+    }
+
+    // =========================================================================
+    // GpuBatchStats tests
+    // =========================================================================
+
+    #[test]
+    fn test_gpu_batch_stats_basic() {
+        let stats = GpuBatchStats {
+            batch_size: 8,
+            gpu_used: true,
+            total_tokens: 256,
+            processing_time_ms: 100.0,
+            throughput_tps: 2560.0,
+        };
+        assert_eq!(stats.batch_size, 8);
+        assert!(stats.gpu_used);
+        assert_eq!(stats.total_tokens, 256);
+    }
+
+    #[test]
+    fn test_gpu_batch_stats_serialization() {
+        let stats = GpuBatchStats {
+            batch_size: 4,
+            gpu_used: false,
+            total_tokens: 100,
+            processing_time_ms: 50.0,
+            throughput_tps: 2000.0,
+        };
+        let json = serde_json::to_string(&stats).expect("serialize");
+        assert!(json.contains("batch_size"));
+        assert!(json.contains("throughput_tps"));
+    }
+
+    #[test]
+    fn test_gpu_batch_stats_clone() {
+        let stats = GpuBatchStats {
+            batch_size: 1,
+            gpu_used: false,
+            total_tokens: 10,
+            processing_time_ms: 5.0,
+            throughput_tps: 2000.0,
+        };
+        let cloned = stats.clone();
+        assert_eq!(stats.total_tokens, cloned.total_tokens);
+    }
+
+    #[test]
+    fn test_gpu_batch_stats_debug() {
+        let stats = GpuBatchStats {
+            batch_size: 1,
+            gpu_used: false,
+            total_tokens: 0,
+            processing_time_ms: 0.0,
+            throughput_tps: 0.0,
+        };
+        let debug = format!("{:?}", stats);
+        assert!(debug.contains("GpuBatchStats"));
+    }
+
+    // =========================================================================
+    // GpuWarmupResponse tests
+    // =========================================================================
+
+    #[test]
+    fn test_gpu_warmup_response_success() {
+        let response = GpuWarmupResponse {
+            success: true,
+            memory_bytes: 1_000_000,
+            num_layers: 12,
+            message: "Warmup complete".to_string(),
+        };
+        assert!(response.success);
+        assert_eq!(response.num_layers, 12);
+    }
+
+    #[test]
+    fn test_gpu_warmup_response_failure() {
+        let response = GpuWarmupResponse {
+            success: false,
+            memory_bytes: 0,
+            num_layers: 0,
+            message: "GPU not available".to_string(),
+        };
+        assert!(!response.success);
+    }
+
+    #[test]
+    fn test_gpu_warmup_response_serialization() {
+        let response = GpuWarmupResponse {
+            success: true,
+            memory_bytes: 500_000,
+            num_layers: 6,
+            message: "OK".to_string(),
+        };
+        let json = serde_json::to_string(&response).expect("serialize");
+        assert!(json.contains("success"));
+        assert!(json.contains("memory_bytes"));
+    }
+
+    #[test]
+    fn test_gpu_warmup_response_clone() {
+        let response = GpuWarmupResponse {
+            success: true,
+            memory_bytes: 100,
+            num_layers: 1,
+            message: "test".to_string(),
+        };
+        let cloned = response.clone();
+        assert_eq!(response.message, cloned.message);
+    }
+
+    #[test]
+    fn test_gpu_warmup_response_debug() {
+        let response = GpuWarmupResponse {
+            success: false,
+            memory_bytes: 0,
+            num_layers: 0,
+            message: String::new(),
+        };
+        let debug = format!("{:?}", response);
+        assert!(debug.contains("GpuWarmupResponse"));
+    }
+
+    // =========================================================================
+    // GpuStatusResponse tests
+    // =========================================================================
+
+    #[test]
+    fn test_gpu_status_response_ready() {
+        let response = GpuStatusResponse {
+            cache_ready: true,
+            cache_memory_bytes: 2_000_000,
+            batch_threshold: 32,
+            recommended_min_batch: 4,
+        };
+        assert!(response.cache_ready);
+        assert_eq!(response.batch_threshold, 32);
+    }
+
+    #[test]
+    fn test_gpu_status_response_not_ready() {
+        let response = GpuStatusResponse {
+            cache_ready: false,
+            cache_memory_bytes: 0,
+            batch_threshold: 32,
+            recommended_min_batch: 4,
+        };
+        assert!(!response.cache_ready);
+    }
+
+    #[test]
+    fn test_gpu_status_response_serialization() {
+        let response = GpuStatusResponse {
+            cache_ready: true,
+            cache_memory_bytes: 1000,
+            batch_threshold: 16,
+            recommended_min_batch: 2,
+        };
+        let json = serde_json::to_string(&response).expect("serialize");
+        assert!(json.contains("cache_ready"));
+        assert!(json.contains("batch_threshold"));
+    }
+
+    #[test]
+    fn test_gpu_status_response_clone() {
+        let response = GpuStatusResponse {
+            cache_ready: false,
+            cache_memory_bytes: 0,
+            batch_threshold: 8,
+            recommended_min_batch: 1,
+        };
+        let cloned = response.clone();
+        assert_eq!(response.batch_threshold, cloned.batch_threshold);
+    }
+
+    #[test]
+    fn test_gpu_status_response_debug() {
+        let response = GpuStatusResponse {
+            cache_ready: false,
+            cache_memory_bytes: 0,
+            batch_threshold: 32,
+            recommended_min_batch: 4,
+        };
+        let debug = format!("{:?}", response);
+        assert!(debug.contains("GpuStatusResponse"));
+    }
+
+    // =========================================================================
+    // BatchConfig tests (feature = "gpu")
+    // =========================================================================
+
+    #[cfg(feature = "gpu")]
+    mod batch_config_tests {
+        use super::*;
+
+        #[test]
+        fn test_batch_config_default() {
+            let config = BatchConfig::default();
+            assert_eq!(config.window_ms, 50);
+            assert_eq!(config.min_batch, 4);
+            assert_eq!(config.optimal_batch, 32);
+            assert_eq!(config.max_batch, 64);
+            assert_eq!(config.queue_size, 1024);
+            assert_eq!(config.gpu_threshold, 32);
+        }
+
+        #[test]
+        fn test_batch_config_low_latency() {
+            let config = BatchConfig::low_latency();
+            assert_eq!(config.window_ms, 5);
+            assert_eq!(config.min_batch, 2);
+            assert_eq!(config.optimal_batch, 8);
+            assert_eq!(config.max_batch, 16);
+        }
+
+        #[test]
+        fn test_batch_config_high_throughput() {
+            let config = BatchConfig::high_throughput();
+            assert_eq!(config.window_ms, 100);
+            assert_eq!(config.min_batch, 8);
+            assert_eq!(config.optimal_batch, 32);
+            assert_eq!(config.max_batch, 128);
+        }
+
+        #[test]
+        fn test_batch_config_should_process_true() {
+            let config = BatchConfig::default();
+            assert!(config.should_process(32));
+            assert!(config.should_process(64));
+        }
+
+        #[test]
+        fn test_batch_config_should_process_false() {
+            let config = BatchConfig::default();
+            assert!(!config.should_process(31));
+            assert!(!config.should_process(1));
+        }
+
+        #[test]
+        fn test_batch_config_meets_minimum_true() {
+            let config = BatchConfig::default();
+            assert!(config.meets_minimum(4));
+            assert!(config.meets_minimum(100));
+        }
+
+        #[test]
+        fn test_batch_config_meets_minimum_false() {
+            let config = BatchConfig::default();
+            assert!(!config.meets_minimum(3));
+            assert!(!config.meets_minimum(0));
+        }
+
+        #[test]
+        fn test_batch_config_clone() {
+            let config = BatchConfig::high_throughput();
+            let cloned = config.clone();
+            assert_eq!(config.max_batch, cloned.max_batch);
+        }
+
+        #[test]
+        fn test_batch_config_debug() {
+            let config = BatchConfig::default();
+            let debug = format!("{:?}", config);
+            assert!(debug.contains("BatchConfig"));
+        }
+    }
+
+    // =========================================================================
+    // ContinuousBatchResponse tests (feature = "gpu")
+    // =========================================================================
+
+    #[cfg(feature = "gpu")]
+    mod continuous_batch_response_tests {
+        use super::*;
+
+        #[test]
+        fn test_continuous_batch_response_single() {
+            let response = ContinuousBatchResponse::single(vec![1, 2, 3], 1, 5.0);
+            assert_eq!(response.token_ids, vec![1, 2, 3]);
+            assert_eq!(response.prompt_len, 1);
+            assert!(!response.batched);
+            assert_eq!(response.batch_size, 1);
+            assert!((response.latency_ms - 5.0).abs() < f64::EPSILON);
+        }
+
+        #[test]
+        fn test_continuous_batch_response_batched() {
+            let response = ContinuousBatchResponse::batched(vec![4, 5, 6], 2, 8, 10.0);
+            assert_eq!(response.token_ids, vec![4, 5, 6]);
+            assert_eq!(response.prompt_len, 2);
+            assert!(response.batched);
+            assert_eq!(response.batch_size, 8);
+        }
+
+        #[test]
+        fn test_continuous_batch_response_clone() {
+            let response = ContinuousBatchResponse::single(vec![1], 1, 1.0);
+            let cloned = response.clone();
+            assert_eq!(response.batched, cloned.batched);
+        }
+
+        #[test]
+        fn test_continuous_batch_response_debug() {
+            let response = ContinuousBatchResponse::single(vec![], 0, 0.0);
+            let debug = format!("{:?}", response);
+            assert!(debug.contains("ContinuousBatchResponse"));
+        }
+    }
+
+    // =========================================================================
+    // Edge case tests
+    // =========================================================================
+
+    #[test]
+    fn test_gpu_batch_request_empty_prompts() {
+        let request = GpuBatchRequest {
+            prompts: vec![],
+            max_tokens: 10,
+            temperature: 0.0,
+            top_k: 1,
+            stop: vec![],
+        };
+        assert!(request.prompts.is_empty());
+    }
+
+    #[test]
+    fn test_gpu_batch_result_empty_tokens() {
+        let result = GpuBatchResult {
+            index: 0,
+            token_ids: vec![],
+            text: String::new(),
+            num_generated: 0,
+        };
+        assert!(result.token_ids.is_empty());
+        assert_eq!(result.num_generated, 0);
+    }
+
+    #[test]
+    fn test_gpu_batch_stats_zero_throughput() {
+        let stats = GpuBatchStats {
+            batch_size: 1,
+            gpu_used: false,
+            total_tokens: 0,
+            processing_time_ms: 0.0,
+            throughput_tps: 0.0,
+        };
+        assert!((stats.throughput_tps - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_gpu_warmup_response_large_memory() {
+        let response = GpuWarmupResponse {
+            success: true,
+            memory_bytes: 8_000_000_000, // 8GB
+            num_layers: 96,
+            message: "Large model".to_string(),
+        };
+        assert_eq!(response.memory_bytes, 8_000_000_000);
+    }
 }

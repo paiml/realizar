@@ -229,6 +229,7 @@ mod tests {
             self.weights.len() + self.quantized_weights.len()
         }
 
+        #[allow(clippy::many_single_char_names)]
         fn matmul(
             &mut self,
             a: &[f32],
@@ -374,5 +375,123 @@ mod tests {
     fn test_mock_backend_sync() {
         let backend = MockBackend::new(0).unwrap();
         assert!(backend.synchronize().is_ok());
+    }
+
+    #[test]
+    fn test_mock_backend_matmul_dimension_error_a() {
+        let mut backend = MockBackend::new(0).unwrap();
+        // A should be 2x3 but we provide wrong size
+        let a = vec![1.0, 2.0, 3.0]; // only 3 elements, not 6
+        let b = vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0]; // 3x2
+
+        let result = backend.matmul(&a, &b, 2, 3, 2);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mock_backend_matmul_dimension_error_b() {
+        let mut backend = MockBackend::new(0).unwrap();
+        let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // 2x3
+                                                    // B should be 3x2 but we provide wrong size
+        let b = vec![7.0, 8.0]; // only 2 elements, not 6
+
+        let result = backend.matmul(&a, &b, 2, 3, 2);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mock_backend_matmul_cached_weight_not_found() {
+        let mut backend = MockBackend::new(0).unwrap();
+        let x = vec![1.0, 2.0, 3.0];
+        let result = backend.matmul_cached("nonexistent", &x, 1, 3, 2);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mock_backend_q4k_gemv_cached() {
+        let mut backend = MockBackend::new(0).unwrap();
+
+        // Load quantized weights
+        let qdata = vec![0u8; 256]; // Q4_K data
+        backend
+            .load_quantized_weights("q4k_test", &qdata, 3)
+            .unwrap();
+
+        let input = vec![1.0, 2.0, 3.0, 4.0];
+        let result = backend.q4k_gemv_cached("q4k_test", &input, 8, 4).unwrap();
+
+        assert_eq!(result.len(), 8);
+    }
+
+    #[test]
+    fn test_mock_backend_q4k_gemv_cached_weight_not_found() {
+        let mut backend = MockBackend::new(0).unwrap();
+        let input = vec![1.0, 2.0, 3.0, 4.0];
+        let result = backend.q4k_gemv_cached("nonexistent", &input, 8, 4);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mock_backend_different_device_ids() {
+        let backend0 = MockBackend::new(0).unwrap();
+        let backend1 = MockBackend::new(1).unwrap();
+        let backend2 = MockBackend::new(42).unwrap();
+
+        assert_eq!(backend0.device_name(), "MockDevice:0");
+        assert_eq!(backend1.device_name(), "MockDevice:1");
+        assert_eq!(backend2.device_name(), "MockDevice:42");
+    }
+
+    #[test]
+    fn test_mock_backend_load_multiple_weights() {
+        let mut backend = MockBackend::new(0).unwrap();
+
+        backend.load_weights("w1", &[1.0, 2.0]).unwrap();
+        backend.load_weights("w2", &[3.0, 4.0]).unwrap();
+        backend.load_weights("w3", &[5.0, 6.0]).unwrap();
+        backend.load_quantized_weights("q1", &[0u8; 10], 2).unwrap();
+        backend.load_quantized_weights("q2", &[0u8; 20], 3).unwrap();
+
+        assert_eq!(backend.cached_weight_count(), 5);
+        assert!(backend.has_weights("w1"));
+        assert!(backend.has_weights("w2"));
+        assert!(backend.has_weights("w3"));
+        assert!(backend.has_weights("q1"));
+        assert!(backend.has_weights("q2"));
+        assert!(!backend.has_weights("w4"));
+    }
+
+    #[test]
+    fn test_mock_backend_matmul_1x1() {
+        let mut backend = MockBackend::new(0).unwrap();
+        // Simple scalar multiplication via matmul
+        let a = vec![2.0];
+        let b = vec![3.0];
+        let c = backend.matmul(&a, &b, 1, 1, 1).unwrap();
+        assert_eq!(c.len(), 1);
+        assert!((c[0] - 6.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_mock_backend_matmul_identity() {
+        let mut backend = MockBackend::new(0).unwrap();
+        // Identity matrix multiplication
+        let a = vec![1.0, 2.0, 3.0, 4.0]; // 2x2
+        let identity = vec![1.0, 0.0, 0.0, 1.0]; // 2x2 identity
+        let c = backend.matmul(&a, &identity, 2, 2, 2).unwrap();
+        assert_eq!(c.len(), 4);
+        assert!((c[0] - 1.0).abs() < 1e-5);
+        assert!((c[1] - 2.0).abs() < 1e-5);
+        assert!((c[2] - 3.0).abs() < 1e-5);
+        assert!((c[3] - 4.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_mock_backend_load_empty_weights() {
+        let mut backend = MockBackend::new(0).unwrap();
+        let result = backend.load_weights("empty", &[]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+        assert!(backend.has_weights("empty"));
     }
 }

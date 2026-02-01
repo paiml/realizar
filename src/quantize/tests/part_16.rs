@@ -13,8 +13,8 @@
 use crate::quantize::{
     dequantize_q8_blocks, detect_simd_backend, fused_q4_0_q8_0_parallel_matvec,
     fused_q4_0_q8_0_parallel_matvec_into, fused_q8_0_q8_0_parallel_matvec,
-    fused_q8_0_q8_0_parallel_matvec_into, quantize_activations_q8k_into, quantize_to_q8_blocks,
-    DequantStats, InterleavedQ4K, Q8KSuperBlock, Q8_0Block, SimdBackend, BLOCK_SIZE, QK_K,
+    quantize_activations_q8k_into, quantize_to_q8_blocks, DequantStats, InterleavedQ4K,
+    Q8KSuperBlock, Q8_0Block, SimdBackend, BLOCK_SIZE, QK_K,
 };
 
 // These are pub(crate), available within the crate
@@ -304,7 +304,7 @@ fn test_simd_backend_display_scalar() {
 
 #[test]
 fn test_simd_backend_default() {
-    let backend: SimdBackend = Default::default();
+    let backend = SimdBackend::default();
     assert_eq!(backend, SimdBackend::Scalar);
 }
 
@@ -335,7 +335,7 @@ fn test_simd_backend_copy() {
 
 #[test]
 fn test_dequant_stats_default() {
-    let stats: DequantStats = Default::default();
+    let stats = DequantStats::default();
     assert_eq!(stats.blocks_processed, 0);
     assert_eq!(stats.bytes_processed, 0);
     assert_eq!(stats.simd_backend, SimdBackend::Scalar);

@@ -807,7 +807,7 @@ fn test_apply_rope_rotation_simd_parity_with_scalar_p19() {
 
 #[test]
 fn test_apply_rope_rotation_scalar_basic_p19() {
-    let half_dim = 4;
+    let _half_dim = 4;
     let mut x1 = vec![1.0, 2.0, 3.0, 4.0];
     let mut x2 = vec![5.0, 6.0, 7.0, 8.0];
     let cos_vals = vec![1.0, 0.866, 0.5, 0.0]; // cos(0), cos(30), cos(60), cos(90)

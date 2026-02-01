@@ -1730,8 +1730,8 @@ mod tests {
 
         // Calculate log probs to get ratio just above 0.5
         // draft_prob = 0.6, target_prob = 0.31 => ratio ≈ 0.517
-        let draft_prob = TokenProb::new(5, (-0.6_f32).ln());
-        let target_prob = TokenProb::new(10, (-0.31_f32).ln());
+        let _draft_prob = TokenProb::new(5, (-0.6_f32).ln());
+        let _target_prob = TokenProb::new(10, (-0.31_f32).ln());
 
         // This is a negative log prob scenario - let's use cleaner values
         // draft prob = exp(-1) ≈ 0.368, target prob = exp(-1.3) ≈ 0.273

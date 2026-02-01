@@ -19,7 +19,7 @@
 
 #[cfg(all(test, feature = "cuda"))]
 mod tests {
-    use realizar::brick::{BrickTracer, TraceComparison};
+    use realizar::brick::BrickTracer;
     use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQuantizedModelCuda};
 
     /// Test GPU vs CPU parity on first token logits
@@ -68,7 +68,7 @@ mod tests {
         }
 
         // GPU: Get logits using generate_full_cuda_with_cache (standard path)
-        let cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(
+        let _cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(
             OwnedQuantizedModel::from_mapped(&mapped).unwrap(),
             0,
             max_seq_len,
@@ -82,6 +82,7 @@ mod tests {
             temperature: 0.0,
             top_k: 1,
             stop_tokens: vec![],
+            trace: false,
         };
 
         // Can't easily get intermediate logits from generate, so let's compare top-k

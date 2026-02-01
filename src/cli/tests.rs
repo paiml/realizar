@@ -2438,7 +2438,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
     // =========================================================================
 
     mod inference_tests {
-        use super::*;
+
         use crate::cli::inference;
 
         // -------------------------------------------------------------------------
@@ -2473,10 +2473,10 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
 
         #[test]
         fn test_run_gguf_inference_invalid_gguf_data() {
-            // Test with invalid GGUF magic bytes
+            // Test with non-existent path - the function reads from path, not from data param
             let invalid_data = vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
             let result = inference::run_gguf_inference(
-                "/tmp/test.gguf",
+                "/nonexistent_invalid_model.gguf",
                 &invalid_data,
                 "Test prompt",
                 5,

@@ -419,7 +419,7 @@ impl GgufToAprQ4KConverter {
             match s.as_str() {
                 "none" | "linear" => return 0, // NORM style
                 "yarn" | "neox" => return 2,   // NEOX style
-                _ => {}
+                _ => {},
             }
         }
 
@@ -551,19 +551,20 @@ impl GgufToAprQ4KConverter {
         let rope_type = Self::infer_rope_type(&architecture, &gguf_model.metadata);
 
         // Build metadata JSON
+        // F-REGR-231 FIX: Use field names consistent with AprTransformer::from_apr_bytes
         let metadata = serde_json::json!({
             "model_type": "transformer_lm_q4k",
             "architecture": architecture,
             "hidden_size": hidden_size,
-            "num_layers": num_layers,
-            "num_heads": num_heads,
-            "num_kv_heads": num_kv_heads,
+            "num_hidden_layers": num_layers,  // Loader checks num_hidden_layers first
+            "num_attention_heads": num_heads, // Loader checks num_attention_heads first
+            "num_key_value_heads": num_kv_heads, // Loader checks num_key_value_heads first
             "vocab_size": vocab_size,
-            "intermediate_dim": intermediate_size,
-            "context_length": context_length,
+            "intermediate_size": intermediate_size, // Loader checks intermediate_size first
+            "max_position_embeddings": context_length, // Loader checks max_position_embeddings
             "rope_theta": rope_theta,
             "rope_type": rope_type,
-            "eps": eps,
+            "rms_norm_eps": eps,  // F-REGR-231: Was "eps", loader reads "rms_norm_eps"
             "quantization": "Q4_K_M",
         });
         let metadata_bytes =
@@ -585,14 +586,17 @@ impl GgufToAprQ4KConverter {
 
             // Calculate byte size based on qtype (GGML dtype)
             // GGML types: 0=F32, 1=F16, 8=Q8_0, 12=Q4_K, 13=Q5_K, 14=Q6_K
+            // BUG-APR-002 FIX: Use div_ceil to round UP, not integer division which rounds DOWN
+            // Integer division caused "tensor exceeds file bounds" for tensors not perfectly
+            // divisible by block size (256 for K-quants, 32 for Q8_0).
             let byte_size = match qtype {
-                0 => num_elements * 4,            // F32
-                1 => num_elements * 2,            // F16
-                8 => (num_elements / 32) * 34,    // Q8_0: 32 elements = 2 (scale) + 32 (quants)
-                12 => (num_elements / 256) * 144, // Q4_K: 256 elements = 144 bytes
-                13 => (num_elements / 256) * 176, // Q5_K: 256 elements = 176 bytes
-                14 => (num_elements / 256) * 210, // Q6_K: 256 elements = 210 bytes
-                _ => num_elements * 4,            // Default to F32
+                0 => num_elements * 4,                  // F32
+                1 => num_elements * 2,                  // F16
+                8 => num_elements.div_ceil(32) * 34, // Q8_0: 32 elements = 34 bytes (scale + quants)
+                12 => num_elements.div_ceil(256) * 144, // Q4_K: 256 elements = 144 bytes
+                13 => num_elements.div_ceil(256) * 176, // Q5_K: 256 elements = 176 bytes
+                14 => num_elements.div_ceil(256) * 210, // Q6_K: 256 elements = 210 bytes
+                _ => num_elements * 4,               // Default to F32
             };
 
             // Extract raw bytes
@@ -635,17 +639,25 @@ impl GgufToAprQ4KConverter {
             tensor_index_bytes.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
             tensor_index_bytes.extend_from_slice(name_bytes);
 
-            // dtype (1 byte) - map GGML dtype to APR dtype
-            // GGML: 0=F32, 1=F16, 8=Q8_0, 12=Q4_K, 13=Q5_K, 14=Q6_K
-            // APR:  0=F32, 1=F16, 8=Q4_K, 9=Q6_K, 10=Q8_0
+            // dtype (1 byte) - write GGML dtype directly
+            // The APR v2 TensorEntry::from_binary reader handles these values:
+            //   0=F32, 1=F16, 8=Q8_0, 12=Q4_K, 13=Q5_K, 14=Q6_K
+            // GH-191 FIX: Previously used wrong APR-specific dtype codes (8=Q4_K, 9=Q6_K, 10=Q8_0)
+            // that didn't match the reader's mapping, causing all tensors to load as F32.
             let apr_dtype = match tensor.dtype {
-                0 => 0u8,  // F32 -> F32
-                1 => 1u8,  // F16 -> F16
-                8 => 10u8, // Q8_0 -> APR dtype 10
-                12 => 8u8, // Q4_K -> APR dtype 8
-                13 => 8u8, // Q5_K -> treat as Q4_K for now
-                14 => 9u8, // Q6_K -> APR dtype 9
-                _ => 0u8,
+                0 => 0u8,   // F32
+                1 => 1u8,   // F16
+                8 => 8u8,   // Q8_0 (GGML type 8)
+                12 => 12u8, // Q4_K (GGML type 12)
+                13 => 13u8, // Q5_K (GGML type 13)
+                14 => 14u8, // Q6_K (GGML type 14)
+                other => {
+                    eprintln!(
+                        "WARN: Unknown GGML dtype {other} for tensor '{}', writing as F32",
+                        tensor.name
+                    );
+                    0u8
+                },
             };
             tensor_index_bytes.push(apr_dtype);
 
@@ -775,3 +787,43 @@ pub struct Q4KConversionStats {
 #[cfg(test)]
 #[path = "tests.rs"]
 mod convert_tests;
+
+// T-COV-95 Coverage Bridge tests (Part 02 - B5)
+#[cfg(test)]
+#[path = "tests_part_02.rs"]
+mod convert_tests_part_02;
+
+// T-COV-95 Deep Coverage Bridge (Part 03 - Q4K converter, rope_type, helpers)
+#[cfg(test)]
+#[path = "tests_part_03.rs"]
+mod convert_tests_part_03;
+
+// T-COV-95 Coverage Bridge (Part 04 - ConversionStats, to_apr_bytes, from_apr_bytes)
+#[cfg(test)]
+#[path = "tests_part_04.rs"]
+mod convert_tests_part_04;
+
+// T-COV-95 Extended Coverage (Part 05 - RawTensor, dtypes, edge cases)
+#[cfg(test)]
+#[path = "tests_part_05.rs"]
+mod convert_tests_part_05;
+
+// T-COV-95 Synthetic Falsification (Part 06 - Pygmy GGUF conversions)
+#[cfg(test)]
+#[path = "tests_part_06.rs"]
+mod convert_tests_part_06;
+
+// T-COV-95 Maimed Pygmy Campaign (Part 07 - Destructive APR/GGUF conversion tests)
+#[cfg(test)]
+#[path = "tests_part_07.rs"]
+mod convert_tests_part_07;
+
+// T-COV-95 Semantic Divergence (Part 08 - Architecture Mismatch Tests)
+#[cfg(test)]
+#[path = "tests_part_08.rs"]
+mod convert_tests_part_08;
+
+// T-COV-95 Generative Falsification (Part 09 - Proptest Byte-Smasher)
+#[cfg(test)]
+#[path = "tests_part_09.rs"]
+mod convert_tests_part_09;

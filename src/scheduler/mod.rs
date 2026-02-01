@@ -1970,3 +1970,8 @@ mod scheduler_tests;
 #[cfg(test)]
 #[path = "tests_part_02.rs"]
 mod scheduler_tests_part_02;
+
+// Deep coverage tests (Part 03)
+#[cfg(test)]
+#[path = "tests_part_03.rs"]
+mod scheduler_tests_part_03;

@@ -3,6 +3,8 @@
 //! This module provides additional coverage for quantization functions,
 //! SIMD backends, RoPE rotation, and helper types not covered by existing tests.
 
+#![allow(clippy::needless_range_loop)]
+
 use realizar::quantize::{
     dequantize_f16, dequantize_q4_0, dequantize_q4_1, dequantize_q4_k, dequantize_q4_k_parallel,
     dequantize_q4_k_simd, dequantize_q5_0, dequantize_q5_1, dequantize_q5_k, dequantize_q6_k,

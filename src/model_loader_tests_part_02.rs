@@ -270,7 +270,8 @@ fn test_read_apr_model_type_too_short() {
 
 #[test]
 fn test_read_apr_model_type_exactly_8_bytes() {
-    let mut data = b"APR\0".to_vec();
+    // F-COV-95: APR v1 uses "APRN" magic
+    let mut data = b"APRN".to_vec();
     data.extend_from_slice(&0x0003u16.to_le_bytes()); // DecisionTree
     data.extend_from_slice(&[0, 0]);
     assert_eq!(read_apr_model_type(&data), Some("DecisionTree".to_string()));
@@ -278,13 +279,14 @@ fn test_read_apr_model_type_exactly_8_bytes() {
 
 #[test]
 fn test_read_apr_model_type_undefined_ids() {
+    // F-COV-95: APR v1 uses "APRN" magic
     // Gap between SVM (0x000A) and NgramLM (0x0010)
-    let mut data = b"APR\0".to_vec();
+    let mut data = b"APRN".to_vec();
     data.extend_from_slice(&0x000Bu16.to_le_bytes());
     data.extend_from_slice(&[0, 0]);
     assert_eq!(read_apr_model_type(&data), None);
     // Gap between NeuralCustom (0x0021) and ContentRecommender (0x0030)
-    let mut data = b"APR\0".to_vec();
+    let mut data = b"APRN".to_vec();
     data.extend_from_slice(&0x0022u16.to_le_bytes());
     data.extend_from_slice(&[0, 0]);
     assert_eq!(read_apr_model_type(&data), None);

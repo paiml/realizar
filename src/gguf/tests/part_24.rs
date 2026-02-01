@@ -44,28 +44,40 @@ fn build_gguf_with_metadata(key: &str, value_type: u32, value_bytes: Vec<u8>) ->
 fn test_metadata_type_0_uint8() {
     let data = build_gguf_with_metadata("test.uint8", 0, vec![42u8]);
     let model = GGUFModel::from_bytes(&data).expect("parse");
-    assert!(matches!(model.metadata.get("test.uint8"), Some(GGUFValue::UInt8(42))));
+    assert!(matches!(
+        model.metadata.get("test.uint8"),
+        Some(GGUFValue::UInt8(42))
+    ));
 }
 
 #[test]
 fn test_metadata_type_1_int8() {
     let data = build_gguf_with_metadata("test.int8", 1, vec![0xFEu8]); // -2 as i8
     let model = GGUFModel::from_bytes(&data).expect("parse");
-    assert!(matches!(model.metadata.get("test.int8"), Some(GGUFValue::Int8(-2))));
+    assert!(matches!(
+        model.metadata.get("test.int8"),
+        Some(GGUFValue::Int8(-2))
+    ));
 }
 
 #[test]
 fn test_metadata_type_2_uint16() {
     let data = build_gguf_with_metadata("test.uint16", 2, 1000u16.to_le_bytes().to_vec());
     let model = GGUFModel::from_bytes(&data).expect("parse");
-    assert!(matches!(model.metadata.get("test.uint16"), Some(GGUFValue::UInt16(1000))));
+    assert!(matches!(
+        model.metadata.get("test.uint16"),
+        Some(GGUFValue::UInt16(1000))
+    ));
 }
 
 #[test]
 fn test_metadata_type_3_int16() {
     let data = build_gguf_with_metadata("test.int16", 3, (-500i16).to_le_bytes().to_vec());
     let model = GGUFModel::from_bytes(&data).expect("parse");
-    assert!(matches!(model.metadata.get("test.int16"), Some(GGUFValue::Int16(-500))));
+    assert!(matches!(
+        model.metadata.get("test.int16"),
+        Some(GGUFValue::Int16(-500))
+    ));
 }
 
 #[test]
@@ -103,7 +115,10 @@ fn test_metadata_type_6_float32() {
 fn test_metadata_type_7_bool_true() {
     let data = build_gguf_with_metadata("test.bool", 7, vec![1u8]);
     let model = GGUFModel::from_bytes(&data).expect("parse");
-    assert!(matches!(model.metadata.get("test.bool"), Some(GGUFValue::Bool(true))));
+    assert!(matches!(
+        model.metadata.get("test.bool"),
+        Some(GGUFValue::Bool(true))
+    ));
 }
 
 #[test]
@@ -174,7 +189,11 @@ fn test_metadata_type_11_int64() {
 
 #[test]
 fn test_metadata_type_12_float64() {
-    let data = build_gguf_with_metadata("test.float64", 12, std::f64::consts::PI.to_le_bytes().to_vec());
+    let data = build_gguf_with_metadata(
+        "test.float64",
+        12,
+        std::f64::consts::PI.to_le_bytes().to_vec(),
+    );
     let model = GGUFModel::from_bytes(&data).expect("parse");
     if let Some(GGUFValue::Float64(v)) = model.metadata.get("test.float64") {
         assert!((v - std::f64::consts::PI).abs() < 1e-10);
@@ -500,14 +519,20 @@ fn test_empty_array_metadata() {
 fn test_max_u8_value() {
     let data = build_gguf_with_metadata("test.max_u8", 0, vec![255u8]);
     let model = GGUFModel::from_bytes(&data).expect("parse");
-    assert!(matches!(model.metadata.get("test.max_u8"), Some(GGUFValue::UInt8(255))));
+    assert!(matches!(
+        model.metadata.get("test.max_u8"),
+        Some(GGUFValue::UInt8(255))
+    ));
 }
 
 #[test]
 fn test_min_i8_value() {
     let data = build_gguf_with_metadata("test.min_i8", 1, vec![0x80u8]); // -128 as i8
     let model = GGUFModel::from_bytes(&data).expect("parse");
-    assert!(matches!(model.metadata.get("test.min_i8"), Some(GGUFValue::Int8(-128))));
+    assert!(matches!(
+        model.metadata.get("test.min_i8"),
+        Some(GGUFValue::Int8(-128))
+    ));
 }
 
 #[test]
