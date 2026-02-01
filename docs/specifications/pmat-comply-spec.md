@@ -40,7 +40,7 @@ Critical issues remaining:
 | Metric | Threshold | Current | Status |
 |--------|-----------|---------|--------|
 | **Dead Code** | ≤ 15% | 29.6% | ❌ FAIL (SIMD cfg false positives, AST=0.03%) |
-| **Complexity** | ≤ 25 cognitive | 28 violations | ⚠️ down from 148 (81% reduction) |
+| **Complexity** | ≤ 25 cognitive | 27 violations | ⚠️ down from 148 (82% reduction) |
 | **SATD** | 0 critical | 0 violations | ✅ PASS |
 | **Entropy** | - | 52 violations | ⚠️ (structural patterns) |
 | **Provability** | ≥ 0.70 | 0.65 | ❌ FAIL (structural metric) |
@@ -48,7 +48,7 @@ Critical issues remaining:
 | **Duplicates** | - | 0 | ✅ PASS |
 | **Sections** | All required | 0 missing | ✅ PASS |
 
-**Total violations: 87** (down from 225, 61% reduction)
+**Total violations: 86** (down from 225, 62% reduction)
 
 ## 3. Dead Code Violations (Priority: HIGH)
 
@@ -263,16 +263,17 @@ These contain Python scripts, benchmarks, test infrastructure, and ancillary bin
 | `apr_transformer/generation.rs` | `generate_with_cache` | Extracted `sample_from_logits()` + `is_eos_token()` |
 | `apr/helpers.rs` | `simple_attention` | Extracted `compute_attention_score()` + `softmax_causal()` + `weighted_value_sum()` |
 | `chat_template.rs` | `detect_format_from_name` | Refactored to table-driven lookup |
-| `cli/inference.rs` | `run_gguf_inference` | Extracted `sample_next_token()` + `print_inference_output()` |
+| `cli/inference.rs` | `run_gguf_inference` | Extracted `sample_next_token()` + `print_inference_output()` + `decode_tokens_with_cache()` + `print_model_info()` |
+| `cli/mod.rs` | `run_benchmarks` | Extracted `print_bench_config()` + `write_bench_json()` |
 
-### Remaining complexity (28 violations)
+### Remaining complexity (27 violations)
 
-The remaining 28 violations are distributed across:
-- `src/cli/` — ~6 violations (inference dispatchers, model command)
+The remaining 27 violations are distributed across:
+- `src/cli/` — ~6 violations (inference GPU, model command, benchmarks)
 - `src/api/openai_handlers.rs` — ~5 violations (backend fallback chains)
-- `src/apr/` — ~4 violations (dequant, helpers, tokenizer, forward)
-- `src/apr_transformer/generation.rs` — ~2 violations (generate_with_cache still cog 24)
-- Other modules — ~11 violations (GPU planner, sampler, grammar state machine)
+- `src/apr/` — ~4 violations (helpers, tokenizer, forward)
+- `src/apr_transformer/generation.rs` — ~2 violations (generate_with_cache cog 24)
+- Other modules — ~10 violations (GPU planner, sampler, grammar state machine)
 
 ## 8. Duplicate Code Patterns (Priority: LOW)
 
@@ -316,10 +317,10 @@ make lint
 - [x] OIP Tarantula: CB-121 fixed, CB-120/122/123/124 clean
 - [ ] Provability score ≥ 0.70 (current: 0.65 — structural metric, uniform 42.5% per function)
 - [x] README sections: Installation + Contributing added
-- [x] Complexity: Handler+inference refactoring complete (148→28, 81% reduction)
+- [x] Complexity: Handler+inference+CLI refactoring complete (148→27, 82% reduction)
 - [x] .pmatignore: Excluded non-production code (Python, benches, examples, book, tests, bin, bench)
 - [ ] `pmat comply check` = COMPLIANT
-- **Quality gate violations: 225 → 87 (61% reduction)**
+- **Quality gate violations: 225 → 86 (62% reduction)**
 
 ## 11. References
 
