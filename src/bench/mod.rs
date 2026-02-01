@@ -1471,10 +1471,16 @@ impl RegressionResult {
     }
 }
 
-// Tests extracted to tests.rs (PMAT-802)
+// Tests split for file health (was 4.6K lines in tests.rs)
 #[cfg(test)]
-#[path = "tests.rs"]
-mod bench_tests;
+#[path = "tests_main_a.rs"]
+mod bench_tests_main_a;
+#[cfg(test)]
+#[path = "tests_main_b.rs"]
+mod bench_tests_main_b;
+#[cfg(test)]
+#[path = "tests_main_c.rs"]
+mod bench_tests_main_c;
 
 // Part 2 tests: Configuration, Metrics, Error Handling
 #[cfg(test)]
