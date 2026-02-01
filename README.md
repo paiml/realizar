@@ -336,7 +336,7 @@ Response includes trace data:
 }
 ```
 
-## Install
+## Installation
 
 ```bash
 cargo install realizar                # From crates.io
@@ -370,6 +370,10 @@ realizar/
     ├── comparative.rs  # Format comparison
     └── external_matrix.rs # External server benchmarks
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and code quality requirements.
 
 ## License
 
