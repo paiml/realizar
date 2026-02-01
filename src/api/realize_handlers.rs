@@ -610,6 +610,58 @@ fn completion_resp(
     }
 }
 
+/// Try the batch completion path (PARITY-054). Returns None if batch not available or failed.
+#[cfg(feature = "gpu")]
+async fn try_batch_completion(
+    state: &AppState,
+    tokenizer: &crate::tokenizer::BPETokenizer,
+    prompt_ids: &[u32],
+    prompt_tokens: usize,
+    max_tokens: usize,
+    temperature: f32,
+    start: std::time::Instant,
+) -> Result<Option<CompletionResponse>, RErr> {
+    if !state.batch_enabled() {
+        return Ok(None);
+    }
+    let batch_tx = match state.batch_request_tx() {
+        Some(tx) => tx,
+        None => return Ok(None),
+    };
+    let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+    let batch_request = ContinuousBatchRequest {
+        prompt_tokens: prompt_ids.to_vec(),
+        max_tokens,
+        temperature,
+        top_k: if temperature == 0.0 { 1 } else { 40 },
+        response_tx,
+        submitted_at: std::time::Instant::now(),
+    };
+    if batch_tx.send(batch_request).await.is_err() {
+        return Ok(None);
+    }
+    let batch_response = match response_rx.await {
+        Ok(r) => r,
+        Err(_) => return Ok(None),
+    };
+    let token_ids = batch_response.generated_tokens().to_vec();
+    let completion_tokens = token_ids.len();
+    let text = tokenizer
+        .decode(&token_ids)
+        .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    state
+        .metrics
+        .record_success(completion_tokens, start.elapsed());
+    Ok(Some(completion_resp(
+        "cmpl-batch",
+        format!("batch-q4k-{}", batch_response.batch_size),
+        text,
+        prompt_tokens,
+        completion_tokens,
+        max_tokens,
+    )))
+}
+
 /// Cached model backend (includes batch path). Returns None if not available.
 #[cfg(feature = "gpu")]
 async fn try_cached_completions(
@@ -636,36 +688,10 @@ async fn try_cached_completions(
     let prompt_tokens = prompt_ids.len();
 
     // PARITY-054: Try batch path first
-    if state.batch_enabled() {
-        if let Some(batch_tx) = state.batch_request_tx() {
-            let (response_tx, response_rx) = tokio::sync::oneshot::channel();
-            let batch_request = ContinuousBatchRequest {
-                prompt_tokens: prompt_ids.clone(),
-                max_tokens,
-                temperature,
-                top_k: if temperature == 0.0 { 1 } else { 40 },
-                response_tx,
-                submitted_at: std::time::Instant::now(),
-            };
-            if batch_tx.send(batch_request).await.is_ok() {
-                if let Ok(batch_response) = response_rx.await {
-                    let token_ids = batch_response.generated_tokens().to_vec();
-                    let completion_tokens = token_ids.len();
-                    let text = tokenizer
-                        .decode(&token_ids)
-                        .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
-                    state.metrics.record_success(completion_tokens, start.elapsed());
-                    return Ok(Some(completion_resp(
-                        "cmpl-batch",
-                        format!("batch-q4k-{}", batch_response.batch_size),
-                        text,
-                        prompt_tokens,
-                        completion_tokens,
-                        max_tokens,
-                    )));
-                }
-            }
-        }
+    if let Some(r) =
+        try_batch_completion(state, &tokenizer, &prompt_ids, prompt_tokens, max_tokens, temperature, start).await?
+    {
+        return Ok(Some(r));
     }
 
     // Single-request cached path
