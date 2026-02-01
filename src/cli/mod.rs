@@ -338,6 +338,49 @@ fn validate_chat_model(model_ref: &str) -> Result<()> {
     Ok(())
 }
 
+/// Load chat history from file
+fn load_chat_history(history_file: Option<&str>) -> Vec<(String, String)> {
+    history_file
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_default()
+}
+
+/// Save chat history to file
+fn save_chat_history(history_file: Option<&str>, history: &[(String, String)]) {
+    if let Some(path) = history_file {
+        if let Ok(json) = serde_json::to_string_pretty(&history) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+}
+
+/// Run the chat input loop
+fn run_chat_loop(history: &mut Vec<(String, String)>) {
+    use std::io::{BufRead, Write};
+
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+
+    loop {
+        print!(">>> ");
+        stdout.flush().ok();
+        let mut input = String::new();
+        match stdin.lock().read_line(&mut input) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => match process_chat_input(input.trim(), history) {
+                ChatAction::Exit => break,
+                ChatAction::Respond(user_input) => {
+                    let response = format!("[Echo] {}", user_input);
+                    println!("{response}");
+                    history.push((user_input, response));
+                },
+                ChatAction::Continue => {},
+            },
+        }
+    }
+}
+
 /// Chat command handler
 #[allow(clippy::unused_async)]
 async fn run_chat_command(
@@ -345,8 +388,6 @@ async fn run_chat_command(
     system_prompt: Option<&str>,
     history_file: Option<&str>,
 ) -> Result<()> {
-    use std::io::{BufRead, Write};
-
     validate_chat_model(model_ref)?;
     if model_ref.starts_with("pacha://") || model_ref.starts_with("hf://") {
         return Ok(());
@@ -359,42 +400,16 @@ async fn run_chat_command(
 
     display_model_info(model_ref, &file_data)?;
 
-    let mut history: Vec<(String, String)> = history_file
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|c| serde_json::from_str(&c).ok())
-        .unwrap_or_default();
+    let mut history = load_chat_history(history_file);
 
     if let Some(sys) = system_prompt {
         println!("System: {sys}");
     }
     println!("Chat mode active. Type 'exit' to quit.");
 
-    let stdin = std::io::stdin();
-    let mut stdout = std::io::stdout();
+    run_chat_loop(&mut history);
+    save_chat_history(history_file, &history);
 
-    loop {
-        print!(">>> ");
-        stdout.flush().ok();
-        let mut input = String::new();
-        match stdin.lock().read_line(&mut input) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => match process_chat_input(input.trim(), &mut history) {
-                ChatAction::Exit => break,
-                ChatAction::Respond(input) => {
-                    let response = format!("[Echo] {}", input);
-                    println!("{response}");
-                    history.push((input, response));
-                },
-                ChatAction::Continue => {},
-            },
-        }
-    }
-
-    if let Some(path) = history_file {
-        if let Ok(json) = serde_json::to_string_pretty(&history) {
-            let _ = std::fs::write(path, json);
-        }
-    }
     println!("Goodbye!");
     Ok(())
 }
