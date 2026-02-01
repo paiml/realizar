@@ -10,9 +10,9 @@ PMAT compliance check: **NON-COMPLIANT**
 
 Critical issues remaining:
 - File Health: 24 files >2000 lines (grade D) — all non-test code under 2000, tests extracted ✅
-- Dead Code: 30.0% (quality-gate) vs target ≤15% — SIMD cfg false positives (AST reports 0.03%)
+- Dead Code: 29.6% (quality-gate) vs target ≤15% — SIMD cfg false positives (AST reports 0.03%)
 - ComputeBrick: 526 SIMD warnings (#[target_feature] missing — linter false positives)
-- Quality gate: **99 violations** (was 225, **56% reduction**)
+- Quality gate: **90 violations** (was 225, **60% reduction**)
 
 ## 1. Compliance Check Results (`pmat comply check`)
 
@@ -39,16 +39,16 @@ Critical issues remaining:
 |--------|-----------|---------|--------|
 | Metric | Threshold | Current | Status |
 |--------|-----------|---------|--------|
-| **Dead Code** | ≤ 15% | 29.7% | ❌ FAIL (SIMD cfg false positives, AST=0.03%) |
-| **Complexity** | ≤ 25 cognitive | 38 violations | ⚠️ down from 148 (74% reduction) |
+| **Dead Code** | ≤ 15% | 29.6% | ❌ FAIL (SIMD cfg false positives, AST=0.03%) |
+| **Complexity** | ≤ 25 cognitive | 30 violations | ⚠️ down from 148 (80% reduction) |
 | **SATD** | 0 critical | 0 violations | ✅ PASS |
-| **Entropy** | - | 54 violations | ⚠️ (structural patterns) |
+| **Entropy** | - | 53 violations | ⚠️ (structural patterns) |
 | **Provability** | ≥ 0.70 | 0.65 | ❌ FAIL (structural metric) |
 | **Security** | 0 | 0 | ✅ PASS |
 | **Duplicates** | - | 0 | ✅ PASS |
 | **Sections** | All required | 0 missing | ✅ PASS |
 
-**Total violations: 99** (down from 225, 56% reduction)
+**Total violations: 90** (down from 225, 60% reduction)
 
 ## 3. Dead Code Violations (Priority: HIGH)
 
@@ -214,13 +214,13 @@ All actionable SATD violations fixed across 3 sessions:
 
 ## 7b. Complexity Refactoring ✅ MAJOR PROGRESS
 
-**148 → 38 violations** (eliminated 110 violations, 74% reduction)
+**148 → 30 violations** (eliminated 118 violations, 80% reduction)
 
 ### .pmatignore Exclusions
 Added baselines/, benches/, examples/, book/, tests/, src/bench*, src/bin/ to .pmatignore.
 These contain Python scripts, benchmarks, test infrastructure, and ancillary binaries.
 
-### Handler Refactoring (3 files)
+### Handler Refactoring (3 files, Session 1)
 
 | File | Function | Before | After |
 |------|----------|--------|-------|
@@ -229,12 +229,7 @@ These contain Python scripts, benchmarks, test infrastructure, and ancillary bin
 | `gpu_handlers.rs` | `batch_generate_handler` | Cog 70 | **Eliminated** (thin dispatcher) |
 | `realize_handlers.rs` | `openai_completions_handler` | CC 34 | **Eliminated** (thin dispatcher) |
 
-Each handler was refactored from 200-535 lines of inline backend paths into:
-- Backend functions returning `Option<Response>` / `Result<Option<T>, E>`
-- Shared helpers (error constructors, tokenizer extraction, response builders)
-- Thin dispatcher (~15-30 lines) that falls through backends
-
-### Inference Module Refactoring (1 file, 3 functions)
+### Inference Module Refactoring (1 file, 4 functions, Session 2)
 
 | File | Function | Before | After |
 |------|----------|--------|-------|
@@ -243,27 +238,32 @@ Each handler was refactored from 200-535 lines of inline backend paths into:
 | `infer/mod.rs` | `run_gguf_inference` | CC 29 / Cog 39 | CC 9 / Cog 12 |
 | `infer/mod.rs` | `run_safetensors_inference` | CC 28 / Cog 31 | CC 7 / Cog 9 |
 
-Extracted 11 focused helper functions:
-- `prepare_apr_input_tokens`, `apr_arch_to_template_hint`, `try_apr_cuda_inference`
-- `run_apr_cpu_inference`, `decode_apr_tokens`, `tok_per_sec`
-- `convert_simple_tokenizer_to_bpe`, `search_external_tokenizer_caches`, `search_hf_cache_for_tokenizer`
-- `print_gguf_verbose_info`, `prepare_gguf_input_tokens`, `write_gguf_trace`
-- `try_safetensors_cuda_inference`, `run_safetensors_cpu_inference`
+### CLI & Core Refactoring (Session 3, current)
 
-### Visible src/ complexity (5 violations, all known)
+| File | Function | Change |
+|------|----------|--------|
+| `cli/inference.rs` | `run_apr_inference_gpu` | Extracted `print_gpu_debug_weights()` (110+ lines of debug) and `decode_apr_output_tokens()` |
+| `cli/inference.rs` | `run_apr_inference` | Uses shared `decode_apr_output_tokens()` |
+| `cli/inference.rs` | `run_gguf_inference` | Extracted `print_cpu_debug_info()` (PAR-051 block) |
+| `cli/mod.rs` | `parse_cargo_bench_output` | Extracted `parse_bench_line()` (flattened nested ifs) |
+| `cli/mod.rs` | `prepare_serve_state` | Extracted 5 format-specific loaders |
+| `cli/mod.rs` | `run_chat_command` | Extracted `process_chat_input()` + `validate_chat_model()` |
+| `cli/mod.rs` | `run_model_command` | Extracted `format_model_prompt()` |
+| `cli/handlers.rs` | `handle_list` | Extracted `scan_model_directory()` + `print_model_list()` |
+| `model_loader.rs` | `read_apr_model_type` | Extracted `read_apr_v2_model_type()` + `read_apr_v1_model_type()` |
+| `apr/tokenizer.rs` | `split_by_special_tokens` | Extracted `try_match_special_at_start()` + `find_earliest_special_pos()` |
+| `apr/tokenizer.rs` | `bpe_encode_segment` | Extracted `char_to_bpe_token()` + `apply_bpe_merge()` |
+| `apr/dequant.rs` | `dequantize_q6_k` | Extracted `dequantize_q6k_quadrant()` |
+| `apr/dequant.rs` | `dequantize_q4_k` | Extracted `push_q4k_nibbles()` |
 
-| File | Function | Cognitive | Status |
-|------|----------|-----------|--------|
-| `openai_handlers.rs` | `registry_fallback` | 21 (threshold 20) | Minor (1 over) |
-| `apr/dequant.rs` | `dequantize_q4_k` | 28 | Algorithmic (inherent) |
-| `apr/dequant.rs` | `dequantize_q6_k` | 54 | Algorithmic (inherent) |
-| `apr/helpers.rs` | `simple_attention` | 23 (threshold 20) | Minor (3 over) |
-| `apr/helpers.rs` | `detect_format` | 36 | **False positive** (line 400 = test code) |
+### Remaining complexity (30 violations)
 
-The dequantization functions have inherent algorithmic complexity (nested loops
-with bit manipulation for unpacking quantized weights). Splitting them would
-reduce readability. The remaining 33 hidden violations are spread across CUDA,
-GGUF inference, grammar, and layers modules — deeply algorithmic code.
+The remaining 30 violations are distributed across:
+- `src/grammar/mod.rs` — ~9 violations (algorithmic state machine, inherently complex)
+- `src/cli/` — ~6 violations (inference dispatchers, model command)
+- `src/api/openai_handlers.rs` — ~5 violations (backend fallback chains)
+- `src/apr/` — ~4 violations (dequant, attention, tokenizer, forward)
+- Other modules — ~6 violations (GPU planner, sampler, generate)
 
 ## 8. Duplicate Code Patterns (Priority: LOW)
 
