@@ -462,17 +462,40 @@ pub fn quantized_dot_q8(block_a: &[u8], block_b: &[u8]) -> f32 {
 }
 
 /// Quantized matrix-vector multiply for Q4_0 weights (M23 - IMP-053)
+/// Q4_0 quantization constants
+const Q4_BLOCK_SIZE: usize = 18; // 2 bytes scale + 16 bytes data
+const Q4_BLOCK_VALUES: usize = 32;
+
+/// Process a Q4_0 block for matvec, returning dot product contribution
+#[inline]
+fn process_q4_block(weights: &[u8], block_offset: usize, input: &[f32], input_offset: usize, cols: usize) -> f32 {
+    let scale = half::f16::from_le_bytes([weights[block_offset], weights[block_offset + 1]]).to_f32();
+    let mut acc = 0.0f32;
+
+    for i in 0..16 {
+        let byte = weights[block_offset + 2 + i];
+        let val_lo = (byte & 0x0F) as i32 - 8;
+        let val_hi = ((byte >> 4) & 0x0F) as i32 - 8;
+        let in_idx_lo = input_offset + i * 2;
+        let in_idx_hi = input_offset + i * 2 + 1;
+
+        if in_idx_lo < cols {
+            acc += (val_lo as f32) * scale * input[in_idx_lo];
+        }
+        if in_idx_hi < cols {
+            acc += (val_hi as f32) * scale * input[in_idx_hi];
+        }
+    }
+    acc
+}
+
 ///
 /// Computes y = W @ x where W is Q4_0 quantized without full dequantization.
 /// Each row of W consists of ceil(cols/32) Q4_0 blocks.
 #[must_use]
 pub fn quantized_matvec_q4(weights: &[u8], input: &[f32], rows: usize, cols: usize) -> Vec<f32> {
-    const Q4_BLOCK_SIZE: usize = 18; // 2 bytes scale + 16 bytes data
-    const Q4_BLOCK_VALUES: usize = 32;
-
     let blocks_per_row = cols.div_ceil(Q4_BLOCK_VALUES);
     let row_bytes = blocks_per_row * Q4_BLOCK_SIZE;
-
     let mut output = vec![0.0f32; rows];
 
     for (row, out_val) in output.iter_mut().enumerate().take(rows) {
@@ -481,34 +504,10 @@ pub fn quantized_matvec_q4(weights: &[u8], input: &[f32], rows: usize, cols: usi
 
         for block_idx in 0..blocks_per_row {
             let block_offset = row_offset + block_idx * Q4_BLOCK_SIZE;
-
             if block_offset + Q4_BLOCK_SIZE > weights.len() {
                 break;
             }
-
-            // Extract scale
-            let scale =
-                half::f16::from_le_bytes([weights[block_offset], weights[block_offset + 1]])
-                    .to_f32();
-
-            // Process 32 values in this block
-            let input_offset = block_idx * Q4_BLOCK_VALUES;
-
-            for i in 0..16 {
-                let byte = weights[block_offset + 2 + i];
-                let val_lo = (byte & 0x0F) as i32 - 8;
-                let val_hi = ((byte >> 4) & 0x0F) as i32 - 8;
-
-                let in_idx_lo = input_offset + i * 2;
-                let in_idx_hi = input_offset + i * 2 + 1;
-
-                if in_idx_lo < cols {
-                    acc += (val_lo as f32) * scale * input[in_idx_lo];
-                }
-                if in_idx_hi < cols {
-                    acc += (val_hi as f32) * scale * input[in_idx_hi];
-                }
-            }
+            acc += process_q4_block(weights, block_offset, input, block_idx * Q4_BLOCK_VALUES, cols);
         }
 
         *out_val = acc;
