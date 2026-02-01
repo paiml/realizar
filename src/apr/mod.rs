@@ -1513,9 +1513,9 @@ impl AprV2Model {
         Some(tokens)
     }
 
-    // PMAT-172: Removed find_tokenizer_json_in_cache()
-    // This was the source of Silent Failure Recovery bug - using wrong tokenizer
-    // from HuggingFace cache produced garbage output instead of clear error.
+    // PMAT-172: Removed find_tokenizer_json_in_cache() — loading a stale
+    // HuggingFace cache tokenizer produced garbage output. Now requires
+    // explicit tokenizer path or embedded APR vocabulary.
 
     /// Load tokenizer from embedded APR metadata (GH-156)
     ///

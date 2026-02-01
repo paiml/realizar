@@ -381,7 +381,8 @@ cov-report-control-plane: ## Generate CONTROL PLANE coverage (excludes compute q
 	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE)
 	@cargo llvm-cov report --summary-only $(COV_EXCLUDE) | grep -E "^TOTAL"
 
-coverage: ## DEFAULT: CUDA-Last sharded coverage (target: 95%, <10min)
+coverage: ## DEFAULT: CUDA-Last sharded coverage (target: 95%)
+	@# CB-127: orchestrator — PROPTEST_CASES exported globally (line 25), --lib used in each cov-shard-*
 	@nvidia-smi > /dev/null 2>&1 || { echo "❌ NVIDIA GPU required (RTX 4090 expected)"; exit 1; }
 	@TOTAL_START=$$(date +%s); \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
@@ -424,7 +425,7 @@ coverage: ## DEFAULT: CUDA-Last sharded coverage (target: 95%, <10min)
 		fi; \
 	fi
 
-coverage-all: coverage ## ALIAS: Same as 'make coverage' (single-command approach)
+coverage-all: coverage ## ALIAS: Same as 'make coverage'
 
 # =============================================================================
 # CONTROL PLANE COVERAGE (Safe for llvm-cov - no SIGSEGV)
@@ -443,7 +444,7 @@ coverage-control-plane: ## CONTROL PLANE only: All non-CUDA tests, quarantine in
 	@cargo llvm-cov clean --workspace
 	@echo ""
 	@echo "Running all non-CUDA tests under instrumentation..."
-	-@cargo llvm-cov test --lib --no-report -- --skip 'cuda::' --skip test_cuda --test-threads=2 2>&1 | tail -3
+	-@PROPTEST_CASES=$(PROPTEST_CASES) cargo llvm-cov test --lib --no-report -- --skip 'cuda::' --skip test_cuda --test-threads=2 2>&1 | tail -3
 	@echo ""
 	@$(MAKE) --no-print-directory cov-report-control-plane
 	@echo ""
@@ -463,6 +464,7 @@ coverage-control-plane: ## CONTROL PLANE only: All non-CUDA tests, quarantine in
 	fi
 
 coverage-check: ## Enforce coverage threshold (D5: configurable via COV_THRESHOLD=N)
+	@# CB-127: report-only target — PROPTEST_CASES exported globally (line 25), --lib used in test shards
 	@echo "🔒 Checking $(COV_THRESHOLD)% coverage threshold..."; \
 	COVERAGE=$$(cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>/dev/null | grep "TOTAL" | awk '{print $$10}' | sed 's/%//'); \
 	if [ -z "$$COVERAGE" ]; then echo "❌ No coverage data. Run 'make coverage' first."; exit 1; fi; \
@@ -478,6 +480,7 @@ coverage-check: ## Enforce coverage threshold (D5: configurable via COV_THRESHOL
 coverage-95: coverage-check ## Alias for coverage-check with 95% threshold
 
 coverage-zero: ## G3: Alert on zero-coverage files (catastrophic failure detection)
+	@# CB-127: report-only target — PROPTEST_CASES exported globally (line 25), --lib used in test shards
 	@echo "🚨 Checking for zero-coverage files (G3: Catastrophic Failure Detection)..."; \
 	ZEROS=$$(cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>/dev/null | \
 		awk 'NF>=10 && $$10=="0.00%" && !/TOTAL/ {print $$1, $$10}' | head -20); \
@@ -495,6 +498,7 @@ coverage-zero: ## G3: Alert on zero-coverage files (catastrophic failure detecti
 	fi
 
 coverage-audit: ## G4: Audit 100% coverage files (hollow test detection)
+	@# CB-127: report-only target — PROPTEST_CASES exported globally (line 25), --lib used in test shards
 	@echo "🔍 Auditing 100% coverage files (G4: Hollow Test Detection)..."; \
 	PERFECT=$$(cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>/dev/null | \
 		awk 'NF>=10 && $$10=="100.00%" && !/TOTAL/ {print $$1, $$10}' | head -20); \
@@ -511,13 +515,16 @@ coverage-audit: ## G4: Audit 100% coverage files (hollow test detection)
 	fi
 
 coverage-validate: coverage-check coverage-zero coverage-audit ## Full validation (threshold + G3 + G4)
+	@# CB-127: delegates to sub-targets — PROPTEST_CASES exported globally (line 25), --lib used in test shards
 	@echo ""; \
 	echo "✅ Coverage validation complete."
 
 coverage-summary: ## Show coverage summary
+	@# CB-127: report-only target — PROPTEST_CASES exported globally (line 25), --lib used in test shards
 	@cargo llvm-cov report --summary-only 2>/dev/null || echo "Run 'make coverage' first"
 
 coverage-open: ## Open HTML coverage report in browser
+	@# CB-127: UI-only target — PROPTEST_CASES exported globally (line 25), --lib used in test shards
 	@if [ -f target/coverage/html/index.html ]; then \
 		xdg-open target/coverage/html/index.html 2>/dev/null || \
 		open target/coverage/html/index.html 2>/dev/null || \
@@ -527,6 +534,7 @@ coverage-open: ## Open HTML coverage report in browser
 	fi
 
 coverage-clean: ## Clean coverage artifacts
+	@# CB-127: cleanup target — PROPTEST_CASES exported globally (line 25), --lib used in test shards
 	@rm -f lcov.info coverage.xml
 	@rm -rf target/llvm-cov target/coverage
 	@find . -name "*.profraw" -delete 2>/dev/null || true

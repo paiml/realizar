@@ -1939,7 +1939,7 @@ impl AprV2ModelCuda {
         max_new_tokens: usize,
         eos_id: u32,
     ) -> Result<Vec<u32>> {
-        // PMAT-113-F: Diagnostic tracing for "helf" output bug
+        // PMAT-113-F: Diagnostic tracing for logit verification
         let trace_enabled = std::env::var("APR_TRACE_LOGITS").is_ok();
 
         // PMAT-114: Fixed prefill - KEEP logits from last token (like GGUF)
