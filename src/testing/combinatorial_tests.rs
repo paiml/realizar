@@ -13,6 +13,37 @@ use super::{
     Device, ModelConfig, ModelFormat, ModelTestCase, QuantType,
 };
 
+/// Generate conversion test cases for a (source, target) format pair across devices/configs/GQA
+fn generate_conversion_cases(
+    source: ModelFormat,
+    target: ModelFormat,
+    devices: &[Device],
+    configs: &[ModelConfig],
+    gqa_ratios: &[(usize, usize)],
+    tests: &mut Vec<ModelTestCase>,
+) {
+    for device in devices {
+        for base_config in configs {
+            for (heads, kv_heads) in gqa_ratios {
+                let mut config = base_config.clone();
+                config.num_heads = *heads;
+                config.num_kv_heads = *kv_heads;
+
+                tests.push(ModelTestCase::conversion(
+                    format!(
+                        "{}->{} on {} ({}x{} GQA, {}L)",
+                        source, target, device, heads, kv_heads, config.num_layers
+                    ),
+                    config,
+                    source,
+                    target,
+                    *device,
+                ));
+            }
+        }
+    }
+}
+
 /// Generate combinatorial test matrix
 ///
 /// Creates test cases for:
@@ -38,27 +69,7 @@ pub fn generate_combinatorial_tests() -> Vec<ModelTestCase> {
             if source == target {
                 continue;
             }
-
-            for device in &devices {
-                for base_config in &configs {
-                    for (heads, kv_heads) in &gqa_ratios {
-                        let mut config = base_config.clone();
-                        config.num_heads = *heads;
-                        config.num_kv_heads = *kv_heads;
-
-                        tests.push(ModelTestCase::conversion(
-                            format!(
-                                "{}->{} on {} ({}x{} GQA, {}L)",
-                                source, target, device, heads, kv_heads, config.num_layers
-                            ),
-                            config,
-                            *source,
-                            *target,
-                            *device,
-                        ));
-                    }
-                }
-            }
+            generate_conversion_cases(*source, *target, &devices, &configs, &gqa_ratios, &mut tests);
         }
     }
 
