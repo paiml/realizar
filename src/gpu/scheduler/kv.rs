@@ -4,7 +4,8 @@
 //! Contains KV cache forward pass and generation logic.
 
 use super::super::{cpu_matmul_transposed_simd, exceeds_gpu_buffer_limit, StreamingKVCache};
-use super::model::{GpuGenerateConfig, GpuModel};
+use super::model::GpuModel;
+use super::types::GpuGenerateConfig;
 use crate::error::{RealizarError, Result};
 
 /// Apply Rotary Position Embedding (RoPE) to Q or K vectors (Phase 21)

@@ -3,7 +3,8 @@
 //! Extracted from model.rs: incremental generation, single-token forward, and helpers.
 
 use super::super::{cpu_matmul, cpu_matmul_transposed_simd, exceeds_gpu_buffer_limit};
-use super::model::{GpuModel, GpuModelConfig};
+use super::model::GpuModel;
+use super::types::GpuModelConfig;
 use crate::error::{RealizarError, Result};
 
 /// Generate tokens using GPU-accelerated forward pass with incremental decoding
