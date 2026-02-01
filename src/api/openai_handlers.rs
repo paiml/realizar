@@ -582,6 +582,13 @@ fn try_quantized_backend(
     ))
 }
 
+/// Convert usize token IDs to u32, returning error string on overflow
+fn convert_token_ids(ids: &[usize]) -> Result<Vec<u32>, String> {
+    ids.iter()
+        .map(|&id| u32::try_from(id).map_err(|_| format!("Token ID {id} exceeds u32 range")))
+        .collect()
+}
+
 /// Registry-based model fallback (no specialized backend).
 fn registry_fallback(
     state: &AppState,
@@ -624,11 +631,7 @@ fn registry_fallback(
         Err(e) => return fail_response(state, StatusCode::INTERNAL_SERVER_ERROR, e),
     };
 
-    let token_ids: Vec<u32> = match generated
-        .iter()
-        .map(|&id| u32::try_from(id).map_err(|_| format!("Token ID {id} exceeds u32 range")))
-        .collect::<Result<Vec<_>, _>>()
-    {
+    let token_ids: Vec<u32> = match convert_token_ids(&generated) {
         Ok(ids) => ids,
         Err(e) => return fail_response(state, StatusCode::BAD_REQUEST, e),
     };
