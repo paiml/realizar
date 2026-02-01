@@ -377,23 +377,48 @@ impl SafetensorsToAprConverter {
 
     /// Get tensor with fallback to alternative naming conventions
     ///
-    /// Tries HuggingFace naming first, then GGUF-style naming.
+    /// Tries HuggingFace naming first, then GGUF-style naming, then bare name.
     /// This enables loading SafeTensors files regardless of their origin.
+    ///
+    /// GH-196: Also tries stripping `model.` prefix for APR canonical names,
+    /// and adds diagnostic tensor name listing on failure.
     fn get_tensor_with_fallback(
         st_model: &MappedSafeTensorsModel,
         hf_name: &str,
         gguf_name: &str,
     ) -> Result<Vec<f32>> {
-        st_model
-            .get_tensor_auto(hf_name)
-            .or_else(|_| st_model.get_tensor_auto(gguf_name))
-            .map_err(|_| RealizarError::UnsupportedOperation {
-                operation: "get_tensor_auto".to_string(),
-                reason: format!(
-                    "Tensor not found with either name: '{}' or '{}'",
-                    hf_name, gguf_name
-                ),
-            })
+        // Try HuggingFace name first (e.g., "model.norm.weight")
+        if let Ok(t) = st_model.get_tensor_auto(hf_name) {
+            return Ok(t);
+        }
+        // Try GGUF name (e.g., "output_norm.weight")
+        if let Ok(t) = st_model.get_tensor_auto(gguf_name) {
+            return Ok(t);
+        }
+        // Try bare name without "model." prefix (APR canonical names)
+        let bare_name = hf_name.strip_prefix("model.").unwrap_or(hf_name);
+        if bare_name != hf_name {
+            if let Ok(t) = st_model.get_tensor_auto(bare_name) {
+                return Ok(t);
+            }
+        }
+
+        // Diagnostic: list available tensor names for debugging
+        let available = st_model.tensor_names();
+        let sample: Vec<&str> = available.iter().take(5).copied().collect();
+        Err(RealizarError::UnsupportedOperation {
+            operation: "get_tensor_auto".to_string(),
+            reason: format!(
+                "Tensor not found with names: '{}', '{}', or '{}'. \
+                 Available tensors ({} total): {:?}{}",
+                hf_name,
+                gguf_name,
+                bare_name,
+                available.len(),
+                sample,
+                if available.len() > 5 { ", ..." } else { "" }
+            ),
+        })
     }
 
     /// Check if tensor exists with either naming convention
@@ -402,7 +427,12 @@ impl SafetensorsToAprConverter {
         hf_name: &str,
         gguf_name: &str,
     ) -> bool {
-        st_model.has_tensor(hf_name) || st_model.has_tensor(gguf_name)
+        if st_model.has_tensor(hf_name) || st_model.has_tensor(gguf_name) {
+            return true;
+        }
+        // GH-196: Also check bare name without "model." prefix
+        let bare_name = hf_name.strip_prefix("model.").unwrap_or(hf_name);
+        bare_name != hf_name && st_model.has_tensor(bare_name)
     }
 
     /// Get optional tensor with fallback naming
@@ -415,6 +445,11 @@ impl SafetensorsToAprConverter {
             .get_tensor_auto(hf_name)
             .ok()
             .or_else(|| st_model.get_tensor_auto(gguf_name).ok())
+            .or_else(|| {
+                // GH-196: Try bare name without "model." prefix
+                let bare_name = hf_name.strip_prefix("model.")?;
+                st_model.get_tensor_auto(bare_name).ok()
+            })
     }
 }
 
