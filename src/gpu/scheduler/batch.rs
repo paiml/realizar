@@ -504,6 +504,37 @@ pub fn optimized_gqa_attention(
     Ok(output)
 }
 
+/// Compute attention scores for a single position (causal)
+fn compute_causal_scores(
+    q: &[f32], k: &[f32], i: usize, head: usize,
+    hidden_dim: usize, head_dim: usize, scale: f32,
+) -> Vec<f32> {
+    let mut weights = Vec::with_capacity(i + 1);
+    for j in 0..=i {
+        let mut score = 0.0f32;
+        for d in 0..head_dim {
+            let q_idx = i * hidden_dim + head * head_dim + d;
+            let k_idx = j * hidden_dim + head * head_dim + d;
+            score += q[q_idx] * k[k_idx];
+        }
+        weights.push(score * scale);
+    }
+    weights
+}
+
+/// Apply softmax in-place to weights
+fn softmax_inplace(weights: &mut [f32]) {
+    let max_score = weights.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let mut sum = 0.0f32;
+    for w in weights.iter_mut() {
+        *w = (*w - max_score).exp();
+        sum += *w;
+    }
+    for w in weights.iter_mut() {
+        *w /= sum;
+    }
+}
+
 /// Simplified attention (fallback, for M3 benchmarking)
 #[allow(dead_code, clippy::unnecessary_wraps)]
 pub fn simplified_attention(
@@ -514,43 +545,16 @@ pub fn simplified_attention(
     let hidden_dim = config.hidden_dim;
     let head_dim = hidden_dim / config.num_heads;
 
-    // Split QKV
     let q = &qkv[..seq_len * hidden_dim];
     let k = &qkv[seq_len * hidden_dim..seq_len * 2 * hidden_dim];
     let v = &qkv[seq_len * 2 * hidden_dim..];
-
-    // Simplified scaled dot-product attention per head
     let scale = 1.0 / (head_dim as f32).sqrt();
     let mut output = vec![0.0f32; seq_len * hidden_dim];
 
     for head in 0..config.num_heads {
         for i in 0..seq_len {
-            // Compute attention weights for position i
-            let mut weights = Vec::with_capacity(seq_len);
-            let mut max_score = f32::NEG_INFINITY;
-
-            for j in 0..=i {
-                // Causal: only attend to previous positions
-                let mut score = 0.0f32;
-                for d in 0..head_dim {
-                    let q_idx = i * hidden_dim + head * head_dim + d;
-                    let k_idx = j * hidden_dim + head * head_dim + d;
-                    score += q[q_idx] * k[k_idx];
-                }
-                score *= scale;
-                max_score = max_score.max(score);
-                weights.push(score);
-            }
-
-            // Softmax
-            let mut sum = 0.0f32;
-            for w in &mut weights {
-                *w = (*w - max_score).exp();
-                sum += *w;
-            }
-            for w in &mut weights {
-                *w /= sum;
-            }
+            let mut weights = compute_causal_scores(q, k, i, head, hidden_dim, head_dim, scale);
+            softmax_inplace(&mut weights);
 
             // Weighted sum of values
             for d in 0..head_dim {
