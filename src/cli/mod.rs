@@ -782,123 +782,81 @@ fn parse_cargo_bench_output(output: &str, suite: Option<&str>) -> Vec<serde_json
         .collect()
 }
 
-/// Run external runtime benchmark using REAL HTTP calls
+/// Execute a single benchmark request for the given runtime
 #[cfg(feature = "bench-http")]
-fn run_external_benchmark(
+fn execute_runtime_request(
+    client: &crate::http_client::ModelHttpClient,
     runtime: &str,
     url: &str,
     model: Option<&str>,
-    output: Option<&str>,
-) -> Result<()> {
-    use crate::http_client::{CompletionRequest, ModelHttpClient, OllamaOptions, OllamaRequest};
-    use std::time::Instant;
+    prompt: &str,
+) -> Result<crate::http_client::InferenceTiming> {
+    use crate::http_client::{CompletionRequest, OllamaOptions, OllamaRequest};
 
-    println!("=== External Runtime Benchmark (REAL HTTP) ===");
-    println!();
-    println!("This measures ACTUAL inference latency from {url}");
-    println!("NO MOCK DATA - real network + inference timing");
-    println!();
-
-    let client = ModelHttpClient::new();
-
-    // Test prompt
-    let prompt = "Explain the concept of machine learning in one sentence.";
-    let num_iterations = 5;
-    let mut latencies: Vec<f64> = Vec::with_capacity(num_iterations);
-    let mut tokens_per_sec: Vec<f64> = Vec::with_capacity(num_iterations);
-
-    println!("Running {num_iterations} inference iterations...");
-    println!("Prompt: \"{prompt}\"");
-    println!();
-
-    for i in 0..num_iterations {
-        let start = Instant::now();
-
-        let timing = match runtime.to_lowercase().as_str() {
-            "ollama" => {
-                let model_name = model.unwrap_or("llama3.2");
-                let request = OllamaRequest {
-                    model: model_name.to_string(),
-                    prompt: prompt.to_string(),
-                    stream: false,
-                    options: Some(OllamaOptions {
-                        num_predict: Some(50),
-                        temperature: Some(0.7),
-                    }),
-                };
-                client
-                    .ollama_generate(url, &request)
-                    .map_err(|e| RealizarError::ConnectionError(e.to_string()))?
-            },
-            "vllm" => {
-                let model_name = model.unwrap_or("default");
-                let request = CompletionRequest {
-                    model: model_name.to_string(),
-                    prompt: prompt.to_string(),
-                    max_tokens: 50,
+    match runtime.to_lowercase().as_str() {
+        "ollama" => {
+            let request = OllamaRequest {
+                model: model.unwrap_or("llama3.2").to_string(),
+                prompt: prompt.to_string(),
+                stream: false,
+                options: Some(OllamaOptions {
+                    num_predict: Some(50),
                     temperature: Some(0.7),
-                    stream: false,
-                };
-                client
-                    .openai_completion(url, &request, None)
-                    .map_err(|e| RealizarError::ConnectionError(e.to_string()))?
-            },
-            "llama-cpp" => {
-                // llama.cpp uses native /completion endpoint with different format
-                let request = CompletionRequest {
-                    model: "default".to_string(),
-                    prompt: prompt.to_string(),
-                    max_tokens: 50,
-                    temperature: Some(0.7),
-                    stream: false,
-                };
-                client
-                    .llamacpp_completion(url, &request)
-                    .map_err(|e| RealizarError::ConnectionError(e.to_string()))?
-            },
-            _ => {
-                return Err(RealizarError::UnsupportedOperation {
-                    operation: "external_benchmark".to_string(),
-                    reason: format!(
-                        "Unknown runtime: {}. Supported: ollama, vllm, llama-cpp",
-                        runtime
-                    ),
-                });
-            },
-        };
-
-        let elapsed = start.elapsed();
-        let latency_ms = elapsed.as_secs_f64() * 1000.0;
-        latencies.push(latency_ms);
-
-        if timing.tokens_generated > 0 {
-            let tps = timing.tokens_generated as f64 / elapsed.as_secs_f64();
-            tokens_per_sec.push(tps);
-        }
-
-        println!(
-            "  [{}/{}] TTFT: {:.0}ms, Inference: {:.0}ms, Tokens: {}, E2E: {:.0}ms",
-            i + 1,
-            num_iterations,
-            timing.ttft_ms,
-            timing.total_time_ms,
-            timing.tokens_generated,
-            latency_ms
-        );
+                }),
+            };
+            client
+                .ollama_generate(url, &request)
+                .map_err(|e| RealizarError::ConnectionError(e.to_string()))
+        },
+        "vllm" => {
+            let request = CompletionRequest {
+                model: model.unwrap_or("default").to_string(),
+                prompt: prompt.to_string(),
+                max_tokens: 50,
+                temperature: Some(0.7),
+                stream: false,
+            };
+            client
+                .openai_completion(url, &request, None)
+                .map_err(|e| RealizarError::ConnectionError(e.to_string()))
+        },
+        "llama-cpp" => {
+            let request = CompletionRequest {
+                model: "default".to_string(),
+                prompt: prompt.to_string(),
+                max_tokens: 50,
+                temperature: Some(0.7),
+                stream: false,
+            };
+            client
+                .llamacpp_completion(url, &request)
+                .map_err(|e| RealizarError::ConnectionError(e.to_string()))
+        },
+        _ => Err(RealizarError::UnsupportedOperation {
+            operation: "external_benchmark".to_string(),
+            reason: format!(
+                "Unknown runtime: {}. Supported: ollama, vllm, llama-cpp",
+                runtime
+            ),
+        }),
     }
+}
 
-    // Calculate statistics
-    latencies.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+/// Print benchmark results summary
+#[cfg(feature = "bench-http")]
+fn print_benchmark_summary(
+    runtime: &str,
+    url: &str,
+    model: Option<&str>,
+    num_iterations: usize,
+    latencies: &[f64],
+    avg_tps: f64,
+    output: Option<&str>,
+) {
     let p50 = latencies[latencies.len() / 2];
     let p99_idx = (latencies.len() as f64 * 0.99) as usize;
     let p99 = latencies[p99_idx.min(latencies.len() - 1)];
     let mean: f64 = latencies.iter().sum::<f64>() / latencies.len() as f64;
-
-    let avg_tps = if tokens_per_sec.is_empty() {
-        0.0
-    } else {
-        tokens_per_sec.iter().sum::<f64>() / tokens_per_sec.len() as f64
-    };
 
     println!();
     println!("=== Results ===");
@@ -914,7 +872,6 @@ fn run_external_benchmark(
     println!();
     println!("  Throughput: {avg_tps:.1} tokens/sec");
 
-    // Save JSON output if requested
     if let Some(output_path) = output {
         let result = serde_json::json!({
             "runtime": runtime,
@@ -936,7 +893,66 @@ fn run_external_benchmark(
             println!("Results saved to: {output_path}");
         }
     }
+}
 
+/// Run external runtime benchmark using REAL HTTP calls
+#[cfg(feature = "bench-http")]
+fn run_external_benchmark(
+    runtime: &str,
+    url: &str,
+    model: Option<&str>,
+    output: Option<&str>,
+) -> Result<()> {
+    use crate::http_client::ModelHttpClient;
+    use std::time::Instant;
+
+    println!("=== External Runtime Benchmark (REAL HTTP) ===");
+    println!();
+    println!("This measures ACTUAL inference latency from {url}");
+    println!("NO MOCK DATA - real network + inference timing");
+    println!();
+
+    let client = ModelHttpClient::new();
+    let prompt = "Explain the concept of machine learning in one sentence.";
+    let num_iterations = 5;
+    let mut latencies: Vec<f64> = Vec::with_capacity(num_iterations);
+    let mut tokens_per_sec: Vec<f64> = Vec::with_capacity(num_iterations);
+
+    println!("Running {num_iterations} inference iterations...");
+    println!("Prompt: \"{prompt}\"");
+    println!();
+
+    for i in 0..num_iterations {
+        let start = Instant::now();
+        let timing = execute_runtime_request(&client, runtime, url, model, prompt)?;
+        let elapsed = start.elapsed();
+        let latency_ms = elapsed.as_secs_f64() * 1000.0;
+        latencies.push(latency_ms);
+
+        if timing.tokens_generated > 0 {
+            let tps = timing.tokens_generated as f64 / elapsed.as_secs_f64();
+            tokens_per_sec.push(tps);
+        }
+
+        println!(
+            "  [{}/{}] TTFT: {:.0}ms, Inference: {:.0}ms, Tokens: {}, E2E: {:.0}ms",
+            i + 1,
+            num_iterations,
+            timing.ttft_ms,
+            timing.total_time_ms,
+            timing.tokens_generated,
+            latency_ms
+        );
+    }
+
+    latencies.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let avg_tps = if tokens_per_sec.is_empty() {
+        0.0
+    } else {
+        tokens_per_sec.iter().sum::<f64>() / tokens_per_sec.len() as f64
+    };
+
+    print_benchmark_summary(runtime, url, model, num_iterations, &latencies, avg_tps, output);
     Ok(())
 }
 
