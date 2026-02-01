@@ -70,6 +70,72 @@ fn print_inference_output(
     }
 }
 
+/// Print model architecture info when verbose mode is enabled
+/// Decode tokens one at a time with optional tracing
+fn decode_tokens_with_cache(
+    model: &crate::gguf::OwnedQuantizedModel,
+    cache: &mut crate::gguf::OwnedQuantizedKVCache,
+    initial_logits: Vec<f32>,
+    all_tokens: &mut Vec<u32>,
+    prompt_len: usize,
+    max_tokens: usize,
+    temperature: f32,
+    eos_token_id: Option<u32>,
+    trace: bool,
+    num_layers: usize,
+) -> Result<()> {
+    let mut logits = initial_logits;
+    for i in 0..max_tokens {
+        let token_start = std::time::Instant::now();
+        if i > 0 {
+            let position = prompt_len + i - 1;
+            let last_token = *all_tokens.last().expect("all_tokens should not be empty");
+            logits = model.forward_cached(last_token, cache, position)?;
+        }
+
+        let next_token = sample_next_token(&logits, temperature);
+
+        if trace && i > 0 {
+            let position = prompt_len + i - 1;
+            eprintln!(
+                "[TRACE-CACHE] pos={}: {} layers took {:?}",
+                position, num_layers, token_start.elapsed()
+            );
+        }
+
+        if eos_token_id.is_some_and(|eos| next_token == eos) {
+            break;
+        }
+
+        all_tokens.push(next_token);
+    }
+    Ok(())
+}
+
+fn print_model_info(
+    mapped: &crate::gguf::MappedGGUFModel,
+    config: &crate::gguf::GGUFConfig,
+    prompt_len: usize,
+    temperature: f32,
+) {
+    println!(
+        "Architecture: {:?}, Hidden: {}, Layers: {}, Heads: {}/{} (KV)",
+        mapped.model.architecture(),
+        config.hidden_dim,
+        config.num_layers,
+        config.num_heads,
+        config.num_kv_heads
+    );
+    println!(
+        "Prompt tokens: {} (BOS={:?}, EOS={:?})",
+        prompt_len,
+        mapped.model.bos_token_id(),
+        mapped.model.eos_token_id()
+    );
+    println!("Temperature: {temperature:.1}");
+    println!();
+}
+
 /// PAR-051: Print diagnostic info for CPU debug mode
 #[allow(clippy::never_loop)]
 fn print_cpu_debug_info(
@@ -202,22 +268,7 @@ pub fn run_gguf_inference(
     // Debug: show model info and encoded tokens
     let config = model.config();
     if verbose {
-        println!(
-            "Architecture: {:?}, Hidden: {}, Layers: {}, Heads: {}/{} (KV)",
-            mapped.model.architecture(),
-            config.hidden_dim,
-            config.num_layers,
-            config.num_heads,
-            config.num_kv_heads
-        );
-        println!(
-            "Prompt tokens: {} (BOS={:?}, EOS={:?})",
-            prompt_len,
-            mapped.model.bos_token_id(),
-            eos_token_id
-        );
-        println!("Temperature: {:.1}", temperature);
-        println!();
+        print_model_info(&mapped, config, prompt_len, temperature);
     }
 
     // Run inference with KV cache for O(n) per-token cost
@@ -260,44 +311,18 @@ pub fn run_gguf_inference(
     }
 
     // Decode: generate new tokens one at a time
-    // First iteration uses logits from prefill, subsequent use new logits
-    for i in 0..max_tokens {
-        let token_start = Instant::now();
-        // For first iteration, use logits from prefill; otherwise compute new ones
-        if i > 0 {
-            let position = prompt_tokens.len() + i - 1;
-            let last_token = *all_tokens
-                .last()
-                .expect("all_tokens should not be empty during generation");
-            logits = model.forward_cached(last_token, &mut cache, position)?;
-        }
-
-        // Sample next token
-        let next_token = sample_next_token(&logits, temperature);
-
-        // PMAT-TRACE-GGUF-001: Per-token timing
-        if trace && i > 0 {
-            let position = prompt_tokens.len() + i - 1;
-            eprintln!(
-                "[TRACE-CACHE] pos={}: {} layers took {:?}",
-                position,
-                config.num_layers,
-                token_start.elapsed()
-            );
-        }
-
-        // PERF-002: Debug code removed (was PAR-058-DEBUG and PAR-060)
-
-        // Stop on EOS
-        if let Some(eos) = eos_token_id {
-            if next_token == eos {
-                // PERF-002: eprintln removed for performance
-                break;
-            }
-        }
-
-        all_tokens.push(next_token);
-    }
+    decode_tokens_with_cache(
+        &model,
+        &mut cache,
+        logits,
+        &mut all_tokens,
+        prompt_tokens.len(),
+        max_tokens,
+        temperature,
+        eos_token_id,
+        trace,
+        config.num_layers,
+    )?;
 
     let generated = all_tokens;
     let gen_time = gen_start.elapsed();
