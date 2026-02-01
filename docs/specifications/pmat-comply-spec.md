@@ -264,14 +264,27 @@ These contain Python scripts, benchmarks, test infrastructure, and ancillary bin
 | `cli/inference.rs` | `run_gguf_inference` | Extracted `sample_next_token()` + `print_inference_output()` + `decode_tokens_with_cache()` + `print_model_info()` |
 | `cli/mod.rs` | `run_benchmarks` | Extracted `print_bench_config()` + `write_bench_json()` |
 
-### Remaining complexity (27 violations)
+### Session 4 Refactoring (2026-02-01)
 
-The remaining 27 violations are distributed across:
-- `src/cli/` — ~6 violations (inference GPU, model command, benchmarks)
-- `src/api/openai_handlers.rs` — ~5 violations (backend fallback chains)
-- `src/apr/` — ~4 violations (helpers, tokenizer, forward)
-- `src/apr_transformer/generation.rs` — ~2 violations (generate_with_cache cog 24)
-- Other modules — ~10 violations (GPU planner, sampler, grammar state machine)
+| File | Function | Before | After |
+|------|----------|--------|-------|
+| `grammar/mod.rs` | `add_schema_rules` | Cog 25 | <20 (extracted `add_array_schema_rule()`, `add_any_schema_rule()`) |
+| `grammar/mod.rs` | `find_matching_brace` | Cog 21 | <20 (extracted `process_brace_char()`) |
+| `infer/mod.rs` | `run_gguf_generate` | Cog 23 | <20 (extracted `is_legacy_gguf_quant()`, `model_has_legacy_quant()`, `log_cpu_backend()`) |
+| `cuda/executor/layers/ffn.rs` | `fused_ffn_swiglu_gpu` | Cog 22 | <20 (extracted `use_dp4a_kernel()`) |
+| `serve.rs` | `predict_handler` | Cog 31 | <20 (extracted `http_error()`, `require_model()`, `validate_dimensions()`, `run_model_prediction()`) |
+| `serve.rs` | `batch_predict_handler` | Cog 27 | <20 (reused shared helpers) |
+
+### Remaining complexity (6 violations)
+
+| File | Function | Complexity | Notes |
+|------|----------|------------|-------|
+| `src/apr/helpers.rs:550` | `detect_format` | 36 | **False positive** - line doesn't exist (file has 524 lines). Filed [#138](https://github.com/paiml/paiml-mcp-agent-toolkit/issues/138) |
+| `src/cuda/executor/test_fixtures.rs` | `setup_executor_harness` | 25 | Test code, lower priority |
+| `src/quantize/fused_k.rs` | `fused_q4k_dot_avx512_vnni` | 23 | SIMD code, difficult to refactor |
+| `src/serve.rs` | `run_model_prediction` | 23 | Just above threshold (extracted from handlers) |
+| `src/testing/combinatorial_tests.rs` | `generate_combinatorial_tests` | 25 | Test code, 5-level loop nesting |
+| (1 more) | | | |
 
 ## 8. Duplicate Code Patterns (Priority: LOW)
 
