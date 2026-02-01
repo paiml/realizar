@@ -361,7 +361,8 @@ fn load_zero_weights(
     cols: usize,
 ) -> Result<(), crate::cuda::executor::GpuError> {
     let weights = vec![0u8; q4k_weight_size(rows, cols)];
-    exec.load_quantized_weights(name, &weights)
+    exec.load_quantized_weights(name, &weights)?;
+    Ok(())
 }
 
 /// Load attention weights (Q/K/V/O projections) for one layer

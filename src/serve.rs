@@ -67,7 +67,7 @@ use aprender::{
     linear_model::LinearRegression,
     primitives::Matrix,
     tree::{DecisionTreeClassifier, GradientBoostingClassifier, RandomForestClassifier},
-    AprenderError, Estimator,
+    Estimator,
 };
 use axum::{
     extract::State,
@@ -409,6 +409,15 @@ fn validate_dimensions(
 /// Type alias for prediction result
 type HttpResult<T> = Result<T, (StatusCode, Json<ErrorResponse>)>;
 
+/// Extract first prediction as f32 (macro to handle i32/usize/f32 return types)
+#[cfg(feature = "aprender-serve")]
+macro_rules! first_pred {
+    ($preds:expr) => {{
+        #[allow(clippy::cast_precision_loss)]
+        { *$preds.first().unwrap_or(&Default::default()) as f32 }
+    }};
+}
+
 /// Run prediction on a loaded model, returning (prediction, optional_probabilities)
 #[cfg(feature = "aprender-serve")]
 fn run_model_prediction(
@@ -422,78 +431,39 @@ fn run_model_prediction(
 
     match model {
         LoadedModel::LogisticRegression(lr) => {
-            let predictions = lr.predict(input);
-            #[allow(clippy::cast_precision_loss)]
-            let pred = predictions.first().copied().unwrap_or(0) as f32;
-            let probs = if return_probs {
-                let prob_vec = lr.predict_proba(input);
-                let p1 = prob_vec.as_slice().first().copied().unwrap_or(0.5);
-                Some(vec![1.0 - p1, p1])
-            } else {
-                None
-            };
+            let pred = first_pred!(&lr.predict(input));
+            let probs = return_probs.then(|| {
+                let p1 = lr.predict_proba(input).as_slice().first().copied().unwrap_or(0.5);
+                vec![1.0 - p1, p1]
+            });
             Ok((pred, probs))
         },
-        LoadedModel::KNearestNeighbors(knn) => {
-            let predictions = knn.predict(input).map_err(map_err)?;
-            #[allow(clippy::cast_precision_loss)]
-            let pred = predictions.first().copied().unwrap_or(0) as f32;
-            Ok((pred, None))
-        },
+        LoadedModel::KNearestNeighbors(knn) =>
+            Ok((first_pred!(&knn.predict(input).map_err(map_err)?), None)),
         LoadedModel::GaussianNB(nb) => {
-            let predictions = nb.predict(input).map_err(map_err)?;
-            #[allow(clippy::cast_precision_loss)]
-            let pred = predictions.first().copied().unwrap_or(0) as f32;
-            let probs = if return_probs {
-                let prob_vecs = nb.predict_proba(input).map_err(map_err)?;
-                prob_vecs.first().cloned()
-            } else {
-                None
-            };
+            let pred = first_pred!(&nb.predict(input).map_err(map_err)?);
+            let probs = if return_probs { nb.predict_proba(input).map_err(map_err)?.first().cloned() } else { None };
             Ok((pred, probs))
         },
-        LoadedModel::LinearSVM(svm) => {
-            let predictions = svm.predict(input).map_err(map_err)?;
-            #[allow(clippy::cast_precision_loss)]
-            let pred = predictions.first().copied().unwrap_or(0) as f32;
-            Ok((pred, None))
-        },
-        LoadedModel::DecisionTreeClassifier(dt) => {
-            let predictions = dt.predict(input);
-            #[allow(clippy::cast_precision_loss)]
-            let pred = predictions.first().copied().unwrap_or(0) as f32;
-            Ok((pred, None))
-        },
+        LoadedModel::LinearSVM(svm) =>
+            Ok((first_pred!(&svm.predict(input).map_err(map_err)?), None)),
+        LoadedModel::DecisionTreeClassifier(dt) =>
+            Ok((first_pred!(&dt.predict(input)), None)),
         LoadedModel::RandomForestClassifier(rf) => {
-            let predictions = rf.predict(input);
-            #[allow(clippy::cast_precision_loss)]
-            let pred = predictions.first().copied().unwrap_or(0) as f32;
-            let probs = if return_probs {
-                let prob_matrix = rf.predict_proba(input);
-                let n_classes = prob_matrix.n_cols();
-                Some((0..n_classes).map(|j| prob_matrix.get(0, j)).collect())
-            } else {
-                None
-            };
+            let pred = first_pred!(&rf.predict(input));
+            let probs = return_probs.then(|| {
+                let m = rf.predict_proba(input);
+                (0..m.n_cols()).map(|j| m.get(0, j)).collect()
+            });
             Ok((pred, probs))
         },
         LoadedModel::GradientBoostingClassifier(gb) => {
-            let predictions = gb.predict(input).map_err(map_err)?;
-            #[allow(clippy::cast_precision_loss)]
-            let pred = predictions.first().copied().unwrap_or(0) as f32;
-            let probs = if return_probs {
-                let prob_vecs = gb.predict_proba(input).map_err(map_err)?;
-                prob_vecs.first().cloned()
-            } else {
-                None
-            };
+            let pred = first_pred!(&gb.predict(input).map_err(map_err)?);
+            let probs = if return_probs { gb.predict_proba(input).map_err(map_err)?.first().cloned() } else { None };
             Ok((pred, probs))
         },
-        LoadedModel::LinearRegression(lr) => {
-            let predictions = lr.predict(input);
-            let pred = predictions.as_slice().first().copied().unwrap_or(0.0);
-            Ok((pred, None))
-        },
+        LoadedModel::LinearRegression(lr) =>
+            Ok((lr.predict(input).as_slice().first().copied().unwrap_or(0.0), None)),
     }
 }
 
