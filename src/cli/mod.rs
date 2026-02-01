@@ -1352,13 +1352,293 @@ mod server_commands {
     ///
     /// # Returns
     /// A `PreparedServer` containing the AppState and configuration
-    pub fn prepare_serve_state(
+    /// Load and prepare a GGUF model for serving (CUDA/batch/CPU paths)
+    fn prepare_gguf_serve_state(
         model_path: &str,
         batch_mode: bool,
         force_gpu: bool,
     ) -> Result<PreparedServer> {
         use crate::gguf::MappedGGUFModel;
 
+        println!("Parsing GGUF file...");
+        let mapped = MappedGGUFModel::from_path(model_path).map_err(|e| {
+            crate::error::RealizarError::UnsupportedOperation {
+                operation: "load_gguf".to_string(),
+                reason: format!("Failed to load GGUF: {e}"),
+            }
+        })?;
+
+        println!("Successfully loaded GGUF model");
+        println!("  Tensors: {}", mapped.model.tensors.len());
+        println!("  Metadata: {} entries", mapped.model.metadata.len());
+        println!();
+
+        // IMP-100: Use OwnedQuantizedModel with fused Q4_K ops (1.37x faster for single-token)
+        println!("Creating quantized model (fused Q4_K ops)...");
+        let quantized_model =
+            crate::gguf::OwnedQuantizedModel::from_mapped(&mapped).map_err(|e| {
+                crate::error::RealizarError::UnsupportedOperation {
+                    operation: "create_quantized".to_string(),
+                    reason: format!("Failed to create quantized model: {e}"),
+                }
+            })?;
+
+        println!("Quantized model created successfully!");
+        println!("  Vocab size: {}", quantized_model.config.vocab_size);
+        println!("  Hidden dim: {}", quantized_model.config.hidden_dim);
+        println!("  Layers: {}", quantized_model.layers.len());
+
+        // Extract vocabulary from GGUF for proper token decoding
+        let vocab = mapped.model.vocabulary().unwrap_or_else(|| {
+            eprintln!("  Warning: No vocabulary in GGUF, using placeholder tokens");
+            (0..quantized_model.config.vocab_size)
+                .map(|i| format!("token{i}"))
+                .collect()
+        });
+        println!("  Vocab loaded: {} tokens", vocab.len());
+        println!();
+
+        // PARITY-113: Enable CUDA backend via --gpu flag or REALIZAR_BACKEND environment variable
+        #[cfg(feature = "cuda")]
+        let use_cuda = force_gpu
+            || std::env::var("REALIZAR_BACKEND")
+                .map(|v| v.eq_ignore_ascii_case("cuda"))
+                .unwrap_or(false);
+
+        #[cfg(not(feature = "cuda"))]
+        let use_cuda = false;
+
+        #[cfg(not(feature = "cuda"))]
+        if force_gpu {
+            eprintln!("Warning: --gpu flag requires 'cuda' feature. Falling back to CPU.");
+            eprintln!("Build with: cargo build --features cuda");
+            eprintln!();
+        }
+
+        let state = if use_cuda && !batch_mode {
+            prepare_gguf_cuda_state(quantized_model, vocab, force_gpu)?
+        } else if batch_mode {
+            prepare_gguf_batch_state(quantized_model, vocab)?
+        } else {
+            // CPU mode: Use quantized model for serving (fused CPU ops are faster for m=1)
+            crate::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
+        };
+
+        Ok(PreparedServer {
+            state,
+            batch_mode_enabled: batch_mode,
+            model_type: ModelType::Gguf,
+        })
+    }
+
+    /// Create CUDA-backed AppState for GGUF serving (PAR-112-FIX)
+    fn prepare_gguf_cuda_state(
+        quantized_model: crate::gguf::OwnedQuantizedModel,
+        vocab: Vec<String>,
+        force_gpu: bool,
+    ) -> Result<crate::api::AppState> {
+        #[cfg(feature = "cuda")]
+        {
+            use crate::gguf::OwnedQuantizedModelCuda;
+
+            let source = if force_gpu {
+                "--gpu flag"
+            } else {
+                "REALIZAR_BACKEND=cuda"
+            };
+            println!("Creating CUDA model ({source})...");
+
+            let max_seq_len = 4096; // Support long sequences
+            let cuda_model =
+                OwnedQuantizedModelCuda::with_max_seq_len(quantized_model, 0, max_seq_len)
+                    .map_err(|e| crate::error::RealizarError::UnsupportedOperation {
+                        operation: "cuda_model_create".to_string(),
+                        reason: format!("CUDA model creation failed: {e}"),
+                    })?;
+
+            println!("  CUDA model created on GPU: {}", cuda_model.device_name());
+            println!("  Max sequence length: {}", max_seq_len);
+            println!("  TRUE STREAMING: enabled (PAR-112)");
+            println!();
+
+            crate::api::AppState::with_cuda_model_and_vocab(cuda_model, vocab)
+        }
+
+        #[cfg(not(feature = "cuda"))]
+        {
+            let _ = force_gpu;
+            crate::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)
+        }
+    }
+
+    /// Create batch-processing AppState for GGUF serving (PARITY-093/094)
+    fn prepare_gguf_batch_state(
+        quantized_model: crate::gguf::OwnedQuantizedModel,
+        vocab: Vec<String>,
+    ) -> Result<crate::api::AppState> {
+        #[cfg(feature = "gpu")]
+        {
+            use crate::gguf::OwnedQuantizedModelCachedSync;
+
+            println!("Initializing batch inference mode (PARITY-093/094)...");
+
+            let cached_model = OwnedQuantizedModelCachedSync::new(quantized_model);
+
+            println!("  Warming up GPU cache (dequantizing FFN weights)...");
+            match cached_model.warmup_gpu_cache() {
+                Ok((memory_bytes, num_layers)) => {
+                    println!(
+                        "  GPU cache ready: {:.2} GB ({} layers)",
+                        memory_bytes as f64 / 1e9,
+                        num_layers
+                    );
+                },
+                Err(e) => {
+                    eprintln!(
+                        "  Warning: GPU cache warmup failed: {}. Falling back to CPU batch.",
+                        e
+                    );
+                },
+            }
+
+            let state =
+                crate::api::AppState::with_cached_model_and_vocab(cached_model, vocab)?;
+
+            let cached_model_arc = state
+                .cached_model()
+                .expect("cached_model should exist")
+                .clone();
+
+            let batch_config = crate::api::BatchConfig::default();
+            println!("  Batch window: {}ms", batch_config.window_ms);
+            println!("  Min batch size: {}", batch_config.min_batch);
+            println!("  Optimal batch: {}", batch_config.optimal_batch);
+            println!("  Max batch size: {}", batch_config.max_batch);
+            println!(
+                "  GPU threshold: {} (GPU GEMM for batch >= this)",
+                batch_config.gpu_threshold
+            );
+
+            let batch_tx =
+                crate::api::spawn_batch_processor(cached_model_arc, batch_config.clone());
+
+            println!("  Batch processor: RUNNING");
+            println!();
+
+            Ok(state.with_batch_config(batch_tx, batch_config))
+        }
+
+        #[cfg(not(feature = "gpu"))]
+        {
+            eprintln!(
+                "Warning: --batch requires 'gpu' feature. Falling back to single-request mode."
+            );
+            crate::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)
+        }
+    }
+
+    /// Load and prepare a SafeTensors model for serving
+    fn prepare_safetensors_serve_state(model_path: &str) -> Result<PreparedServer> {
+        use crate::safetensors_infer::SafetensorsToAprConverter;
+        use std::path::Path;
+
+        println!("Loading SafeTensors model for serving...");
+
+        let model_path_obj = Path::new(model_path);
+        let transformer = SafetensorsToAprConverter::convert(model_path_obj).map_err(|e| {
+            crate::error::RealizarError::UnsupportedOperation {
+                operation: "convert_safetensors".to_string(),
+                reason: format!("Failed to convert SafeTensors: {e}"),
+            }
+        })?;
+
+        println!("  Architecture: {}", transformer.config.architecture);
+        println!("  Layers: {}", transformer.config.num_layers);
+        println!("  Hidden: {}", transformer.config.hidden_dim);
+
+        #[allow(clippy::map_unwrap_or)]
+        let vocab = crate::apr::AprV2Model::load_tokenizer_from_sibling(model_path_obj)
+            .map(|(v, _, _)| v)
+            .unwrap_or_else(|| {
+                println!("  Warning: No tokenizer.json found, using simple vocabulary");
+                (0..transformer.config.vocab_size)
+                    .map(|i| format!("token{i}"))
+                    .collect()
+            });
+
+        println!("  Vocab size: {}", vocab.len());
+        println!("  Mode: CPU (F32 inference)");
+
+        let state = crate::api::AppState::with_apr_transformer_and_vocab(transformer, vocab)?;
+
+        Ok(PreparedServer {
+            state,
+            batch_mode_enabled: false,
+            model_type: ModelType::SafeTensors,
+        })
+    }
+
+    /// Load and prepare an APR model for serving
+    fn prepare_apr_serve_state(model_path: &str) -> Result<PreparedServer> {
+        use crate::apr_transformer::AprTransformer;
+        use std::path::Path;
+
+        println!("Loading APR model for serving...");
+
+        let file_data = std::fs::read(model_path).map_err(|e| {
+            crate::error::RealizarError::UnsupportedOperation {
+                operation: "read_model_file".to_string(),
+                reason: format!("Failed to read {model_path}: {e}"),
+            }
+        })?;
+
+        let transformer = AprTransformer::from_apr_bytes(&file_data).map_err(|e| {
+            crate::error::RealizarError::UnsupportedOperation {
+                operation: "load_apr".to_string(),
+                reason: format!("Failed to load APR: {e}"),
+            }
+        })?;
+
+        println!("  Architecture: {}", transformer.config.architecture);
+        println!("  Layers: {}", transformer.config.num_layers);
+        println!("  Hidden: {}", transformer.config.hidden_dim);
+
+        let model_path_obj = Path::new(model_path);
+        let vocab = crate::apr::AprV2Model::load_tokenizer_from_sibling(model_path_obj)
+            .map(|(v, _, _)| v)
+            .or_else(|| {
+                crate::apr::AprV2Model::load(model_path_obj)
+                    .ok()
+                    .and_then(|m| m.load_embedded_tokenizer())
+                    .map(|t| t.id_to_token.clone())
+            })
+            .unwrap_or_else(|| {
+                println!("  Warning: No vocabulary found, using simple vocabulary");
+                (0..transformer.config.vocab_size)
+                    .map(|i| format!("token{i}"))
+                    .collect()
+            });
+
+        println!("  Vocab size: {}", vocab.len());
+        println!("  Mode: CPU (F32 inference)");
+
+        let state = crate::api::AppState::with_apr_transformer_and_vocab(transformer, vocab)?;
+
+        Ok(PreparedServer {
+            state,
+            batch_mode_enabled: false,
+            model_type: ModelType::Apr,
+        })
+    }
+
+    /// Prepare server state by loading a model (GGUF/SafeTensors/APR)
+    ///
+    /// Dispatches to format-specific loaders based on file extension.
+    pub fn prepare_serve_state(
+        model_path: &str,
+        batch_mode: bool,
+        force_gpu: bool,
+    ) -> Result<PreparedServer> {
         println!("Loading model from: {model_path}");
         if batch_mode {
             println!("Mode: BATCH (PARITY-093 M4 parity)");
@@ -1371,275 +1651,11 @@ mod server_commands {
         println!();
 
         if model_path.ends_with(".gguf") {
-            // Load GGUF model
-            println!("Parsing GGUF file...");
-            let mapped = MappedGGUFModel::from_path(model_path).map_err(|e| {
-                crate::error::RealizarError::UnsupportedOperation {
-                    operation: "load_gguf".to_string(),
-                    reason: format!("Failed to load GGUF: {e}"),
-                }
-            })?;
-
-            println!("Successfully loaded GGUF model");
-            println!("  Tensors: {}", mapped.model.tensors.len());
-            println!("  Metadata: {} entries", mapped.model.metadata.len());
-            println!();
-
-            // IMP-100: Use OwnedQuantizedModel with fused Q4_K ops (1.37x faster for single-token)
-            println!("Creating quantized model (fused Q4_K ops)...");
-            let quantized_model =
-                crate::gguf::OwnedQuantizedModel::from_mapped(&mapped).map_err(|e| {
-                    crate::error::RealizarError::UnsupportedOperation {
-                        operation: "create_quantized".to_string(),
-                        reason: format!("Failed to create quantized model: {e}"),
-                    }
-                })?;
-
-            println!("Quantized model created successfully!");
-            println!("  Vocab size: {}", quantized_model.config.vocab_size);
-            println!("  Hidden dim: {}", quantized_model.config.hidden_dim);
-            println!("  Layers: {}", quantized_model.layers.len());
-
-            // Extract vocabulary from GGUF for proper token decoding
-            let vocab = mapped.model.vocabulary().unwrap_or_else(|| {
-                eprintln!("  Warning: No vocabulary in GGUF, using placeholder tokens");
-                (0..quantized_model.config.vocab_size)
-                    .map(|i| format!("token{i}"))
-                    .collect()
-            });
-            println!("  Vocab loaded: {} tokens", vocab.len());
-            println!();
-
-            // PARITY-113: Enable CUDA backend via --gpu flag or REALIZAR_BACKEND environment variable
-            #[cfg(feature = "cuda")]
-            let use_cuda = force_gpu
-                || std::env::var("REALIZAR_BACKEND")
-                    .map(|v| v.eq_ignore_ascii_case("cuda"))
-                    .unwrap_or(false);
-
-            #[cfg(not(feature = "cuda"))]
-            let use_cuda = false;
-
-            #[cfg(not(feature = "cuda"))]
-            if force_gpu {
-                eprintln!("Warning: --gpu flag requires 'cuda' feature. Falling back to CPU.");
-                eprintln!("Build with: cargo build --features cuda");
-                eprintln!();
-            }
-
-            // PARITY-093: Use cached model with batch support for M4 parity
-            // PAR-112-FIX: Use OwnedQuantizedModelCuda for true streaming support
-            let state = if use_cuda && !batch_mode {
-                // PAR-112-FIX: Create OwnedQuantizedModelCuda for true streaming
-                // This enables generate_gpu_resident_streaming which streams tokens as generated
-                #[cfg(feature = "cuda")]
-                {
-                    use crate::gguf::OwnedQuantizedModelCuda;
-
-                    let source = if force_gpu {
-                        "--gpu flag"
-                    } else {
-                        "REALIZAR_BACKEND=cuda"
-                    };
-                    println!("Creating CUDA model ({source})...");
-
-                    let max_seq_len = 4096; // Support long sequences
-                    let cuda_model =
-                        OwnedQuantizedModelCuda::with_max_seq_len(quantized_model, 0, max_seq_len)
-                            .map_err(|e| crate::error::RealizarError::UnsupportedOperation {
-                                operation: "cuda_model_create".to_string(),
-                                reason: format!("CUDA model creation failed: {e}"),
-                            })?;
-
-                    println!("  CUDA model created on GPU: {}", cuda_model.device_name());
-                    println!("  Max sequence length: {}", max_seq_len);
-                    println!("  TRUE STREAMING: enabled (PAR-112)");
-                    println!();
-
-                    // Use with_cuda_model_and_vocab to enable true streaming path
-                    crate::api::AppState::with_cuda_model_and_vocab(cuda_model, vocab)?
-                }
-
-                #[cfg(not(feature = "cuda"))]
-                {
-                    // This branch is unreachable since use_cuda is always false without cuda feature
-                    crate::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
-                }
-            } else if batch_mode {
-                #[cfg(feature = "gpu")]
-                {
-                    use crate::gguf::OwnedQuantizedModelCachedSync;
-
-                    println!("Initializing batch inference mode (PARITY-093/094)...");
-
-                    // Create cached model for scheduler reuse (10.6x speedup - IMP-112)
-                    let cached_model = OwnedQuantizedModelCachedSync::new(quantized_model);
-
-                    // PARITY-094: Warmup GPU cache for batch_generate_gpu
-                    // This dequantizes FFN weights to GPU memory (~6GB for phi-2)
-                    println!("  Warming up GPU cache (dequantizing FFN weights)...");
-                    match cached_model.warmup_gpu_cache() {
-                        Ok((memory_bytes, num_layers)) => {
-                            println!(
-                                "  GPU cache ready: {:.2} GB ({} layers)",
-                                memory_bytes as f64 / 1e9,
-                                num_layers
-                            );
-                        },
-                        Err(e) => {
-                            eprintln!(
-                            "  Warning: GPU cache warmup failed: {}. Falling back to CPU batch.",
-                            e
-                        );
-                        },
-                    }
-
-                    // Create state first (this wraps model in Arc internally)
-                    let state =
-                        crate::api::AppState::with_cached_model_and_vocab(cached_model, vocab)?;
-
-                    // Get Arc'd model back for batch processor
-                    let cached_model_arc = state
-                        .cached_model()
-                        .expect("cached_model should exist")
-                        .clone();
-
-                    // Configure batch processing (PARITY-095: aligned thresholds)
-                    let batch_config = crate::api::BatchConfig::default();
-                    println!("  Batch window: {}ms", batch_config.window_ms);
-                    println!("  Min batch size: {}", batch_config.min_batch);
-                    println!("  Optimal batch: {}", batch_config.optimal_batch);
-                    println!("  Max batch size: {}", batch_config.max_batch);
-                    println!(
-                        "  GPU threshold: {} (GPU GEMM for batch >= this)",
-                        batch_config.gpu_threshold
-                    );
-
-                    // Spawn batch processor task
-                    let batch_tx =
-                        crate::api::spawn_batch_processor(cached_model_arc, batch_config.clone());
-
-                    println!("  Batch processor: RUNNING");
-                    println!();
-
-                    // Add batch support to state
-                    state.with_batch_config(batch_tx, batch_config)
-                }
-
-                #[cfg(not(feature = "gpu"))]
-                {
-                    eprintln!(
-                    "Warning: --batch requires 'gpu' feature. Falling back to single-request mode."
-                );
-                    crate::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
-                }
-            } else {
-                // CPU mode: Use quantized model for serving (fused CPU ops are faster for m=1)
-                crate::api::AppState::with_quantized_model_and_vocab(quantized_model, vocab)?
-            };
-
-            Ok(PreparedServer {
-                state,
-                batch_mode_enabled: batch_mode,
-                model_type: ModelType::Gguf,
-            })
+            prepare_gguf_serve_state(model_path, batch_mode, force_gpu)
         } else if model_path.ends_with(".safetensors") {
-            // PMAT-SERVE-FIX-001: Properly serve SafeTensors models
-            use crate::safetensors_infer::SafetensorsToAprConverter;
-            use std::path::Path;
-
-            println!("Loading SafeTensors model for serving...");
-
-            // Convert SafeTensors to AprTransformer
-            let model_path_obj = Path::new(model_path);
-            let transformer = SafetensorsToAprConverter::convert(model_path_obj).map_err(|e| {
-                crate::error::RealizarError::UnsupportedOperation {
-                    operation: "convert_safetensors".to_string(),
-                    reason: format!("Failed to convert SafeTensors: {e}"),
-                }
-            })?;
-
-            println!("  Architecture: {}", transformer.config.architecture);
-            println!("  Layers: {}", transformer.config.num_layers);
-            println!("  Hidden: {}", transformer.config.hidden_dim);
-
-            // Load vocabulary from sibling tokenizer.json
-            #[allow(clippy::map_unwrap_or)]
-            let vocab = crate::apr::AprV2Model::load_tokenizer_from_sibling(model_path_obj)
-                .map(|(v, _, _)| v) // Extract just the vocab
-                .unwrap_or_else(|| {
-                    // Fallback: Generate simple vocab
-                    println!("  Warning: No tokenizer.json found, using simple vocabulary");
-                    (0..transformer.config.vocab_size)
-                        .map(|i| format!("token{i}"))
-                        .collect()
-                });
-
-            println!("  Vocab size: {}", vocab.len());
-            println!("  Mode: CPU (F32 inference)");
-
-            let state = crate::api::AppState::with_apr_transformer_and_vocab(transformer, vocab)?;
-
-            Ok(PreparedServer {
-                state,
-                batch_mode_enabled: false,
-                model_type: ModelType::SafeTensors,
-            })
+            prepare_safetensors_serve_state(model_path)
         } else if model_path.ends_with(".apr") {
-            // PMAT-SERVE-FIX-001: Properly serve APR models
-            use crate::apr_transformer::AprTransformer;
-            use std::path::Path;
-
-            println!("Loading APR model for serving...");
-
-            let file_data = std::fs::read(model_path).map_err(|e| {
-                crate::error::RealizarError::UnsupportedOperation {
-                    operation: "read_model_file".to_string(),
-                    reason: format!("Failed to read {model_path}: {e}"),
-                }
-            })?;
-
-            // Load AprTransformer from APR file
-            let transformer = AprTransformer::from_apr_bytes(&file_data).map_err(|e| {
-                crate::error::RealizarError::UnsupportedOperation {
-                    operation: "load_apr".to_string(),
-                    reason: format!("Failed to load APR: {e}"),
-                }
-            })?;
-
-            println!("  Architecture: {}", transformer.config.architecture);
-            println!("  Layers: {}", transformer.config.num_layers);
-            println!("  Hidden: {}", transformer.config.hidden_dim);
-
-            // Load vocabulary from APR metadata or sibling tokenizer.json
-            let model_path_obj = Path::new(model_path);
-            let vocab = crate::apr::AprV2Model::load_tokenizer_from_sibling(model_path_obj)
-                .map(|(v, _, _)| v) // Extract just the vocab
-                .or_else(|| {
-                    // Try to load from APR embedded vocabulary
-                    crate::apr::AprV2Model::load(model_path_obj)
-                        .ok()
-                        .and_then(|m| m.load_embedded_tokenizer())
-                        .map(|t| t.id_to_token.clone())
-                })
-                .unwrap_or_else(|| {
-                    // Fallback: Generate simple vocab
-                    println!("  Warning: No vocabulary found, using simple vocabulary");
-                    (0..transformer.config.vocab_size)
-                        .map(|i| format!("token{i}"))
-                        .collect()
-                });
-
-            println!("  Vocab size: {}", vocab.len());
-            println!("  Mode: CPU (F32 inference)");
-
-            let state = crate::api::AppState::with_apr_transformer_and_vocab(transformer, vocab)?;
-
-            Ok(PreparedServer {
-                state,
-                batch_mode_enabled: false,
-                model_type: ModelType::Apr,
-            })
+            prepare_apr_serve_state(model_path)
         } else {
             Err(crate::error::RealizarError::UnsupportedOperation {
                 operation: "detect_model_type".to_string(),
