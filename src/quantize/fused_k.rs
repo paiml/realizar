@@ -188,16 +188,53 @@ pub fn fused_q4k_dot_simd(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
     fused_q4k_dot(q4k_data, activations)
 }
 
+/// Quantize f32 activations to i8 and compute integer dot product with q_nibbles.
+///
+/// Returns (integer_sum, activation_scale) for caller to apply FP32 scaling.
+///
+/// # Safety
+/// Requires AVX-512F, AVX-512BW, and AVX-512VNNI
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vnni")]
+#[allow(unsafe_op_in_unsafe_fn)]
+#[inline]
+unsafe fn avx512_quantize_dot(
+    act_slice: &[f32],
+    q_nibbles_256: std::arch::x86_64::__m256i,
+) -> (i32, f32) {
+    #[allow(clippy::wildcard_imports)]
+    use std::arch::x86_64::*;
+
+    let act_max = act_slice.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let act_min = act_slice.iter().copied().fold(f32::INFINITY, f32::min);
+    let act_scale = if act_max > act_min { 127.0 / (act_max - act_min) } else { 1.0 };
+
+    let mut act_i8 = [0i8; 32];
+    for (i, &a) in act_slice.iter().enumerate() {
+        act_i8[i] = ((a - act_min) * act_scale).round() as i8;
+    }
+
+    let act_vec = _mm256_loadu_si256(act_i8.as_ptr().cast::<__m256i>());
+    let q_512 = _mm512_cvtepu8_epi16(q_nibbles_256);
+    let act_512 = _mm512_cvtepi8_epi16(act_vec);
+    let prod = _mm512_mullo_epi16(q_512, act_512);
+
+    let sum_256 = _mm256_add_epi16(
+        _mm512_castsi512_si256(prod),
+        _mm512_extracti64x4_epi64(prod, 1),
+    );
+    let sum_128 = _mm_add_epi16(
+        _mm256_castsi256_si128(sum_256),
+        _mm256_extracti128_si256(sum_256, 1),
+    );
+    let sum_32 = _mm256_cvtepi16_epi32(sum_128);
+    let sum_arr: [i32; 8] = std::mem::transmute(sum_32);
+    (sum_arr.iter().sum(), act_scale)
+}
+
 /// AVX-512 VNNI accelerated Q4_K dot product (PAR-126)
 ///
 /// Uses vpdpbusd for int8×int8 accumulation which is 4x faster than FP32 FMA.
-/// Key insight from llama.cpp/llamafile: integer dot products dominate FP on modern CPUs.
-///
-/// # Algorithm
-/// 1. Quantize f32 activations to int8 (on the fly, per super-block)
-/// 2. Expand 4-bit weights to int8
-/// 3. Use vpdpbusd for packed u8×i8 dot product
-/// 4. Scale and accumulate at the end
 ///
 /// # Safety
 /// Requires AVX-512F, AVX-512BW, and AVX-512VNNI
@@ -280,94 +317,18 @@ unsafe fn fused_q4k_dot_avx512_vnni(q4k_data: &[u8], activations: &[f32]) -> Res
             let q_lo = _mm512_and_si512(q_bytes, nibble_mask);
             let q_hi = _mm512_and_si512(_mm512_srli_epi16(q_bytes, 4), nibble_mask);
 
-            // Process with integer dot products
-            // We need to quantize activations and use vpdpbusd
-
-            // Load 32 f32 activations for low nibbles, convert to int8
-            let act_slice = &activations[activation_idx..activation_idx + 32];
-
-            // Find min/max for quantization
-            let act_max = act_slice.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            let act_min = act_slice.iter().copied().fold(f32::INFINITY, f32::min);
-            let act_scale = if act_max > act_min {
-                127.0 / (act_max - act_min)
-            } else {
-                1.0
-            };
-
-            // Quantize activations to int8
-            let mut act_i8 = [0i8; 32];
-            for (i, &a) in act_slice.iter().enumerate() {
-                act_i8[i] = ((a - act_min) * act_scale).round() as i8;
-            }
-
-            // Load quantized activations
-            let act_vec = _mm256_loadu_si256(act_i8.as_ptr().cast::<__m256i>());
-
-            // Expand q_lo from u8 to match
+            // Process low nibbles: quantize activations → integer dot → scale
             let q_lo_256 = _mm512_castsi512_si256(q_lo);
-
-            // Use vpdpbusd: u8 × i8 → i32 accumulation
-            let _zero = _mm512_setzero_si512();
-            let q_lo_512 = _mm512_cvtepu8_epi16(q_lo_256);
-            let act_512 = _mm512_cvtepi8_epi16(act_vec);
-            let prod = _mm512_mullo_epi16(q_lo_512, act_512);
-
-            // Horizontal sum
-            let sum_256 = _mm256_add_epi16(
-                _mm512_castsi512_si256(prod),
-                _mm512_extracti64x4_epi64(prod, 1),
-            );
-            let sum_128 = _mm_add_epi16(
-                _mm256_castsi256_si128(sum_256),
-                _mm256_extracti128_si256(sum_256, 1),
-            );
-
-            // Expand to i32 and sum
-            let sum_32 = _mm256_cvtepi16_epi32(sum_128);
-            let sum_arr: [i32; 8] = std::mem::transmute(sum_32);
-            let int_sum: i32 = sum_arr.iter().sum();
-
-            // Scale back to float
-            let float_sum = int_sum as f32 * d * sc1 / act_scale - (32.0 * dmin * m1);
-            total_sum += float_sum;
+            let (int_sum, act_scale) =
+                avx512_quantize_dot(&activations[activation_idx..activation_idx + 32], q_lo_256);
+            total_sum += int_sum as f32 * d * sc1 / act_scale - (32.0 * dmin * m1);
             activation_idx += 32;
 
-            // Process high nibbles similarly
-            let act_slice2 = &activations[activation_idx..activation_idx + 32];
-            let act_max2 = act_slice2.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            let act_min2 = act_slice2.iter().copied().fold(f32::INFINITY, f32::min);
-            let act_scale2 = if act_max2 > act_min2 {
-                127.0 / (act_max2 - act_min2)
-            } else {
-                1.0
-            };
-
-            let mut act_i8_2 = [0i8; 32];
-            for (i, &a) in act_slice2.iter().enumerate() {
-                act_i8_2[i] = ((a - act_min2) * act_scale2).round() as i8;
-            }
-
-            let act_vec2 = _mm256_loadu_si256(act_i8_2.as_ptr().cast::<__m256i>());
+            // Process high nibbles: same pattern
             let q_hi_256 = _mm512_castsi512_si256(q_hi);
-            let q_hi_512 = _mm512_cvtepu8_epi16(q_hi_256);
-            let act_512_2 = _mm512_cvtepi8_epi16(act_vec2);
-            let prod2 = _mm512_mullo_epi16(q_hi_512, act_512_2);
-
-            let sum_256_2 = _mm256_add_epi16(
-                _mm512_castsi512_si256(prod2),
-                _mm512_extracti64x4_epi64(prod2, 1),
-            );
-            let sum_128_2 = _mm_add_epi16(
-                _mm256_castsi256_si128(sum_256_2),
-                _mm256_extracti128_si256(sum_256_2, 1),
-            );
-            let sum_32_2 = _mm256_cvtepi16_epi32(sum_128_2);
-            let sum_arr2: [i32; 8] = std::mem::transmute(sum_32_2);
-            let int_sum2: i32 = sum_arr2.iter().sum();
-
-            let float_sum2 = int_sum2 as f32 * d * sc2 / act_scale2 - (32.0 * dmin * m2);
-            total_sum += float_sum2;
+            let (int_sum2, act_scale2) =
+                avx512_quantize_dot(&activations[activation_idx..activation_idx + 32], q_hi_256);
+            total_sum += int_sum2 as f32 * d * sc2 / act_scale2 - (32.0 * dmin * m2);
             activation_idx += 32;
         }
     }
