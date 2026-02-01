@@ -675,37 +675,9 @@ pub fn run_apr_inference(
         0.0
     };
 
-    // Decode output using proper tokenizer
-    // PMAT-171 FIX: Try embedded vocabulary first, then fallback to external tokenizer.json
+    // Decode output using proper tokenizer (PMAT-171)
     let output_tokens = &generated[prompt_len..];
-    let output_text = {
-        // Try loading embedded tokenizer from APR metadata first
-        let model = AprV2Model::load(model_path).ok();
-        if let Some(ref m) = model {
-            if let Some(simple_tok) = m.load_embedded_tokenizer() {
-                // Use embedded vocabulary for decoding
-                AprV2Model::decode_tokens(&simple_tok.id_to_token, output_tokens)
-            } else if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
-                // Fallback to external tokenizer.json
-                tokenizer.decode(output_tokens)
-            } else {
-                // Ultimate fallback: simple ASCII
-                output_tokens
-                    .iter()
-                    .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
-                    .collect()
-            }
-        } else if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
-            // Model load failed, try external tokenizer
-            tokenizer.decode(output_tokens)
-        } else {
-            // Ultimate fallback: simple ASCII
-            output_tokens
-                .iter()
-                .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
-                .collect()
-        }
-    };
+    let output_text = decode_apr_output_tokens(model_path, output_tokens);
 
     match format {
         "json" => {
@@ -742,6 +714,132 @@ pub fn run_apr_inference(
     }
 
     Ok(())
+}
+
+/// Decode APR output tokens using the best available tokenizer (PMAT-171)
+///
+/// Tries embedded vocabulary first, then external tokenizer.json, then ASCII fallback.
+fn decode_apr_output_tokens(model_path: &std::path::Path, output_tokens: &[u32]) -> String {
+    use crate::apr::AprV2Model;
+
+    let model = AprV2Model::load(model_path).ok();
+    if let Some(ref m) = model {
+        if let Some(simple_tok) = m.load_embedded_tokenizer() {
+            return AprV2Model::decode_tokens(&simple_tok.id_to_token, output_tokens);
+        }
+        if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
+            return tokenizer.decode(output_tokens);
+        }
+    } else if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
+        return tokenizer.decode(output_tokens);
+    }
+    // Ultimate fallback: simple ASCII
+    output_tokens
+        .iter()
+        .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
+        .collect()
+}
+
+/// Print verbose debug weight comparison between CPU and GPU models
+#[cfg(feature = "cuda")]
+fn print_gpu_debug_weights(
+    transformer: &crate::apr_transformer::AprTransformer,
+    gpu_model: &crate::gpu::GpuModel,
+) {
+    let has_gate = transformer
+        .layers
+        .first()
+        .is_some_and(|l| l.ffn_gate_weight.is_some());
+    eprintln!(
+        "[DEBUG-SwiGLU] APR transformer has gate weight: {}",
+        has_gate
+    );
+    if has_gate {
+        let gate_len = transformer.layers[0]
+            .ffn_gate_weight
+            .as_ref()
+            .map_or(0, Vec::len);
+        eprintln!(
+            "[DEBUG-SwiGLU] Gate weight elements: {} (expected: {}x{}={})",
+            gate_len,
+            transformer.config.hidden_dim,
+            transformer.config.intermediate_dim,
+            transformer.config.hidden_dim * transformer.config.intermediate_dim
+        );
+    }
+
+    let has_gpu_gate = gpu_model
+        .block_weights
+        .first()
+        .is_some_and(|b| b.ffn_gate_weight.is_some());
+    eprintln!("[DEBUG-SwiGLU] GpuModel has gate weight: {}", has_gpu_gate);
+
+    if let Some(layer0) = transformer.layers.first() {
+        eprintln!(
+            "[DEBUG-WEIGHT] CPU qkv_weight first 5: {:?}",
+            &layer0.qkv_weight[0..5.min(layer0.qkv_weight.len())]
+        );
+        eprintln!(
+            "[DEBUG-WEIGHT] GPU qkv_weight first 5: {:?}",
+            &gpu_model.block_weights[0].qkv_weight
+                [0..5.min(gpu_model.block_weights[0].qkv_weight.len())]
+        );
+        eprintln!(
+            "[DEBUG-WEIGHT] CPU fc1 (up) first 5: {:?}",
+            &layer0.ffn_up_weight[0..5.min(layer0.ffn_up_weight.len())]
+        );
+        eprintln!(
+            "[DEBUG-WEIGHT] GPU fc1 (up) first 5: {:?}",
+            &gpu_model.block_weights[0].ffn_fc1_weight
+                [0..5.min(gpu_model.block_weights[0].ffn_fc1_weight.len())]
+        );
+
+        let hidden_dim = transformer.config.hidden_dim;
+        let test_embedding = &transformer.token_embedding[0..hidden_dim];
+
+        // CPU matmul: y = x @ W where W is [out_dim, in_dim] (transposed internally)
+        let cpu_qkv_dim = layer0.qkv_weight.len() / hidden_dim;
+        let mut cpu_qkv = vec![0.0f32; cpu_qkv_dim];
+        for o in 0..cpu_qkv_dim {
+            let w_start = o * hidden_dim;
+            let mut sum = 0.0f32;
+            for i in 0..hidden_dim {
+                sum += test_embedding[i] * layer0.qkv_weight[w_start + i];
+            }
+            cpu_qkv[o] = sum;
+        }
+
+        // GPU matmul: y = x @ W_t where W_t is [in_dim, out_dim] (already transposed)
+        let gpu_qkv_weight = &gpu_model.block_weights[0].qkv_weight;
+        let gpu_qkv_dim = gpu_qkv_weight.len() / hidden_dim;
+        let mut gpu_qkv = vec![0.0f32; gpu_qkv_dim];
+        for j in 0..gpu_qkv_dim {
+            let mut sum = 0.0f32;
+            for i in 0..hidden_dim {
+                sum += test_embedding[i] * gpu_qkv_weight[i * gpu_qkv_dim + j];
+            }
+            gpu_qkv[j] = sum;
+        }
+
+        eprintln!(
+            "[DEBUG-MATMUL] CPU QKV first 5: {:?}",
+            &cpu_qkv[0..5.min(cpu_qkv.len())]
+        );
+        eprintln!(
+            "[DEBUG-MATMUL] GPU QKV first 5: {:?}",
+            &gpu_qkv[0..5.min(gpu_qkv.len())]
+        );
+
+        let max_diff: f32 = cpu_qkv
+            .iter()
+            .zip(gpu_qkv.iter())
+            .map(|(c, g)| (c - g).abs())
+            .fold(0.0f32, f32::max);
+        eprintln!("[DEBUG-MATMUL] Max diff: {}", max_diff);
+        if max_diff > 0.01 {
+            eprintln!("[DEBUG-MATMUL] WARNING: CPU vs GPU QKV mismatch!");
+        }
+    }
 }
 
 /// Run APR inference with CUDA GPU acceleration (PMAT-106)
@@ -781,31 +879,6 @@ pub fn run_apr_inference_gpu(
         }
     })?;
 
-    // Debug: Check if gate weights exist in the loaded transformer
-    if verbose {
-        let has_gate = transformer
-            .layers
-            .first()
-            .is_some_and(|l| l.ffn_gate_weight.is_some());
-        eprintln!(
-            "[DEBUG-SwiGLU] APR transformer has gate weight: {}",
-            has_gate
-        );
-        if has_gate {
-            let gate_len = transformer.layers[0]
-                .ffn_gate_weight
-                .as_ref()
-                .map_or(0, Vec::len);
-            eprintln!(
-                "[DEBUG-SwiGLU] Gate weight elements: {} (expected: {}x{}={})",
-                gate_len,
-                transformer.config.hidden_dim,
-                transformer.config.intermediate_dim,
-                transformer.config.hidden_dim * transformer.config.intermediate_dim
-            );
-        }
-    }
-
     // Convert to GpuModel using F32 adapter
     let mut gpu_model = AprF32ToGpuAdapter::to_gpu_model(&transformer).map_err(|e| {
         crate::error::RealizarError::UnsupportedOperation {
@@ -814,84 +887,9 @@ pub fn run_apr_inference_gpu(
         }
     })?;
 
-    // Debug: Check if gate weights exist in GpuModel
+    // Debug: Compare CPU vs GPU weights and matmul outputs
     if verbose {
-        let has_gpu_gate = gpu_model
-            .block_weights
-            .first()
-            .is_some_and(|b| b.ffn_gate_weight.is_some());
-        eprintln!("[DEBUG-SwiGLU] GpuModel has gate weight: {}", has_gpu_gate);
-
-        // Compare weights: CPU vs GPU
-        if let Some(layer0) = transformer.layers.first() {
-            eprintln!(
-                "[DEBUG-WEIGHT] CPU qkv_weight first 5: {:?}",
-                &layer0.qkv_weight[0..5.min(layer0.qkv_weight.len())]
-            );
-            eprintln!(
-                "[DEBUG-WEIGHT] GPU qkv_weight first 5: {:?}",
-                &gpu_model.block_weights[0].qkv_weight
-                    [0..5.min(gpu_model.block_weights[0].qkv_weight.len())]
-            );
-            eprintln!(
-                "[DEBUG-WEIGHT] CPU fc1 (up) first 5: {:?}",
-                &layer0.ffn_up_weight[0..5.min(layer0.ffn_up_weight.len())]
-            );
-            eprintln!(
-                "[DEBUG-WEIGHT] GPU fc1 (up) first 5: {:?}",
-                &gpu_model.block_weights[0].ffn_fc1_weight
-                    [0..5.min(gpu_model.block_weights[0].ffn_fc1_weight.len())]
-            );
-
-            // Debug: Compare matmul output for first token embedding
-            let hidden_dim = transformer.config.hidden_dim;
-            let test_embedding = &transformer.token_embedding[0..hidden_dim];
-
-            // CPU matmul: y = x @ W where W is [out_dim, in_dim] (transposed internally)
-            let cpu_qkv_dim = layer0.qkv_weight.len() / hidden_dim;
-            let mut cpu_qkv = vec![0.0f32; cpu_qkv_dim];
-            for o in 0..cpu_qkv_dim {
-                let w_start = o * hidden_dim;
-                let mut sum = 0.0f32;
-                for i in 0..hidden_dim {
-                    sum += test_embedding[i] * layer0.qkv_weight[w_start + i];
-                }
-                cpu_qkv[o] = sum;
-            }
-
-            // GPU matmul: y = x @ W_t where W_t is [in_dim, out_dim] (already transposed)
-            let gpu_qkv_weight = &gpu_model.block_weights[0].qkv_weight;
-            let gpu_qkv_dim = gpu_qkv_weight.len() / hidden_dim;
-            let mut gpu_qkv = vec![0.0f32; gpu_qkv_dim];
-            for j in 0..gpu_qkv_dim {
-                let mut sum = 0.0f32;
-                for i in 0..hidden_dim {
-                    // GPU weight is [hidden_dim, qkv_dim] row-major: W_t[i,j] = W_t[i * qkv_dim + j]
-                    sum += test_embedding[i] * gpu_qkv_weight[i * gpu_qkv_dim + j];
-                }
-                gpu_qkv[j] = sum;
-            }
-
-            eprintln!(
-                "[DEBUG-MATMUL] CPU QKV first 5: {:?}",
-                &cpu_qkv[0..5.min(cpu_qkv.len())]
-            );
-            eprintln!(
-                "[DEBUG-MATMUL] GPU QKV first 5: {:?}",
-                &gpu_qkv[0..5.min(gpu_qkv.len())]
-            );
-
-            // Compare
-            let max_diff: f32 = cpu_qkv
-                .iter()
-                .zip(gpu_qkv.iter())
-                .map(|(c, g)| (c - g).abs())
-                .fold(0.0f32, f32::max);
-            eprintln!("[DEBUG-MATMUL] Max diff: {}", max_diff);
-            if max_diff > 0.01 {
-                eprintln!("[DEBUG-MATMUL] WARNING: CPU vs GPU QKV mismatch!");
-            }
-        }
+        print_gpu_debug_weights(&transformer, &gpu_model);
     }
 
     let load_time = load_start.elapsed();
@@ -946,36 +944,8 @@ pub fn run_apr_inference_gpu(
     };
 
     // Decode output (convert usize back to u32)
-    // PMAT-171 FIX: Try embedded vocabulary first, then fallback to external tokenizer.json
     let output_tokens: Vec<u32> = generated[prompt_len..].iter().map(|&t| t as u32).collect();
-    let output_text = {
-        // Try loading embedded tokenizer from APR metadata first
-        let model = AprV2Model::load(model_path).ok();
-        if let Some(ref m) = model {
-            if let Some(simple_tok) = m.load_embedded_tokenizer() {
-                // Use embedded vocabulary for decoding
-                AprV2Model::decode_tokens(&simple_tok.id_to_token, &output_tokens)
-            } else if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
-                // Fallback to external tokenizer.json
-                tokenizer.decode(&output_tokens)
-            } else {
-                // Ultimate fallback: simple ASCII
-                output_tokens
-                    .iter()
-                    .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
-                    .collect()
-            }
-        } else if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
-            // Model load failed, try external tokenizer
-            tokenizer.decode(&output_tokens)
-        } else {
-            // Ultimate fallback: simple ASCII
-            output_tokens
-                .iter()
-                .map(|&t| char::from_u32(t.min(127)).unwrap_or('?'))
-                .collect()
-        }
-    };
+    let output_text = decode_apr_output_tokens(model_path, &output_tokens);
 
     match format {
         "json" => {
