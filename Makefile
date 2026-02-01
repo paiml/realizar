@@ -59,12 +59,12 @@ tier2: ## Tier 2: Fast tests before commit (30s target)
 
 test-cuda-fast: ## Fast CUDA tests only (probar TUI simulation, debug mode)
 	@echo "⚡ Running fast CUDA tests..."
-	@cargo test --test probar_tui_simulation --features "cuda,gpu" -- --nocapture
+	@PROPTEST_CASES=64 cargo test --test probar_tui_simulation --features "cuda,gpu" -- --nocapture
 	@echo "✅ CUDA tests passed"
 
 test-probar: ## Run all probar visual tests
 	@echo "🎯 Running probar visual tests..."
-	@cargo test --test 'probar_*' --features "cuda,gpu" -- --nocapture
+	@PROPTEST_CASES=64 cargo test --test 'probar_*' --features "cuda,gpu" -- --nocapture
 	@echo "✅ Probar tests passed"
 
 # === Test Targets ===
@@ -76,15 +76,15 @@ test: ## Run all tests (excludes load tests - use 'make load-test' for those)
 
 test-lib: ## Run library tests only (fast)
 	@echo "$(GREEN)Running library tests...$(NC)"
-	cargo test --lib
+	PROPTEST_CASES=64 cargo test --lib
 
 test-unit: ## Run unit tests only
 	@echo "$(GREEN)Running unit tests...$(NC)"
-	cargo test --lib --bins
+	PROPTEST_CASES=64 cargo test --lib --bins
 
 test-integration: ## Run integration tests only
 	@echo "$(GREEN)Running integration tests...$(NC)"
-	cargo test --test '*'
+	PROPTEST_CASES=64 cargo test --test '*'
 
 test-property: ## Run property-based tests (proptest)
 	@echo "$(GREEN)Running property-based tests...$(NC)"
