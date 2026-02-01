@@ -97,13 +97,13 @@ unsafe fn simd_function() { ... }
 | `src/cuda/executor/layers/batched.rs` | 2304 | Split by layer type |
 | `src/generate/sampler.rs` | 2296 | Split: strategies, nucleus, beam |
 | `src/cuda/executor/layers/indexed.rs` | 2281 | Split by layer type |
-| `src/apr_transformer/mod.rs` | 2266 | Split: forward, attention, ffn |
-| `src/gguf/loader.rs` | 2262 | Split: parse, validate, load |
+| `src/apr_transformer/mod.rs` | 2266 | ✅ DONE (helpers.rs + convert.rs + generation.rs extracted, 1960 non-test) |
+| `src/gguf/loader.rs` | 2262 | ✅ DONE (io.rs extracted, 1916 non-test) |
 | `src/gguf/batch_scheduler.rs` | 2199 | Split: scheduler, batch, queue |
 | `src/cuda/executor/quantized.rs` | 2176 | Split by quant type |
 | `src/cuda/kernels.rs` | 2139 | Split: gemm, attention, norm |
 | `src/api/gpu_handlers.rs` | 2124 | Split: chat, generate, embed |
-| `src/api/mod.rs` | 2114 | Split: routes, handlers, types |
+| `src/api/mod.rs` | 2114 | ✅ DONE (types.rs extracted, 1966 non-test) |
 | `src/parallel.rs` | 2082 | Split: threadpool, work, sync |
 | `src/paged_kv/mod.rs` | 2072 | Split: cache, paging, eviction |
 | `src/cuda/executor/layers/graphed.rs` | 2057 | Split by operation |
