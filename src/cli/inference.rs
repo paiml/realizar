@@ -10,6 +10,66 @@
 
 use crate::error::Result;
 
+/// Sample the next token from logits using temperature scaling
+fn sample_next_token(logits: &[f32], temperature: f32) -> u32 {
+    use crate::gguf::OwnedQuantizedModel;
+    if temperature <= 0.01 {
+        // Greedy decoding
+        logits
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map_or(0, |(idx, _)| idx as u32)
+    } else {
+        // Temperature sampling with top-k=40
+        OwnedQuantizedModel::sample_topk(logits, temperature, 40)
+    }
+}
+
+/// Print inference results in the requested format
+fn print_inference_output(
+    model_ref: &str,
+    prompt: &str,
+    output_text: &str,
+    tokens_generated: usize,
+    gen_time_ms: f64,
+    tokens_per_sec: f64,
+    temperature: f32,
+    format: &str,
+    verbose: bool,
+) {
+    match format {
+        "json" => {
+            let json = serde_json::json!({
+                "model": model_ref,
+                "prompt": prompt,
+                "generated_text": output_text,
+                "tokens_generated": tokens_generated,
+                "generation_time_ms": gen_time_ms,
+                "tokens_per_second": tokens_per_sec,
+                "temperature": temperature,
+            });
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json).unwrap_or_default()
+            );
+        },
+        _ => {
+            if verbose {
+                println!(
+                    "Generated ({tokens_generated} tokens in {gen_time_ms:.2}ms):"
+                );
+                println!("{prompt}{output_text}");
+                println!();
+                println!("Performance: {tokens_per_sec:.1} tok/s");
+            } else {
+                // Ollama-style clean output: just the response
+                println!("{output_text}");
+            }
+        },
+    }
+}
+
 /// PAR-051: Print diagnostic info for CPU debug mode
 #[allow(clippy::never_loop)]
 fn print_cpu_debug_info(
@@ -65,7 +125,7 @@ pub fn run_gguf_inference(
     verbose: bool,
     trace: bool,
 ) -> Result<()> {
-    use crate::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel};
+    use crate::gguf::{MappedGGUFModel, OwnedQuantizedKVCache};
     use std::time::Instant;
 
     // Handle --gpu flag warning when CUDA not available
@@ -213,17 +273,7 @@ pub fn run_gguf_inference(
         }
 
         // Sample next token
-        let next_token = if temperature <= 0.01 {
-            // Greedy decoding
-            logits
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map_or(0, |(idx, _)| idx as u32)
-        } else {
-            // Temperature sampling
-            OwnedQuantizedModel::sample_topk(&logits, temperature, 40)
-        };
+        let next_token = sample_next_token(&logits, temperature);
 
         // PMAT-TRACE-GGUF-001: Per-token timing
         if trace && i > 0 {
@@ -265,37 +315,17 @@ pub fn run_gguf_inference(
         .decode(&generated[prompt_len..])
         .replace('▁', " ");
 
-    match format {
-        "json" => {
-            let json = serde_json::json!({
-                "model": model_ref,
-                "prompt": prompt,
-                "generated_text": output_text,
-                "tokens_generated": tokens_generated,
-                "generation_time_ms": gen_time.as_secs_f64() * 1000.0,
-                "tokens_per_second": tokens_per_sec,
-                "temperature": temperature,
-            });
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&json).unwrap_or_default()
-            );
-        },
-        _ => {
-            if verbose {
-                println!(
-                    "Generated ({tokens_generated} tokens in {:.2}ms):",
-                    gen_time.as_secs_f64() * 1000.0
-                );
-                println!("{prompt}{output_text}");
-                println!();
-                println!("Performance: {:.1} tok/s", tokens_per_sec);
-            } else {
-                // Ollama-style clean output: just the response
-                println!("{output_text}");
-            }
-        },
-    }
+    print_inference_output(
+        model_ref,
+        prompt,
+        &output_text,
+        tokens_generated,
+        gen_time.as_secs_f64() * 1000.0,
+        tokens_per_sec,
+        temperature,
+        format,
+        verbose,
+    );
 
     Ok(())
 }
