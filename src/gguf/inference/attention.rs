@@ -434,48 +434,74 @@ impl OwnedQuantizedModel {
 
         let mut output = vec![0.0f32; hidden_dim];
 
-        // Process each Q head
-        for q_head in 0..num_heads {
-            let q_head_offset = q_head * head_dim;
-            let q_head_data = &q[q_head_offset..q_head_offset + head_dim];
+        // Temp buffer for scores of the current group.
+        // Size: q_per_kv * total_len.
+        // We reuse this buffer for each KV group to minimize allocation.
+        let mut group_scores = vec![0.0f32; q_per_kv * total_len];
 
-            // Map Q head to KV head (GQA mapping)
-            let kv_head = q_head / q_per_kv;
+        // Process each KV head group (OPTIMIZATION: Scan KV cache once per group)
+        for kv_head in 0..num_kv_heads {
             let kv_head_offset = kv_head * head_dim;
 
-            // Compute attention scores against all positions (cached + current)
-            let mut scores = Vec::with_capacity(total_len);
-
-            // Scores against cached positions (SIMD-optimized)
+            // 1. Compute Scores (Scan K Cache Once)
             for pos in 0..cache_len {
                 let k_start = pos * kv_dim + kv_head_offset;
                 let cached_key = &k_cache[k_start..k_start + head_dim];
-                let score = Self::simd_dot_f32(q_head_data, cached_key);
-                scores.push(score * scale);
+
+                // For each Q head in this group
+                for i in 0..q_per_kv {
+                    let q_head_idx = kv_head * q_per_kv + i;
+                    let q_head_offset = q_head_idx * head_dim;
+                    let q_head_data = &q[q_head_offset..q_head_offset + head_dim];
+
+                    let score = Self::simd_dot_f32(q_head_data, cached_key) * scale;
+                    group_scores[i * total_len + pos] = score;
+                }
             }
 
-            // Score against current position (SIMD-optimized)
+            // Handle current position K
             let curr_key = &current_k[kv_head_offset..kv_head_offset + head_dim];
-            let current_score = Self::simd_dot_f32(q_head_data, curr_key);
-            scores.push(current_score * scale);
+            for i in 0..q_per_kv {
+                let q_head_idx = kv_head * q_per_kv + i;
+                let q_head_offset = q_head_idx * head_dim;
+                let q_head_data = &q[q_head_offset..q_head_offset + head_dim];
 
-            // Softmax (SIMD-optimized)
-            crate::quantize::softmax_simd(&mut scores);
+                let score = Self::simd_dot_f32(q_head_data, curr_key) * scale;
+                group_scores[i * total_len + cache_len] = score;
+            }
 
-            // Weighted sum of values
-            let out_head = &mut output[q_head_offset..q_head_offset + head_dim];
+            // 2. Softmax (Per Q Head)
+            for i in 0..q_per_kv {
+                let start = i * total_len;
+                let end = start + total_len;
+                crate::quantize::softmax_simd(&mut group_scores[start..end]);
+            }
 
-            // Sum over cached values (SIMD-optimized)
-            for (pos, &weight) in scores.iter().enumerate().take(cache_len) {
+            // 3. Accumulate Values (Scan V Cache Once)
+            for pos in 0..cache_len {
                 let v_start = pos * kv_dim + kv_head_offset;
                 let cached_val = &v_cache[v_start..v_start + head_dim];
-                Self::simd_axpy_f32(out_head, weight, cached_val);
+
+                for i in 0..q_per_kv {
+                    let weight = group_scores[i * total_len + pos];
+                    let q_head_idx = kv_head * q_per_kv + i;
+                    let out_offset = q_head_idx * head_dim;
+                    let out_head = &mut output[out_offset..out_offset + head_dim];
+
+                    Self::simd_axpy_f32(out_head, weight, cached_val);
+                }
             }
 
-            // Add current value (SIMD-optimized)
+            // Handle current position V
             let curr_val = &current_v[kv_head_offset..kv_head_offset + head_dim];
-            let current_weight = scores[cache_len];
-            Self::simd_axpy_f32(out_head, current_weight, curr_val);
+            for i in 0..q_per_kv {
+                let weight = group_scores[i * total_len + cache_len];
+                let q_head_idx = kv_head * q_per_kv + i;
+                let out_offset = q_head_idx * head_dim;
+                let out_head = &mut output[out_offset..out_offset + head_dim];
+
+                Self::simd_axpy_f32(out_head, weight, curr_val);
+            }
         }
 
         output
@@ -510,41 +536,74 @@ impl OwnedQuantizedModel {
         // Zero output buffer
         output[..hidden_dim].iter_mut().for_each(|x| *x = 0.0);
 
-        // Stack-allocated scores buffer (max 8192 seq length)
-        let mut scores_buf = [0.0f32; 8192];
-        let scores = &mut scores_buf[..total_len];
+        // Temp buffer for scores of the current group.
+        // Size: q_per_kv * total_len.
+        // We reuse this buffer for each KV group to minimize allocation.
+        let mut group_scores = vec![0.0f32; q_per_kv * total_len];
 
-        for q_head in 0..num_heads {
-            let q_head_offset = q_head * head_dim;
-            let q_head_data = &q[q_head_offset..q_head_offset + head_dim];
-
-            let kv_head = q_head / q_per_kv;
+        // Process each KV head group (OPTIMIZATION: Scan KV cache once per group)
+        for kv_head in 0..num_kv_heads {
             let kv_head_offset = kv_head * head_dim;
 
-            // Compute attention scores
+            // 1. Compute Scores (Scan K Cache Once)
             for pos in 0..cache_len {
                 let k_start = pos * kv_dim + kv_head_offset;
                 let cached_key = &k_cache[k_start..k_start + head_dim];
-                scores[pos] = Self::simd_dot_f32(q_head_data, cached_key) * scale;
+
+                // For each Q head in this group
+                for i in 0..q_per_kv {
+                    let q_head_idx = kv_head * q_per_kv + i;
+                    let q_head_offset = q_head_idx * head_dim;
+                    let q_head_data = &q[q_head_offset..q_head_offset + head_dim];
+
+                    let score = Self::simd_dot_f32(q_head_data, cached_key) * scale;
+                    group_scores[i * total_len + pos] = score;
+                }
             }
 
+            // Handle current position K
             let curr_key = &current_k[kv_head_offset..kv_head_offset + head_dim];
-            scores[cache_len] = Self::simd_dot_f32(q_head_data, curr_key) * scale;
+            for i in 0..q_per_kv {
+                let q_head_idx = kv_head * q_per_kv + i;
+                let q_head_offset = q_head_idx * head_dim;
+                let q_head_data = &q[q_head_offset..q_head_offset + head_dim];
 
-            // Softmax
-            crate::quantize::softmax_simd(scores);
+                let score = Self::simd_dot_f32(q_head_data, curr_key) * scale;
+                group_scores[i * total_len + cache_len] = score;
+            }
 
-            // Weighted sum of values
-            let out_head = &mut output[q_head_offset..q_head_offset + head_dim];
+            // 2. Softmax (Per Q Head)
+            for i in 0..q_per_kv {
+                let start = i * total_len;
+                let end = start + total_len;
+                crate::quantize::softmax_simd(&mut group_scores[start..end]);
+            }
 
-            for (pos, &weight) in scores.iter().enumerate().take(cache_len) {
+            // 3. Accumulate Values (Scan V Cache Once)
+            for pos in 0..cache_len {
                 let v_start = pos * kv_dim + kv_head_offset;
                 let cached_val = &v_cache[v_start..v_start + head_dim];
-                Self::simd_axpy_f32(out_head, weight, cached_val);
+
+                for i in 0..q_per_kv {
+                    let weight = group_scores[i * total_len + pos];
+                    let q_head_idx = kv_head * q_per_kv + i;
+                    let out_offset = q_head_idx * head_dim;
+                    let out_head = &mut output[out_offset..out_offset + head_dim];
+
+                    Self::simd_axpy_f32(out_head, weight, cached_val);
+                }
             }
 
+            // Handle current position V
             let curr_val = &current_v[kv_head_offset..kv_head_offset + head_dim];
-            Self::simd_axpy_f32(out_head, scores[cache_len], curr_val);
+            for i in 0..q_per_kv {
+                let weight = group_scores[i * total_len + cache_len];
+                let q_head_idx = kv_head * q_per_kv + i;
+                let out_offset = q_head_idx * head_dim;
+                let out_head = &mut output[out_offset..out_offset + head_dim];
+
+                Self::simd_axpy_f32(out_head, weight, curr_val);
+            }
         }
     }
 
