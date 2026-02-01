@@ -625,6 +625,71 @@ pub fn grammar_from_json_schema(schema: &JsonSchemaType) -> Grammar {
     grammar
 }
 
+/// Add array schema rules
+fn add_array_schema_rule(grammar: &mut Grammar, rule_name: &str, item_schema: &JsonSchemaType) {
+    let item_rule = format!("{rule_name}_item");
+    add_schema_rules(grammar, &item_rule, item_schema);
+
+    let items_rule = format!("{rule_name}_items");
+    grammar.add_rule(GrammarRule::new(
+        &items_rule,
+        vec![
+            GrammarAlternative::new(vec![]),
+            GrammarAlternative::new(vec![
+                GrammarElement::Char(','),
+                GrammarElement::RuleRef("ws".to_string()),
+                GrammarElement::RuleRef(item_rule.clone()),
+                GrammarElement::RuleRef(items_rule.clone()),
+            ]),
+        ],
+    ));
+
+    grammar.add_rule(GrammarRule::new(
+        rule_name,
+        vec![
+            GrammarAlternative::new(vec![
+                GrammarElement::Char('['),
+                GrammarElement::RuleRef("ws".to_string()),
+                GrammarElement::Char(']'),
+            ]),
+            GrammarAlternative::new(vec![
+                GrammarElement::Char('['),
+                GrammarElement::RuleRef("ws".to_string()),
+                GrammarElement::RuleRef(item_rule),
+                GrammarElement::RuleRef(items_rule),
+                GrammarElement::RuleRef("ws".to_string()),
+                GrammarElement::Char(']'),
+            ]),
+        ],
+    ));
+}
+
+/// Add "any JSON value" schema rules
+fn add_any_schema_rule(grammar: &mut Grammar, rule_name: &str) {
+    grammar.add_rule(GrammarRule::new(
+        rule_name,
+        vec![
+            GrammarAlternative::new(vec![GrammarElement::RuleRef("string_value".to_string())]),
+            GrammarAlternative::new(vec![GrammarElement::RuleRef("number".to_string())]),
+            GrammarAlternative::new(vec![GrammarElement::RuleRef("boolean".to_string())]),
+            GrammarAlternative::new(vec![GrammarElement::RuleRef("null".to_string())]),
+        ],
+    ));
+
+    if grammar.get_rule("string_value").is_none() {
+        add_schema_rules(grammar, "string_value", &JsonSchemaType::String);
+    }
+    if grammar.get_rule("number").is_none() {
+        add_schema_rules(grammar, "number", &JsonSchemaType::Number);
+    }
+    if grammar.get_rule("boolean").is_none() {
+        add_schema_rules(grammar, "boolean", &JsonSchemaType::Boolean);
+    }
+    if grammar.get_rule("null").is_none() {
+        add_schema_rules(grammar, "null", &JsonSchemaType::Null);
+    }
+}
+
 fn add_schema_rules(grammar: &mut Grammar, rule_name: &str, schema: &JsonSchemaType) {
     match schema {
         JsonSchemaType::String => {
@@ -650,7 +715,6 @@ fn add_schema_rules(grammar: &mut Grammar, rule_name: &str, schema: &JsonSchemaT
             ));
         },
         JsonSchemaType::Number => {
-            // integer or decimal
             grammar.add_rule(GrammarRule::new(
                 rule_name,
                 vec![
@@ -719,74 +783,13 @@ fn add_schema_rules(grammar: &mut Grammar, rule_name: &str, schema: &JsonSchemaT
             grammar.add_rule(GrammarRule::new(rule_name, alternatives));
         },
         JsonSchemaType::Array(item_schema) => {
-            let item_rule = format!("{rule_name}_item");
-            add_schema_rules(grammar, &item_rule, item_schema);
-
-            let items_rule = format!("{rule_name}_items");
-            grammar.add_rule(GrammarRule::new(
-                &items_rule,
-                vec![
-                    GrammarAlternative::new(vec![]), // Empty
-                    GrammarAlternative::new(vec![
-                        GrammarElement::Char(','),
-                        GrammarElement::RuleRef("ws".to_string()),
-                        GrammarElement::RuleRef(item_rule.clone()),
-                        GrammarElement::RuleRef(items_rule.clone()),
-                    ]),
-                ],
-            ));
-
-            grammar.add_rule(GrammarRule::new(
-                rule_name,
-                vec![
-                    // Empty array
-                    GrammarAlternative::new(vec![
-                        GrammarElement::Char('['),
-                        GrammarElement::RuleRef("ws".to_string()),
-                        GrammarElement::Char(']'),
-                    ]),
-                    // Non-empty array
-                    GrammarAlternative::new(vec![
-                        GrammarElement::Char('['),
-                        GrammarElement::RuleRef("ws".to_string()),
-                        GrammarElement::RuleRef(item_rule),
-                        GrammarElement::RuleRef(items_rule),
-                        GrammarElement::RuleRef("ws".to_string()),
-                        GrammarElement::Char(']'),
-                    ]),
-                ],
-            ));
+            add_array_schema_rule(grammar, rule_name, item_schema);
         },
         JsonSchemaType::Object(properties) => {
             add_object_schema_rules(grammar, rule_name, properties);
         },
         JsonSchemaType::Any => {
-            // Any JSON value
-            grammar.add_rule(GrammarRule::new(
-                rule_name,
-                vec![
-                    GrammarAlternative::new(vec![GrammarElement::RuleRef(
-                        "string_value".to_string(),
-                    )]),
-                    GrammarAlternative::new(vec![GrammarElement::RuleRef("number".to_string())]),
-                    GrammarAlternative::new(vec![GrammarElement::RuleRef("boolean".to_string())]),
-                    GrammarAlternative::new(vec![GrammarElement::RuleRef("null".to_string())]),
-                ],
-            ));
-
-            // Add helper rules if not present
-            if grammar.get_rule("string_value").is_none() {
-                add_schema_rules(grammar, "string_value", &JsonSchemaType::String);
-            }
-            if grammar.get_rule("number").is_none() {
-                add_schema_rules(grammar, "number", &JsonSchemaType::Number);
-            }
-            if grammar.get_rule("boolean").is_none() {
-                add_schema_rules(grammar, "boolean", &JsonSchemaType::Boolean);
-            }
-            if grammar.get_rule("null").is_none() {
-                add_schema_rules(grammar, "null", &JsonSchemaType::Null);
-            }
+            add_any_schema_rule(grammar, rule_name);
         },
     }
 }
