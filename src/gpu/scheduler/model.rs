@@ -983,189 +983,25 @@ impl GpuModel {
     /// let logits = model.forward_gpu_owned(&[1, 2, 3])?;
     /// ```
     pub fn from_mapped_gguf(mapped: &crate::gguf::MappedGGUFModel) -> Result<Self> {
-        use crate::gguf::GGUFConfig;
-
-        // Extract config from GGUF metadata
-        let gguf_config = GGUFConfig::from_gguf(&mapped.model)?;
-
-        let config = GpuModelConfig {
-            vocab_size: gguf_config.vocab_size,
-            hidden_dim: gguf_config.hidden_dim,
-            num_heads: gguf_config.num_heads,
-            num_kv_heads: gguf_config.num_kv_heads, // IMP-088: GQA support
-            num_layers: gguf_config.num_layers,
-            intermediate_dim: gguf_config.intermediate_dim,
-            eps: gguf_config.eps,
-            rope_theta: gguf_config.rope_theta, // Phase 21: RoPE support
-        };
-
+        let w = super::loading::load_weights_from_gguf(mapped)?;
         let scheduler = HybridScheduler::new()?;
-        let data = mapped.data();
-
-        // Load token embeddings (always dequantized for fast lookup)
-        let embedding_weights = mapped.model.get_tensor_f32("token_embd.weight", data)?;
-
-        // Load transformer blocks
-        let mut block_weights = Vec::with_capacity(config.num_layers);
-        for layer_idx in 0..config.num_layers {
-            let prefix = format!("blk.{}", layer_idx);
-
-            // Attention norm (small, keep as f32)
-            let attn_norm_weight = mapped
-                .model
-                .get_tensor_f32(&format!("{}.attn_norm.weight", prefix), data)?;
-            let attn_norm_bias = mapped
-                .model
-                .get_tensor_f32(&format!("{}.attn_norm.bias", prefix), data)
-                .unwrap_or_else(|_| vec![0.0f32; config.hidden_dim]);
-
-            // QKV projection - try fused QKV first (LLaMA), then separate Q/K/V (Qwen)
-            let (qkv_weight, qkv_bias) = if let Ok(fused_qkv) = mapped
-                .model
-                .get_tensor_f32(&format!("{}.attn_qkv.weight", prefix), data)
-            {
-                // Fused QKV (LLaMA-style)
-                let bias = mapped
-                    .model
-                    .get_tensor_f32(&format!("{}.attn_qkv.bias", prefix), data)
-                    .unwrap_or_else(|_| vec![0.0f32; 3 * config.hidden_dim]);
-                (fused_qkv, bias)
-            } else {
-                // Separate Q/K/V (Qwen-style) - concatenate into fused format
-                // For GQA: Q has num_heads * head_dim, K/V have num_kv_heads * head_dim
-                let head_dim = config.hidden_dim / config.num_heads;
-                let kv_dim = config.num_kv_heads * head_dim; // K/V dimension for GQA
-
-                let q_weight = mapped
-                    .model
-                    .get_tensor_f32(&format!("{}.attn_q.weight", prefix), data)?;
-                let k_weight = mapped
-                    .model
-                    .get_tensor_f32(&format!("{}.attn_k.weight", prefix), data)?;
-                let v_weight = mapped
-                    .model
-                    .get_tensor_f32(&format!("{}.attn_v.weight", prefix), data)?;
-
-                // Concatenate Q, K, V weights
-                let mut qkv_weight =
-                    Vec::with_capacity(q_weight.len() + k_weight.len() + v_weight.len());
-                qkv_weight.extend_from_slice(&q_weight);
-                qkv_weight.extend_from_slice(&k_weight);
-                qkv_weight.extend_from_slice(&v_weight);
-
-                // Load biases if available (use correct dimensions for GQA)
-                let q_bias = mapped
-                    .model
-                    .get_tensor_f32(&format!("{}.attn_q.bias", prefix), data)
-                    .unwrap_or_else(|_| vec![0.0f32; config.hidden_dim]);
-                let k_bias = mapped
-                    .model
-                    .get_tensor_f32(&format!("{}.attn_k.bias", prefix), data)
-                    .unwrap_or_else(|_| vec![0.0f32; kv_dim]); // GQA: K/V use num_kv_heads
-                let v_bias = mapped
-                    .model
-                    .get_tensor_f32(&format!("{}.attn_v.bias", prefix), data)
-                    .unwrap_or_else(|_| vec![0.0f32; kv_dim]); // GQA: K/V use num_kv_heads
-
-                // Total bias size: Q (hidden_dim) + K (kv_dim) + V (kv_dim)
-                let total_bias_dim = config.hidden_dim + 2 * kv_dim;
-                let mut qkv_bias = Vec::with_capacity(total_bias_dim);
-                qkv_bias.extend_from_slice(&q_bias);
-                qkv_bias.extend_from_slice(&k_bias);
-                qkv_bias.extend_from_slice(&v_bias);
-
-                (qkv_weight, qkv_bias)
-            };
-
-            // Output projection
-            let out_weight = mapped
-                .model
-                .get_tensor_f32(&format!("{}.attn_output.weight", prefix), data)?;
-            let out_bias = mapped
-                .model
-                .get_tensor_f32(&format!("{}.attn_output.bias", prefix), data)
-                .unwrap_or_else(|_| vec![0.0f32; config.hidden_dim]);
-
-            // FFN norm
-            let ffn_norm_weight = mapped
-                .model
-                .get_tensor_f32(&format!("{}.ffn_norm.weight", prefix), data)
-                .unwrap_or_else(|_| vec![1.0f32; config.hidden_dim]);
-            let ffn_norm_bias = mapped
-                .model
-                .get_tensor_f32(&format!("{}.ffn_norm.bias", prefix), data)
-                .unwrap_or_else(|_| vec![0.0f32; config.hidden_dim]);
-
-            // FFN projections
-            let ffn_fc1_weight = mapped
-                .model
-                .get_tensor_f32(&format!("{}.ffn_up.weight", prefix), data)?;
-            let ffn_fc1_bias = mapped
-                .model
-                .get_tensor_f32(&format!("{}.ffn_up.bias", prefix), data)
-                .unwrap_or_else(|_| vec![0.0f32; config.intermediate_dim]);
-
-            let ffn_fc2_weight = mapped
-                .model
-                .get_tensor_f32(&format!("{}.ffn_down.weight", prefix), data)?;
-            let ffn_fc2_bias = mapped
-                .model
-                .get_tensor_f32(&format!("{}.ffn_down.bias", prefix), data)
-                .unwrap_or_else(|_| vec![0.0f32; config.hidden_dim]);
-
-            // Try to load gate weight for SwiGLU (optional)
-            let ffn_gate_weight = mapped
-                .model
-                .get_tensor_f32(&format!("{}.ffn_gate.weight", prefix), data)
-                .ok();
-
-            block_weights.push(BlockWeights {
-                attn_norm_weight,
-                attn_norm_bias,
-                qkv_weight,
-                qkv_bias,
-                out_weight,
-                out_bias,
-                ffn_norm_weight,
-                ffn_norm_bias,
-                ffn_fc1_weight,
-                ffn_fc1_bias,
-                ffn_fc2_weight,
-                ffn_fc2_bias,
-                ffn_gate_weight,
-            });
-        }
-
-        // Final layer norm
-        let final_norm_weight = mapped.model.get_tensor_f32("output_norm.weight", data)?;
-        let final_norm_bias = mapped
-            .model
-            .get_tensor_f32("output_norm.bias", data)
-            .unwrap_or_else(|_| vec![0.0f32; config.hidden_dim]);
-
-        // LM head
-        let lm_head_weight = mapped.model.get_tensor_f32("output.weight", data)?;
-        let lm_head_bias = mapped
-            .model
-            .get_tensor_f32("output.bias", data)
-            .unwrap_or_else(|_| vec![0.0f32; config.vocab_size]);
 
         // Pre-compute transposed LM head for fast CPU inference
         let lm_head_weight_t =
-            Self::transpose_weights(&lm_head_weight, config.hidden_dim, config.vocab_size);
+            Self::transpose_weights(&w.lm_head_weight, w.config.hidden_dim, w.config.vocab_size);
 
         Ok(Self {
-            embedding_weights,
-            block_weights,
-            final_norm_weight,
-            final_norm_bias,
-            lm_head_weight,
+            embedding_weights: w.embedding_weights,
+            block_weights: w.block_weights,
+            final_norm_weight: w.final_norm_weight,
+            final_norm_bias: w.final_norm_bias,
+            lm_head_weight: w.lm_head_weight,
             lm_head_weight_t,
-            lm_head_bias,
+            lm_head_bias: w.lm_head_bias,
             scheduler,
             #[cfg(feature = "cuda")]
             cuda_scheduler: None,
-            config,
+            config: w.config,
             attention_buffers: None,
             test_executor: None,
         })
@@ -1587,17 +1423,7 @@ impl GpuModel {
         Ok(post_attn)
     }
 
-    /// Apply Rotary Position Embedding (RoPE) inline (Phase 21)
-    ///
-    /// RoPE encodes position information by rotating pairs of elements
-    /// with position-dependent angles. This is CRITICAL for transformer attention.
-    ///
-    /// # Arguments
-    /// * `x` - Mutable slice of Q or K vectors for a single position [num_heads * head_dim]
-    /// * `num_heads` - Number of attention heads
-    /// * `head_dim` - Dimension per head
-    /// * `rope_theta` - Base frequency (typically 10000.0)
-    /// * `position` - Token position for RoPE encoding
+    /// Apply Rotary Position Embedding (RoPE) inline (delegates to ops module)
     fn apply_rope_inline(
         x: &mut [f32],
         num_heads: usize,
@@ -1605,107 +1431,20 @@ impl GpuModel {
         rope_theta: f32,
         position: usize,
     ) {
-        let half_dim = head_dim / 2;
-        let head_dim_f32 = head_dim as f32;
-        let pos_f32 = position as f32;
-
-        for h in 0..num_heads {
-            let head_start = h * head_dim;
-            let idx2_start = head_start + half_dim;
-
-            for i in 0..half_dim {
-                let freq = 1.0 / rope_theta.powf(2.0 * i as f32 / head_dim_f32);
-                let angle = pos_f32 * freq;
-                let (sin_val, cos_val) = angle.sin_cos();
-
-                let x1 = x[head_start + i];
-                let x2 = x[idx2_start + i];
-
-                // Apply rotation: [cos -sin; sin cos] * [x1; x2]
-                x[head_start + i] = x1 * cos_val - x2 * sin_val;
-                x[idx2_start + i] = x1 * sin_val + x2 * cos_val;
-            }
-        }
+        super::ops::apply_rope_inline(x, num_heads, head_dim, rope_theta, position);
     }
 
-    /// GQA multi-head attention (IMP-089, IMP-092, IMP-094)
-    ///
-    /// Grouped Query Attention where K/V have fewer heads than Q.
-    /// Each KV head serves (num_heads / num_kv_heads) Q heads.
-    ///
-    /// IMP-094: Uses trueno SIMD-accelerated dot product and softmax
-    /// for ~10x speedup over scalar implementation.
-    ///
-    /// Static method to avoid borrow conflicts with scheduler and weights.
+    /// GQA multi-head attention (delegates to ops module)
     fn gqa_multihead_attention(
-        q: &[f32], // Q: [num_heads * head_dim]
-        k: &[f32], // K: [kv_len * num_kv_heads * head_dim]
-        v: &[f32], // V: [kv_len * num_kv_heads * head_dim]
+        q: &[f32],
+        k: &[f32],
+        v: &[f32],
         kv_len: usize,
-        num_heads: usize,    // Number of Q heads
-        num_kv_heads: usize, // Number of K/V heads (for GQA, < num_heads)
+        num_heads: usize,
+        num_kv_heads: usize,
         head_dim: usize,
     ) -> Vec<f32> {
-        use trueno::Vector;
-
-        let hidden_dim = num_heads * head_dim;
-        let kv_dim = num_kv_heads * head_dim;
-        let scale = 1.0 / (head_dim as f32).sqrt();
-
-        // Number of Q heads per KV head
-        let heads_per_kv = num_heads / num_kv_heads;
-
-        let mut output = vec![0.0; hidden_dim];
-
-        // Compute attention for all Q heads
-        for h in 0..num_heads {
-            let q_head = &q[h * head_dim..(h + 1) * head_dim];
-            // IMP-094: Create trueno vector for SIMD dot product
-            let q_vec = Vector::from_slice(q_head);
-
-            // Map Q head to KV head (GQA: multiple Q heads share one KV head)
-            let kv_head = h / heads_per_kv;
-
-            // Compute attention scores for this head using SIMD dot product
-            let mut scores = Vec::with_capacity(kv_len);
-            for pos in 0..kv_len {
-                // K offset: pos * kv_dim + kv_head * head_dim
-                let k_offset = pos * kv_dim + kv_head * head_dim;
-                let cached_key = &k[k_offset..k_offset + head_dim];
-
-                // IMP-094: SIMD dot product via trueno
-                let k_vec = Vector::from_slice(cached_key);
-                let score = q_vec.dot(&k_vec).unwrap_or(0.0) * scale;
-                scores.push(score);
-            }
-
-            // IMP-094: SIMD softmax via trueno
-            let scores_vec = Vector::from_slice(&scores);
-            let attn_weights: Vec<f32> = scores_vec.softmax().map_or_else(
-                |_| {
-                    // Fallback to scalar softmax
-                    let max_score = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-                    let exp_scores: Vec<f32> =
-                        scores.iter().map(|&s| (s - max_score).exp()).collect();
-                    let sum_exp: f32 = exp_scores.iter().sum();
-                    exp_scores.iter().map(|&e| e / sum_exp).collect()
-                },
-                |v| v.as_slice().to_vec(),
-            );
-
-            // Weighted sum of values (still scalar - SIMD benefit is marginal for small head_dim)
-            for (pos, &weight) in attn_weights.iter().enumerate() {
-                // V offset: pos * kv_dim + kv_head * head_dim
-                let v_offset = pos * kv_dim + kv_head * head_dim;
-                let v_head = &v[v_offset..v_offset + head_dim];
-
-                for d in 0..head_dim {
-                    output[h * head_dim + d] += weight * v_head[d];
-                }
-            }
-        }
-
-        output
+        super::ops::gqa_multihead_attention(q, k, v, kv_len, num_heads, num_kv_heads, head_dim)
     }
 
     // ============================================================================
@@ -1918,36 +1657,14 @@ impl GpuModel {
         super::kv::generate_with_cache(self, prompt, config)
     }
 
-    /// Top-k sampling with temperature (returns highest prob token in top-k for determinism)
+    /// Top-k sampling with temperature (delegates to ops module)
     fn sample_topk_generate(logits: &[f32], temperature: f32, top_k: usize) -> usize {
-        // Apply temperature
-        let scaled: Vec<f32> = logits.iter().map(|&x| x / temperature).collect();
-
-        // Softmax with numerical stability
-        let max_logit = scaled.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        let exp_logits: Vec<f32> = scaled.iter().map(|&x| (x - max_logit).exp()).collect();
-        let sum: f32 = exp_logits.iter().sum();
-        let probs: Vec<f32> = exp_logits.iter().map(|&x| x / sum).collect();
-
-        // Get top-k indices by sorting
-        let mut indexed: Vec<(usize, f32)> =
-            probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
-        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        // Truncate to top_k and return highest probability token (deterministic)
-        indexed.truncate(top_k);
-        indexed.first().map_or(0, |&(idx, _)| idx)
+        super::ops::sample_topk(logits, temperature, top_k)
     }
 
-    /// Transpose weight matrix from [rows, cols] to [cols, rows]
+    /// Transpose weight matrix (delegates to ops module)
     fn transpose_weights(weights: &[f32], rows: usize, cols: usize) -> Vec<f32> {
-        let mut transposed = vec![0.0f32; rows * cols];
-        for i in 0..rows {
-            for j in 0..cols {
-                transposed[j * rows + i] = weights[i * cols + j];
-            }
-        }
-        transposed
+        super::ops::transpose_weights(weights, rows, cols)
     }
 
     /// Check if GPU is being used
@@ -2185,11 +1902,7 @@ impl GpuModel {
         Ok(residual1)
     }
 
-    /// RMSNorm (Root Mean Square Layer Normalization)
-    ///
-    /// PMAT-094 FIX: Qwen2, LLaMA, Mistral use RMSNorm, NOT LayerNorm.
-    /// Formula: output = x / sqrt(mean(x^2) + eps) * weight + bias
-    #[allow(clippy::cast_precision_loss)]
+    /// RMSNorm (delegates to ops module)
     pub(crate) fn layer_norm_static(
         input: &[f32],
         weight: &[f32],
@@ -2197,25 +1910,7 @@ impl GpuModel {
         hidden_dim: usize,
         eps: f32,
     ) -> Vec<f32> {
-        let num_rows = input.len() / hidden_dim;
-        let mut output = Vec::with_capacity(input.len());
-
-        for row in 0..num_rows {
-            let start = row * hidden_dim;
-            let row_data = &input[start..start + hidden_dim];
-
-            // RMSNorm: compute root mean square (no mean subtraction!)
-            let sum_sq: f32 = row_data.iter().map(|&x| x * x).sum();
-            let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
-
-            // Normalize and scale
-            for (i, &x) in row_data.iter().enumerate() {
-                let normalized = x / rms;
-                output.push(normalized * weight[i] + bias[i]);
-            }
-        }
-
-        output
+        super::ops::layer_norm_static(input, weight, bias, hidden_dim, eps)
     }
 
     /// Layer normalization (instance method)

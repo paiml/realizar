@@ -6,7 +6,9 @@
 pub mod batch;
 mod core;
 mod kv;
+mod loading;
 mod model;
+mod ops;
 mod types;
 
 #[cfg(feature = "cuda")]
