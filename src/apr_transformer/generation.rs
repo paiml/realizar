@@ -6,6 +6,39 @@
 use super::{AprKVCache, AprTransformer, GenerateConfig};
 use crate::error::{RealizarError, Result};
 
+/// Common EOS token IDs across model families
+const EOS_TOKENS: [u32; 4] = [0, 2, 151645, 151643];
+
+/// Check if a token is an end-of-sequence marker
+#[inline]
+fn is_eos_token(token: u32) -> bool {
+    EOS_TOKENS.contains(&token)
+}
+
+/// Sample the next token from logits using temperature scaling
+fn sample_from_logits(logits: &[f32], temperature: f32) -> u32 {
+    if temperature == 0.0 {
+        // Greedy: pick argmax
+        logits
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map_or(0, |(idx, _)| idx as u32)
+    } else {
+        // Temperature-scaled sampling (currently picks argmax of probs)
+        let scaled: Vec<f32> = logits.iter().map(|l| l / temperature).collect();
+        let max_val = scaled.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let exp_vals: Vec<f32> = scaled.iter().map(|s| (s - max_val).exp()).collect();
+        let sum: f32 = exp_vals.iter().sum();
+        let probs: Vec<f32> = exp_vals.iter().map(|e| e / sum).collect();
+        probs
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map_or(0, |(idx, _)| idx as u32)
+    }
+}
+
 /// Generate tokens using KV cache for efficiency (Y4)
 ///
 /// # Arguments
@@ -56,30 +89,10 @@ pub fn generate_with_cache(
 
     // Generate new tokens using the logits we already have
     for i in 0..config.max_tokens {
-        // Sample from current logits (which predict the NEXT token)
-        let next_token = if config.temperature == 0.0 {
-            logits
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map_or(0, |(idx, _)| idx as u32)
-        } else {
-            let scaled: Vec<f32> = logits.iter().map(|l| l / config.temperature).collect();
-            let max_val = scaled.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-            let exp_vals: Vec<f32> = scaled.iter().map(|s| (s - max_val).exp()).collect();
-            let sum: f32 = exp_vals.iter().sum();
-            let probs: Vec<f32> = exp_vals.iter().map(|e| e / sum).collect();
-            probs
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map_or(0, |(idx, _)| idx as u32)
-        };
-
+        let next_token = sample_from_logits(&logits, config.temperature);
         output.push(next_token);
 
-        // Check for EOS tokens
-        if next_token == 0 || next_token == 2 || next_token == 151645 || next_token == 151643 {
+        if is_eos_token(next_token) {
             break;
         }
 

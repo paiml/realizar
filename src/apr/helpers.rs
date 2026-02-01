@@ -140,6 +140,53 @@ unsafe fn simd_dot_avx2(a: &[f32], b: &[f32]) -> f32 {
     }
 }
 
+/// Compute dot product attention score for a single query-key pair
+#[inline]
+fn compute_attention_score(
+    q: &[f32],
+    k: &[f32],
+    q_offset: usize,
+    k_offset: usize,
+    head_dim: usize,
+    scale: f32,
+) -> f32 {
+    let mut score = 0.0;
+    for d in 0..head_dim {
+        let q_val = q.get(q_offset + d).copied().unwrap_or(0.0);
+        let k_val = k.get(k_offset + d).copied().unwrap_or(0.0);
+        score += q_val * k_val;
+    }
+    score * scale
+}
+
+/// Apply softmax normalization to scores in-place (up to position s)
+#[inline]
+fn softmax_causal(scores: &mut [f32], s: usize) {
+    let max_score = scores[..=s]
+        .iter()
+        .cloned()
+        .fold(f32::NEG_INFINITY, f32::max);
+    let mut sum = 0.0;
+    for score in &mut scores[..=s] {
+        *score = (*score - max_score).exp();
+        sum += *score;
+    }
+    for score in &mut scores[..=s] {
+        *score /= sum;
+    }
+}
+
+/// Compute weighted sum of values for a single output dimension
+#[inline]
+fn weighted_value_sum(v: &[f32], scores: &[f32], v_base: usize, d: usize, s: usize) -> f32 {
+    let mut val = 0.0;
+    for t in 0..=s {
+        let v_val = v.get(v_base * t + d).copied().unwrap_or(0.0);
+        val += scores[t] * v_val;
+    }
+    val
+}
+
 /// Simplified multi-head attention (no RoPE, causal mask)
 pub(crate) fn simple_attention(
     q: &[f32],
@@ -160,50 +207,21 @@ pub(crate) fn simple_attention(
     for s in 0..seq_len {
         for h in 0..num_heads {
             let kv_h = h / heads_per_kv;
+            let q_base = s * hidden_dim + h * head_dim;
+            let k_base = kv_h * head_dim;
+            let v_base = kv_dim;
 
-            // Compute attention scores for this head
+            // Compute causal attention scores
             let mut scores = vec![0.0; seq_len];
             for t in 0..=s {
-                // Causal: only attend to past
-                let mut score = 0.0;
-                for d in 0..head_dim {
-                    let q_val = q
-                        .get(s * hidden_dim + h * head_dim + d)
-                        .copied()
-                        .unwrap_or(0.0);
-                    let k_val = k
-                        .get(t * kv_dim + kv_h * head_dim + d)
-                        .copied()
-                        .unwrap_or(0.0);
-                    score += q_val * k_val;
-                }
-                scores[t] = score * scale;
+                scores[t] = compute_attention_score(q, k, q_base, t * kv_dim + k_base, head_dim, scale);
             }
 
-            // Softmax
-            let max_score = scores[..=s]
-                .iter()
-                .cloned()
-                .fold(f32::NEG_INFINITY, f32::max);
-            let mut sum = 0.0;
-            for score in &mut scores[..=s] {
-                *score = (*score - max_score).exp();
-                sum += *score;
-            }
-            for score in &mut scores[..=s] {
-                *score /= sum;
-            }
+            softmax_causal(&mut scores, s);
 
             // Weighted sum of values
             for d in 0..head_dim {
-                let mut val = 0.0;
-                for t in 0..=s {
-                    let v_val = v
-                        .get(t * kv_dim + kv_h * head_dim + d)
-                        .copied()
-                        .unwrap_or(0.0);
-                    val += scores[t] * v_val;
-                }
+                let val = weighted_value_sum(v, &scores, v_base, kv_h * head_dim + d, s);
                 output[s * hidden_dim + h * head_dim + d] = val;
             }
         }
