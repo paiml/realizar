@@ -592,127 +592,27 @@ async fn batch_predict_handler(
 ) -> Result<Json<BatchPredictResponse>, (StatusCode, Json<ErrorResponse>)> {
     use std::sync::atomic::Ordering;
 
-    // Validate model is loaded
-    let Some(model) = &state.model else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse {
-                error: "No model loaded".to_string(),
-                code: Some("E_NO_MODEL".to_string()),
-            }),
-        ));
-    };
+    let model = require_model(&state)?;
 
     if payload.instances.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Empty batch".to_string(),
-                code: Some("E_EMPTY_BATCH".to_string()),
-            }),
-        ));
+        return Err(http_error(StatusCode::BAD_REQUEST, "Empty batch", "E_EMPTY_BATCH"));
     }
 
     let batch_start = Instant::now();
     let mut predictions = Vec::with_capacity(payload.instances.len());
 
-    // Increment request counter
-    state
-        .request_count
-        .fetch_add(payload.instances.len() as u64, Ordering::Relaxed);
+    state.request_count.fetch_add(payload.instances.len() as u64, Ordering::Relaxed);
 
     for instance in &payload.instances {
-        // Validate dimensions
-        if state.input_dim > 0 && instance.features.len() != state.input_dim {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: format!(
-                        "Invalid input dimension: expected {}, got {}",
-                        state.input_dim,
-                        instance.features.len()
-                    ),
-                    code: Some("E_INVALID_INPUT".to_string()),
-                }),
-            ));
-        }
+        validate_dimensions(state.input_dim, instance.features.len())?;
 
         let start = Instant::now();
-
-        // Create input matrix for this instance
         let n_features = instance.features.len();
-        let input = Matrix::from_vec(1, n_features, instance.features.clone()).map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: format!("Failed to create input matrix: {e}"),
-                    code: Some("E_MATRIX_ERROR".to_string()),
-                }),
-            )
-        })?;
+        let input = Matrix::from_vec(1, n_features, instance.features.clone())
+            .map_err(|e| http_error(StatusCode::BAD_REQUEST, format!("Matrix error: {e}"), "E_MATRIX_ERROR"))?;
 
-        // Helper for batch error mapping
-        let map_err = |e: AprenderError| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Model inference error: {e}"),
-                    code: Some("E_INFERENCE_ERROR".to_string()),
-                }),
-            )
-        };
-
-        // For batch, don't return probabilities to keep response smaller
-        let (prediction, probabilities) = match model {
-            LoadedModel::LogisticRegression(lr) => {
-                let preds = lr.predict(&input);
-                #[allow(clippy::cast_precision_loss)]
-                let pred = preds.first().copied().unwrap_or(0) as f32;
-                (pred, None)
-            },
-            LoadedModel::KNearestNeighbors(knn) => {
-                let preds = knn.predict(&input).map_err(map_err)?;
-                #[allow(clippy::cast_precision_loss)]
-                let pred = preds.first().copied().unwrap_or(0) as f32;
-                (pred, None)
-            },
-            LoadedModel::GaussianNB(nb) => {
-                let preds = nb.predict(&input).map_err(map_err)?;
-                #[allow(clippy::cast_precision_loss)]
-                let pred = preds.first().copied().unwrap_or(0) as f32;
-                (pred, None)
-            },
-            LoadedModel::LinearSVM(svm) => {
-                let preds = svm.predict(&input).map_err(map_err)?;
-                #[allow(clippy::cast_precision_loss)]
-                let pred = preds.first().copied().unwrap_or(0) as f32;
-                (pred, None)
-            },
-            LoadedModel::DecisionTreeClassifier(dt) => {
-                let preds = dt.predict(&input);
-                #[allow(clippy::cast_precision_loss)]
-                let pred = preds.first().copied().unwrap_or(0) as f32;
-                (pred, None)
-            },
-            LoadedModel::RandomForestClassifier(rf) => {
-                let preds = rf.predict(&input);
-                #[allow(clippy::cast_precision_loss)]
-                let pred = preds.first().copied().unwrap_or(0) as f32;
-                (pred, None)
-            },
-            LoadedModel::GradientBoostingClassifier(gb) => {
-                let preds = gb.predict(&input).map_err(map_err)?;
-                #[allow(clippy::cast_precision_loss)]
-                let pred = preds.first().copied().unwrap_or(0) as f32;
-                (pred, None)
-            },
-            LoadedModel::LinearRegression(lr) => {
-                let preds = lr.predict(&input);
-                let pred = preds.as_slice().first().copied().unwrap_or(0.0);
-                (pred, None)
-            },
-        };
-
+        // Batch doesn't return probabilities to keep response smaller
+        let (prediction, probabilities) = run_model_prediction(model, &input, false)?;
         let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
 
         predictions.push(PredictResponse {
