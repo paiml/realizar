@@ -316,6 +316,24 @@ pub enum SamplingStrategy {
     },
 }
 
+/// Check if temperature value is valid for sampling
+#[inline]
+fn is_valid_temperature(temp: f32) -> bool {
+    temp > 0.0 && temp != 1.0
+}
+
+/// Check if top_p value is valid for sampling
+#[inline]
+fn is_valid_top_p(p: f32) -> bool {
+    p < 1.0 && p > 0.0
+}
+
+/// Check if top_k value is valid for sampling
+#[inline]
+fn is_valid_top_k(k: usize) -> bool {
+    k > 0 && k < usize::MAX
+}
+
 /// Plans which sampling strategy to use based on parameters
 #[must_use]
 pub fn plan_sampling(
@@ -324,24 +342,15 @@ pub fn plan_sampling(
     top_p: Option<f32>,
 ) -> SamplingStrategy {
     // Priority: temperature > top_p > top_k > greedy
-    if let Some(temp) = temperature {
-        if temp > 0.0 && temp != 1.0 {
-            return SamplingStrategy::Temperature { temp };
-        }
+    if let Some(temp) = temperature.filter(|&t| is_valid_temperature(t)) {
+        return SamplingStrategy::Temperature { temp };
     }
-
-    if let Some(p) = top_p {
-        if p < 1.0 && p > 0.0 {
-            return SamplingStrategy::TopP { p };
-        }
+    if let Some(p) = top_p.filter(|&p| is_valid_top_p(p)) {
+        return SamplingStrategy::TopP { p };
     }
-
-    if let Some(k) = top_k {
-        if k > 0 && k < usize::MAX {
-            return SamplingStrategy::TopK { k };
-        }
+    if let Some(k) = top_k.filter(|&k| is_valid_top_k(k)) {
+        return SamplingStrategy::TopK { k };
     }
-
     SamplingStrategy::Greedy
 }
 
