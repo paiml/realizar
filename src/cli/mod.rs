@@ -125,6 +125,29 @@ pub async fn entrypoint(cli: Cli) -> Result<()> {
     }
 }
 
+/// Format a prompt using chat template detection (unless raw mode)
+fn format_model_prompt(
+    model_ref: &str,
+    prompt_text: &str,
+    system_prompt: Option<&str>,
+    raw_mode: bool,
+) -> String {
+    use crate::chat_template::{auto_detect_template, ChatMessage};
+
+    if raw_mode {
+        return prompt_text.to_string();
+    }
+    let template = auto_detect_template(model_ref);
+    let mut messages = Vec::new();
+    if let Some(sys) = system_prompt {
+        messages.push(ChatMessage::system(sys));
+    }
+    messages.push(ChatMessage::user(prompt_text));
+    template
+        .format_conversation(&messages)
+        .unwrap_or_else(|_| prompt_text.to_string())
+}
+
 /// Run model command handler
 #[allow(
     clippy::too_many_arguments,
@@ -143,8 +166,6 @@ async fn run_model_command(
     verbose: bool,
     trace: Option<Option<String>>,
 ) -> Result<()> {
-    use crate::chat_template::{auto_detect_template, ChatMessage};
-
     let trace_config = handlers::parse_trace_config(trace.clone());
     if trace_config.is_some() {
         std::env::set_var("GPU_DEBUG", "1");
@@ -176,19 +197,7 @@ async fn run_model_command(
     }
 
     if let Some(prompt_text) = prompt {
-        let formatted_prompt = if raw_mode {
-            prompt_text.to_string()
-        } else {
-            let template = auto_detect_template(model_ref);
-            let mut messages = Vec::new();
-            if let Some(sys) = system_prompt {
-                messages.push(ChatMessage::system(sys));
-            }
-            messages.push(ChatMessage::user(prompt_text));
-            template
-                .format_conversation(&messages)
-                .unwrap_or_else(|_| prompt_text.to_string())
-        };
+        let formatted_prompt = format_model_prompt(model_ref, prompt_text, system_prompt, raw_mode);
 
         use crate::format::{detect_format, ModelFormat};
         match detect_format(&file_data).unwrap_or(ModelFormat::Gguf) {
@@ -227,6 +236,50 @@ async fn run_model_command(
     Ok(())
 }
 
+/// Result of processing a single chat input line
+enum ChatAction {
+    /// Continue reading input (empty line)
+    Continue,
+    /// Exit the chat loop
+    Exit,
+    /// Process the input and generate a response
+    Respond(String),
+}
+
+/// Process a single chat input line into an action
+fn process_chat_input(input: &str, history: &mut Vec<(String, String)>) -> ChatAction {
+    if input.is_empty() {
+        return ChatAction::Continue;
+    }
+    if input == "exit" || input == "/quit" {
+        return ChatAction::Exit;
+    }
+    if input == "/clear" {
+        history.clear();
+        println!("Cleared.");
+        return ChatAction::Continue;
+    }
+    if input == "/history" {
+        for (i, (u, a)) in history.iter().enumerate() {
+            println!("[{}] {}: {}", i + 1, u, a);
+        }
+        return ChatAction::Continue;
+    }
+    ChatAction::Respond(input.to_string())
+}
+
+/// Validate model reference for chat mode
+fn validate_chat_model(model_ref: &str) -> Result<()> {
+    if model_ref.starts_with("pacha://") || model_ref.starts_with("hf://") {
+        println!("Registry URIs require --features registry");
+        return Ok(());
+    }
+    if !std::path::Path::new(model_ref).exists() {
+        return Err(RealizarError::ModelNotFound(model_ref.to_string()));
+    }
+    Ok(())
+}
+
 /// Chat command handler
 #[allow(clippy::unused_async)]
 async fn run_chat_command(
@@ -236,14 +289,8 @@ async fn run_chat_command(
 ) -> Result<()> {
     use std::io::{BufRead, Write};
 
-    if !std::path::Path::new(model_ref).exists()
-        && !model_ref.starts_with("pacha://")
-        && !model_ref.starts_with("hf://")
-    {
-        return Err(RealizarError::ModelNotFound(model_ref.to_string()));
-    }
+    validate_chat_model(model_ref)?;
     if model_ref.starts_with("pacha://") || model_ref.starts_with("hf://") {
-        println!("Registry URIs require --features registry");
         return Ok(());
     }
 
@@ -272,31 +319,16 @@ async fn run_chat_command(
         stdout.flush().ok();
         let mut input = String::new();
         match stdin.lock().read_line(&mut input) {
-            Ok(0) => break,
-            Ok(_) => {
-                let input = input.trim();
-                if input.is_empty() {
-                    continue;
-                }
-                if input == "exit" || input == "/quit" {
-                    break;
-                }
-                if input == "/clear" {
-                    history.clear();
-                    println!("Cleared.");
-                    continue;
-                }
-                if input == "/history" {
-                    for (i, (u, a)) in history.iter().enumerate() {
-                        println!("[{}] {}: {}", i + 1, u, a);
-                    }
-                    continue;
-                }
-                let response = format!("[Echo] {}", input);
-                println!("{response}");
-                history.push((input.to_string(), response));
+            Ok(0) | Err(_) => break,
+            Ok(_) => match process_chat_input(input.trim(), &mut history) {
+                ChatAction::Exit => break,
+                ChatAction::Respond(input) => {
+                    let response = format!("[Echo] {}", input);
+                    println!("{response}");
+                    history.push((input, response));
+                },
+                ChatAction::Continue => {},
             },
-            Err(_) => break,
         }
     }
 

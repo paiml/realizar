@@ -10,6 +10,50 @@
 
 use crate::error::Result;
 
+/// PAR-051: Print diagnostic info for CPU debug mode
+#[allow(clippy::never_loop)]
+fn print_cpu_debug_info(
+    logits: &[f32],
+    prompt_tokens: &[u32],
+    model: &crate::gguf::OwnedQuantizedModel,
+    mapped: &crate::gguf::MappedGGUFModel,
+) {
+    let mut top5: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
+    top5.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    top5.truncate(5);
+    eprintln!("[PAR-051] Prompt tokens: {:?}", prompt_tokens);
+    eprintln!("[PAR-051] Logits top5 after prefill: {:?}", top5);
+    let greedy_token = top5[0].0 as u32;
+    let decoded = mapped.model.decode(&[greedy_token]);
+    eprintln!(
+        "[PAR-051] Greedy next token: {} = {:?}",
+        greedy_token, decoded
+    );
+
+    let last_token = prompt_tokens[prompt_tokens.len() - 1];
+    let embed = model.embed(&[last_token]);
+    eprintln!(
+        "[PAR-051] Last token {} embed[0..5]: {:?}",
+        last_token,
+        &embed[..5.min(embed.len())]
+    );
+    eprintln!("[PAR-051] embed sum: {:.6}", embed.iter().sum::<f32>());
+
+    let cfg = model.config();
+    eprintln!(
+        "[PAR-051] Config: hidden={}, heads={}/{}, layers={}, vocab={}, eps={:e}",
+        cfg.hidden_dim,
+        cfg.num_heads,
+        cfg.num_kv_heads,
+        cfg.num_layers,
+        cfg.vocab_size,
+        cfg.eps
+    );
+
+    let logit_2 = logits.get(29906).copied().unwrap_or(f32::NAN);
+    eprintln!("[PAR-051] Logit for token 29906 ('2'): {:.6}", logit_2);
+}
+
 pub fn run_gguf_inference(
     model_ref: &str,
     _file_data: &[u8],
@@ -150,50 +194,9 @@ pub fn run_gguf_inference(
         );
     }
 
-    // PAR-051: Diagnostic - show top5 logits after prefill
-    // Re-enable by changing `false` to `true` for debugging
-    #[allow(clippy::never_loop)]
-    if std::env::var("CPU_DEBUG")
-        .map(|v| v == "1")
-        .unwrap_or(false)
-    {
-        let mut top5: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
-        top5.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        top5.truncate(5);
-        eprintln!("[PAR-051] Prompt tokens: {:?}", prompt_tokens);
-        eprintln!("[PAR-051] Logits top5 after prefill: {:?}", top5);
-        let greedy_token = top5[0].0 as u32;
-        let decoded = mapped.model.decode(&[greedy_token]);
-        eprintln!(
-            "[PAR-051] Greedy next token: {} = {:?}",
-            greedy_token, decoded
-        );
-
-        // Check embedding - compare first 5 values
-        let last_token = prompt_tokens[prompt_tokens.len() - 1];
-        let embed = model.embed(&[last_token]);
-        eprintln!(
-            "[PAR-051] Last token {} embed[0..5]: {:?}",
-            last_token,
-            &embed[..5.min(embed.len())]
-        );
-        eprintln!("[PAR-051] embed sum: {:.6}", embed.iter().sum::<f32>());
-
-        // Check model config
-        let cfg = model.config();
-        eprintln!(
-            "[PAR-051] Config: hidden={}, heads={}/{}, layers={}, vocab={}, eps={:e}",
-            cfg.hidden_dim,
-            cfg.num_heads,
-            cfg.num_kv_heads,
-            cfg.num_layers,
-            cfg.vocab_size,
-            cfg.eps
-        );
-
-        // Check logit at index 29906 (token "2")
-        let logit_2 = logits.get(29906).copied().unwrap_or(f32::NAN);
-        eprintln!("[PAR-051] Logit for token 29906 ('2'): {:.6}", logit_2);
+    // PAR-051: Diagnostic output (gated by CPU_DEBUG=1 environment variable)
+    if std::env::var("CPU_DEBUG").is_ok_and(|v| v == "1") {
+        print_cpu_debug_info(&logits, &prompt_tokens, &model, &mapped);
     }
 
     // Decode: generate new tokens one at a time
