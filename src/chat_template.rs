@@ -927,44 +927,29 @@ impl ChatTemplateEngine for RawTemplate {
 pub fn detect_format_from_name(model_name: &str) -> TemplateFormat {
     let name_lower = model_name.to_lowercase();
 
-    // ChatML models
-    if name_lower.contains("qwen")
-        || name_lower.contains("openhermes")
-        || name_lower.contains("yi-")
-    {
-        return TemplateFormat::ChatML;
+    // Pattern rules ordered by specificity (more specific patterns first)
+    // Format: (patterns, format) - check patterns before formats that share prefixes
+    let rules: &[(&[&str], TemplateFormat)] = &[
+        // ChatML: Qwen, OpenHermes, Yi
+        (&["qwen", "openhermes", "yi-"], TemplateFormat::ChatML),
+        // Zephyr: TinyLlama, Zephyr, StableLM (check BEFORE llama!)
+        (&["tinyllama", "zephyr", "stablelm"], TemplateFormat::Zephyr),
+        // Mistral/Mixtral (check before LLaMA since both use [INST])
+        (&["mistral", "mixtral"], TemplateFormat::Mistral),
+        // LLaMA 2 / Vicuna
+        (&["llama", "vicuna"], TemplateFormat::Llama2),
+        // Phi variants
+        (&["phi-", "phi2", "phi3"], TemplateFormat::Phi),
+        // Alpaca
+        (&["alpaca"], TemplateFormat::Alpaca),
+    ];
+
+    for (patterns, format) in rules {
+        if patterns.iter().any(|p| name_lower.contains(p)) {
+            return *format;
+        }
     }
 
-    // Zephyr format models (check BEFORE llama - TinyLlama uses Zephyr, not Llama2!)
-    // TinyLlama-1.1B-Chat uses <|user|>, <|assistant|>, <|system|> tokens
-    if name_lower.contains("tinyllama")
-        || name_lower.contains("zephyr")
-        || name_lower.contains("stablelm")
-    {
-        return TemplateFormat::Zephyr;
-    }
-
-    // Mistral (check before LLaMA since both use [INST])
-    if name_lower.contains("mistral") || name_lower.contains("mixtral") {
-        return TemplateFormat::Mistral;
-    }
-
-    // LLaMA 2 / Vicuna (note: TinyLlama is handled above as Zephyr)
-    if name_lower.contains("llama") || name_lower.contains("vicuna") {
-        return TemplateFormat::Llama2;
-    }
-
-    // Phi
-    if name_lower.contains("phi-") || name_lower.contains("phi2") || name_lower.contains("phi3") {
-        return TemplateFormat::Phi;
-    }
-
-    // Alpaca
-    if name_lower.contains("alpaca") {
-        return TemplateFormat::Alpaca;
-    }
-
-    // Default to Raw
     TemplateFormat::Raw
 }
 
