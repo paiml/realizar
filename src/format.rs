@@ -105,6 +105,40 @@ pub const GGUF_MAGIC: &[u8; 4] = b"GGUF";
 /// Maximum SafeTensors header size (100MB for DOS protection per spec §7.1)
 pub const MAX_SAFETENSORS_HEADER: u64 = 100_000_000;
 
+/// Valid APR version bytes
+const APR_VERSIONS: [u8; 4] = [b'N', b'1', b'2', 0];
+
+/// Try to detect APR format from magic bytes
+#[inline]
+fn try_detect_apr(data: &[u8]) -> Option<ModelFormat> {
+    if data.len() >= 4 && &data[0..3] == APR_MAGIC && APR_VERSIONS.contains(&data[3]) {
+        return Some(ModelFormat::Apr);
+    }
+    None
+}
+
+/// Try to detect GGUF format from magic bytes
+#[inline]
+fn try_detect_gguf(data: &[u8]) -> Option<ModelFormat> {
+    if data.len() >= 4 && &data[0..4] == GGUF_MAGIC {
+        return Some(ModelFormat::Gguf);
+    }
+    None
+}
+
+/// Try to detect SafeTensors format from header size
+#[inline]
+fn try_detect_safetensors(data: &[u8]) -> Result<Option<ModelFormat>, FormatError> {
+    let header_size = u64::from_le_bytes(data[0..8].try_into().expect("slice is exactly 8 bytes"));
+    if header_size > 0 && header_size < MAX_SAFETENSORS_HEADER {
+        return Ok(Some(ModelFormat::SafeTensors));
+    }
+    if header_size >= MAX_SAFETENSORS_HEADER {
+        return Err(FormatError::HeaderTooLarge { size: header_size });
+    }
+    Ok(None)
+}
+
 /// Detect model format from magic bytes (Jidoka: fail-fast)
 ///
 /// Per spec §3.2: Format Detection
@@ -142,37 +176,15 @@ pub fn detect_format(data: &[u8]) -> Result<ModelFormat, FormatError> {
         return Err(FormatError::TooShort { len: data.len() });
     }
 
-    // Check APR magic - first 3 bytes are "APR", 4th byte is version
-    // F-COV-95: Accept multiple APR variants:
-    //   - 'N' (0x4E): APR v1 from aprender (APRN format)
-    //   - '1' (0x31): APR v1 explicit
-    //   - '2' (0x32): APR v2 (transformer models)
-    //   - 0x00: Legacy APR
-    if &data[0..3] == APR_MAGIC {
-        let version = data[3];
-        if version == b'N' || version == b'1' || version == b'2' || version == 0 {
-            return Ok(ModelFormat::Apr);
-        }
+    // Try each format in order of specificity
+    if let Some(format) = try_detect_apr(data) {
+        return Ok(format);
     }
-
-    // Check GGUF magic
-    if &data[0..4] == GGUF_MAGIC {
-        return Ok(ModelFormat::Gguf);
+    if let Some(format) = try_detect_gguf(data) {
+        return Ok(format);
     }
-
-    // SafeTensors: first 8 bytes are header size (little-endian u64)
-    // If it's a reasonable size, assume SafeTensors
-    let header_size = u64::from_le_bytes(data[0..8].try_into().expect("slice is exactly 8 bytes"));
-
-    // SafeTensors header should be reasonable size
-    // Very large values indicate this isn't SafeTensors
-    if header_size < MAX_SAFETENSORS_HEADER && header_size > 0 {
-        return Ok(ModelFormat::SafeTensors);
-    }
-
-    // Check if header size looks like SafeTensors but is too large
-    if header_size >= MAX_SAFETENSORS_HEADER {
-        return Err(FormatError::HeaderTooLarge { size: header_size });
+    if let Some(format) = try_detect_safetensors(data)? {
+        return Ok(format);
     }
 
     Err(FormatError::UnknownFormat)
