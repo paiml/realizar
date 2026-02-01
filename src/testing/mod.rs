@@ -390,7 +390,7 @@ impl fmt::Debug for ModelTestCase {
                     self.constructor.config.num_layers, self.constructor.config.num_heads
                 ),
             )
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

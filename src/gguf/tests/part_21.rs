@@ -364,7 +364,7 @@ fn test_phase34_phi2_style_layers() {
     // Phi-2 uses fused QKV projection
     let hidden_dim = 2560;
     let num_heads = 32;
-    let head_dim = hidden_dim / num_heads; // 80
+    let _head_dim = hidden_dim / num_heads; // 80
 
     // Fused QKV: hidden -> 3 * hidden
     let qkv_out_dim = 3 * hidden_dim;

@@ -358,8 +358,8 @@ mod tests {
         let mut cache = PagedKvCache::new(10, 16, 8, 64);
 
         // Fill 9 of 10 pages (90% full)
-        let _seq = cache.allocate_sequence(144).expect("alloc 144");
-        cache.update_tokens(_seq, 100).expect("update");
+        let seq = cache.allocate_sequence(144).expect("alloc 144");
+        cache.update_tokens(seq, 100).expect("update");
 
         // At 90% utilization, free_ratio = 0.1
         // No holes since single sequence, so shouldn't trigger

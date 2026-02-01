@@ -141,13 +141,13 @@ fn test_f203_simd_faster_than_scalar_q4_0() {
     // Measure scalar time
     let scalar_start = Instant::now();
     for _ in 0..iterations {
-        let mut _sum = 0.0f32;
+        let mut sum = 0.0f32;
         for row in 0..out_dim {
             let row_start = row * bytes_per_row;
             let row_data = &weight_data[row_start..row_start + bytes_per_row];
-            _sum += fused_q4_0_q8_0_dot_scalar(row_data, &q8_scales, &q8_quants, in_dim);
+            sum += fused_q4_0_q8_0_dot_scalar(row_data, &q8_scales, &q8_quants, in_dim);
         }
-        std::hint::black_box(_sum);
+        std::hint::black_box(sum);
     }
     let scalar_time = scalar_start.elapsed();
 
@@ -208,13 +208,13 @@ fn test_f204_simd_performance_q8_0() {
     // Scalar
     let scalar_start = Instant::now();
     for _ in 0..iterations {
-        let mut _sum = 0.0f32;
+        let mut sum = 0.0f32;
         for row in 0..out_dim {
             let row_start = row * bytes_per_row;
             let row_data = &weight_data[row_start..row_start + bytes_per_row];
-            _sum += fused_q8_0_q8_0_dot_scalar(row_data, &q8_scales, &q8_quants, in_dim);
+            sum += fused_q8_0_q8_0_dot_scalar(row_data, &q8_scales, &q8_quants, in_dim);
         }
-        std::hint::black_box(_sum);
+        std::hint::black_box(sum);
     }
     let scalar_time = scalar_start.elapsed();
 

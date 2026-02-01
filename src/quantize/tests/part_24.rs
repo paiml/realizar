@@ -364,7 +364,7 @@ fn test_fused_q4_0_q8_0_sequential_path() {
     // Small matrix - sequential path (out_dim < 1024)
     let in_dim = 32;
     let out_dim = 4;
-    let blocks_per_row = 1;
+    let _blocks_per_row = 1;
     let bytes_per_row = 18; // 1 block
 
     let weight_data = vec![0u8; out_dim * bytes_per_row];

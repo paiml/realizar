@@ -337,7 +337,7 @@ pub fn forward_apr_cuda(fixture: &ModelFixture, tokens: &[u32]) -> Result<Forwar
 
 /// SafeTensors CUDA forward
 #[cfg(feature = "cuda")]
-pub fn forward_safetensors_cuda(fixture: &ModelFixture, tokens: &[u32]) -> Result<ForwardResult> {
+pub fn forward_safetensors_cuda(_fixture: &ModelFixture, _tokens: &[u32]) -> Result<ForwardResult> {
     // TODO: SafeTensors CUDA path needs to be wired up
     Err(crate::error::RealizarError::UnsupportedOperation {
         operation: "forward_safetensors_cuda".to_string(),

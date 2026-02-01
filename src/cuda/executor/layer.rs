@@ -1632,7 +1632,7 @@ mod tests {
         // Test workspace allocation size calculations
         let hidden_dim = 4096usize;
         let intermediate_dim = 11008usize;
-        let n_heads = 32usize;
+        let _n_heads = 32usize;
         let n_kv_heads = 8usize;
         let head_dim = 128usize;
         let max_seq_len = 4096usize;
