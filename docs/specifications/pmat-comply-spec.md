@@ -10,9 +10,9 @@ PMAT compliance check: **NON-COMPLIANT**
 
 Critical issues remaining:
 - File Health: 24 files >2000 lines (grade D) — all non-test code under 2000, tests extracted ✅
-- Dead Code: 29.6% (quality-gate) vs target ≤15% — SIMD cfg false positives (AST reports 0.03%)
+- Dead Code: 30.2% (quality-gate) vs target ≤15% — SIMD cfg false positives (AST reports 0.03%)
 - ComputeBrick: 526 SIMD warnings (#[target_feature] missing — linter false positives)
-- Quality gate: **80 violations** (was 225, **64% reduction**)
+- Quality gate: **77 violations** (was 225, **66% reduction**)
 
 ## 1. Compliance Check Results (`pmat comply check`)
 
@@ -38,7 +38,7 @@ Critical issues remaining:
 | Metric | Threshold | Current | Status |
 |--------|-----------|---------|--------|
 | **Dead Code** | ≤ 15% | 30.2% | ❌ FAIL (SIMD cfg false positives, AST=0.03%) |
-| **Complexity** | ≤ 25 cognitive | 20 violations | ⚠️ down from 148 (86% reduction) |
+| **Complexity** | ≤ 25 cognitive | 17 violations | ⚠️ down from 148 (88% reduction) |
 | **SATD** | 0 critical | 0 violations | ✅ PASS |
 | **Entropy** | - | 53 violations | ⚠️ (structural patterns) |
 | **Provability** | ≥ 0.70 | 0.65 | ❌ FAIL (structural metric) |
@@ -46,7 +46,7 @@ Critical issues remaining:
 | **Duplicates** | - | 0 | ✅ PASS |
 | **Sections** | All required | 0 missing | ✅ PASS |
 
-**Total violations: 80** (down from 225, 64% reduction)
+**Total violations: 77** (down from 225, 66% reduction)
 
 ## 3. Dead Code Violations (Priority: HIGH)
 
