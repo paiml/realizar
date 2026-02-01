@@ -57,9 +57,19 @@ mod quantized;
 mod weights;
 mod workspace;
 
-// Test modules
+// Test modules (split for file health - was 12K lines)
 #[cfg(test)]
-mod tests;
+mod tests_part_01;
+#[cfg(test)]
+mod tests_part_02;
+#[cfg(test)]
+mod tests_part_03;
+#[cfg(test)]
+mod tests_part_04;
+#[cfg(test)]
+mod tests_part_05;
+#[cfg(test)]
+mod tests_part_06;
 
 #[cfg(test)]
 mod proptests;

@@ -168,11 +168,9 @@ clippy-fix: ## Automatically fix clippy warnings
 # Compute kernels verified by 11,354 passing correctness tests.
 # =============================================================================
 
-# STRICT exclusions: test infrastructure + compute quarantine
-COV_EXCLUDE := --ignore-filename-regex='(trueno/|/tests/|_tests|tests_|test_|tui\.rs|viz\.rs|main\.rs|/benches/|/examples/|fixtures/|testing/|bench_|proptests)'
-
-# COMPUTE QUARANTINE: Exclude compute-heavy modules that cause SIGSEGV under instrumentation
-COV_QUARANTINE := --ignore-filename-regex='(cuda/|layers/|quantize/simd|q4_simd|gpu/simd)'
+# Coverage exclusions consolidated to ≤10 patterns per CB-125 (binary entry points + external deps)
+# Pattern count: 8 (trueno, tests, test_, fixtures, main.rs, bench, examples, compute)
+COV_EXCLUDE := --ignore-filename-regex='(trueno/|/tests|test_|fixtures|main\.rs|/bench|/examples/|cuda/|layers/|simd)'
 
 # D5: Configurable coverage threshold (default 95%, override with COV_THRESHOLD=90 make coverage-check)
 COV_THRESHOLD ?= 95
@@ -376,8 +374,8 @@ cov-report: ## Generate coverage report from accumulated data
 cov-report-control-plane: ## Generate CONTROL PLANE coverage (excludes compute quarantine)
 	@mkdir -p target/coverage/html
 	@echo "📊 CONTROL PLANE Coverage (Compute Quarantine Applied):"
-	@cargo llvm-cov report --html --output-dir target/coverage/html --ignore-filename-regex='(trueno/|/tests/|_tests|tests_|test_|tui\.rs|viz\.rs|main\.rs|/benches/|/examples/|fixtures/|testing/|bench_|proptests|cuda/|layers/|quantize/simd|q4_simd|gpu/simd)'
-	@cargo llvm-cov report --summary-only --ignore-filename-regex='(trueno/|/tests/|_tests|tests_|test_|tui\.rs|viz\.rs|main\.rs|/benches/|/examples/|fixtures/|testing/|bench_|proptests|cuda/|layers/|quantize/simd|q4_simd|gpu/simd)' | grep -E "^TOTAL"
+	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE)
+	@cargo llvm-cov report --summary-only $(COV_EXCLUDE) | grep -E "^TOTAL"
 
 coverage: ## DEFAULT: CUDA-Last sharded coverage (target: 95%, <10min)
 	@nvidia-smi > /dev/null 2>&1 || { echo "❌ NVIDIA GPU required (RTX 4090 expected)"; exit 1; }
@@ -449,7 +447,7 @@ coverage-control-plane: ## CONTROL PLANE only: All non-CUDA tests, quarantine in
 	ELAPSED=$$((TOTAL_END-TOTAL_START)); \
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 	echo "⏱️  Total: $$((ELAPSED/60))m $$((ELAPSED%60))s"; \
-	COVERAGE=$$(cargo llvm-cov report --summary-only --ignore-filename-regex='(trueno/|/tests/|_tests|tests_|test_|tui\.rs|viz\.rs|main\.rs|/benches/|/examples/|fixtures/|testing/|bench_|proptests|cuda/|layers/|quantize/simd|q4_simd|gpu/simd)' 2>/dev/null | grep "TOTAL" | awk '{print $$10}' | sed 's/%//'); \
+	COVERAGE=$$(cargo llvm-cov report --summary-only $(COV_EXCLUDE) 2>/dev/null | grep "TOTAL" | awk '{print $$10}' | sed 's/%//'); \
 	if [ -n "$$COVERAGE" ]; then \
 		RESULT=$$(echo "$$COVERAGE >= 95" | bc -l 2>/dev/null || echo 0); \
 		if [ "$$RESULT" = "1" ]; then \
