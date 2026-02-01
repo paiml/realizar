@@ -11,10 +11,8 @@
 //! - Scalar fallback paths
 //! - Horizontal sum helpers (x86_64 specific)
 
-use crate::quantize::simd::{
-    extract_scale_min, extract_scale_min_from_slice, f16_to_f32, read_f16,
-};
-use crate::quantize::{fused_swiglu_simd, softmax_simd};
+use crate::quantize::simd::{extract_scale_min, extract_scale_min_from_slice, read_f16};
+use crate::quantize::{f16_to_f32, fused_swiglu_simd, softmax_simd};
 
 // =============================================================================
 // F16 Conversion Edge Cases

@@ -5,7 +5,7 @@
 
 use proptest::prelude::*;
 use realizar::quantize::{
-    apply_rope_rotation_simd, fused_swiglu_simd, read_f16, simd::f16_to_f32, softmax_simd,
+    apply_rope_rotation_simd, f16_to_f32, fused_swiglu_simd, read_f16, softmax_simd,
 };
 
 // ============================================================================
