@@ -170,6 +170,27 @@ fn extract_scale_min_q4k(scales: &[u8; 12], block_idx: usize) -> (f32, f32) {
     (f32::from(scale_bits), f32::from(min_bits))
 }
 
+/// Dequantize one Q6_K quadrant (32 values) using the provided bit extraction function
+#[inline]
+#[allow(clippy::cast_possible_wrap)]
+fn dequantize_q6k_quadrant(
+    result: &mut Vec<f32>,
+    num_elements: usize,
+    d: f32,
+    sc: &[i8],
+    sc_offset: usize,
+    extract_q: impl Fn(usize) -> i32,
+) {
+    for l in 0..32 {
+        if result.len() >= num_elements {
+            break;
+        }
+        let is = l / 16;
+        let q = extract_q(l);
+        result.push(d * (sc[is + sc_offset] as f32) * (q as f32));
+    }
+}
+
 /// Dequantize Q6_K format (GGUF K-quants)
 /// Q6_K: super blocks of 256 elements
 /// Each super block: ql (128 bytes) + qh (64 bytes) + scales (16 bytes) + d (f16) = 210 bytes
@@ -204,7 +225,6 @@ pub fn dequantize_q6_k(bytes: &[u8], num_elements: usize) -> Vec<f32> {
         let d = f16_to_f32(u16::from_le_bytes([bytes[offset], bytes[offset + 1]]));
         offset += 2;
 
-        // Match fused_q6k_dot layout exactly
         // Process 128 values at a time (n=0, n=128)
         for n in (0..QK_K).step_by(128) {
             let idx = n / 128;
@@ -212,45 +232,22 @@ pub fn dequantize_q6_k(bytes: &[u8], num_elements: usize) -> Vec<f32> {
             let ql_slice = &ql[64 * idx..];
             let qh_slice = &qh[32 * idx..];
 
-            // Output positions n+0 to n+31 (q1 values)
-            for l in 0..32 {
-                if result.len() >= num_elements {
-                    break;
-                }
-                let is = l / 16;
-                let q1 = ((ql_slice[l] & 0xF) | ((qh_slice[l] & 3) << 4)) as i32 - 32;
-                result.push(d * (sc[is] as f32) * (q1 as f32));
-            }
-
-            // Output positions n+32 to n+63 (q2 values)
-            for l in 0..32 {
-                if result.len() >= num_elements {
-                    break;
-                }
-                let is = l / 16;
-                let q2 = ((ql_slice[l + 32] & 0xF) | (((qh_slice[l] >> 2) & 3) << 4)) as i32 - 32;
-                result.push(d * (sc[is + 2] as f32) * (q2 as f32));
-            }
-
-            // Output positions n+64 to n+95 (q3 values)
-            for l in 0..32 {
-                if result.len() >= num_elements {
-                    break;
-                }
-                let is = l / 16;
-                let q3 = ((ql_slice[l] >> 4) | (((qh_slice[l] >> 4) & 3) << 4)) as i32 - 32;
-                result.push(d * (sc[is + 4] as f32) * (q3 as f32));
-            }
-
-            // Output positions n+96 to n+127 (q4 values)
-            for l in 0..32 {
-                if result.len() >= num_elements {
-                    break;
-                }
-                let is = l / 16;
-                let q4 = ((ql_slice[l + 32] >> 4) | (((qh_slice[l] >> 6) & 3) << 4)) as i32 - 32;
-                result.push(d * (sc[is + 6] as f32) * (q4 as f32));
-            }
+            // q1: positions n+0..n+31
+            dequantize_q6k_quadrant(&mut result, num_elements, d, sc, 0, |l| {
+                ((ql_slice[l] & 0xF) | ((qh_slice[l] & 3) << 4)) as i32 - 32
+            });
+            // q2: positions n+32..n+63
+            dequantize_q6k_quadrant(&mut result, num_elements, d, sc, 2, |l| {
+                ((ql_slice[l + 32] & 0xF) | (((qh_slice[l] >> 2) & 3) << 4)) as i32 - 32
+            });
+            // q3: positions n+64..n+95
+            dequantize_q6k_quadrant(&mut result, num_elements, d, sc, 4, |l| {
+                ((ql_slice[l] >> 4) | (((qh_slice[l] >> 4) & 3) << 4)) as i32 - 32
+            });
+            // q4: positions n+96..n+127
+            dequantize_q6k_quadrant(&mut result, num_elements, d, sc, 6, |l| {
+                ((ql_slice[l + 32] >> 4) | (((qh_slice[l] >> 6) & 3) << 4)) as i32 - 32
+            });
         }
     }
 
