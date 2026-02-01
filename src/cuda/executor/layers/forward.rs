@@ -669,7 +669,9 @@ impl CudaExecutor {
                     let (max_idx, max_val) = logits_debug
                         .iter()
                         .enumerate()
-                        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                        .max_by(|(_, a), (_, b)| {
+                            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                        })
                         .expect("CUDA operation failed");
                     eprintln!(
                         "[CORRECTNESS-003] Q6K argmax in first 20: idx={}, val={}",

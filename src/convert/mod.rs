@@ -590,13 +590,13 @@ impl GgufToAprQ4KConverter {
             // Integer division caused "tensor exceeds file bounds" for tensors not perfectly
             // divisible by block size (256 for K-quants, 32 for Q8_0).
             let byte_size = match qtype {
-                0 => num_elements * 4,                   // F32
-                1 => num_elements * 2,                   // F16
-                8 => num_elements.div_ceil(32) * 34,     // Q8_0: 32 elements = 34 bytes (scale + quants)
-                12 => num_elements.div_ceil(256) * 144,  // Q4_K: 256 elements = 144 bytes
-                13 => num_elements.div_ceil(256) * 176,  // Q5_K: 256 elements = 176 bytes
-                14 => num_elements.div_ceil(256) * 210,  // Q6_K: 256 elements = 210 bytes
-                _ => num_elements * 4,                   // Default to F32
+                0 => num_elements * 4,                  // F32
+                1 => num_elements * 2,                  // F16
+                8 => num_elements.div_ceil(32) * 34, // Q8_0: 32 elements = 34 bytes (scale + quants)
+                12 => num_elements.div_ceil(256) * 144, // Q4_K: 256 elements = 144 bytes
+                13 => num_elements.div_ceil(256) * 176, // Q5_K: 256 elements = 176 bytes
+                14 => num_elements.div_ceil(256) * 210, // Q6_K: 256 elements = 210 bytes
+                _ => num_elements * 4,               // Default to F32
             };
 
             // Extract raw bytes

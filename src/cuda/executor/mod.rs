@@ -57,38 +57,12 @@ mod quantized;
 mod weights;
 mod workspace;
 
-// Test modules (split for file health - was 12K lines)
+// Test modules
 #[cfg(test)]
-mod tests_part_01_a;
-#[cfg(test)]
-mod tests_part_01_b;
-#[cfg(test)]
-mod tests_part_02a;
-#[cfg(test)]
-mod tests_part_02b;
-#[cfg(test)]
-mod tests_part_03a;
-#[cfg(test)]
-mod tests_part_03b;
-#[cfg(test)]
-mod tests_part_04a;
-#[cfg(test)]
-mod tests_part_04b;
-#[cfg(test)]
-mod tests_part_05a;
-#[cfg(test)]
-mod tests_part_05b;
-#[cfg(test)]
-mod tests_part_06a;
-#[cfg(test)]
-mod tests_part_06b;
+mod tests;
 
 #[cfg(test)]
-mod proptests_01;
-#[cfg(test)]
-mod proptests_02;
-#[cfg(test)]
-mod proptests_03;
+mod proptests;
 
 #[cfg(test)]
 mod gqa_parity_tests;
