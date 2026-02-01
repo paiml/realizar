@@ -89,7 +89,7 @@ unsafe fn simd_function() { ... }
 
 | File | Lines | Action |
 |------|-------|--------|
-| `src/gpu/scheduler/model.rs` | 2653 | ✅ types.rs extracted (was 2866) |
+| `src/gpu/scheduler/model.rs` | 2348 | ✅ DONE (types.rs + ops.rs + loading.rs extracted, 1936 non-test) |
 | `src/observability.rs` | 2751 | Split: metrics, tracing, logging |
 | `src/safetensors.rs` | 2613 | Split: loader, inference, config |
 | `src/apr/mod.rs` | 1949 | ✅ DONE (dequant.rs + model_data.rs extracted) |
