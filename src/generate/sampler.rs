@@ -1018,6 +1018,52 @@ pub struct InfillResult {
 /// * `logits` - Raw logits from model
 /// * `config` - Infill configuration
 ///
+/// Compute p_eog and p_txt from probability distribution
+fn compute_eog_txt_probs(probs: &[f32], eog_tokens: &[usize]) -> (f32, f32) {
+    let mut p_eog: f32 = 0.0;
+    let mut p_txt: f32 = 0.0;
+    for (i, &p) in probs.iter().enumerate() {
+        if eog_tokens.contains(&i) {
+            p_eog += p;
+        } else {
+            p_txt += p;
+        }
+    }
+    (p_eog, p_txt)
+}
+
+/// Create logits with only EOG tokens, renormalized
+fn create_eog_only_logits(
+    data: &[f32],
+    probs: &[f32],
+    eog_tokens: &[usize],
+    shape: &[usize],
+) -> Tensor<f32> {
+    let mut new_data = vec![f32::NEG_INFINITY; data.len()];
+    let mut eog_sum = 0.0;
+
+    for &eog_id in eog_tokens {
+        if eog_id < data.len() {
+            new_data[eog_id] = data[eog_id];
+            eog_sum += probs[eog_id];
+        }
+    }
+
+    if eog_sum > 0.0 {
+        for &eog_id in eog_tokens {
+            if eog_id < data.len() && new_data[eog_id] > f32::NEG_INFINITY {
+                let normalized_p = probs[eog_id] / eog_sum;
+                new_data[eog_id] = normalized_p.ln();
+            }
+        }
+    }
+
+    Tensor::from_vec(shape.to_vec(), new_data).unwrap_or_else(|_| {
+        Tensor::from_vec(shape.to_vec(), data.to_vec())
+            .unwrap_or_else(|_| Tensor::from_vec(vec![1], vec![0.0]).expect("single-element tensor"))
+    })
+}
+
 /// # Returns
 ///
 /// `InfillResult` with modified logits and EOG decision
@@ -1040,49 +1086,15 @@ pub fn apply_infill_sampling(logits: &Tensor<f32>, config: &InfillConfig) -> Inf
         .map(|x| (x - max_logit).exp() / exp_sum)
         .collect();
 
-    // Calculate p_eog and p_txt
-    let mut p_eog: f32 = 0.0;
-    let mut p_txt: f32 = 0.0;
+    let (p_eog, p_txt) = compute_eog_txt_probs(&probs, &config.eog_tokens);
 
-    for (i, &p) in probs.iter().enumerate() {
-        if config.eog_tokens.contains(&i) {
-            p_eog += p;
-        } else {
-            p_txt += p;
-        }
-    }
-
-    // Check if we should force EOG
-    // Condition: 3 * p_eog * n > p_txt
+    // Check if we should force EOG: 3 * p_eog * n > p_txt
     let n = data.len() as f32;
     let force_eog = config.eog_ratio_threshold * p_eog * n > p_txt;
 
     if force_eog {
-        // Keep only EOG tokens
-        let mut new_data = vec![f32::NEG_INFINITY; data.len()];
-        let mut eog_sum = 0.0;
-
-        for &eog_id in &config.eog_tokens {
-            if eog_id < data.len() {
-                new_data[eog_id] = data[eog_id];
-                eog_sum += probs[eog_id];
-            }
-        }
-
-        // Renormalize EOG tokens
-        if eog_sum > 0.0 {
-            for &eog_id in &config.eog_tokens {
-                if eog_id < data.len() && new_data[eog_id] > f32::NEG_INFINITY {
-                    // Convert back to logit scale
-                    let normalized_p = probs[eog_id] / eog_sum;
-                    new_data[eog_id] = normalized_p.ln();
-                }
-            }
-        }
-
         InfillResult {
-            logits: Tensor::from_vec(logits.shape().to_vec(), new_data)
-                .unwrap_or_else(|_| logits.clone()),
+            logits: create_eog_only_logits(data, &probs, &config.eog_tokens, logits.shape()),
             force_eog: true,
             p_txt,
             p_eog,
