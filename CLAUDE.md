@@ -711,22 +711,28 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
 
 ## Stack Documentation Search
 
-Query this component's documentation and the entire Sovereign AI Stack using batuta's RAG Oracle:
+**IMPORTANT: Proactively use the batuta RAG oracle when:**
+- Looking up SIMD/GPU patterns from trueno
+- Finding inference patterns from TGI ground truth corpus
+- Understanding quantization approaches (GGUF, APR formats)
+- Researching KV cache, attention, or batching implementations
 
 ```bash
-# Index all stack documentation (run once, persists to ~/.cache/batuta/rag/)
-batuta oracle --rag-index
-
-# Search across the entire stack
+# Search across the entire Sovereign AI Stack
 batuta oracle --rag "your question here"
 
-# Examples
-batuta oracle --rag "SIMD matrix multiplication"
-batuta oracle --rag "how to train a model"
-batuta oracle --rag "tokenization for BERT"
+# Examples for realizar development
+batuta oracle --rag "KV cache optimization patterns"
+batuta oracle --rag "continuous batching TGI"
+batuta oracle --rag "CUDA kernel matmul implementation"
+batuta oracle --rag "quantization Q4_K dequantization"
+batuta oracle --rag "FlashAttention tiled attention"
 
-# Check index status
-batuta oracle --rag-stats
+# Reindex if needed (persists to ~/.cache/batuta/rag/)
+batuta oracle --rag-index
 ```
 
-The RAG index includes CLAUDE.md, README.md, and source files from all stack components plus Python ground truth corpora for cross-language pattern matching.
+The RAG index includes 335 documents across:
+- All Sovereign AI Stack repos (trueno, aprender, entrenar, etc.)
+- Python ground truth corpora (HuggingFace, JAX, vLLM patterns)
+- Rust ground truth corpora (TGI inference patterns, MLOps)
