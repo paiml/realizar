@@ -85,14 +85,58 @@ unsafe fn simd_function() { ... }
 
 **39 files exceed 2000 lines** (grade D, avg health 62%)
 
-Top offenders (need splitting):
-- Large CUDA files in `src/cuda/`
-- Large test files in `src/*/tests/`
+### Non-Test Files >2000 Lines (18 files)
+
+| File | Lines | Action |
+|------|-------|--------|
+| `src/gpu/scheduler/model.rs` | 2866 | Split into submodules |
+| `src/observability.rs` | 2751 | Split: metrics, tracing, logging |
+| `src/safetensors.rs` | 2613 | Split: loader, inference, config |
+| `src/apr/mod.rs` | 2412 | Split: loader, inference, types |
+| `src/quantize/fused_k.rs` | 2403 | Review: may have dead code |
+| `src/cuda/executor/layers/batched.rs` | 2304 | Split by layer type |
+| `src/generate/sampler.rs` | 2296 | Split: strategies, nucleus, beam |
+| `src/cuda/executor/layers/indexed.rs` | 2281 | Split by layer type |
+| `src/apr_transformer/mod.rs` | 2266 | Split: forward, attention, ffn |
+| `src/gguf/loader.rs` | 2262 | Split: parse, validate, load |
+| `src/gguf/batch_scheduler.rs` | 2199 | Split: scheduler, batch, queue |
+| `src/cuda/executor/quantized.rs` | 2176 | Split by quant type |
+| `src/cuda/kernels.rs` | 2139 | Split: gemm, attention, norm |
+| `src/api/gpu_handlers.rs` | 2124 | Split: chat, generate, embed |
+| `src/api/mod.rs` | 2114 | Split: routes, handlers, types |
+| `src/parallel.rs` | 2082 | Split: threadpool, work, sync |
+| `src/paged_kv/mod.rs` | 2072 | Split: cache, paging, eviction |
+| `src/cuda/executor/layers/graphed.rs` | 2057 | Split by operation |
 
 ### Fix Strategy
-Split files >2000 lines into submodules.
+1. Create submodule directory (e.g., `src/observability/`)
+2. Move logical sections to submodules
+3. Re-export from `mod.rs`
+4. Verify tests pass after each split
 
-## 6. SATD Violations (Priority: MEDIUM) ✅ RESOLVED
+## 6. OIP Tarantula Patterns (Priority: MEDIUM)
+
+**11 issues, 9 warnings** (CB-120 to CB-124)
+
+### CB-122: Serde Unsafe Patterns
+`.expect()` on serde operations can panic on malformed input.
+
+| Pattern | Fix |
+|---------|-----|
+| `serde_json::from_slice().expect()` | Use `?` operator |
+| `serde_json::from_str().unwrap()` | Use `?` operator |
+
+### Fix Strategy
+Replace panic-prone patterns with proper error handling:
+```rust
+// Before (panics on bad input)
+let data: Config = serde_json::from_slice(&bytes).expect("parse failed");
+
+// After (propagates error)
+let data: Config = serde_json::from_slice(&bytes)?;
+```
+
+## 7. SATD Violations (Priority: MEDIUM) ✅ RESOLVED
 
 All critical SATD violations fixed:
 
@@ -107,7 +151,7 @@ All critical SATD violations fixed:
 - `book/searcher.js:148` - mdbook generated file (not our code)
 - 4x High: Defect tracking comments (acceptable documentation)
 
-## 7. Duplicate Code Patterns (Priority: LOW)
+## 8. Duplicate Code Patterns (Priority: LOW)
 
 | File | Pattern | Occurrences | Potential Savings |
 |------|---------|-------------|-------------------|
@@ -116,7 +160,7 @@ All critical SATD violations fixed:
 
 These are lower priority - address after dead code and SATD.
 
-## 8. Execution Protocol
+## 9. Execution Protocol
 
 ```bash
 # 1. Check current state
@@ -137,7 +181,7 @@ make test-fast
 make lint
 ```
 
-## 9. Acceptance Criteria
+## 10. Acceptance Criteria
 
 - [ ] Dead code ≤ 15% (current: 31.8%)
 - [x] 0 critical SATD comments (1 in mdbook generated, acceptable)
@@ -149,7 +193,7 @@ make lint
 - [ ] Provability score ≥ 0.70 (current: 0.65)
 - [ ] `pmat comply check` = COMPLIANT
 
-## 10. References
+## 11. References
 
 - PMAT-805: Qwen throughput spec (parent)
 - Issue #43: APR performance (related)
