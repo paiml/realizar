@@ -121,6 +121,7 @@ pub(crate) fn simd_add_weighted(out: &mut [f32], val: &[f32], weight: f32) {
     #[cfg(target_arch = "x86_64")]
     {
         if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") && out.len() >= 8 {
+            // SAFETY: is_x86_feature_detected! ensures CPU supports AVX2/FMA before calling
             unsafe { simd_add_weighted_avx2(out, val, weight) };
             return;
         }
