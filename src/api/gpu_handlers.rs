@@ -819,9 +819,9 @@ pub async fn tokenize_handler(
     }))
 }
 
-/// Generate text handler
 // ── generate_handler backend dispatch ────────────────────────────────
 
+/// Generate text handler
 #[cfg(feature = "cuda")]
 fn try_cuda_generate(
     state: &AppState,
@@ -1054,9 +1054,9 @@ pub async fn batch_tokenize_handler(
     Ok(Json(BatchTokenizeResponse { results }))
 }
 
-/// Batch generate handler
 // ── batch_generate_handler backend dispatch ─────────────────────────
 
+/// Batch generate handler
 #[cfg(feature = "cuda")]
 fn try_cuda_batch_generate(
     state: &AppState,
