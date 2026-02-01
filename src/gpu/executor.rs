@@ -172,13 +172,19 @@ impl MockExecutor {
     /// Get all recorded calls (cloned for thread-safety)
     #[must_use]
     pub fn calls(&self) -> Vec<ExecutorCall> {
-        self.calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        self.calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Get number of calls
     #[must_use]
     pub fn call_count(&self) -> usize {
-        self.calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
+        self.calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
     }
 
     /// Get number of matmul calls
@@ -194,20 +200,30 @@ impl MockExecutor {
 
     /// Clear recorded calls
     pub fn clear_calls(&self) {
-        self.calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+        self.calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
         self.call_counter.store(0, Ordering::SeqCst);
     }
 
     /// Check if specific call was made
     #[must_use]
     pub fn has_call(&self, call: &ExecutorCall) -> bool {
-        self.calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(call)
+        self.calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(call)
     }
 
     /// Get last call (cloned for thread-safety)
     #[must_use]
     pub fn last_call(&self) -> Option<ExecutorCall> {
-        self.calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).last().cloned()
+        self.calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .last()
+            .cloned()
     }
 }
 
@@ -222,7 +238,10 @@ impl GpuExecutorTrait for MockExecutor {
             k,
             n,
         };
-        self.calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(call);
+        self.calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(call);
         self.call_counter.fetch_add(1, Ordering::SeqCst);
 
         // Check for configured failure
@@ -272,7 +291,10 @@ impl GpuExecutorTrait for MockExecutor {
             k,
             n,
         };
-        self.calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(call);
+        self.calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(call);
         self.call_counter.fetch_add(1, Ordering::SeqCst);
 
         // Check for configured failure
@@ -296,7 +318,14 @@ impl std::fmt::Debug for MockExecutor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MockExecutor")
             .field("name", &self.name)
-            .field("calls", &self.calls.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len())
+            .field(
+                "calls",
+                &self
+                    .calls
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .len(),
+            )
             .field("call_counter", &self.call_counter.load(Ordering::SeqCst))
             .field("available", &self.available)
             .field("matmul_result", &self.matmul_result.is_some())

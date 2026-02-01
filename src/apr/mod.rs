@@ -1669,8 +1669,8 @@ impl AprV2Model {
         // GGUF token_embd.weight is stored as [hidden_dim, vocab_size] (column-major)
         // Regular lm_head.weight is stored as [vocab_size, hidden_dim] (row-major)
         // When using tied embeddings, we need to transpose the access pattern.
-        let is_tied_embedding = lm_head_name == "token_embd.weight"
-            || lm_head_name.ends_with("embed_tokens.weight");
+        let is_tied_embedding =
+            lm_head_name == "token_embd.weight" || lm_head_name.ends_with("embed_tokens.weight");
 
         // Project to vocab
         let mut logits = vec![0.0; vocab_size];
