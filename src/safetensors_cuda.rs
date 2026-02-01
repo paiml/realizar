@@ -46,7 +46,25 @@ impl SafeTensorsCudaModel {
     /// HuggingFace: W[i, j] at offset `i * k + j` where i=0..n, j=0..k
     /// GEMM needs:  B[j, i] at offset `j * n + i` where j=0..k, i=0..n
     fn transpose_for_gemm(weight: &[f32], n: usize, k: usize) -> Vec<f32> {
-        let mut transposed = vec![0.0f32; weight.len()];
+        let expected_len = n * k;
+        // Guard against index out of bounds (PMAT-805 fix)
+        if weight.len() < expected_len {
+            // Return zero-padded transposed array if weight is undersized
+            // This handles edge cases with tied embeddings or partial weights
+            let mut transposed = vec![0.0f32; expected_len];
+            for i in 0..n {
+                for j in 0..k {
+                    let src_idx = i * k + j;
+                    if src_idx < weight.len() {
+                        let dst_idx = j * n + i;
+                        transposed[dst_idx] = weight[src_idx];
+                    }
+                }
+            }
+            return transposed;
+        }
+
+        let mut transposed = vec![0.0f32; expected_len];
         for i in 0..n {
             for j in 0..k {
                 // HuggingFace element at row i, col j
