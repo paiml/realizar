@@ -1393,6 +1393,19 @@ impl ToolCallParser {
     }
 }
 
+/// Process a single character for brace matching state machine.
+/// Returns (depth_delta, toggle_string, set_escape) for the char.
+#[inline]
+fn process_brace_char(c: char, in_string: bool) -> (i32, bool, bool) {
+    match c {
+        '\\' if in_string => (0, false, true),
+        '"' => (0, true, false),
+        '{' if !in_string => (1, false, false),
+        '}' if !in_string => (-1, false, false),
+        _ => (0, false, false),
+    }
+}
+
 /// Find matching closing brace, handling nested braces
 fn find_matching_brace(s: &str) -> Option<usize> {
     let mut depth = 0;
@@ -1405,17 +1418,15 @@ fn find_matching_brace(s: &str) -> Option<usize> {
             continue;
         }
 
-        match c {
-            '\\' if in_string => escape_next = true,
-            '"' => in_string = !in_string,
-            '{' if !in_string => depth += 1,
-            '}' if !in_string => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i);
-                }
-            },
-            _ => {},
+        let (delta, toggle, escape) = process_brace_char(c, in_string);
+        depth += delta;
+        if toggle {
+            in_string = !in_string;
+        }
+        escape_next = escape;
+
+        if depth == 0 && delta < 0 {
+            return Some(i);
         }
     }
 
