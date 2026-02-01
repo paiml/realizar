@@ -1119,7 +1119,7 @@ impl CudaExecutor {
             let (cpu_argmax_idx, cpu_argmax_val) = all_logits
                 .iter()
                 .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("CUDA operation failed"))
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .expect("CUDA operation failed");
 
             eprintln!(

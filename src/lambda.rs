@@ -554,7 +554,7 @@ pub mod benchmark {
         }
 
         // Compute median warm latency
-        warm_latencies.sort_by(|a, b| a.partial_cmp(b).expect("latencies should not contain NaN"));
+        warm_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let warm_inference_ms = if warm_latencies.is_empty() {
             0.0
         } else {
