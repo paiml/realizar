@@ -1775,11 +1775,16 @@ impl AprV2ModelCuda {
     ///
     /// Phase 45: Returns false when test_executor is present, forcing the
     /// uncached GEMM path which routes through the test executor.
+    ///
+    /// Issue #45 fix: Check BOTH weight_cache (f32) and quantized_weight_cache
+    /// (Q4_K/Q5_K/Q6_K). APR models use quantized weights, so checking only
+    /// weight_cache was causing cache misses and 278x slowdown.
     fn has_cached_weight(&self, name: &str) -> bool {
         if self.test_executor.is_some() {
             return false; // Force uncached path for testing
         }
-        self.executor.has_weights(name)
+        // Check both f32 cache and quantized cache
+        self.executor.has_weights(name) || self.executor.has_quantized_weights(name)
     }
 
     /// GPU-accelerated token generation.
