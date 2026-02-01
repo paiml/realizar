@@ -2393,13 +2393,19 @@ impl MappedAprModel {
 
 // Tests split for file health (was 5796 lines)
 #[cfg(test)]
-#[path = "tests_part_01.rs"]
-mod apr_tests_part_01;
+#[path = "tests_part_01_a.rs"]
+mod apr_tests_part_01_a;
+#[cfg(test)]
+#[path = "tests_part_01_b.rs"]
+mod apr_tests_part_01_b;
 
 // Additional tests for coverage (tests_part_02.rs)
 #[cfg(test)]
-#[path = "tests_part_02.rs"]
-mod apr_tests_part_02;
+#[path = "tests_part_02_a.rs"]
+mod apr_tests_part_02_a;
+#[cfg(test)]
+#[path = "tests_part_02_b.rs"]
+mod apr_tests_part_02_b;
 
 // T-COV-95 Additional coverage (tests_part_03.rs)
 #[cfg(test)]
