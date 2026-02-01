@@ -655,6 +655,16 @@ fn gqa_incremental_attention(
     Ok(output)
 }
 
+/// Sample next token based on config (greedy or top-k)
+#[inline]
+fn sample_token(logits: &[f32], temperature: f32, top_k: usize) -> usize {
+    if temperature == 0.0 || top_k == 1 {
+        argmax(logits)
+    } else {
+        sample_topk(logits, temperature, top_k)
+    }
+}
+
 /// Generate tokens using KV cache (IMP-033)
 pub fn generate_with_cache(
     model: &mut GpuModel,
@@ -678,12 +688,7 @@ pub fn generate_with_cache(
 
     let mut tokens = prompt.to_vec();
     let logits = forward_gpu_with_cache(model, prompt, &mut kv_cache)?;
-
-    let mut next_token = if config.temperature == 0.0 || config.top_k == 1 {
-        argmax(&logits)
-    } else {
-        sample_topk(&logits, config.temperature, config.top_k)
-    };
+    let mut next_token = sample_token(&logits, config.temperature, config.top_k);
 
     if config.stop_tokens.contains(&next_token) {
         return Ok(tokens);
@@ -692,12 +697,7 @@ pub fn generate_with_cache(
 
     for _ in 1..config.max_tokens {
         let logits = forward_gpu_incremental(model, next_token, &mut kv_cache)?;
-
-        next_token = if config.temperature == 0.0 || config.top_k == 1 {
-            argmax(&logits)
-        } else {
-            sample_topk(&logits, config.temperature, config.top_k)
-        };
+        next_token = sample_token(&logits, config.temperature, config.top_k);
 
         if config.stop_tokens.contains(&next_token) {
             break;
