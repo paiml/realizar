@@ -39,6 +39,62 @@ fn sample_from_logits(logits: &[f32], temperature: f32) -> u32 {
     }
 }
 
+/// Process prompt tokens and return logits from the last token
+fn process_prompt_tokens(
+    model: &AprTransformer,
+    prompt: &[u32],
+    cache: &mut AprKVCache,
+    trace: bool,
+) -> Result<Vec<f32>> {
+    if trace {
+        eprintln!("[TRACE] Processing {} prompt tokens...", prompt.len());
+    }
+    let mut logits = Vec::new();
+    for (pos, &token) in prompt.iter().enumerate() {
+        let start = std::time::Instant::now();
+        logits = model.forward_with_cache(token, cache, pos)?;
+        if trace {
+            eprintln!("[TRACE] Prompt token {}: {:?}", pos, start.elapsed());
+        }
+    }
+    Ok(logits)
+}
+
+/// Generate tokens up to max_tokens or EOS
+fn generate_next_tokens(
+    model: &AprTransformer,
+    cache: &mut AprKVCache,
+    output: &mut Vec<u32>,
+    initial_logits: Vec<f32>,
+    config: &GenerateConfig,
+    trace: bool,
+) -> Result<()> {
+    let mut logits = initial_logits;
+    for i in 0..config.max_tokens {
+        let next_token = sample_from_logits(&logits, config.temperature);
+        output.push(next_token);
+
+        if is_eos_token(next_token) {
+            break;
+        }
+
+        // If we need more tokens, process this one to get logits for the next
+        if i < config.max_tokens - 1 {
+            let start = std::time::Instant::now();
+            logits = model.forward_with_cache(next_token, cache, output.len() - 1)?;
+            if trace {
+                eprintln!(
+                    "[TRACE] Gen token {} (pos {}): {:?}",
+                    i,
+                    output.len() - 1,
+                    start.elapsed()
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Generate tokens using KV cache for efficiency (Y4)
 ///
 /// # Arguments
@@ -65,54 +121,14 @@ pub fn generate_with_cache(
         });
     }
 
+    let trace = std::env::var("REALIZE_TRACE").is_ok();
     let mut cache = AprKVCache::new(&model.config);
     let mut output = prompt.to_vec();
 
-    // PMAT-103 FIX: Process prompt tokens and KEEP the logits from the last one.
-    // Previously we threw away all logits (`let _ = ...`) and then reprocessed
-    // the last prompt token at the same position, corrupting the KV cache.
-    let mut logits = Vec::new();
+    let logits = process_prompt_tokens(model, prompt, &mut cache, trace)?;
+    generate_next_tokens(model, &mut cache, &mut output, logits, config, trace)?;
 
-    // PMAT-103 TRACE: Measure per-token timing to verify O(n) vs O(n²)
-    let trace_enabled = std::env::var("REALIZE_TRACE").is_ok();
-    if trace_enabled {
-        eprintln!("[TRACE] Processing {} prompt tokens...", prompt.len());
-    }
-
-    for (pos, &token) in prompt.iter().enumerate() {
-        let start = std::time::Instant::now();
-        logits = model.forward_with_cache(token, &mut cache, pos)?;
-        if trace_enabled {
-            eprintln!("[TRACE] Prompt token {}: {:?}", pos, start.elapsed());
-        }
-    }
-
-    // Generate new tokens using the logits we already have
-    for i in 0..config.max_tokens {
-        let next_token = sample_from_logits(&logits, config.temperature);
-        output.push(next_token);
-
-        if is_eos_token(next_token) {
-            break;
-        }
-
-        // If we need more tokens, process this one to get logits for the next
-        if i < config.max_tokens - 1 {
-            // Position is output.len() - 1 = prompt.len() + (i + 1) - 1 = prompt.len() + i
-            let start = std::time::Instant::now();
-            logits = model.forward_with_cache(next_token, &mut cache, output.len() - 1)?;
-            if trace_enabled {
-                eprintln!(
-                    "[TRACE] Gen token {} (pos {}): {:?}",
-                    i,
-                    output.len() - 1,
-                    start.elapsed()
-                );
-            }
-        }
-    }
-
-    if trace_enabled {
+    if trace {
         eprintln!(
             "[TRACE] Generation complete. Total output tokens: {}",
             output.len()
