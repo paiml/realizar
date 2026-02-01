@@ -23,3 +23,10 @@ src/*/tests/
 src/*/tests.rs
 src/*/*/tests/
 src/*/*/tests.rs
+
+# Benchmark runtime and visualization (not production inference logic)
+src/bench/
+src/bench_*.rs
+
+# Binary entry points (lambda functions, monitoring tools)
+src/bin/
