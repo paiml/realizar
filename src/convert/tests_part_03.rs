@@ -529,9 +529,15 @@ mod tests {
         let wrong_byte_size = (num_elements / 256) * 144;
         let right_byte_size = num_elements.div_ceil(256) * 144;
 
-        assert_eq!(wrong_byte_size, 36864, "Wrong calculation (integer division)");
+        assert_eq!(
+            wrong_byte_size, 36864,
+            "Wrong calculation (integer division)"
+        );
         assert_eq!(right_byte_size, 37008, "Correct calculation (div_ceil)");
-        assert!(right_byte_size > wrong_byte_size, "div_ceil must give larger result");
+        assert!(
+            right_byte_size > wrong_byte_size,
+            "div_ceil must give larger result"
+        );
     }
 
     #[test]
@@ -544,9 +550,15 @@ mod tests {
         let wrong_byte_size = (num_elements / 32) * 34;
         let right_byte_size = num_elements.div_ceil(32) * 34;
 
-        assert_eq!(wrong_byte_size, 1054, "Wrong calculation (integer division)");
+        assert_eq!(
+            wrong_byte_size, 1054,
+            "Wrong calculation (integer division)"
+        );
         assert_eq!(right_byte_size, 1088, "Correct calculation (div_ceil)");
-        assert!(right_byte_size > wrong_byte_size, "div_ceil must give larger result");
+        assert!(
+            right_byte_size > wrong_byte_size,
+            "div_ceil must give larger result"
+        );
     }
 
     #[test]
@@ -556,7 +568,10 @@ mod tests {
         let old_style = (num_elements / 256) * 144;
         let new_style = num_elements.div_ceil(256) * 144;
 
-        assert_eq!(old_style, new_style, "Exact divisibility should give same result");
+        assert_eq!(
+            old_style, new_style,
+            "Exact divisibility should give same result"
+        );
         assert_eq!(new_style, 36864);
     }
 

@@ -766,8 +766,8 @@ mod inference_coverage {
         let temps = [0.0, 0.01, 0.5, 1.0];
         let formats = ["json", "text"];
         let gpu_flags = [false, true];
-        let verbose_flags = [false, true];
-        let trace_flags = [false, true];
+        let _verbose_flags = [false, true];
+        let _trace_flags = [false, true];
 
         for &temp in &temps {
             for &format in &formats {

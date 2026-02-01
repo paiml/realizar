@@ -1772,10 +1772,16 @@ mod server_commands {
 #[cfg(feature = "server")]
 pub use server_commands::*;
 
-// Tests extracted to tests.rs (PMAT-802)
+// Tests split for file health (was 3.3K lines)
 #[cfg(test)]
-#[path = "tests.rs"]
-mod cli_tests;
+#[path = "tests_split_01.rs"]
+mod cli_tests_split_01;
+#[cfg(test)]
+#[path = "tests_split_02.rs"]
+mod cli_tests_split_02;
+#[cfg(test)]
+#[path = "tests_split_03.rs"]
+mod cli_tests_split_03;
 
 // Additional inference coverage tests (Part 02)
 #[cfg(test)]

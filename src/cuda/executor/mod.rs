@@ -72,7 +72,11 @@ mod tests_part_05;
 mod tests_part_06;
 
 #[cfg(test)]
-mod proptests;
+mod proptests_01;
+#[cfg(test)]
+mod proptests_02;
+#[cfg(test)]
+mod proptests_03;
 
 #[cfg(test)]
 mod gqa_parity_tests;
