@@ -5,6 +5,15 @@
 
 use crate::cuda::executor::{CudaExecutor, GpuBuffer, GpuError};
 
+/// Threshold for using DP4A kernel (32KB shared memory limit)
+const CHUNK_THRESHOLD: u32 = 8192;
+
+/// Check if dimension is suitable for DP4A kernel (aligned and within threshold)
+#[inline]
+fn use_dp4a_kernel(dim: u32) -> bool {
+    dim.is_multiple_of(256) && dim <= CHUNK_THRESHOLD
+}
+
 /// PAR-023: GPU-resident SwiGLU FFN operating entirely on GPU buffers
 ///
 /// Implements LLaMA-style FFN: down(swiglu(gate(x), up(x)))
@@ -55,29 +64,17 @@ pub fn fused_ffn_swiglu_gpu(
         );
     }
 
-    // PAR-063: Kernel selection for FFN layers
-    // Priority order:
-    // 1. Dp4aQ4KGemv: Best for aligned K (uses DP4A SIMD, 4x instruction reduction)
-    // 2. TiledQ4KGemv: K <= 8192 (32KB shared memory, fits in 48KB limit)
-    // 3. Q4KGemv: Fallback for unaligned K or large K > 8192
-
-    // For gate/up projection: K = hidden_dim, N = intermediate_dim
-    // For down projection: K = intermediate_dim, N = hidden_dim
-    const CHUNK_THRESHOLD: u32 = 8192;
-
-    let hidden_aligned = hidden_dim.is_multiple_of(256);
-    let intermediate_aligned = intermediate_dim.is_multiple_of(256);
+    // PAR-063: Kernel selection - use DP4A for aligned K <= 8192, else fallback
 
     // 1. Gate projection: [hidden_dim] -> [intermediate_dim] (no sync)
-    // PAR-063: Use DP4A kernel for aligned dimensions (fastest)
-    let gate = if hidden_aligned && hidden_dim <= CHUNK_THRESHOLD {
+    let gate = if use_dp4a_kernel(hidden_dim) {
         executor.dp4a_q4k_gemv_cached_async(ffn_gate_name, input, intermediate_dim, hidden_dim)?
     } else {
         executor.q4k_gemv_cached_async(ffn_gate_name, input, intermediate_dim, hidden_dim)?
     };
 
     // 2. Up projection: [hidden_dim] -> [intermediate_dim] (no sync)
-    let up = if hidden_aligned && hidden_dim <= CHUNK_THRESHOLD {
+    let up = if use_dp4a_kernel(hidden_dim) {
         executor.dp4a_q4k_gemv_cached_async(ffn_up_name, input, intermediate_dim, hidden_dim)?
     } else {
         executor.q4k_gemv_cached_async(ffn_up_name, input, intermediate_dim, hidden_dim)?
@@ -87,8 +84,7 @@ pub fn fused_ffn_swiglu_gpu(
     let activated = executor.fused_swiglu_gpu(&gate, &up, intermediate_dim)?;
 
     // 4. Down projection: [intermediate_dim] -> [hidden_dim] (no sync)
-    // Note: K = intermediate_dim here (input to down projection)
-    let output = if intermediate_aligned && intermediate_dim <= CHUNK_THRESHOLD {
+    let output = if use_dp4a_kernel(intermediate_dim) {
         executor.dp4a_q4k_gemv_cached_async(
             ffn_down_name,
             &activated,
