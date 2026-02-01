@@ -289,8 +289,7 @@ pub fn run_inference(config: &InferenceConfig) -> Result<InferenceResult> {
         return run_mock_inference(config);
     }
 
-    // SECURITY (F-SEC-222): Validate path before reading
-    // Prevents path traversal attacks and reading arbitrary files
+    // Validate path to prevent traversal attacks (F-SEC-222)
     validate_model_path(&config.model_path)?;
 
     // Read model file header for format detection
