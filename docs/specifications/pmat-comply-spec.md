@@ -40,15 +40,15 @@ Critical issues remaining:
 | Metric | Threshold | Current | Status |
 |--------|-----------|---------|--------|
 | **Dead Code** | ≤ 15% | 29.6% | ❌ FAIL (SIMD cfg false positives, AST=0.03%) |
-| **Complexity** | ≤ 25 cognitive | 30 violations | ⚠️ down from 148 (80% reduction) |
+| **Complexity** | ≤ 25 cognitive | 28 violations | ⚠️ down from 148 (81% reduction) |
 | **SATD** | 0 critical | 0 violations | ✅ PASS |
-| **Entropy** | - | 53 violations | ⚠️ (structural patterns) |
+| **Entropy** | - | 52 violations | ⚠️ (structural patterns) |
 | **Provability** | ≥ 0.70 | 0.65 | ❌ FAIL (structural metric) |
 | **Security** | 0 | 0 | ✅ PASS |
 | **Duplicates** | - | 0 | ✅ PASS |
 | **Sections** | All required | 0 missing | ✅ PASS |
 
-**Total violations: 90** (down from 225, 60% reduction)
+**Total violations: 87** (down from 225, 61% reduction)
 
 ## 3. Dead Code Violations (Priority: HIGH)
 
@@ -255,15 +255,24 @@ These contain Python scripts, benchmarks, test infrastructure, and ancillary bin
 | `apr/tokenizer.rs` | `bpe_encode_segment` | Extracted `char_to_bpe_token()` + `apply_bpe_merge()` |
 | `apr/dequant.rs` | `dequantize_q6_k` | Extracted `dequantize_q6k_quadrant()` |
 | `apr/dequant.rs` | `dequantize_q4_k` | Extracted `push_q4k_nibbles()` |
+| `grammar/mod.rs` | `parse_openai`, `parse_hermes` | Extracted `try_extract_json_tool_call()` |
+| `grammar/mod.rs` | `can_accept_char` | Extracted `any_alternative_accepts()` |
+| `grammar/mod.rs` | `collect_valid_chars` | Extracted `collect_chars_from_alternatives()` |
+| `grammar/mod.rs` | `get_mask` | Extracted `is_token_valid_sequence()` |
+| `grammar/mod.rs` | `add_schema_rules` | Extracted `add_object_schema_rules()` |
+| `apr_transformer/generation.rs` | `generate_with_cache` | Extracted `sample_from_logits()` + `is_eos_token()` |
+| `apr/helpers.rs` | `simple_attention` | Extracted `compute_attention_score()` + `softmax_causal()` + `weighted_value_sum()` |
+| `chat_template.rs` | `detect_format_from_name` | Refactored to table-driven lookup |
+| `cli/inference.rs` | `run_gguf_inference` | Extracted `sample_next_token()` + `print_inference_output()` |
 
-### Remaining complexity (30 violations)
+### Remaining complexity (28 violations)
 
-The remaining 30 violations are distributed across:
-- `src/grammar/mod.rs` — ~9 violations (algorithmic state machine, inherently complex)
+The remaining 28 violations are distributed across:
 - `src/cli/` — ~6 violations (inference dispatchers, model command)
 - `src/api/openai_handlers.rs` — ~5 violations (backend fallback chains)
-- `src/apr/` — ~4 violations (dequant, attention, tokenizer, forward)
-- Other modules — ~6 violations (GPU planner, sampler, generate)
+- `src/apr/` — ~4 violations (dequant, helpers, tokenizer, forward)
+- `src/apr_transformer/generation.rs` — ~2 violations (generate_with_cache still cog 24)
+- Other modules — ~11 violations (GPU planner, sampler, grammar state machine)
 
 ## 8. Duplicate Code Patterns (Priority: LOW)
 
@@ -307,10 +316,10 @@ make lint
 - [x] OIP Tarantula: CB-121 fixed, CB-120/122/123/124 clean
 - [ ] Provability score ≥ 0.70 (current: 0.65 — structural metric, uniform 42.5% per function)
 - [x] README sections: Installation + Contributing added
-- [x] Complexity: Handler+inference refactoring complete (148→38, 74% reduction)
+- [x] Complexity: Handler+inference refactoring complete (148→28, 81% reduction)
 - [x] .pmatignore: Excluded non-production code (Python, benches, examples, book, tests, bin, bench)
 - [ ] `pmat comply check` = COMPLIANT
-- **Quality gate violations: 225 → 99 (56% reduction)**
+- **Quality gate violations: 225 → 87 (61% reduction)**
 
 ## 11. References
 
