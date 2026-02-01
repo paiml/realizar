@@ -112,7 +112,7 @@ fn test_build_trace_data_detailed_level() {
 
 #[test]
 fn test_build_trace_data_zero_values() {
-    let (brick, step, layer) = build_trace_data(Some("brick"), 0, 0, 0, 0);
+    let (brick, _step, _layer) = build_trace_data(Some("brick"), 0, 0, 0, 0);
     assert!(brick.is_some());
     let trace = brick.unwrap();
     assert_eq!(trace.total_time_us, 0);
@@ -121,7 +121,7 @@ fn test_build_trace_data_zero_values() {
 
 #[test]
 fn test_build_trace_data_large_values() {
-    let (brick, step, layer) = build_trace_data(Some("layer"), u64::MAX / 2, 100000, 50000, 1000);
+    let (_brick, _step, layer) = build_trace_data(Some("layer"), u64::MAX / 2, 100000, 50000, 1000);
     assert!(layer.is_some());
     let trace = layer.unwrap();
     assert_eq!(trace.breakdown.len(), 1000);

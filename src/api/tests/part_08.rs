@@ -1097,7 +1097,7 @@ async fn test_openai_chat_completions_with_trace_header_brick() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
         .unwrap();
-    let result: ChatCompletionResponse = match serde_json::from_slice(&body) {
+    let _result: ChatCompletionResponse = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(_) => return, // Mock state: error response, skip body assertions
     };

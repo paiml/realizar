@@ -1696,7 +1696,8 @@ impl AprV2ModelCuda {
             let is_tied_embedding = lm_head_name == "token_embd.weight"
                 || lm_head_name.ends_with("embed_tokens.weight");
 
-            let lm_head_for_gemm = if is_tied_embedding && lm_head.len() == hidden_dim * vocab_size {
+            let lm_head_for_gemm = if is_tied_embedding && lm_head.len() == hidden_dim * vocab_size
+            {
                 // Tied embedding: already [hidden_dim, vocab_size], use as-is
                 lm_head.clone()
             } else {
