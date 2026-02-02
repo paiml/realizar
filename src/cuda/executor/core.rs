@@ -101,6 +101,12 @@ impl CudaExecutor {
             flash_decode_partials: None,
             flash_decode_max_seq_len: 0,
             flash_decode_enabled: false,
+            // QWEN-007: Q8 KV cache (disabled by default, enable via init_kv_cache_q8_gpu)
+            kv_cache_q8_enabled: false,
+            kv_cache_q8_k: HashMap::new(),
+            kv_cache_q8_v: HashMap::new(),
+            kv_cache_q8_k_scales: HashMap::new(),
+            kv_cache_q8_v_scales: HashMap::new(),
             // PAR-073: BrickProfiler (disabled by default for zero overhead)
             // Enable with executor.enable_profiling() for per-brick timing
             profiler: trueno::BrickProfiler::new(),
@@ -143,10 +149,9 @@ impl CudaExecutor {
                 }
                 BROKEN_PTX.lock().unwrap().insert(hash);
                 Err(e)
-            }
+            },
         }
     }
-
 }
 
 /// Custom Drop: synchronize, then return streams and context to pools.

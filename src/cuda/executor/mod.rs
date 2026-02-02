@@ -406,6 +406,17 @@ pub struct CudaExecutor {
     flash_decode_max_seq_len: usize,
     // Whether Flash Decoding is enabled (for sequences > threshold)
     flash_decode_enabled: bool,
+    // QWEN-007: Q8 quantized KV cache for 4x memory reduction
+    // When enabled, K/V are stored as INT8 with per-block FP32 scales
+    // Block size = 32 (matches GGML Q8_0 format)
+    kv_cache_q8_enabled: bool,
+    // Q8 KV cache quantized values: [num_kv_heads, max_len, head_dim] as i8
+    kv_cache_q8_k: HashMap<String, GpuBuffer<i8>>,
+    kv_cache_q8_v: HashMap<String, GpuBuffer<i8>>,
+    // Q8 KV cache scales: [num_kv_heads, max_len, head_dim / 32] as f32
+    // One scale per 32 consecutive values (matches Q8_0 block size)
+    kv_cache_q8_k_scales: HashMap<String, GpuBuffer<f32>>,
+    kv_cache_q8_v_scales: HashMap<String, GpuBuffer<f32>>,
     // PAR-073: BrickProfiler for real per-brick timing
     // Uses std::time::Instant + CUDA sync for accurate GPU timing
     profiler: trueno::BrickProfiler,
