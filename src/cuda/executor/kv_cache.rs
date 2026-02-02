@@ -988,6 +988,176 @@ impl CudaExecutor {
 
         Ok((k_out, v_out))
     }
+
+    // ========================================================================
+    // QWEN-007 Phase 3: GPU-side Q8 Dequantization
+    // ========================================================================
+
+    /// Dequantize Q8 KV cache to FP32 on GPU
+    ///
+    /// Uses the Q8Dequant kernel to dequantize K/V from Q8 format to FP32
+    /// directly on the GPU, returning FP32 buffers that can be used with
+    /// existing attention kernels.
+    ///
+    /// Memory layout:
+    /// - Input (Q8): [num_kv_heads, max_len, head_dim] with positions 0..seq_len filled
+    /// - Output (FP32): [num_kv_heads, seq_len, head_dim] contiguous
+    ///
+    /// # Arguments
+    ///
+    /// * `layer_idx` - Layer index
+    /// * `seq_len` - Number of positions to dequantize (from 0 to seq_len-1)
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (K_fp32, V_fp32) GPU buffers, each [num_kv_heads × seq_len × head_dim]
+    pub fn dequantize_kv_q8_gpu(
+        &mut self,
+        layer_idx: usize,
+        seq_len: usize,
+    ) -> Result<(GpuBuffer<f32>, GpuBuffer<f32>), GpuError> {
+        if !self.kv_cache_q8_enabled {
+            return Err(GpuError::InvalidParameter(
+                "Q8 KV cache not enabled. Call init_kv_cache_q8_gpu first.".to_string(),
+            ));
+        }
+
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let max_len = self.kv_cache_max_len;
+
+        if seq_len > max_len {
+            return Err(GpuError::InvalidParameter(format!(
+                "seq_len {} exceeds max_len {}",
+                seq_len, max_len
+            )));
+        }
+
+        // Total elements to dequantize per K/V (output is contiguous)
+        let total_elements = seq_len * num_kv_heads * head_dim;
+        let blocks_per_head = head_dim / 32;
+
+        // Get Q8 buffer keys
+        let k_key = format!("kv_{}_k", layer_idx);
+        let v_key = format!("kv_{}_v", layer_idx);
+        let k_scales_key = format!("kv_{}_k_scales", layer_idx);
+        let v_scales_key = format!("kv_{}_v_scales", layer_idx);
+
+        // Get Q8 buffer pointers
+        let k_q8_buf = self.kv_cache_q8_k.get(&k_key).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!("Q8 K cache for layer {} not found", layer_idx))
+        })?;
+        let k_scales_buf = self.kv_cache_q8_k_scales.get(&k_scales_key).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!(
+                "Q8 K scales for layer {} not found",
+                layer_idx
+            ))
+        })?;
+        let v_q8_buf = self.kv_cache_q8_v.get(&v_key).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!("Q8 V cache for layer {} not found", layer_idx))
+        })?;
+        let v_scales_buf = self.kv_cache_q8_v_scales.get(&v_scales_key).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!(
+                "Q8 V scales for layer {} not found",
+                layer_idx
+            ))
+        })?;
+
+        // Allocate output FP32 buffers
+        let k_fp32_buf = GpuBuffer::<f32>::new(&self.context, total_elements)?;
+        let v_fp32_buf = GpuBuffer::<f32>::new(&self.context, total_elements)?;
+
+        // Elements to process per head (seq_len positions × head_dim values)
+        let elements_per_head = seq_len * head_dim;
+        let _scales_per_head = seq_len * blocks_per_head;
+
+        // Generate and compile Q8 dequant kernel for per-head processing
+        let kernel_type = crate::cuda::KernelType::Q8Dequant {
+            n: elements_per_head as u32,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let ptx = self.kernels.generate_ptx(&kernel_type);
+        let module_key = format!("q8_dequant_{}", elements_per_head);
+
+        if !self.modules.contains_key(&module_key) {
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(module_key.clone(), module);
+        }
+        let module = self
+            .modules
+            .get_mut(&module_key)
+            .expect("module just inserted");
+
+        // Launch config: 256 threads per block
+        let threads_per_block = 256u32;
+        let config = LaunchConfig::linear(elements_per_head as u32, threads_per_block);
+
+        // Get base pointers
+        let k_q8_base = k_q8_buf.as_ptr();
+        let k_scales_base = k_scales_buf.as_ptr();
+        let k_out_base = k_fp32_buf.as_ptr();
+        let v_q8_base = v_q8_buf.as_ptr();
+        let v_scales_base = v_scales_buf.as_ptr();
+        let v_out_base = v_fp32_buf.as_ptr();
+
+        // Process each head separately with correct offsets
+        // Input layout: [num_kv_heads, max_len, head_dim] - stride = max_len * head_dim per head
+        // Output layout: [num_kv_heads, seq_len, head_dim] - stride = seq_len * head_dim per head
+        let src_quant_stride = max_len * head_dim; // bytes for i8
+        let src_scale_stride = max_len * blocks_per_head * 4; // bytes for f32
+        let dst_stride = elements_per_head * 4; // bytes for f32
+
+        for head in 0..num_kv_heads {
+            // Calculate offsets for this head
+            let src_quant_offset = head * src_quant_stride;
+            let src_scale_offset = head * src_scale_stride;
+            let dst_offset = head * dst_stride;
+
+            // SAFETY: Pointer arithmetic to access head-specific regions
+            // The offsets are within allocated buffer bounds
+            unsafe {
+                // Dequantize K for this head
+                let mut k_q8_ptr = k_q8_base + src_quant_offset as u64;
+                let mut k_scales_ptr = k_scales_base + src_scale_offset as u64;
+                let mut k_out_ptr = k_out_base + dst_offset as u64;
+                let mut n_val = elements_per_head as u32;
+
+                self.compute_stream.launch_kernel(
+                    module,
+                    kernel_name,
+                    &config,
+                    &mut [
+                        std::ptr::from_mut(&mut k_q8_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut k_scales_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut k_out_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+
+                // Dequantize V for this head
+                let mut v_q8_ptr = v_q8_base + src_quant_offset as u64;
+                let mut v_scales_ptr = v_scales_base + src_scale_offset as u64;
+                let mut v_out_ptr = v_out_base + dst_offset as u64;
+
+                self.compute_stream.launch_kernel(
+                    module,
+                    kernel_name,
+                    &config,
+                    &mut [
+                        std::ptr::from_mut(&mut v_q8_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut v_scales_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut v_out_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        }
+
+        // Synchronize to ensure all head dequantizations are complete
+        self.compute_stream.synchronize()?;
+
+        Ok((k_fp32_buf, v_fp32_buf))
+    }
 }
 
 #[cfg(test)]
@@ -1425,5 +1595,192 @@ mod tests {
         let result = exec.write_kv_q8(0, 0, &k, &v);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not enabled"));
+    }
+
+    // ========================================================================
+    // QWEN-007 Phase 3: GPU Dequantization Tests
+    // ========================================================================
+
+    #[test]
+    fn test_dequantize_kv_q8_gpu_not_enabled() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+
+        // Without Q8 cache enabled
+        let result = exec.dequantize_kv_q8_gpu(0, 1);
+        assert!(result.is_err());
+        match result {
+            Err(e) => assert!(e.to_string().contains("not enabled")),
+            Ok(_) => panic!("Expected error"),
+        }
+    }
+
+    #[test]
+    fn test_dequantize_kv_q8_gpu_basic() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+
+        let num_kv_heads = 2;
+        let head_dim = 64; // Divisible by 32
+        let max_len = 8;
+
+        // Initialize Q8 KV cache
+        exec.init_kv_cache_q8_gpu(1, 4, num_kv_heads, head_dim, max_len)
+            .unwrap();
+
+        let size = num_kv_heads * head_dim;
+
+        // Create test K/V vectors
+        let k: Vec<f32> = (0..size).map(|i| (i as f32) * 0.1).collect();
+        let v: Vec<f32> = (0..size).map(|i| -(i as f32) * 0.1).collect();
+
+        // Write to position 0
+        exec.write_kv_q8(0, 0, &k, &v).unwrap();
+
+        // Dequantize on GPU
+        let (k_fp32, v_fp32) = exec.dequantize_kv_q8_gpu(0, 1)
+            .expect("GPU dequantization failed");
+
+        // Download and verify
+        let mut k_out = vec![0.0f32; size];
+        let mut v_out = vec![0.0f32; size];
+        k_fp32.copy_to_host(&mut k_out).unwrap();
+        v_fp32.copy_to_host(&mut v_out).unwrap();
+
+        // Verify values are close (Q8 has ~1% quantization error)
+        for i in 0..size {
+            let k_err = (k[i] - k_out[i]).abs();
+            let v_err = (v[i] - v_out[i]).abs();
+            let k_tol = (k[i].abs() * 0.02).max(0.02);
+            let v_tol = (v[i].abs() * 0.02).max(0.02);
+            assert!(
+                k_err < k_tol,
+                "K[{}]: expected {}, got {}, err {} > tol {}",
+                i, k[i], k_out[i], k_err, k_tol
+            );
+            assert!(
+                v_err < v_tol,
+                "V[{}]: expected {}, got {}, err {} > tol {}",
+                i, v[i], v_out[i], v_err, v_tol
+            );
+        }
+    }
+
+    #[test]
+    fn test_dequantize_kv_q8_gpu_multiple_positions() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+
+        let num_kv_heads = 2;
+        let head_dim = 32;
+        let max_len = 16;
+        let seq_len = 4;
+
+        exec.init_kv_cache_q8_gpu(1, 4, num_kv_heads, head_dim, max_len)
+            .unwrap();
+
+        let size = num_kv_heads * head_dim;
+
+        // Write to multiple positions
+        for pos in 0..seq_len {
+            let k: Vec<f32> = (0..size).map(|i| (pos as f32 + i as f32) * 0.05).collect();
+            let v: Vec<f32> = (0..size).map(|i| -(pos as f32 + i as f32) * 0.05).collect();
+            exec.write_kv_q8(0, pos, &k, &v).unwrap();
+        }
+
+        // Dequantize all positions on GPU
+        let (k_fp32, v_fp32) = exec.dequantize_kv_q8_gpu(0, seq_len)
+            .expect("GPU dequantization failed");
+
+        // Verify buffer sizes
+        let expected_size = seq_len * num_kv_heads * head_dim;
+        let mut k_out = vec![0.0f32; expected_size];
+        let mut v_out = vec![0.0f32; expected_size];
+        k_fp32.copy_to_host(&mut k_out).unwrap();
+        v_fp32.copy_to_host(&mut v_out).unwrap();
+
+        assert_eq!(k_out.len(), expected_size);
+        assert_eq!(v_out.len(), expected_size);
+    }
+
+    #[test]
+    fn test_dequantize_kv_q8_gpu_vs_cpu() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+
+        let num_kv_heads = 2;
+        let head_dim = 64;
+        let max_len = 8;
+        let seq_len = 3;
+
+        exec.init_kv_cache_q8_gpu(1, 4, num_kv_heads, head_dim, max_len)
+            .unwrap();
+
+        let size = num_kv_heads * head_dim;
+
+        // Write test data
+        for pos in 0..seq_len {
+            let k: Vec<f32> = (0..size).map(|i| ((pos * size + i) as f32) * 0.01).collect();
+            let v: Vec<f32> = (0..size).map(|i| -((pos * size + i) as f32) * 0.01).collect();
+            exec.write_kv_q8(0, pos, &k, &v).unwrap();
+        }
+
+        // CPU dequantization (read_kv_q8) - layout: [seq_len, num_kv_heads, head_dim]
+        let (k_cpu, v_cpu) = exec.read_kv_q8(0, 0, seq_len).unwrap();
+
+        // GPU dequantization - layout: [num_kv_heads, seq_len, head_dim]
+        let (k_gpu_buf, v_gpu_buf) = exec.dequantize_kv_q8_gpu(0, seq_len).unwrap();
+        let mut k_gpu = vec![0.0f32; seq_len * size];
+        let mut v_gpu = vec![0.0f32; seq_len * size];
+        k_gpu_buf.copy_to_host(&mut k_gpu).unwrap();
+        v_gpu_buf.copy_to_host(&mut v_gpu).unwrap();
+
+        // Compare with layout transformation:
+        // CPU index: pos * (num_kv_heads * head_dim) + head * head_dim + d
+        // GPU index: head * (seq_len * head_dim) + pos * head_dim + d
+        for pos in 0..seq_len {
+            for head in 0..num_kv_heads {
+                for d in 0..head_dim {
+                    let cpu_idx = pos * (num_kv_heads * head_dim) + head * head_dim + d;
+                    let gpu_idx = head * (seq_len * head_dim) + pos * head_dim + d;
+
+                    let k_diff = (k_cpu[cpu_idx] - k_gpu[gpu_idx]).abs();
+                    let v_diff = (v_cpu[cpu_idx] - v_gpu[gpu_idx]).abs();
+
+                    // Allow tiny floating-point differences
+                    assert!(
+                        k_diff < 1e-6,
+                        "K[pos={}, head={}, d={}] CPU={} GPU={} diff={}",
+                        pos, head, d, k_cpu[cpu_idx], k_gpu[gpu_idx], k_diff
+                    );
+                    assert!(
+                        v_diff < 1e-6,
+                        "V[pos={}, head={}, d={}] CPU={} GPU={} diff={}",
+                        pos, head, d, v_cpu[cpu_idx], v_gpu[gpu_idx], v_diff
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_dequantize_kv_q8_gpu_exceeds_max_len() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+
+        exec.init_kv_cache_q8_gpu(1, 4, 2, 32, 8).unwrap();
+
+        // Request more than max_len
+        let result = exec.dequantize_kv_q8_gpu(0, 16);
+        assert!(result.is_err());
+        match result {
+            Err(e) => assert!(e.to_string().contains("exceeds max_len")),
+            Ok(_) => panic!("Expected error"),
+        }
     }
 }
