@@ -234,14 +234,16 @@ let activated_gpu = executor.fused_swiglu_gpu(&gate_gpu, &up_gpu, intermediate_d
 - ✅ `init_kv_cache_q8_gpu()` method for allocating Q8 buffers
 - ✅ Memory calculation methods (`kv_cache_q8_memory_bytes`, `kv_cache_fp32_equivalent_bytes`)
 - ✅ Tests for Q8 initialization and memory calculation
-- 🔄 Pending: Wire Q8 into actual attention kernels (dequant on read)
+- ✅ `write_kv_q8()` and `read_kv_q8()` methods for CPU-side quantization
+- ✅ Roundtrip test verifies < 2% quantization error
+- 🔄 Pending: Wire Q8 into actual attention kernels (fused dequant on read)
 
 **Acceptance Criteria:**
 - [x] AC1: Q8 KV cache buffer allocation in CudaExecutor ✅
-- [ ] AC2: Per-block quantization for K/V (scale per 32 values)
-- [ ] AC3: GPU dequantization kernel in attention path
+- [x] AC2: Per-block quantization for K/V (scale per 32 values) ✅
+- [ ] AC3: GPU fused dequantization in attention kernel
 - [ ] AC4: Perplexity within 0.5% of FP32 baseline
-- [ ] AC5: ~3.56x memory reduction verified
+- [x] AC5: ~3.56x memory reduction verified ✅
 
 ---
 
