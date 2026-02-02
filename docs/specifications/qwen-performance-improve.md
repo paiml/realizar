@@ -348,7 +348,7 @@ let residual = executor.residual_add_gpu(input, &out_gpu, hidden_dim)?;
 
 ---
 
-#### QWEN-009: RMSNorm + Linear + Activation 3-Way Fusion
+#### QWEN-009: RMSNorm + Linear + Activation 3-Way Fusion — IN PROGRESS
 
 **Current:** RMSNorm+Q8_0 fusion exists (`quantize_rmsnorm_q8_0` in PMAT-802)
 
@@ -356,9 +356,39 @@ let residual = executor.residual_add_gpu(input, &out_gpu, hidden_dim)?;
 
 **Citation:** [Op fusion: 1.2-1.5x speedup](entrenar/book/src/examples/citl.md#41) — entrenar benchmarks
 
+**Implementation Progress (2026-02-02):**
+
+1. ✅ **trueno-gpu kernel**: `FusedRmsNormGateUpSwigluQ4KKernel` added to `trueno-gpu/src/kernels/quantize/fused.rs`
+   - Combined RMSNorm + Gate Q4K GEMV + Up Q4K GEMV + SwiGLU in single kernel
+   - 4 phases: (1) Load input + compute RMS sum, (2) Normalize in shared memory, (3) Dual Q4K GEMV, (4) SwiGLU + store
+   - Uses 256 threads (8 warps) for cooperative loading
+   - Shared memory: K*4 + 96 bytes (normalized input + warp partial sums)
+
+2. ✅ **realizar integration**: `KernelType::FusedRmsNormGateUpSwigluQ4K` added to `src/cuda/kernels.rs`
+   - PTX generation via trueno-gpu kernel
+   - Kernel name: `fused_rmsnorm_gate_up_swiglu_q4k`
+
+3. ✅ **Executor methods**: Added to `src/cuda/executor/activations.rs`
+   - `fused_ffn_rmsnorm_swiglu_q4k_into()` - Direct pointer access
+   - `fused_ffn_rmsnorm_swiglu_q4k_cached()` - Weight cache lookup wrapper
+
+4. ✅ **Tests**: 3 unit tests added and passing
+   - `test_qwen009_kernel_type_generation`
+   - `test_qwen009_fused_ffn_rmsnorm_swiglu_q4k_basic`
+   - `test_qwen009_kernel_type_variants`
+
+**Memory Savings (per FFN layer):**
+- Before: RMSNorm(K→K) + Gate GEMV(K→N) + Up GEMV(K→N) + SwiGLU(N→N)
+  - Global writes: K + N + N + N = K + 3N
+  - Kernel launches: 4
+- After: Single fused kernel
+  - Global writes: N (just final output)
+  - Kernel launches: 1
+- Savings: K + 2N floats × 4 bytes per FFN layer
+
 **Acceptance Criteria:**
-- [ ] AC1: 3-way fused kernel for transformer block
-- [ ] AC2: 1.2x speedup on FFN forward pass
+- [x] AC1: 3-way fused kernel for transformer block ✅ (trueno-gpu + realizar)
+- [ ] AC2: 1.2x speedup on FFN forward pass (pending benchmark)
 
 ---
 
@@ -431,7 +461,7 @@ let residual = executor.residual_add_gpu(input, &out_gpu, hidden_dim)?;
 | QWEN-006 | DCA long context | N/A | Medium | Yes (RoPE ext) | P2 | Planned |
 | QWEN-007 | KV cache quantization | 4x memory | Medium | No | P2 | ✅ DONE |
 | QWEN-008 | MInference sparse | 3-6x prefill | High | Yes (long context) | P3 | Planned |
-| QWEN-009 | 3-way kernel fusion | 1.2x | Medium | No | P3 | Planned |
+| QWEN-009 | 3-way kernel fusion | 1.2x | Medium | No | P3 | ✅ Kernel Done |
 | QWEN-010 | RTX 4090 tuning | 1.1x | Low | No | P3 | ✅ DONE |
 
 ---

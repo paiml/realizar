@@ -12,16 +12,16 @@ use trueno_gpu::kernels::{
     BatchedVectorizedRmsNormKernel, BiasActivationKernel, ChunkedTiledQ4KGemvKernel,
     CoalescedGemvKernel, CoalescedQ4KGemvKernel, CoalescedQ6KGemvKernel, Dp4aQ4KGemvKernel,
     ElementwiseMulKernel, Fp16Q4KGemvKernel, FusedGateUpKernel, FusedGateUpQ4KGemvKernel,
-    FusedQKVKernel, FusedResidualRmsNormKernel, FusedRmsNormQ4KGemvKernel, FusedSwigluKernel,
-    GeluKernel, GemmKernel, GemvKernel, IncrementalAttentionKernel, Kernel,
-    KvCacheScatterIndirectKernel, KvCacheScatterKernel, LayerNormKernel,
-    MultiWarpIncrementalAttentionKernel, PackedDp4aQ4KQ8Kernel, PreciseRmsNormKernel,
-    PreciseRopeIndirectKernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
-    Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
-    Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
-    RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel, SiluKernel, SoftmaxKernel,
-    TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel,
-    VectorizedRmsNormKernel,
+    FusedQKVKernel, FusedResidualRmsNormKernel, FusedRmsNormGateUpSwigluQ4KKernel,
+    FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
+    IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
+    LayerNormKernel, MultiWarpIncrementalAttentionKernel, PackedDp4aQ4KQ8Kernel,
+    PreciseRmsNormKernel, PreciseRopeIndirectKernel, Q4KGemvKernel, Q4KQ8DotKernel,
+    Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel,
+    Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel,
+    RmsNormKernel, RopeIndirectKernel, RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel,
+    SiluKernel, SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel,
+    TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel, VectorizedRmsNormKernel,
 };
 
 /// CUDA kernel types supported by realizar
@@ -580,6 +580,25 @@ pub enum KernelType {
         n: u32,
     },
 
+    /// QWEN-009: 3-way fused kernel: RMSNorm → Gate/Up Q4K GEMV → SwiGLU
+    /// Combines RMSNorm, dual Q4K projections (gate & up), and SwiGLU activation
+    /// in a single kernel pass for 1.2x FFN forward speedup.
+    ///
+    /// Flow: input → RMSNorm(input, gamma) → gate=W_gate·x, up=W_up·x → silu(gate)*up
+    ///
+    /// Memory savings:
+    /// - Normalized input stays in shared memory (not written to global)
+    /// - Gate/up projections computed in parallel using same normalized input
+    /// - SwiGLU applied immediately before storing final result
+    FusedRmsNormGateUpSwigluQ4K {
+        /// K dimension (hidden size, input dimension)
+        k: u32,
+        /// N dimension (intermediate size, output dimension)
+        n: u32,
+        /// Epsilon for RMSNorm numerical stability (default 1e-6 for Qwen)
+        epsilon: f32,
+    },
+
     // =========================================================================
     // PAR-023: Activation and Element-wise Kernels for GPU-Resident Pipeline
     // =========================================================================
@@ -1001,6 +1020,12 @@ impl CudaKernels {
             KernelType::FusedGateUpQ4KGemv { k, n } => {
                 FusedGateUpQ4KGemvKernel::new(*k, *n).emit_ptx()
             },
+            // QWEN-009: 3-way fused RMSNorm + Gate/Up Q4K GEMV + SwiGLU
+            KernelType::FusedRmsNormGateUpSwigluQ4K { k, n, epsilon } => {
+                FusedRmsNormGateUpSwigluQ4KKernel::new(*k, *n)
+                    .with_epsilon(*epsilon)
+                    .emit_ptx()
+            },
             // PAR-023: Activation kernels for GPU-resident pipeline
             KernelType::Silu { n } => SiluKernel::new(*n).emit_ptx(),
             KernelType::Gelu { n } => GeluKernel::new(*n).emit_ptx(),
@@ -1196,6 +1221,8 @@ impl CudaKernels {
             KernelType::FusedRmsNormQ4KGemv { .. } => "fused_rmsnorm_q4k_gemv",
             // PAR-077: Fused gate + up Q4K GEMV
             KernelType::FusedGateUpQ4KGemv { .. } => "fused_gate_up_q4k_gemv",
+            // QWEN-009: 3-way fused RMSNorm + Gate/Up Q4K GEMV + SwiGLU
+            KernelType::FusedRmsNormGateUpSwigluQ4K { .. } => "fused_rmsnorm_gate_up_swiglu_q4k",
             // PAR-023: Activation kernels
             KernelType::Silu { .. } => "silu",
             KernelType::Gelu { .. } => "gelu",
