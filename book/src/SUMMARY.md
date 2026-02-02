@@ -141,6 +141,7 @@
 - [Memory Management](./gpu/memory-management.md)
 - [CUDA Context Safety](./gpu/cuda-context-safety.md)
 - [Simulation Research Findings](./gpu/simulation-research.md)
+- [trueno-cuda-edge (Edge Testing)](./gpu/trueno-cuda-edge.md)
 
 # EXTREME TDD for ML Serving
 
