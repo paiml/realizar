@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "aprender"
-version = "0.25.1"
+version = "0.25.2"
 dependencies = [
  "bincode",
  "getrandom 0.2.17",
@@ -3992,6 +3992,7 @@ dependencies = [
  "tower 0.4.13",
  "tracing",
  "trueno 0.14.4",
+ "trueno-cuda-edge",
  "trueno-db",
  "trueno-gpu",
  "trueno-viz",
@@ -5175,6 +5176,14 @@ dependencies = [
  "thiserror 2.0.18",
  "toml",
  "wgpu",
+]
+
+[[package]]
+name = "trueno-cuda-edge"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
