@@ -1158,6 +1158,152 @@ impl CudaExecutor {
 
         Ok((k_fp32_buf, v_fp32_buf))
     }
+
+    // ========================================================================
+    // QWEN-007 Phase 4: Q8 Incremental Attention
+    // ========================================================================
+
+    /// Incremental attention using Q8 quantized KV cache
+    ///
+    /// This is the Q8 variant of `incremental_attention_gpu`. It:
+    /// 1. Quantizes incoming K/V to Q8 format
+    /// 2. Appends to Q8 GPU cache
+    /// 3. Dequantizes full cache to FP32 on GPU
+    /// 4. Runs attention kernel against dequantized K/V
+    ///
+    /// Memory savings: ~3.56x for KV cache storage
+    /// Tradeoff: Additional dequantization kernel launch per attention call
+    ///
+    /// # Arguments
+    ///
+    /// * `layer_idx` - Transformer layer index
+    /// * `q` - Query vector for current position [num_heads × head_dim]
+    /// * `current_k` - Key vector for current position [num_kv_heads × head_dim]
+    /// * `current_v` - Value vector for current position [num_kv_heads × head_dim]
+    /// * `output` - Output buffer [num_heads × head_dim]
+    ///
+    /// # Returns
+    ///
+    /// New total sequence length after appending
+    #[allow(clippy::too_many_arguments)]
+    pub fn incremental_attention_q8_gpu(
+        &mut self,
+        layer_idx: usize,
+        q: &[f32],
+        current_k: &[f32],
+        current_v: &[f32],
+        output: &mut [f32],
+    ) -> Result<usize, GpuError> {
+        if !self.kv_cache_q8_enabled {
+            return Err(GpuError::InvalidParameter(
+                "Q8 KV cache not enabled. Call init_kv_cache_q8_gpu first.".to_string(),
+            ));
+        }
+
+        let num_heads = self.kv_num_heads;
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let q_dim = num_heads * head_dim;
+        let kv_dim = num_kv_heads * head_dim;
+        let max_len = self.kv_cache_max_len;
+
+        // Validate dimensions
+        if q.len() != q_dim {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "QWEN-007: Q dimension mismatch - expected {}, got {}",
+                q_dim,
+                q.len()
+            )));
+        }
+        if current_k.len() != kv_dim || current_v.len() != kv_dim {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "QWEN-007: K/V dimension mismatch - expected {}, got K[{}] V[{}]",
+                kv_dim,
+                current_k.len(),
+                current_v.len()
+            )));
+        }
+
+        // Get current cache length and check bounds
+        let cache_len = self.kv_cache_lengths.get(&layer_idx).copied().unwrap_or(0);
+        let new_len = cache_len + 1;
+        if new_len > max_len {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "QWEN-007: KV cache overflow - max_len={}, trying to add position {}",
+                max_len, new_len
+            )));
+        }
+
+        // Step 1: Quantize and write K/V to Q8 cache
+        self.write_kv_q8(layer_idx, cache_len, current_k, current_v)?;
+
+        // Step 2: Dequantize full cache to FP32 on GPU
+        let (k_fp32_buf, v_fp32_buf) = self.dequantize_kv_q8_gpu(layer_idx, new_len)?;
+
+        // Step 3: Upload Q to GPU
+        let mut q_buf = GpuBuffer::<f32>::new(&self.context, q_dim)?;
+        q_buf.copy_from_host(q)?;
+
+        // Step 4: Allocate output buffer
+        let out_buf = GpuBuffer::<f32>::new(&self.context, q_dim)?;
+
+        // Step 5: Get kernel module (same as FP32 incremental attention)
+        let kernel_type = KernelType::IncrementalAttention {
+            max_seq_len: new_len as u32, // Use actual seq_len, not max_len
+            head_dim: head_dim as u32,
+            n_heads: num_heads as u32,
+            n_kv_heads: num_kv_heads as u32,
+            indirect: false,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let ptx = self.kernels.generate_ptx(&kernel_type);
+        let module_key = format!(
+            "incremental_attention_q8_{}_{}_{}_{}",
+            new_len, head_dim, num_heads, num_kv_heads
+        );
+
+        if !self.modules.contains_key(&module_key) {
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(module_key.clone(), module);
+        }
+        let module = self
+            .modules
+            .get_mut(&module_key)
+            .expect("module just inserted");
+
+        // Step 6: Launch attention kernel
+        // Grid: (num_heads, 1, 1) - one block per head
+        // Block: (32, 1, 1) - one warp per block
+        let config = LaunchConfig::grid_2d(num_heads as u32, 1, 32, 1);
+
+        let mut ptr_q = q_buf.as_ptr();
+        let mut ptr_k = k_fp32_buf.as_ptr();
+        let mut ptr_v = v_fp32_buf.as_ptr();
+        let mut ptr_out = out_buf.as_ptr();
+        let mut seq_len_val = new_len as u32;
+
+        // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.compute_stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_q) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_k) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_v) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_out) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut seq_len_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // Synchronize and download output
+        self.compute_stream.synchronize()?;
+        out_buf.copy_to_host(output)?;
+
+        Ok(new_len)
+    }
 }
 
 #[cfg(test)]
@@ -1782,5 +1928,168 @@ mod tests {
             Err(e) => assert!(e.to_string().contains("exceeds max_len")),
             Ok(_) => panic!("Expected error"),
         }
+    }
+
+    // ========================================================================
+    // QWEN-007 Phase 4: Q8 Incremental Attention Tests
+    // ========================================================================
+
+    #[test]
+    fn test_incremental_attention_q8_gpu_not_enabled() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+
+        // Without Q8 cache enabled
+        let q = vec![1.0f32; 256];
+        let k = vec![1.0f32; 64];
+        let v = vec![1.0f32; 64];
+        let mut output = vec![0.0f32; 256];
+
+        let result = exec.incremental_attention_q8_gpu(0, &q, &k, &v, &mut output);
+        assert!(result.is_err());
+        match result {
+            Err(e) => assert!(e.to_string().contains("not enabled")),
+            Ok(_) => panic!("Expected error"),
+        }
+    }
+
+    #[test]
+    fn test_incremental_attention_q8_gpu_basic() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+
+        let num_heads = 4;
+        let num_kv_heads = 2;
+        let head_dim = 64;
+        let max_len = 16;
+
+        // Initialize Q8 KV cache
+        exec.init_kv_cache_q8_gpu(1, num_heads, num_kv_heads, head_dim, max_len)
+            .expect("Q8 KV cache init failed");
+
+        let q_dim = num_heads * head_dim;
+        let kv_dim = num_kv_heads * head_dim;
+
+        // Create test vectors
+        let q: Vec<f32> = (0..q_dim).map(|i| (i as f32) * 0.01).collect();
+        let k: Vec<f32> = (0..kv_dim).map(|i| (i as f32) * 0.01).collect();
+        let v: Vec<f32> = (0..kv_dim).map(|i| (i as f32) * 0.01).collect();
+        let mut output = vec![0.0f32; q_dim];
+
+        // Run Q8 attention
+        let result = exec.incremental_attention_q8_gpu(0, &q, &k, &v, &mut output);
+        assert!(result.is_ok(), "Q8 attention failed: {:?}", result.err());
+        assert_eq!(result.unwrap(), 1, "Should return seq_len=1");
+
+        // Output should be non-zero
+        let sum: f32 = output.iter().sum();
+        assert!(sum.abs() > 0.0, "Output should be non-zero");
+    }
+
+    #[test]
+    fn test_incremental_attention_q8_gpu_multiple_tokens() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+
+        let num_heads = 4;
+        let num_kv_heads = 2;
+        let head_dim = 32; // Smaller for faster test
+        let max_len = 8;
+
+        exec.init_kv_cache_q8_gpu(1, num_heads, num_kv_heads, head_dim, max_len)
+            .expect("Q8 KV cache init failed");
+
+        let q_dim = num_heads * head_dim;
+        let kv_dim = num_kv_heads * head_dim;
+
+        // Process multiple tokens
+        for token_idx in 0..4 {
+            let q: Vec<f32> = (0..q_dim).map(|i| ((token_idx + i) as f32) * 0.01).collect();
+            let k: Vec<f32> = (0..kv_dim).map(|i| ((token_idx + i) as f32) * 0.01).collect();
+            let v: Vec<f32> = (0..kv_dim).map(|i| ((token_idx + i) as f32) * 0.01).collect();
+            let mut output = vec![0.0f32; q_dim];
+
+            let result = exec.incremental_attention_q8_gpu(0, &q, &k, &v, &mut output);
+            assert!(
+                result.is_ok(),
+                "Token {} Q8 attention failed: {:?}",
+                token_idx,
+                result.err()
+            );
+            assert_eq!(
+                result.unwrap(),
+                token_idx + 1,
+                "Should return seq_len={}",
+                token_idx + 1
+            );
+        }
+
+        // Verify cache length
+        assert_eq!(exec.kv_cache_len(0), 4);
+    }
+
+    #[test]
+    fn test_incremental_attention_q8_gpu_dimension_mismatch() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+
+        let num_heads = 4;
+        let num_kv_heads = 2;
+        let head_dim = 32;
+        let max_len = 8;
+
+        exec.init_kv_cache_q8_gpu(1, num_heads, num_kv_heads, head_dim, max_len)
+            .expect("Q8 KV cache init failed");
+
+        let q_dim = num_heads * head_dim;
+        let kv_dim = num_kv_heads * head_dim;
+
+        // Wrong Q dimension
+        let q_wrong = vec![1.0f32; q_dim + 10];
+        let k = vec![1.0f32; kv_dim];
+        let v = vec![1.0f32; kv_dim];
+        let mut output = vec![0.0f32; q_dim];
+
+        let result = exec.incremental_attention_q8_gpu(0, &q_wrong, &k, &v, &mut output);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("dimension mismatch"));
+    }
+
+    #[test]
+    fn test_incremental_attention_q8_gpu_overflow() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+
+        let num_heads = 4;
+        let num_kv_heads = 2;
+        let head_dim = 32;
+        let max_len = 4; // Small for quick overflow test
+
+        exec.init_kv_cache_q8_gpu(1, num_heads, num_kv_heads, head_dim, max_len)
+            .expect("Q8 KV cache init failed");
+
+        let q_dim = num_heads * head_dim;
+        let kv_dim = num_kv_heads * head_dim;
+
+        let q = vec![1.0f32; q_dim];
+        let k = vec![1.0f32; kv_dim];
+        let v = vec![1.0f32; kv_dim];
+        let mut output = vec![0.0f32; q_dim];
+
+        // Fill cache to max
+        for _ in 0..max_len {
+            let result = exec.incremental_attention_q8_gpu(0, &q, &k, &v, &mut output);
+            assert!(result.is_ok());
+        }
+
+        // Next should overflow
+        let result = exec.incremental_attention_q8_gpu(0, &q, &k, &v, &mut output);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("overflow"));
     }
 }

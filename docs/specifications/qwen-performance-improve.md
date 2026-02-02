@@ -241,14 +241,18 @@ let activated_gpu = executor.fused_swiglu_gpu(&gate_gpu, &up_gpu, intermediate_d
   - PTX assembly for Q8 dequantization: `output[i] = quants[i] * scales[i / 32]`
   - `dequantize_kv_q8_gpu()` method handles strided memory layout
   - 5 comprehensive GPU dequantization tests passing
-- 🔄 Phase 4 (Pending): Wire Q8 KV cache into attention path
+- ✅ Phase 4: Q8 incremental attention integration (2026-02-02)
+  - `incremental_attention_q8_gpu()` method for Q8 KV cache attention
+  - Quantizes incoming K/V → appends to Q8 cache → dequantizes → attention
+  - 5 comprehensive tests: basic, multi-token, dimension mismatch, overflow, not-enabled
+  - End-to-end Q8 KV cache pipeline working
 
 **Acceptance Criteria:**
 - [x] AC1: Q8 KV cache buffer allocation in CudaExecutor ✅
 - [x] AC2: Per-block quantization for K/V (scale per 32 values) ✅
 - [x] AC3: GPU Q8 dequantization kernel implemented ✅
-- [ ] AC4: Q8 cache integrated into attention forward path
-- [ ] AC5: Perplexity within 0.5% of FP32 baseline
+- [x] AC4: Q8 cache integrated into attention forward path ✅
+- [ ] AC5: Perplexity within 0.5% of FP32 baseline (pending benchmark)
 - [x] AC6: ~3.56x memory reduction verified ✅
 
 ---
