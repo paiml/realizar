@@ -140,6 +140,9 @@ uuid = { version = "1", features = ["v4", "serde", "js"] }
 # Visual regression testing framework (playbooks, TUI testing, GPU pixel verification)
 jugar-probar = { version = "0.4", features = ["tui", "gpu"] }
 
+# GPU edge-case test framework (null fuzzing, boundary probing, lifecycle chaos)
+trueno-cuda-edge = { version = "0.1", path = "../trueno/trueno-cuda-edge" }
+
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }
 
