@@ -168,7 +168,12 @@ The buffer pool adds minimal memory overhead:
 | Unused buffers | Configurable max pool size |
 | Async handles | ~32 bytes per pending operation |
 
+## CUDA Context Pooling
+
+For CUDA-specific memory management, Realizar pools CUDA contexts and streams to avoid the overhead of repeated `cuCtxCreate` calls. A **sync-on-drop** mechanism ensures poisoned contexts are never returned to the pool. See [CUDA Context Safety](./cuda-context-safety.md) for details.
+
 ## See Also
 
 - [Dispatch Strategy](./dispatch-strategy.md) - When to use GPU vs CPU
 - [Trueno Backend](./trueno-backend.md) - Underlying wgpu implementation
+- [CUDA Context Safety](./cuda-context-safety.md) - Context pooling and fail-fast architecture
