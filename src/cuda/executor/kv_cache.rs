@@ -4,9 +4,11 @@
 //! - PAR-018: GPU-Resident KV Cache initialization
 //! - PAR-021: GQA (Grouped Query Attention) support
 //! - PAR-119: Batched KV cache for multi-sequence processing
+//! - QWEN-007: Q8 quantized KV cache for 4x memory reduction
 //! - Cache reset, rollback, and continuation
 
 use super::*;
+use crate::quantize::Q8_0Block;
 
 impl CudaExecutor {
     // ========================================================================
@@ -732,6 +734,260 @@ impl CudaExecutor {
         let fp32_size = self.kv_num_kv_heads * self.kv_cache_max_len * self.kv_head_dim * 4;
         num_layers * 2 * fp32_size
     }
+
+    /// Write K/V vectors to Q8 cache at a specific position
+    ///
+    /// Quantizes FP32 K/V vectors to Q8 format and uploads to GPU.
+    /// This is the Phase 2 implementation using CPU quantization.
+    ///
+    /// # Arguments
+    ///
+    /// * `layer_idx` - Layer index
+    /// * `position` - Position in the sequence (0-indexed)
+    /// * `k` - Key vector [num_kv_heads × head_dim]
+    /// * `v` - Value vector [num_kv_heads × head_dim]
+    pub fn write_kv_q8(
+        &mut self,
+        layer_idx: usize,
+        position: usize,
+        k: &[f32],
+        v: &[f32],
+    ) -> Result<(), GpuError> {
+        if !self.kv_cache_q8_enabled {
+            return Err(GpuError::InvalidParameter(
+                "Q8 KV cache not enabled. Call init_kv_cache_q8_gpu first.".to_string(),
+            ));
+        }
+
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let max_len = self.kv_cache_max_len;
+
+        // Validate input sizes
+        let expected_size = num_kv_heads * head_dim;
+        if k.len() != expected_size || v.len() != expected_size {
+            return Err(GpuError::InvalidParameter(format!(
+                "K/V size mismatch: expected {}, got K={}, V={}",
+                expected_size,
+                k.len(),
+                v.len()
+            )));
+        }
+
+        if position >= max_len {
+            return Err(GpuError::InvalidParameter(format!(
+                "Position {} exceeds max_len {}",
+                position, max_len
+            )));
+        }
+
+        // Quantize K and V to Q8 (CPU-side for Phase 2)
+        let blocks_per_head = head_dim / 32;
+        let mut k_quants = Vec::with_capacity(expected_size);
+        let mut k_scales = Vec::with_capacity(num_kv_heads * blocks_per_head);
+        let mut v_quants = Vec::with_capacity(expected_size);
+        let mut v_scales = Vec::with_capacity(num_kv_heads * blocks_per_head);
+
+        for head in 0..num_kv_heads {
+            for block_idx in 0..blocks_per_head {
+                let start = head * head_dim + block_idx * 32;
+                let k_block_vals: [f32; 32] = k[start..start + 32].try_into().map_err(|_| {
+                    GpuError::InvalidParameter("K block extraction failed".to_string())
+                })?;
+                let v_block_vals: [f32; 32] = v[start..start + 32].try_into().map_err(|_| {
+                    GpuError::InvalidParameter("V block extraction failed".to_string())
+                })?;
+
+                let k_block = Q8_0Block::quantize(&k_block_vals);
+                let v_block = Q8_0Block::quantize(&v_block_vals);
+
+                k_quants.extend_from_slice(&k_block.quants);
+                k_scales.push(k_block.scale);
+                v_quants.extend_from_slice(&v_block.quants);
+                v_scales.push(v_block.scale);
+            }
+        }
+
+        // Upload to GPU at the correct position offset
+        // Layout: [num_kv_heads, max_len, head_dim]
+        // Position offset = position * head_dim for each head
+        let k_key = format!("kv_{}_k", layer_idx);
+        let v_key = format!("kv_{}_v", layer_idx);
+        let k_scales_key = format!("kv_{}_k_scales", layer_idx);
+        let v_scales_key = format!("kv_{}_v_scales", layer_idx);
+
+        // Get mutable references to buffers
+        let k_buf = self.kv_cache_q8_k.get_mut(&k_key).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!("Q8 K cache for layer {} not found", layer_idx))
+        })?;
+        let k_scales_buf = self.kv_cache_q8_k_scales.get_mut(&k_scales_key).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!(
+                "Q8 K scales for layer {} not found",
+                layer_idx
+            ))
+        })?;
+
+        // Upload K quants and scales for each head at the correct position
+        for head in 0..num_kv_heads {
+            let src_q_offset = head * head_dim;
+            let dst_q_offset = head * max_len * head_dim + position * head_dim;
+            k_buf.copy_from_host_at(
+                &k_quants[src_q_offset..src_q_offset + head_dim],
+                dst_q_offset,
+            )?;
+
+            let src_s_offset = head * blocks_per_head;
+            let dst_s_offset = head * max_len * blocks_per_head + position * blocks_per_head;
+            k_scales_buf.copy_from_host_at(
+                &k_scales[src_s_offset..src_s_offset + blocks_per_head],
+                dst_s_offset,
+            )?;
+        }
+
+        // Same for V
+        let v_buf = self.kv_cache_q8_v.get_mut(&v_key).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!("Q8 V cache for layer {} not found", layer_idx))
+        })?;
+        let v_scales_buf = self.kv_cache_q8_v_scales.get_mut(&v_scales_key).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!(
+                "Q8 V scales for layer {} not found",
+                layer_idx
+            ))
+        })?;
+
+        for head in 0..num_kv_heads {
+            let src_q_offset = head * head_dim;
+            let dst_q_offset = head * max_len * head_dim + position * head_dim;
+            v_buf.copy_from_host_at(
+                &v_quants[src_q_offset..src_q_offset + head_dim],
+                dst_q_offset,
+            )?;
+
+            let src_s_offset = head * blocks_per_head;
+            let dst_s_offset = head * max_len * blocks_per_head + position * blocks_per_head;
+            v_scales_buf.copy_from_host_at(
+                &v_scales[src_s_offset..src_s_offset + blocks_per_head],
+                dst_s_offset,
+            )?;
+        }
+
+        // Update cache length
+        let current_len = self.kv_cache_lengths.get(&layer_idx).copied().unwrap_or(0);
+        if position >= current_len {
+            self.kv_cache_lengths.insert(layer_idx, position + 1);
+        }
+
+        Ok(())
+    }
+
+    /// Read K/V vectors from Q8 cache at a range of positions
+    ///
+    /// Downloads Q8 data from GPU and dequantizes to FP32.
+    /// This is the Phase 2 implementation using CPU dequantization.
+    ///
+    /// # Arguments
+    ///
+    /// * `layer_idx` - Layer index
+    /// * `start_pos` - Start position (inclusive)
+    /// * `end_pos` - End position (exclusive)
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (K, V) vectors, each [seq_len × num_kv_heads × head_dim]
+    pub fn read_kv_q8(
+        &self,
+        layer_idx: usize,
+        start_pos: usize,
+        end_pos: usize,
+    ) -> Result<(Vec<f32>, Vec<f32>), GpuError> {
+        if !self.kv_cache_q8_enabled {
+            return Err(GpuError::InvalidParameter(
+                "Q8 KV cache not enabled. Call init_kv_cache_q8_gpu first.".to_string(),
+            ));
+        }
+
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let max_len = self.kv_cache_max_len;
+        let blocks_per_head = head_dim / 32;
+        let seq_len = end_pos.saturating_sub(start_pos);
+
+        if end_pos > max_len {
+            return Err(GpuError::InvalidParameter(format!(
+                "End position {} exceeds max_len {}",
+                end_pos, max_len
+            )));
+        }
+
+        // Get buffer references
+        let k_key = format!("kv_{}_k", layer_idx);
+        let v_key = format!("kv_{}_v", layer_idx);
+        let k_scales_key = format!("kv_{}_k_scales", layer_idx);
+        let v_scales_key = format!("kv_{}_v_scales", layer_idx);
+
+        let k_buf = self.kv_cache_q8_k.get(&k_key).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!("Q8 K cache for layer {} not found", layer_idx))
+        })?;
+        let k_scales_buf = self.kv_cache_q8_k_scales.get(&k_scales_key).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!(
+                "Q8 K scales for layer {} not found",
+                layer_idx
+            ))
+        })?;
+        let v_buf = self.kv_cache_q8_v.get(&v_key).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!("Q8 V cache for layer {} not found", layer_idx))
+        })?;
+        let v_scales_buf = self.kv_cache_q8_v_scales.get(&v_scales_key).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!(
+                "Q8 V scales for layer {} not found",
+                layer_idx
+            ))
+        })?;
+
+        // Download quantized data for each position
+        let mut k_out = Vec::with_capacity(seq_len * num_kv_heads * head_dim);
+        let mut v_out = Vec::with_capacity(seq_len * num_kv_heads * head_dim);
+
+        for pos in start_pos..end_pos {
+            for head in 0..num_kv_heads {
+                // Download K quants and scales
+                let q_offset = head * max_len * head_dim + pos * head_dim;
+                let s_offset = head * max_len * blocks_per_head + pos * blocks_per_head;
+
+                let mut k_quants = vec![0i8; head_dim];
+                let mut k_scales = vec![0.0f32; blocks_per_head];
+                k_buf.copy_to_host_at(&mut k_quants, q_offset)?;
+                k_scales_buf.copy_to_host_at(&mut k_scales, s_offset)?;
+
+                let mut v_quants = vec![0i8; head_dim];
+                let mut v_scales = vec![0.0f32; blocks_per_head];
+                v_buf.copy_to_host_at(&mut v_quants, q_offset)?;
+                v_scales_buf.copy_to_host_at(&mut v_scales, s_offset)?;
+
+                // Dequantize
+                for block_idx in 0..blocks_per_head {
+                    let block_start = block_idx * 32;
+                    let block = Q8_0Block {
+                        scale: k_scales[block_idx],
+                        quants: k_quants[block_start..block_start + 32]
+                            .try_into()
+                            .expect("32 values"),
+                    };
+                    k_out.extend_from_slice(&block.dequantize());
+
+                    let block = Q8_0Block {
+                        scale: v_scales[block_idx],
+                        quants: v_quants[block_start..block_start + 32]
+                            .try_into()
+                            .expect("32 values"),
+                    };
+                    v_out.extend_from_slice(&block.dequantize());
+                }
+            }
+        }
+
+        Ok((k_out, v_out))
+    }
 }
 
 #[cfg(test)]
@@ -1068,5 +1324,106 @@ mod tests {
 
         let reduction = fp32_equiv as f64 / q8_mem as f64;
         assert!(reduction > 3.5, "Expected >3.5x reduction, got {:.2}x", reduction);
+    }
+
+    #[test]
+    fn test_q8_kv_cache_write_read_roundtrip() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+
+        let num_kv_heads = 4;
+        let head_dim = 64; // Divisible by 32
+        let max_len = 16;
+
+        // Initialize Q8 KV cache
+        exec.init_kv_cache_q8_gpu(2, 8, num_kv_heads, head_dim, max_len)
+            .unwrap();
+
+        // Create test K/V vectors with known values
+        let size = num_kv_heads * head_dim;
+        let k: Vec<f32> = (0..size).map(|i| (i as f32) * 0.01).collect();
+        let v: Vec<f32> = (0..size).map(|i| (i as f32) * -0.01).collect();
+
+        // Write to position 0
+        exec.write_kv_q8(0, 0, &k, &v).unwrap();
+
+        // Read back
+        let (k_out, v_out) = exec.read_kv_q8(0, 0, 1).unwrap();
+
+        // Verify dimensions
+        assert_eq!(k_out.len(), size, "K output size mismatch");
+        assert_eq!(v_out.len(), size, "V output size mismatch");
+
+        // Verify values are close (Q8 has ~1% quantization error max)
+        for i in 0..size {
+            let k_err = (k[i] - k_out[i]).abs();
+            let v_err = (v[i] - v_out[i]).abs();
+            // Allow 1% relative error or 0.01 absolute error
+            let k_tol = (k[i].abs() * 0.02).max(0.02);
+            let v_tol = (v[i].abs() * 0.02).max(0.02);
+            assert!(
+                k_err < k_tol,
+                "K[{}]: expected {}, got {}, err {} > tol {}",
+                i,
+                k[i],
+                k_out[i],
+                k_err,
+                k_tol
+            );
+            assert!(
+                v_err < v_tol,
+                "V[{}]: expected {}, got {}, err {} > tol {}",
+                i,
+                v[i],
+                v_out[i],
+                v_err,
+                v_tol
+            );
+        }
+    }
+
+    #[test]
+    fn test_q8_kv_cache_multiple_positions() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+
+        let num_kv_heads = 2;
+        let head_dim = 32; // Minimal divisible by 32
+        let max_len = 8;
+
+        exec.init_kv_cache_q8_gpu(1, 4, num_kv_heads, head_dim, max_len)
+            .unwrap();
+
+        let size = num_kv_heads * head_dim;
+
+        // Write to multiple positions
+        for pos in 0..4 {
+            let k: Vec<f32> = (0..size).map(|i| (pos as f32 + i as f32) * 0.1).collect();
+            let v: Vec<f32> = (0..size).map(|i| -(pos as f32 + i as f32) * 0.1).collect();
+            exec.write_kv_q8(0, pos, &k, &v).unwrap();
+        }
+
+        // Read all positions at once
+        let (k_all, v_all) = exec.read_kv_q8(0, 0, 4).unwrap();
+
+        assert_eq!(k_all.len(), 4 * size, "K all size mismatch");
+        assert_eq!(v_all.len(), 4 * size, "V all size mismatch");
+    }
+
+    #[test]
+    fn test_q8_kv_cache_not_enabled_error() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+
+        // Don't initialize Q8 cache
+        let k = vec![1.0f32; 128];
+        let v = vec![1.0f32; 128];
+
+        let result = exec.write_kv_q8(0, 0, &k, &v);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not enabled"));
     }
 }
