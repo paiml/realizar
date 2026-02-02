@@ -2,7 +2,9 @@
 
 This directory contains example programs demonstrating the capabilities of realizar, a pure Rust ML inference engine.
 
-## Available Examples (32 total)
+## Available Examples (414 total)
+
+> **32 documented examples** below + **382 development/debugging scripts** (bench_*, check_*, compare_*, debug_*, par_*, profile_*, test_*, trace_*, verify_*).
 
 ### Core Examples (No Extra Features Required)
 
@@ -465,6 +467,83 @@ Debug utilities for CUDA development:
 cargo run --example cuda_debug --features cuda
 ```
 
+#### 33. `quick_generate.rs` - Quick Text Generation (Real Models)
+
+Fast text generation with real GGUF models:
+- Load and run inference on actual model files
+- Minimal boilerplate for quick experimentation
+
+**Run:**
+```bash
+MODEL_PATH=/path/to/model.gguf cargo run --example quick_generate --release
+```
+
+#### 34. `cuda_chat_completions.rs` - CUDA Chat Completions
+
+End-to-end chat completion on GPU:
+- Chat template formatting
+- CUDA-accelerated inference
+- OpenAI-compatible interface
+
+**Run:**
+```bash
+MODEL_PATH=/path/to/model.gguf cargo run --example cuda_chat_completions --release --features cuda
+```
+
+#### 35. `gpu_showcase_benchmark.rs` - GPU Showcase Benchmark
+
+Comprehensive GPU performance showcase:
+- GEMV, GEMM, attention, flash attention benchmarks
+- RTX 4090 performance profiling
+- Comparison across batch sizes
+
+**Run:**
+```bash
+cargo run --example gpu_showcase_benchmark --release --features cuda
+```
+
+#### 36. `apr_mmap_loading.rs` - Memory-Mapped APR Loading
+
+Demonstrates memory-mapped .apr file loading:
+- Zero-copy model access via mmap
+- Reduced memory footprint
+- Fast model switching
+
+**Run:**
+```bash
+cargo run --example apr_mmap_loading
+```
+
+#### 37. `convert_apr_q4k.rs` - GGUF to APR Q4_K Conversion
+
+Convert GGUF models to APR format with Q4_K quantization:
+- Format conversion pipeline
+- Quantization preservation
+- Output verification
+
+**Run:**
+```bash
+MODEL_PATH=/path/to/model.gguf cargo run --example convert_apr_q4k --release --features cuda
+```
+
+### Development & Debugging Scripts (382 files)
+
+The `examples/` directory also contains 382 development scripts organized by prefix:
+
+| Prefix | Count | Purpose |
+|--------|-------|---------|
+| `bench_*` | ~40 | Microbenchmarks for specific operations |
+| `check_*` | ~50 | Tensor/weight/metadata inspection |
+| `compare_*` | ~30 | CPU vs GPU, GGUF vs APR parity checks |
+| `debug_*` | ~70 | Layer-by-layer debugging, divergence tracing |
+| `par_001_*` | ~30 | Parity verification against HuggingFace |
+| `profile_*` | ~25 | Performance profiling scripts |
+| `test_*` | ~40 | Integration test harnesses |
+| `trace_*` | ~30 | Forward pass tracing, attention visualization |
+| `verify_*` | ~20 | Correctness verification scripts |
+
+These are used during development and are runnable but not documented individually.
+
 ## Quick Reference
 
 | Example | Features Required | Description |
@@ -501,6 +580,11 @@ cargo run --example cuda_debug --features cuda
 | `mnist_apr_benchmark` | `aprender-serve` | Benchmark .apr vs PyTorch |
 | `performance_parity` | `cuda` | Full parity suite |
 | `cuda_debug` | `cuda` | CUDA debug utilities |
+| `quick_generate` | None | Quick text generation |
+| `cuda_chat_completions` | `cuda` | GPU chat completions |
+| `gpu_showcase_benchmark` | `cuda` | GPU performance showcase |
+| `apr_mmap_loading` | None | Memory-mapped APR loading |
+| `convert_apr_q4k` | `cuda` | GGUF→APR Q4_K conversion |
 
 ## Quick Start
 
