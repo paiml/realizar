@@ -130,6 +130,40 @@ impl AprQ4ToGpuAdapter {
             })?;
         total_bytes += lm_head_bytes;
 
+        // PAR-023: Upload norm weights to GPU for GPU-resident RMSNorm
+        // This eliminates CPU roundtrips for normalization operations
+        for (layer_idx, layer) in apr.layers.iter().enumerate() {
+            // Attention norm
+            let attn_norm_name = format!("apr.layer_{layer_idx}.attn_norm");
+            let attn_norm_bytes = executor
+                .cache_rmsnorm_gamma(&attn_norm_name, &layer.attn_norm_weight)
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("Failed to cache {attn_norm_name}: {e}"),
+                })?;
+            total_bytes += attn_norm_bytes;
+
+            // FFN norm (use ones if not present)
+            let ffn_norm_name = format!("apr.layer_{layer_idx}.ffn_norm");
+            let ffn_norm = layer
+                .ffn_norm_weight
+                .as_ref()
+                .map_or_else(|| vec![1.0f32; apr.config.hidden_dim], Clone::clone);
+            let ffn_norm_bytes = executor
+                .cache_rmsnorm_gamma(&ffn_norm_name, &ffn_norm)
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("Failed to cache {ffn_norm_name}: {e}"),
+                })?;
+            total_bytes += ffn_norm_bytes;
+        }
+
+        // Output norm
+        let output_norm_bytes = executor
+            .cache_rmsnorm_gamma("apr.output_norm", &apr.output_norm_weight)
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Failed to cache apr.output_norm: {e}"),
+            })?;
+        total_bytes += output_norm_bytes;
+
         Ok(total_bytes)
     }
 
@@ -253,18 +287,21 @@ impl GpuModelQ4 {
             hidden_gpu = self.forward_layer(executor, &hidden_gpu, layer_idx, seq_len)?;
         }
 
-        // 4. Final layer norm (CPU for simplicity - small operation)
-        let mut hidden = gpu_to_host(&hidden_gpu)?;
+        // 4. Final layer norm (GPU)
+        // PAR-023: Use cached gamma pointer to avoid CPU roundtrip
+        let (output_gamma_ptr, output_gamma_len) = executor
+            .get_rmsnorm_gamma_ptr("apr.output_norm")
+            .ok_or_else(|| RealizarError::GpuError {
+                reason: "apr.output_norm not cached on GPU".to_string(),
+            })?;
 
-        // RMSNorm
-        self.rms_norm_inplace(&mut hidden, &self.output_norm_weight);
+        let normed_gpu = executor
+            .rmsnorm_gpu_ptr(&hidden_gpu, output_gamma_ptr, output_gamma_len, hidden_dim as u32, self.config.eps)
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Output RMSNorm failed: {e}"),
+            })?;
 
         // 5. LM head projection (GPU, Q4_0)
-        let hidden_gpu = GpuBuffer::from_host(executor.context(), &hidden).map_err(|e| {
-            RealizarError::GpuError {
-                reason: format!("Failed to upload normed hidden: {e}"),
-            }
-        })?;
 
         let logits_gpu = GpuBuffer::new(executor.context(), vocab_size).map_err(|e| {
             RealizarError::GpuError {
@@ -282,7 +319,7 @@ impl GpuModelQ4 {
         executor
             .q4_0_gemv_into(
                 lm_head_ptr,
-                &hidden_gpu,
+                &normed_gpu,
                 &logits_gpu,
                 vocab_size as u32,
                 hidden_dim as u32,
@@ -317,19 +354,20 @@ impl GpuModelQ4 {
         let kv_dim = num_kv_heads * head_dim;
         let qkv_dim = hidden_dim + 2 * kv_dim;
 
-        // 1. Download for attention norm (CPU)
-        let hidden = gpu_to_host(input)?;
+        // 1. Pre-attention RMSNorm (GPU)
+        // PAR-023: Use cached gamma pointer to avoid CPU roundtrip
+        let attn_norm_name = format!("apr.layer_{layer_idx}.attn_norm");
+        let (attn_gamma_ptr, attn_gamma_len) = executor
+            .get_rmsnorm_gamma_ptr(&attn_norm_name)
+            .ok_or_else(|| RealizarError::GpuError {
+                reason: format!("{attn_norm_name} not cached on GPU"),
+            })?;
 
-        // RMSNorm using cached layer norms
-        let mut normed = hidden.clone();
-        self.rms_norm_inplace(&mut normed, &self.layer_norms[layer_idx].attn_norm);
-
-        // 2. Upload normed input
-        let normed_gpu = GpuBuffer::from_host(executor.context(), &normed).map_err(|e| {
-            RealizarError::GpuError {
-                reason: format!("Failed to upload normed: {e}"),
-            }
-        })?;
+        let normed_gpu = executor
+            .rmsnorm_gpu_ptr(input, attn_gamma_ptr, attn_gamma_len, hidden_dim as u32, self.config.eps)
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Attention RMSNorm failed: {e}"),
+            })?;
 
         // 3. QKV projection (Q4_0)
         let qkv_gpu =
@@ -407,23 +445,29 @@ impl GpuModelQ4 {
                 reason: format!("Out GEMV failed: {e}"),
             })?;
 
-        // 6. Residual connection (CPU)
-        let mut out = gpu_to_host(&out_gpu)?;
+        // 6. Residual connection (GPU)
+        // PAR-023: Keep data on GPU to avoid roundtrip
+        let residual1 = executor
+            .residual_add_gpu(input, &out_gpu, hidden_dim as u32)
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Residual add failed: {e}"),
+            })?;
 
-        for i in 0..hidden_dim {
-            out[i] += hidden[i];
-        }
+        // 7. FFN norm (GPU)
+        let ffn_norm_name = format!("apr.layer_{layer_idx}.ffn_norm");
+        let (ffn_gamma_ptr, ffn_gamma_len) = executor
+            .get_rmsnorm_gamma_ptr(&ffn_norm_name)
+            .ok_or_else(|| RealizarError::GpuError {
+                reason: format!("{ffn_norm_name} not cached on GPU"),
+            })?;
 
-        // 7. FFN norm
-        let mut ffn_input = out.clone();
-        self.rms_norm_inplace(&mut ffn_input, &self.layer_norms[layer_idx].ffn_norm);
+        let ffn_input_gpu = executor
+            .rmsnorm_gpu_ptr(&residual1, ffn_gamma_ptr, ffn_gamma_len, hidden_dim as u32, self.config.eps)
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("FFN RMSNorm failed: {e}"),
+            })?;
 
         // 8. FFN (GPU, Q4_0)
-        let ffn_input_gpu = GpuBuffer::from_host(executor.context(), &ffn_input).map_err(|e| {
-            RealizarError::GpuError {
-                reason: format!("Failed to upload ffn_input: {e}"),
-            }
-        })?;
 
         let ffn_out = if self.has_gate {
             // SwiGLU: gate * up * silu
@@ -433,19 +477,13 @@ impl GpuModelQ4 {
             self.ffn_standard_gpu(executor, &ffn_input_gpu, layer_idx)?
         };
 
-        // 9. Final residual
-        let mut ffn_out_host = gpu_to_host(&ffn_out)?;
-
-        for i in 0..hidden_dim {
-            ffn_out_host[i] += out[i];
-        }
-
-        // 10. Upload final output
-        GpuBuffer::from_host(executor.context(), &ffn_out_host).map_err(|e| {
-            RealizarError::GpuError {
-                reason: format!("Failed to upload final output: {e}"),
-            }
-        })
+        // 9. Final residual (GPU)
+        // PAR-023: Keep data on GPU - residual1 + ffn_out
+        executor
+            .residual_add_gpu(&residual1, &ffn_out, hidden_dim as u32)
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Final residual add failed: {e}"),
+            })
     }
 
     /// SwiGLU FFN using Q4_0 kernels

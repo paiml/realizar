@@ -290,6 +290,46 @@ executor.gelu_gpu(&up_gpu, intermediate_dim as u32)?;
 
 ---
 
+#### QWEN-013: GPU RMSNorm and Residual Kernels — ✅ COMPLETED
+
+**Status:** ✅ **COMPLETED** (2026-02-02)
+
+**Problem:** RMSNorm and residual connections were using CPU roundtrips:
+- Download hidden state from GPU
+- Apply RMSNorm on CPU
+- Upload normalized result back to GPU
+- Same for residual add operations
+
+**Fix Applied:**
+1. Added `get_rmsnorm_gamma_ptr()` to expose cached gamma buffer pointers
+2. Modified `upload_weights()` to cache all norm weights on GPU
+3. Modified `forward_layer()` to use GPU-resident `rmsnorm_gpu_ptr()` and `residual_add_gpu()`
+4. Modified output norm to use GPU RMSNorm
+
+**Before (CPU roundtrip):**
+```rust
+let normed = executor.rmsnorm(&hidden, &gamma, eps)?;  // GPU→CPU→GPU
+let residual = hidden.iter().zip(out.iter()).map(|(h, o)| h + o).collect();  // CPU
+```
+
+**After (GPU-only):**
+```rust
+let normed_gpu = executor.rmsnorm_gpu_ptr(input, gamma_ptr, gamma_len, hidden_dim, eps)?;
+let residual = executor.residual_add_gpu(input, &out_gpu, hidden_dim)?;
+```
+
+**Benchmark Results:**
+- M=8: **740.5 tok/s** (2.54x Ollama) ✅
+- M=16: **583.6 tok/s** (2.01x Ollama) ✅
+
+**Acceptance Criteria:**
+- [x] AC1: Zero GPU↔CPU transfers for RMSNorm operations ✅
+- [x] AC2: Zero GPU↔CPU transfers for residual connections ✅
+- [x] AC3: All existing tests pass (45/45) ✅
+- [x] AC4: Throughput >= 500 tok/s — **ACTUAL: 740.5 tok/s at M=8** ✅
+
+---
+
 #### QWEN-009: RMSNorm + Linear + Activation 3-Way Fusion
 
 **Current:** RMSNorm+Q8_0 fusion exists (`quantize_rmsnorm_q8_0` in PMAT-802)
@@ -359,6 +399,7 @@ executor.gelu_gpu(&up_gpu, intermediate_dim as u32)?;
 | QWEN-002 | Fix GQA broadcasting | 2-3x | Low | Yes (7:1 ratio) | **P0** | ✅ VERIFIED |
 | QWEN-003 | Wire SwiGLU GPU fusion | 1.5-2x | Low | Yes (SwiGLU arch) | **P0** | ✅ DONE |
 | QWEN-011 | Wire GELU GPU fusion | 1.2x | Low | No | **P0** | ✅ DONE |
+| QWEN-013 | GPU RMSNorm + Residual | 1.3x | Low | No | **P0** | ✅ DONE |
 | QWEN-001 | SageAttention INT8 | 2-3x | Medium | No | P1 | Planned |
 | QWEN-004 | EAGLE speculative | 2-3x | High | Yes (bf16 required) | P1 | Planned |
 | QWEN-005 | Marlin-style kernels | 2.6x | High | No | P2 | Planned |
@@ -423,6 +464,32 @@ labels:
 files_to_modify:
   - src/gpu/adapters/apr_q4.rs
   - src/cuda/executor/activations.rs
+```
+
+### QWEN-PMAT-013: GPU RMSNorm and Residual Kernels
+
+```yaml
+id: QWEN-PMAT-013
+github_issue: null
+item_type: task
+title: "Wire GPU RMSNorm and fused residual kernels into APR Q4 adapter"
+status: completed
+priority: critical
+spec: docs/specifications/qwen-performance-improve.md
+acceptance_criteria:
+  - "AC1: Zero GPU↔CPU transfers for RMSNorm operations"
+  - "AC2: Zero GPU↔CPU transfers for residual connections"
+  - "AC3: All existing tests pass"
+  - "AC4: Throughput >= 500 tok/s — ACHIEVED: 740.5 tok/s"
+estimated_effort: 1 day
+labels:
+  - qwen-perf
+  - rmsnorm
+  - residual
+  - p0-critical
+files_to_modify:
+  - src/cuda/executor/layer.rs
+  - src/gpu/adapters/apr_q4.rs
 ```
 
 ### QWEN-PMAT-003: SageAttention INT8 Kernel

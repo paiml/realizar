@@ -576,6 +576,25 @@ impl CudaExecutor {
         }
     }
 
+    /// PAR-023: Get cached RMSNorm gamma pointer and length
+    ///
+    /// Returns the GPU device pointer and element count for a cached RMSNorm gamma.
+    /// Use with `rmsnorm_gpu_ptr` to avoid CPU roundtrips.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Cache key name (e.g., "blk.0.attn_norm.gamma")
+    ///
+    /// # Returns
+    ///
+    /// (device_pointer, element_count) or None if not cached
+    #[must_use]
+    pub fn get_rmsnorm_gamma_ptr(&self, name: &str) -> Option<(u64, usize)> {
+        self.rmsnorm_cache
+            .get(name)
+            .map(|buf| (buf.as_ptr(), buf.len()))
+    }
+
     /// BIAS-FIX: Cache QKV bias vectors on GPU for all layers
     ///
     /// Pre-uploads Q, K, V bias vectors (when present) to avoid per-layer uploads.
@@ -1176,7 +1195,7 @@ impl CudaExecutor {
         let thread_limit = 1024 / head_dim;
         let tile_q = 64u32.min(seq_len).min(thread_limit);
         let smem_per_section = tile_q * head_dim; // elements allocated
-        let smem_k_needed = head_dim * head_dim;  // elements accessed by dot loop
+        let smem_k_needed = head_dim * head_dim; // elements accessed by dot loop
         if smem_k_needed > smem_per_section {
             return Err(GpuError::InvalidLaunchConfig(format!(
                 "flash_attention: shared memory overflow — K dot loop needs {} elements \
