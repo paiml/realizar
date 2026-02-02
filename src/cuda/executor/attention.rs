@@ -108,7 +108,7 @@ impl CudaExecutor {
         );
 
         if !self.modules.contains_key(&module_key) {
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(module_key.clone(), module);
         }
         let module = self
@@ -281,7 +281,7 @@ impl CudaExecutor {
                 let scatter_key = format!("kv_scatter_indirect_{}_{}", num_kv_heads, head_dim);
 
                 if !self.modules.contains_key(&scatter_key) {
-                    let module = CudaModule::from_ptx(&self.context, &scatter_ptx)?;
+                    let module = self.compile_ptx(&scatter_ptx)?;
                     self.modules.insert(scatter_key.clone(), module);
                 }
                 let scatter_module = self.modules.get_mut(&scatter_key).expect("just inserted");
@@ -348,7 +348,7 @@ impl CudaExecutor {
                 let scatter_key = format!("kv_scatter_{}_{}", num_kv_heads, head_dim);
 
                 if !self.modules.contains_key(&scatter_key) {
-                    let module = CudaModule::from_ptx(&self.context, &scatter_ptx)?;
+                    let module = self.compile_ptx(&scatter_ptx)?;
                     self.modules.insert(scatter_key.clone(), module);
                 }
                 let scatter_module = self.modules.get_mut(&scatter_key).expect("just inserted");
@@ -573,7 +573,7 @@ impl CudaExecutor {
         let ptx = self.kernels.generate_ptx(&kernel_type);
 
         if !self.modules.contains_key(&module_key) {
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(module_key.clone(), module);
         }
         let module = self
@@ -739,7 +739,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&scatter_key) {
             let scatter_ptx = self.kernels.generate_ptx(&scatter_type);
-            let module = CudaModule::from_ptx(&self.context, &scatter_ptx)?;
+            let module = self.compile_ptx(&scatter_ptx)?;
             self.modules.insert(scatter_key.clone(), module);
         }
 
@@ -827,22 +827,9 @@ impl CudaExecutor {
             .map(|seq_idx| self.batched_kv_lengths.get(seq_idx).copied().unwrap_or(1) as u32)
             .collect();
 
-        // Upload pointer arrays and sequence lengths to GPU
-        let k_ptrs_buf = self.batched_k_ptrs.as_mut().ok_or_else(|| {
-            GpuError::InvalidLaunchConfig("PAR-119: batched_k_ptrs not allocated".to_string())
-        })?;
-        let v_ptrs_buf = self.batched_v_ptrs.as_mut().ok_or_else(|| {
-            GpuError::InvalidLaunchConfig("PAR-119: batched_v_ptrs not allocated".to_string())
-        })?;
-        let seq_lens_buf = self.batched_seq_lens_gpu.as_mut().ok_or_else(|| {
-            GpuError::InvalidLaunchConfig("PAR-119: batched_seq_lens_gpu not allocated".to_string())
-        })?;
-
-        k_ptrs_buf.copy_from_host(&k_ptrs)?;
-        v_ptrs_buf.copy_from_host(&v_ptrs)?;
-        seq_lens_buf.copy_from_host(&seq_lens)?;
-
         // Step 3: Launch batched attention kernel
+        // Compile module BEFORE taking mutable borrows on ptr buffers to
+        // avoid borrow-checker conflict (compile_ptx borrows &self).
         let kernel = BatchedIncrementalAttentionKernel::new(
             max_len as u32,
             head_dim as u32,
@@ -859,9 +846,24 @@ impl CudaExecutor {
         if !self.modules.contains_key(&module_key) {
             // PAR-119: Use emit_ptx() to get full module with version/target headers
             let ptx_source = kernel.emit_ptx();
-            let module = CudaModule::from_ptx(&self.context, &ptx_source)?;
+            let module = self.compile_ptx(&ptx_source)?;
             self.modules.insert(module_key.clone(), module);
         }
+
+        // Upload pointer arrays and sequence lengths to GPU
+        let k_ptrs_buf = self.batched_k_ptrs.as_mut().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-119: batched_k_ptrs not allocated".to_string())
+        })?;
+        let v_ptrs_buf = self.batched_v_ptrs.as_mut().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-119: batched_v_ptrs not allocated".to_string())
+        })?;
+        let seq_lens_buf = self.batched_seq_lens_gpu.as_mut().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-119: batched_seq_lens_gpu not allocated".to_string())
+        })?;
+
+        k_ptrs_buf.copy_from_host(&k_ptrs)?;
+        v_ptrs_buf.copy_from_host(&v_ptrs)?;
+        seq_lens_buf.copy_from_host(&seq_lens)?;
         let module = self
             .modules
             .get_mut(&module_key)
@@ -1001,7 +1003,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&scatter_key) {
             let scatter_ptx = self.kernels.generate_ptx(&scatter_type);
-            let module = CudaModule::from_ptx(&self.context, &scatter_ptx)?;
+            let module = self.compile_ptx(&scatter_ptx)?;
             self.modules.insert(scatter_key.clone(), module);
         }
 
@@ -1101,26 +1103,14 @@ impl CudaExecutor {
             .map(|seq_idx| self.batched_kv_lengths.get(seq_idx).copied().unwrap_or(1) as u32)
             .collect();
 
-        let k_ptrs_buf = self.batched_k_ptrs.as_mut().ok_or_else(|| {
-            GpuError::InvalidLaunchConfig("PAR-118: batched_k_ptrs not allocated".to_string())
-        })?;
-        let v_ptrs_buf = self.batched_v_ptrs.as_mut().ok_or_else(|| {
-            GpuError::InvalidLaunchConfig("PAR-118: batched_v_ptrs not allocated".to_string())
-        })?;
-        let seq_lens_buf = self.batched_seq_lens_gpu.as_mut().ok_or_else(|| {
-            GpuError::InvalidLaunchConfig("PAR-118: batched_seq_lens_gpu not allocated".to_string())
-        })?;
-
-        k_ptrs_buf.copy_from_host(&k_ptrs)?;
-        v_ptrs_buf.copy_from_host(&v_ptrs)?;
-        seq_lens_buf.copy_from_host(&seq_lens)?;
-
         // Step 3: Compute max chunks needed
         let max_seq_len_actual = seq_lens.iter().copied().max().unwrap_or(1) as usize;
         let max_chunks = (max_seq_len_actual + FLASH_DECODE_CHUNK_SIZE as usize - 1)
             / FLASH_DECODE_CHUNK_SIZE as usize;
 
         // Step 4: Launch Flash Decoding chunk kernel
+        // Compile module BEFORE taking mutable borrows on ptr buffers to
+        // avoid borrow-checker conflict (compile_ptx borrows &self).
         let chunk_kernel = FlashDecodingChunkKernel::new(
             max_len as u32,
             head_dim as u32,
@@ -1136,9 +1126,23 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&chunk_module_key) {
             let chunk_ptx = chunk_kernel.emit_ptx();
-            let module = CudaModule::from_ptx(&self.context, &chunk_ptx)?;
+            let module = self.compile_ptx(&chunk_ptx)?;
             self.modules.insert(chunk_module_key.clone(), module);
         }
+
+        let k_ptrs_buf = self.batched_k_ptrs.as_mut().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-118: batched_k_ptrs not allocated".to_string())
+        })?;
+        let v_ptrs_buf = self.batched_v_ptrs.as_mut().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-118: batched_v_ptrs not allocated".to_string())
+        })?;
+        let seq_lens_buf = self.batched_seq_lens_gpu.as_mut().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("PAR-118: batched_seq_lens_gpu not allocated".to_string())
+        })?;
+
+        k_ptrs_buf.copy_from_host(&k_ptrs)?;
+        v_ptrs_buf.copy_from_host(&v_ptrs)?;
+        seq_lens_buf.copy_from_host(&seq_lens)?;
 
         let partials_buf = self.flash_decode_partials.as_ref().ok_or_else(|| {
             GpuError::InvalidLaunchConfig(
@@ -1191,7 +1195,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&reduce_module_key) {
             let reduce_ptx = reduce_kernel.emit_ptx();
-            let module = CudaModule::from_ptx(&self.context, &reduce_ptx)?;
+            let module = self.compile_ptx(&reduce_ptx)?;
             self.modules.insert(reduce_module_key.clone(), module);
         }
 
@@ -1305,7 +1309,7 @@ impl CudaExecutor {
             let ptx = self.kernels.generate_ptx(&kernel_type);
             #[cfg(test)]
             eprintln!("Generated Tensor Core attention PTX:\n{}", ptx);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -1432,7 +1436,7 @@ impl CudaExecutor {
         // Load module if not cached
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 

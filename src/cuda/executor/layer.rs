@@ -972,7 +972,7 @@ impl CudaExecutor {
         // Load module if not cached
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -1043,7 +1043,7 @@ impl CudaExecutor {
         // Load module if not cached
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -1158,7 +1158,7 @@ impl CudaExecutor {
             // Debug: Print PTX for debugging invalid PTX errors
             #[cfg(test)]
             eprintln!("Generated attention PTX:\n{}", ptx);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -1166,6 +1166,25 @@ impl CudaExecutor {
             .modules
             .get_mut(&cache_key)
             .expect("module just inserted");
+
+        // Fail-fast: validate shared memory bounds BEFORE launching the kernel.
+        // The attention kernel's dot-product loop accesses K as K[col * head_dim + dot_idx]
+        // where col = tid % head_dim ∈ [0, head_dim-1] and dot_idx ∈ [0, head_dim-1].
+        // This requires head_dim² elements per K/V section, but shared memory only
+        // allocates tile_q * head_dim elements per section.  When head_dim > tile_q,
+        // the kernel will read out-of-bounds shared memory and crash the GPU device.
+        let thread_limit = 1024 / head_dim;
+        let tile_q = 64u32.min(seq_len).min(thread_limit);
+        let smem_per_section = tile_q * head_dim; // elements allocated
+        let smem_k_needed = head_dim * head_dim;  // elements accessed by dot loop
+        if smem_k_needed > smem_per_section {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "flash_attention: shared memory overflow — K dot loop needs {} elements \
+                 but only {} allocated (tile_q={}, head_dim={}). \
+                 This is a known trueno-gpu AttentionKernel bug.",
+                smem_k_needed, smem_per_section, tile_q, head_dim
+            )));
+        }
 
         // Allocate GPU buffers
         let buf_q = GpuBuffer::from_host(&self.context, q)?;
@@ -1177,8 +1196,6 @@ impl CudaExecutor {
         // Grid X: Q blocks (ceil(seq_len / tile_q)), Grid Y: num_heads
         // Threads: tile_q * head_dim (must be <= 1024)
         // IMP-1010: Ensure tile_q * head_dim <= 1024 so all threads can load Q/K/V elements
-        let thread_limit = 1024 / head_dim;
-        let tile_q = 64u32.min(seq_len).min(thread_limit);
         let num_q_blocks = (seq_len + tile_q - 1) / tile_q;
         let num_heads = 1u32; // Single head for now
         let threads_per_block = tile_q * head_dim; // Now guaranteed <= 1024
@@ -1292,7 +1309,7 @@ impl CudaExecutor {
             let ptx = self.kernels.generate_ptx(&kernel_type);
             #[cfg(test)]
             eprintln!("Generated multi-head attention PTX:\n{}", ptx);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -1317,6 +1334,19 @@ impl CudaExecutor {
         // Without this constraint, we launch 1024 threads but need tile_q * head_dim > 1024 loads
         let thread_limit = 1024 / head_dim;
         let tile_q = max_tile.min(64).min(seq_len).min(thread_limit);
+
+        // Fail-fast: same shared memory overflow check as flash_attention.
+        let smem_per_section = tile_q * head_dim;
+        let smem_k_needed = head_dim * head_dim;
+        if smem_k_needed > smem_per_section {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "flash_attention_multi_head: shared memory overflow — K dot loop needs {} elements \
+                 but only {} allocated (tile_q={}, head_dim={}). \
+                 This is a known trueno-gpu AttentionKernel bug.",
+                smem_k_needed, smem_per_section, tile_q, head_dim
+            )));
+        }
+
         let num_q_blocks = (seq_len + tile_q - 1) / tile_q;
         let threads_per_block = tile_q * head_dim; // Now guaranteed <= 1024
         let config = LaunchConfig::grid_2d(num_q_blocks, n_heads, threads_per_block, 1);
@@ -1540,7 +1570,8 @@ mod tests {
             scale,
             causal,
         );
-        // May fail due to PTX issues but exercises the code path
+        // Validation catches the shared memory overflow before kernel launch.
+        // The error is expected — trueno-gpu's AttentionKernel has a known bug.
         let _ = result;
     }
 

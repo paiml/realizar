@@ -281,7 +281,7 @@ impl CudaExecutor {
                     epsilon: 1e-5,
                 };
                 let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                let module = self.compile_ptx(&ptx)?;
                 self.modules.insert(rmsnorm_key, module);
             }
         } else {
@@ -293,7 +293,7 @@ impl CudaExecutor {
                     epsilon: 1e-5, // Runtime parameter, kernel code same regardless
                 };
                 let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                let module = self.compile_ptx(&ptx)?;
                 self.modules.insert(rmsnorm_key, module);
             }
         }
@@ -311,7 +311,7 @@ impl CudaExecutor {
                 n: q_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(q4k_q_key, module);
         }
 
@@ -323,7 +323,7 @@ impl CudaExecutor {
                 n: kv_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(q4k_kv_key, module);
         }
 
@@ -335,7 +335,7 @@ impl CudaExecutor {
                 n: q_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(q5_0_q_key, module);
         }
         let q5_0_kv_key = format!("q5_0_gemv_{}_{}", hidden_dim, kv_dim);
@@ -345,7 +345,7 @@ impl CudaExecutor {
                 n: kv_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(q5_0_kv_key, module);
         }
 
@@ -358,7 +358,7 @@ impl CudaExecutor {
                 n: q_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(q6k_q_key, module);
         }
         // PAR-066: CoalescedQ6K for Q (byte-wise scale loading, fixes alignment issue)
@@ -370,7 +370,7 @@ impl CudaExecutor {
                     n: q_dim,
                 };
                 let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                let module = self.compile_ptx(&ptx)?;
                 self.modules.insert(coalesced_q6k_q_key, module);
             }
         }
@@ -382,7 +382,7 @@ impl CudaExecutor {
                 n: kv_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(q6k_kv_key, module);
         }
         // PAR-066: CoalescedQ6K for KV
@@ -394,7 +394,7 @@ impl CudaExecutor {
                     n: kv_dim,
                 };
                 let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                let module = self.compile_ptx(&ptx)?;
                 self.modules.insert(coalesced_q6k_kv_key, module);
             }
         }
@@ -407,7 +407,7 @@ impl CudaExecutor {
                 n: q_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(q8_0_q_key, module);
         }
         let q8_0_kv_key = format!("q8_0_gemv_{}_{}", hidden_dim, kv_dim);
@@ -417,7 +417,7 @@ impl CudaExecutor {
                 n: kv_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(q8_0_kv_key, module);
         }
 
@@ -429,7 +429,7 @@ impl CudaExecutor {
                 n: hidden_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(q4k_o_key, module);
         }
 
@@ -442,7 +442,7 @@ impl CudaExecutor {
                 n: intermediate_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(q4k_up_key, module);
         }
         // PAR-065: Coalesced Q4K for FFN down (K=intermediate_dim)
@@ -454,7 +454,7 @@ impl CudaExecutor {
                 n: hidden_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(q4k_down_key, module);
         }
         // Pre-load basic Q4K as fallback for non-256-aligned dimensions
@@ -465,7 +465,7 @@ impl CudaExecutor {
                 n: hidden_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(q4k_down_fallback_key, module);
         }
 
@@ -477,7 +477,7 @@ impl CudaExecutor {
                 n: hidden_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(q6k_down_key, module);
         }
         // PAR-066: CoalescedQ6K for FFN down (byte-wise scale loading)
@@ -490,7 +490,7 @@ impl CudaExecutor {
                     n: hidden_dim,
                 };
                 let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                let module = self.compile_ptx(&ptx)?;
                 self.modules.insert(coalesced_q6k_down_key, module);
             }
         }
@@ -505,7 +505,7 @@ impl CudaExecutor {
                 n: vocab_size,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(lm_head_q4k_key, module);
         }
         // Q6K LM head (Qwen 1.5B uses this)
@@ -516,7 +516,7 @@ impl CudaExecutor {
                 n: vocab_size,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(lm_head_q6k_key, module);
         }
         // PAR-066: CoalescedQ6K for LM head
@@ -529,7 +529,7 @@ impl CudaExecutor {
                     n: vocab_size,
                 };
                 let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                let module = self.compile_ptx(&ptx)?;
                 self.modules.insert(coalesced_lm_head_q6k_key, module);
             }
         }
@@ -545,7 +545,7 @@ impl CudaExecutor {
                 theta,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(rope_q_key, module);
         }
         let rope_k_key = format!("rope_{}_{}", num_kv_heads, head_dim);
@@ -556,7 +556,7 @@ impl CudaExecutor {
                 theta,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(rope_k_key, module);
         }
 
@@ -570,7 +570,7 @@ impl CudaExecutor {
                 theta,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(rope_q_indirect_key, module);
         }
         let rope_k_indirect_key = format!("rope_indirect_{}_{}", num_kv_heads, head_dim);
@@ -581,7 +581,7 @@ impl CudaExecutor {
                 theta,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(rope_k_indirect_key, module);
         }
 
@@ -600,7 +600,7 @@ impl CudaExecutor {
                         theta,
                     };
                     let ptx = self.kernels.generate_ptx(&kernel_type);
-                    let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                    let module = self.compile_ptx(&ptx)?;
                     self.modules.insert(rope_precise_q_indirect_key, module);
                 }
                 // CORRECTNESS-013: Preload PreciseRopeNeoxIndirect for K
@@ -613,7 +613,7 @@ impl CudaExecutor {
                         theta,
                     };
                     let ptx = self.kernels.generate_ptx(&kernel_type);
-                    let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                    let module = self.compile_ptx(&ptx)?;
                     self.modules.insert(rope_precise_k_indirect_key, module);
                 }
             } else {
@@ -627,7 +627,7 @@ impl CudaExecutor {
                         theta,
                     };
                     let ptx = self.kernels.generate_ptx(&kernel_type);
-                    let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                    let module = self.compile_ptx(&ptx)?;
                     self.modules.insert(rope_neox_q_indirect_key, module);
                 }
                 // Standard RopeNeoxIndirect for K
@@ -640,7 +640,7 @@ impl CudaExecutor {
                         theta,
                     };
                     let ptx = self.kernels.generate_ptx(&kernel_type);
-                    let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                    let module = self.compile_ptx(&ptx)?;
                     self.modules.insert(rope_neox_k_indirect_key, module);
                 }
             }
@@ -653,7 +653,7 @@ impl CudaExecutor {
                     theta,
                 };
                 let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                let module = self.compile_ptx(&ptx)?;
                 self.modules.insert(rope_neox_q_key, module);
             }
             let rope_neox_k_key = format!("rope_neox_{}_{}", num_kv_heads, head_dim);
@@ -664,7 +664,7 @@ impl CudaExecutor {
                     theta,
                 };
                 let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                let module = self.compile_ptx(&ptx)?;
                 self.modules.insert(rope_neox_k_key, module);
             }
         }
@@ -676,7 +676,7 @@ impl CudaExecutor {
                 n: intermediate_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(swiglu_key, module);
         }
 
@@ -685,7 +685,7 @@ impl CudaExecutor {
         if !self.modules.contains_key(&residual_key) {
             let kernel_type = KernelType::ResidualAdd { n: hidden_dim };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(residual_key, module);
         }
 
@@ -698,7 +698,7 @@ impl CudaExecutor {
                 max_len,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(scatter_key, module);
         }
 
@@ -716,7 +716,7 @@ impl CudaExecutor {
                 indirect: false,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(attn_key, module);
         }
 
@@ -735,7 +735,7 @@ impl CudaExecutor {
                 indirect: true,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(attn_indirect_key, module);
         }
 
@@ -757,7 +757,7 @@ impl CudaExecutor {
                 indirect: false,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(multi_warp_key, module);
         }
 
@@ -776,7 +776,7 @@ impl CudaExecutor {
                 indirect: true,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(multi_warp_indirect_key, module);
         }
 
@@ -904,6 +904,11 @@ impl CudaExecutor {
     ///
     /// The token ID with the maximum logit value
     pub fn gpu_argmax(&mut self, logits_ptr: u64, vocab_size: u32) -> Result<u32, GpuError> {
+        if logits_ptr == 0 {
+            return Err(GpuError::InvalidLaunchConfig(
+                "null logits pointer in gpu_argmax".to_string(),
+            ));
+        }
         // PAR-068: Optimized GPU argmax with pre-allocated buffers
         // Eliminates 3 GPU allocations per token and removes intermediate sync
         let block_size = 256u32;
@@ -936,7 +941,7 @@ impl CudaExecutor {
         let argmax_key = format!("argmax_{}", vocab_size);
         if !self.modules.contains_key(&argmax_key) {
             let ptx = self.kernels.generate_ptx(&argmax_kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(argmax_key.clone(), module);
         }
 
@@ -945,7 +950,7 @@ impl CudaExecutor {
         let final_key = format!("argmax_final_{}", num_blocks);
         if !self.modules.contains_key(&final_key) {
             let ptx = self.kernels.generate_ptx(&final_kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(final_key.clone(), module);
         }
 

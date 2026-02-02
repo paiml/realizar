@@ -91,7 +91,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -206,7 +206,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -274,7 +274,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -333,6 +333,13 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<GpuBuffer<f32>, GpuError> {
+        // Validate pointer before kernel launch — launching with ptr=0
+        // crashes the kernel and permanently poisons the CUDA context.
+        if weight_ptr == 0 {
+            return Err(GpuError::InvalidLaunchConfig(
+                "null weight pointer in q4k_gemv_indexed_async".to_string(),
+            ));
+        }
         // PAR-043: Direct pointer access - no HashMap lookup
         // Load kernel module (still needs format for dimensions, but cached after first call)
         let kernel_type = KernelType::Q4KGemv { k, n };
@@ -341,7 +348,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -399,6 +406,13 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<GpuBuffer<f32>, GpuError> {
+        // Validate pointer before kernel launch — launching with ptr=0
+        // crashes the kernel and permanently poisons the CUDA context.
+        if weight_ptr == 0 {
+            return Err(GpuError::InvalidLaunchConfig(
+                "null weight pointer in q6k_gemv_indexed_async".to_string(),
+            ));
+        }
         // PAR-058: Direct pointer access for Q6K weights
         let kernel_type = KernelType::Q6KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
@@ -406,7 +420,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -466,6 +480,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "q4k_gemv_into")?;
         // PAR-065: Use DP4A kernel for 4x instruction reduction
         // Five-Whys root cause chain:
         // 1. TiledQ4KGemv uses single-byte loads (ld_global_u8) - 6% bandwidth
@@ -519,7 +534,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -576,13 +591,14 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "coalesced_q4k_gemv_into")?;
         let kernel_type = KernelType::CoalescedQ4KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("coalesced_q4k_gemv_{}_{}", k, n);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -642,13 +658,14 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "vectorized_q4k_gemv_into")?;
         let kernel_type = KernelType::VectorizedQ4KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("vectorized_q4k_gemv_{}_{}", k, n);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -706,13 +723,14 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "dp4a_q4k_gemv_into")?;
         let kernel_type = KernelType::Dp4aQ4KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("dp4a_q4k_gemv_{}_{}", k, n);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -782,13 +800,15 @@ impl CudaExecutor {
         n: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "fused_rmsnorm_q4k_gemv_into(weight)")?;
+        validate_device_ptr(gamma_ptr, "fused_rmsnorm_q4k_gemv_into(gamma)")?;
         let kernel_type = KernelType::FusedRmsNormQ4KGemv { k, n, epsilon };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("fused_rmsnorm_q4k_gemv_{}_{}_{:.0e}", k, n, epsilon);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -859,13 +879,15 @@ impl CudaExecutor {
         k: u32,
         n: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(gate_weight_ptr, "fused_gate_up_q4k_gemv_into(gate)")?;
+        validate_device_ptr(up_weight_ptr, "fused_gate_up_q4k_gemv_into(up)")?;
         let kernel_type = KernelType::FusedGateUpQ4KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("fused_gate_up_q4k_gemv_{}_{}", k, n);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -931,6 +953,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "q4k_gemv_into_tiled")?;
         // CORRECTNESS-001: Use 4 outputs per block (matches verified working q4k_gemv_cached)
         // The 8-outputs config was causing incorrect results
         // PAR-502: sm_89 has 100KB shared memory limit, K * 4 bytes must fit
@@ -959,7 +982,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -1070,6 +1093,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "batched_q4k_gemv_into")?;
         debug_assert!(
             k.is_multiple_of(256),
             "K must be multiple of 256 for Q4K super-blocks"
@@ -1097,7 +1121,7 @@ impl CudaExecutor {
 
             if !self.modules.contains_key(&cache_key) {
                 let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                let module = self.compile_ptx(&ptx)?;
                 self.modules.insert(cache_key.clone(), module);
             }
 
@@ -1163,7 +1187,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
