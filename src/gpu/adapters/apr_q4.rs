@@ -513,22 +513,13 @@ impl GpuModelQ4 {
                 reason: format!("Up GEMV failed: {e}"),
             })?;
 
-        // SwiGLU activation (CPU - fusing requires custom kernel)
-        let gate = gpu_to_host(&gate_gpu)?;
-        let up = gpu_to_host(&up_gpu)?;
-
-        let activated: Vec<f32> = gate
-            .iter()
-            .zip(up.iter())
-            .map(|(&g, &u)| silu(g) * u)
-            .collect();
-
-        // Down projection
-        let activated_gpu = GpuBuffer::from_host(executor.context(), &activated).map_err(|e| {
-            RealizarError::GpuError {
-                reason: format!("Failed to upload activated: {e}"),
-            }
-        })?;
+        // SwiGLU activation (GPU - fused kernel PAR-023)
+        // Eliminates 2x GPU→CPU transfers + CPU compute + 1x CPU→GPU transfer
+        let activated_gpu = executor
+            .fused_swiglu_gpu(&gate_gpu, &up_gpu, intermediate_dim as u32)
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Fused SwiGLU failed: {e}"),
+            })?;
 
         let down_gpu = GpuBuffer::new(executor.context(), hidden_dim).map_err(|e| {
             RealizarError::GpuError {
@@ -597,17 +588,13 @@ impl GpuModelQ4 {
                 reason: format!("Up GEMV failed: {e}"),
             })?;
 
-        // GELU activation (CPU)
-        let up = gpu_to_host(&up_gpu)?;
-
-        let activated: Vec<f32> = up.iter().map(|&x| gelu(x)).collect();
-
-        // Down projection
-        let activated_gpu = GpuBuffer::from_host(executor.context(), &activated).map_err(|e| {
-            RealizarError::GpuError {
-                reason: format!("Failed to upload activated: {e}"),
-            }
-        })?;
+        // GELU activation (GPU - in place)
+        // Eliminates 2x PCIe transfers (GPU→CPU download + CPU→GPU upload)
+        executor
+            .gelu_gpu(&up_gpu, intermediate_dim as u32)
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("GELU GPU failed: {e}"),
+            })?;
 
         let down_gpu = GpuBuffer::new(executor.context(), hidden_dim).map_err(|e| {
             RealizarError::GpuError {
@@ -626,7 +613,7 @@ impl GpuModelQ4 {
         executor
             .q4_0_gemv_into(
                 down_ptr,
-                &activated_gpu,
+                &up_gpu, // up_gpu now contains GELU-activated values (in-place)
                 &down_gpu,
                 hidden_dim as u32,
                 intermediate_dim as u32,
