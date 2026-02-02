@@ -90,8 +90,8 @@ mod artifact_falsification {
             2,
             0.0,
             "text",
-            true, // verbose
-            false,
+            false, // force_gpu
+            true,  // verbose
             false,
         );
 
@@ -187,8 +187,8 @@ mod artifact_falsification {
         let path = file.path().to_str().unwrap();
 
         let result = inference::run_apr_inference(
-            path, &data, "Verbose", 2, 0.0, "text", true, // verbose
-            false,
+            path, &data, "Verbose", 2, 0.0, "text", false, // force_gpu
+            true, // verbose
         );
 
         assert!(
@@ -572,9 +572,9 @@ mod artifact_falsification {
             3,
             0.5,
             "json",
-            true,
-            true,
-            true, // verbose, show_probs, debug all true
+            false, // force_gpu (pygmy model can't run on GPU)
+            true,  // verbose
+            true,  // trace
         );
         assert!(result.is_ok());
     }
