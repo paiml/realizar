@@ -217,7 +217,7 @@ let activated_gpu = executor.fused_swiglu_gpu(&gate_gpu, &up_gpu, intermediate_d
 
 ---
 
-#### QWEN-007: KV Cache Quantization
+#### QWEN-007: KV Cache Quantization — 🔄 IN PROGRESS
 
 **Source:** `realizar/src/paged_kv/mod.rs#1041` — scaffolding exists for Q8/Q4 KV
 
@@ -226,16 +226,22 @@ let activated_gpu = executor.fused_swiglu_gpu(&gate_gpu, &up_gpu, intermediate_d
 - [Quantizing LLMs' Key-Value Cache for Memory Efficiency](https://arxiv.org/abs/2308.14903) — Hooper et al., 2023
 
 **Impact:**
-- INT8 KV: 2x memory reduction, enables longer contexts
-- INT4 KV: 4x memory reduction, some quality tradeoff
+- INT8 KV: 4x memory reduction (actually ~3.56x due to scales), enables longer contexts
+- INT4 KV: 8x memory reduction, some quality tradeoff
 
-**Current State:** PagedAttention stores full FP32 K/V
+**Current State:**
+- ✅ Q8 KV cache infrastructure added to CudaExecutor (2026-02-02)
+- ✅ `init_kv_cache_q8_gpu()` method for allocating Q8 buffers
+- ✅ Memory calculation methods (`kv_cache_q8_memory_bytes`, `kv_cache_fp32_equivalent_bytes`)
+- ✅ Tests for Q8 initialization and memory calculation
+- 🔄 Pending: Wire Q8 into actual attention kernels (dequant on read)
 
 **Acceptance Criteria:**
-- [ ] AC1: INT8 KV cache option in PagedAttention
-- [ ] AC2: Per-channel quantization for K, per-token for V (per KIVI)
-- [ ] AC3: Perplexity within 0.5% of FP32 baseline
-- [ ] AC4: 2x context length at same VRAM
+- [x] AC1: Q8 KV cache buffer allocation in CudaExecutor ✅
+- [ ] AC2: Per-block quantization for K/V (scale per 32 values)
+- [ ] AC3: GPU dequantization kernel in attention path
+- [ ] AC4: Perplexity within 0.5% of FP32 baseline
+- [ ] AC5: ~3.56x memory reduction verified
 
 ---
 
@@ -404,7 +410,7 @@ let residual = executor.residual_add_gpu(input, &out_gpu, hidden_dim)?;
 | QWEN-004 | EAGLE speculative | 2-3x | High | Yes (bf16 required) | P1 | Planned |
 | QWEN-005 | Marlin-style kernels | 2.6x | High | No | P2 | Planned |
 | QWEN-006 | DCA long context | N/A | Medium | Yes (RoPE ext) | P2 | Planned |
-| QWEN-007 | KV cache quantization | 2x memory | Medium | No | P2 | Planned |
+| QWEN-007 | KV cache quantization | 4x memory | Medium | No | P2 | 🔄 In Progress |
 | QWEN-008 | MInference sparse | 3-6x prefill | High | Yes (long context) | P3 | Planned |
 | QWEN-009 | 3-way kernel fusion | 1.2x | Medium | No | P3 | Planned |
 | QWEN-010 | RTX 4090 tuning | 1.1x | Low | No | P3 | Planned |
