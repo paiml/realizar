@@ -417,6 +417,10 @@ pub struct CudaExecutor {
     // One scale per 32 consecutive values (matches Q8_0 block size)
     kv_cache_q8_k_scales: HashMap<String, GpuBuffer<f32>>,
     kv_cache_q8_v_scales: HashMap<String, GpuBuffer<f32>>,
+    // QWEN-010: Optimal tile size for GEMM operations
+    // RTX 4090 (sm_89, 72MB L2): 64x64 tiles for better L2 utilization
+    // Other GPUs (sm_80 and earlier): 32x32 tiles (default)
+    optimal_tile_size: u32,
     // PAR-073: BrickProfiler for real per-brick timing
     // Uses std::time::Instant + CUDA sync for accurate GPU timing
     profiler: trueno::BrickProfiler,

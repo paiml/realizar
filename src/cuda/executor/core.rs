@@ -107,6 +107,10 @@ impl CudaExecutor {
             kv_cache_q8_v: HashMap::new(),
             kv_cache_q8_k_scales: HashMap::new(),
             kv_cache_q8_v_scales: HashMap::new(),
+            // QWEN-010: Auto-tune tile size based on GPU
+            // RTX 4090 (sm_89) has 72MB L2 cache - use 64x64 tiles
+            // Default: 32x32 tiles for other GPUs
+            optimal_tile_size: Self::detect_optimal_tile_size(&context),
             // PAR-073: BrickProfiler (disabled by default for zero overhead)
             // Enable with executor.enable_profiling() for per-brick timing
             profiler: trueno::BrickProfiler::new(),
@@ -118,6 +122,35 @@ impl CudaExecutor {
     #[must_use]
     pub fn is_available() -> bool {
         cuda_available()
+    }
+
+    /// QWEN-010: Detect optimal tile size based on GPU architecture
+    ///
+    /// RTX 4090 (Ada Lovelace, sm_89) has 72MB L2 cache vs A100's 40MB.
+    /// Larger tiles (64x64) improve L2 cache utilization on RTX 4090.
+    fn detect_optimal_tile_size(context: &CudaContext) -> u32 {
+        // Get device name for GPU detection
+        let device_name = context.device_name().unwrap_or_default();
+
+        // RTX 4090, RTX 4080, RTX 4070 (Ada Lovelace, sm_89) benefit from 64x64 tiles
+        // These GPUs have 72MB, 64MB, 48MB L2 cache respectively
+        if device_name.contains("4090")
+            || device_name.contains("4080")
+            || device_name.contains("4070")
+        {
+            64
+        } else {
+            // Default: 32x32 tiles for other GPUs (A100, V100, older consumer cards)
+            32
+        }
+    }
+
+    /// Get the optimal tile size for this GPU
+    ///
+    /// Returns 64 for RTX 40-series (Ada Lovelace), 32 for other GPUs.
+    #[must_use]
+    pub fn optimal_tile_size(&self) -> u32 {
+        self.optimal_tile_size
     }
 
     /// Compile PTX into a CUDA module, with process-level blocklisting.
@@ -871,6 +904,27 @@ mod tests {
         let (free, total) = result.unwrap();
         assert!(total > 0);
         assert!(free <= total);
+    }
+
+    // ========================================================================
+    // QWEN-010: Optimal Tile Size Tests
+    // ========================================================================
+
+    #[test]
+    fn test_optimal_tile_size() {
+        let Some(exec) = create_executor() else {
+            return;
+        };
+        let tile_size = exec.optimal_tile_size();
+        // Should be either 32 or 64 depending on GPU
+        assert!(tile_size == 32 || tile_size == 64);
+
+        // For RTX 4090 (our development GPU), should be 64
+        if let Ok(name) = exec.device_name() {
+            if name.contains("4090") {
+                assert_eq!(tile_size, 64, "RTX 4090 should use 64x64 tiles");
+            }
+        }
     }
 
     // ========================================================================
