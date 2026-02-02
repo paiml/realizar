@@ -1564,6 +1564,11 @@ impl CudaExecutor {
         hidden_dim: u32,
         epsilon: f32,
     ) -> Result<GpuBuffer<f32>, GpuError> {
+        if gamma_ptr == 0 {
+            return Err(GpuError::InvalidLaunchConfig(
+                "null gamma pointer in rmsnorm_gpu_ptr".to_string(),
+            ));
+        }
         // Create temporary non-owning buffer wrapper
         // SAFETY: gamma_ptr points to valid GPU memory owned by rmsnorm_cache
         // SAFETY: Pointer valid from allocation, length verified, used within scope
@@ -1587,6 +1592,11 @@ impl CudaExecutor {
         hidden_dim: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
+        if gamma_ptr == 0 {
+            return Err(GpuError::InvalidLaunchConfig(
+                "null gamma pointer in rmsnorm_ptr_into".to_string(),
+            ));
+        }
         // SAFETY: Memory safety ensured by bounds checking and alignment
         // SAFETY: Pointer valid from allocation, length verified, used within scope
         let gamma = unsafe { GpuBuffer::from_raw_parts(gamma_ptr, gamma_len) };

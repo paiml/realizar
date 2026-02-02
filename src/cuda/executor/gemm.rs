@@ -83,7 +83,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -229,7 +229,7 @@ impl CudaExecutor {
         // Load module if not cached
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -349,7 +349,7 @@ impl CudaExecutor {
         // Load module if not cached
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -466,7 +466,7 @@ impl CudaExecutor {
         // Load module if not cached
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -608,7 +608,7 @@ impl CudaExecutor {
         // Load module if not cached
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -717,7 +717,7 @@ impl CudaExecutor {
         // Load module if not cached
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -850,7 +850,7 @@ impl CudaExecutor {
         // Load module if not cached (falls back to tiled for now)
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -922,7 +922,7 @@ impl CudaExecutor {
 
             if !self.modules.contains_key(&epilogue_key) {
                 let ptx = self.kernels.generate_ptx(&epilogue_type);
-                let module = CudaModule::from_ptx(&self.context, &ptx)?;
+                let module = self.compile_ptx(&ptx)?;
                 self.modules.insert(epilogue_key.clone(), module);
             }
 
@@ -980,7 +980,7 @@ impl CudaExecutor {
         // Load module if not cached
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -1050,7 +1050,7 @@ impl CudaExecutor {
         // Load module if not cached
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -1149,7 +1149,7 @@ impl CudaExecutor {
         // Load module if not cached
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -1215,7 +1215,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -1273,7 +1273,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 

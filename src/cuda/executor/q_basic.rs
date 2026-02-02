@@ -21,6 +21,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "batched_q6k_gemv_into")?;
         debug_assert!(
             k.is_multiple_of(256),
             "K must be multiple of 256 for Q6K super-blocks"
@@ -32,7 +33,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -95,6 +96,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "q6k_gemv_into")?;
         // Original Q6K kernel (CoalescedQ6K disabled due to CORRECTNESS-006)
         let kernel_type = KernelType::Q6KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
@@ -103,7 +105,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -159,6 +161,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "coalesced_q6k_gemv_into")?;
         let kernel_type = KernelType::CoalescedQ6KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("coalesced_q6k_gemv_{}_{}", k, n);
@@ -166,7 +169,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -223,6 +226,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "q8_0_gemv_into")?;
         // PAR-058: Zero allocation Q8_0 GEMV for mixed-quantization models
         let kernel_type = KernelType::Q8_0Gemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
@@ -231,7 +235,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -288,6 +292,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "q5_0_gemv_into")?;
         // PAR-058: Zero allocation Q5_0 GEMV for Qwen 0.5B Q/K weights
         let kernel_type = KernelType::Q5_0Gemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
@@ -296,7 +301,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -353,6 +358,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "q4_0_gemv_into")?;
         // PAR-058: Zero allocation Q4_0 GEMV for GGUF qtype mismatch
         let kernel_type = KernelType::Q4_0Gemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
@@ -361,7 +367,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -419,6 +425,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "q4_1_gemv_into")?;
         // PAR-058: Zero allocation Q4_1 GEMV for Qwen2.5-0.5B FFN down
         let kernel_type = KernelType::Q4_1Gemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
@@ -427,7 +434,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 
@@ -484,6 +491,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "q5k_gemv_into")?;
         // PAR-058: Zero allocation Q5K GEMV for mixed-quantization models
         let kernel_type = KernelType::Q5KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
@@ -492,7 +500,7 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
 

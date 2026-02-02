@@ -23,22 +23,22 @@ impl CudaExecutor {
     ///
     /// Returns error if CUDA is not available or device doesn't exist.
     pub fn new(device_ordinal: i32) -> Result<Self, GpuError> {
-        let context = CudaContext::new(device_ordinal)?;
-        // PARITY-038: Create multiple streams for overlapped execution
-        let compute_stream = CudaStream::new(&context)?;
-        let transfer_stream = CudaStream::new(&context)?;
-        // CORRECTNESS-011: Create a separate stream for legacy operations
-        // NOTE: Graph capture uses `stream.begin_capture()` and most kernels use `stream`
-        // BUT attention kernels use `compute_stream` - fixed in incremental_attention_into_inner
-        // to use `stream` during graph capture mode
-        let stream = CudaStream::new(&context)?;
+        // Ensure process-level sentinel keeps the primary context alive.
+        // This prevents cuDevicePrimaryCtxRelease from destroying the context
+        // when individual executors drop (sentinel holds refcount ≥ 1).
+        ensure_sentinel(device_ordinal)?;
+
+        // Check out a pooled context to avoid cuDevicePrimaryCtxRetain churn.
+        // First call creates a fresh context; subsequent calls reuse the pooled one.
+        let context = checkout_context(device_ordinal)?;
+        let (compute_stream, transfer_stream, stream) = checkout_streams(&context)?;
 
         Ok(Self {
             // Initialize in struct declaration order (for clarity)
             kernels: CudaKernels::new(),
             memory_pool: GpuMemoryPool::new(),
             staging_pool: StagingBufferPool::new(), // PARITY-042: pinned memory pool
-            modules: HashMap::new(),
+            modules: std::mem::ManuallyDrop::new(HashMap::new()),
             weight_cache: HashMap::new(),
             quantized_weight_cache: HashMap::new(), // PAR-005: quantized weight cache
             quantized_weight_types: HashMap::new(), // PAR-058: weight quant types
@@ -68,9 +68,9 @@ impl CudaExecutor {
             kv_head_dim: 0,
             rope_theta: 10000.0, // PAR-060: default RoPE theta
             rope_type: 0,        // CORRECTNESS-011: default NORM style
-            compute_stream,
-            transfer_stream,
-            stream,
+            compute_stream: PoolableStream::new(compute_stream),
+            transfer_stream: PoolableStream::new(transfer_stream),
+            stream: PoolableStream::new(stream),
             // PAR-054: CUDA Graph Capture (lazy init on first decode)
             decode_graph: None,
             position_buf: None,
@@ -104,7 +104,7 @@ impl CudaExecutor {
             // PAR-073: BrickProfiler (disabled by default for zero overhead)
             // Enable with executor.enable_profiling() for per-brick timing
             profiler: trueno::BrickProfiler::new(),
-            context, // Last field - dropped last
+            context: std::mem::ManuallyDrop::new(context), // Last field — ManuallyDrop skips cuDevicePrimaryCtxRelease - dropped last
         })
     }
 
@@ -114,6 +114,92 @@ impl CudaExecutor {
         cuda_available()
     }
 
+    /// Compile PTX into a CUDA module, with process-level blocklisting.
+    ///
+    /// If the same PTX previously failed to compile (poisoning the CUDA
+    /// context), this method returns an error immediately without calling
+    /// `cuModuleLoadData`, preventing repeated context poisoning.
+    pub(crate) fn compile_ptx(&self, ptx: &str) -> Result<CudaModule, GpuError> {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        ptx.hash(&mut hasher);
+        let hash = hasher.finish();
+
+        {
+            let bl = BROKEN_PTX.lock().unwrap();
+            if bl.contains(&hash) {
+                return Err(GpuError::ModuleLoad(
+                    "kernel blocklisted (previous compilation failure)".to_string(),
+                ));
+            }
+        }
+        match CudaModule::from_ptx(&self.context, ptx) {
+            Ok(m) => Ok(m),
+            Err(e) => {
+                if verbose() {
+                    eprintln!(
+                        "[CUDA-POOL] PTX compilation failed (hash={hash:016x}), blocklisting"
+                    );
+                }
+                BROKEN_PTX.lock().unwrap().insert(hash);
+                Err(e)
+            }
+        }
+    }
+
+}
+
+/// Custom Drop: synchronize, then return streams and context to pools.
+///
+/// Erlang-style fail-fast: synchronize to detect any async kernel crashes
+/// BEFORE returning resources to the pool.  A poisoned stream/context in the
+/// pool would cascade failures to every subsequent test.
+///
+/// After this runs, Rust auto-drops remaining fields in declaration order:
+/// - GPU buffers (cuMemFree) — context thread-local pointer is still set
+/// - PoolableStream wrappers — inner is None (already extracted), no-op
+/// - modules (ManuallyDrop) — intentionally leaked, no cuModuleUnload
+/// - context (ManuallyDrop<CudaContext>) — returned to pool or leaked
+impl Drop for CudaExecutor {
+    fn drop(&mut self) {
+        // Fail-fast: synchronize to detect async kernel crashes immediately.
+        // Without this, a crashing kernel silently poisons the pooled
+        // streams/context and cascades failures to ALL subsequent tests.
+        let ctx_healthy = self.context.synchronize().is_ok();
+
+        // Extract streams from PoolableStream wrappers.
+        let compute = self.compute_stream.take();
+        let transfer = self.transfer_stream.take();
+        let legacy = self.stream.take();
+
+        if ctx_healthy {
+            // Context is healthy — return resources to pools for reuse.
+            if let (Some(s1), Some(s2), Some(s3)) = (compute, transfer, legacy) {
+                checkin_streams(s1, s2, s3);
+            }
+            let ctx = unsafe { std::mem::ManuallyDrop::take(&mut self.context) };
+            checkin_context(ctx);
+        } else {
+            // Context is POISONED — do NOT return resources to pools.
+            // Let streams drop normally (cuStreamDestroy — will fail, that's OK).
+            // Let context drop normally (cuDevicePrimaryCtxRelease).
+            // The sentinel still holds one retain, keeping the primary context
+            // alive.  The NEXT executor will get a fresh context from the pool
+            // (empty → CudaContext::new) which retains the same primary context.
+            // If the primary context itself is irrecoverable, the next
+            // CudaContext::new will also fail — surfacing the error immediately.
+            eprintln!(
+                "[CUDA-FAILFAST] Context poisoned during executor lifetime — \
+                 streams and context NOT returned to pool. \
+                 Next executor will create fresh resources."
+            );
+            // Take context out of ManuallyDrop so it drops normally (release).
+            let _ctx = unsafe { std::mem::ManuallyDrop::take(&mut self.context) };
+        }
+    }
+}
+
+impl CudaExecutor {
     /// Get number of CUDA devices
     ///
     /// Returns 0 if CUDA is not available.

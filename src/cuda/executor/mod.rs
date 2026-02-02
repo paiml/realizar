@@ -9,7 +9,168 @@
 #![allow(clippy::wildcard_imports)] // Submodules use super::* for internal organization
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+
+// ---------------------------------------------------------------------------
+// Process-level CUDA resource management
+// ---------------------------------------------------------------------------
+//
+// Two CUDA driver issues affect long test suites (1000+ executor cycles):
+//
+// 1. **Retain/release churn**: After hundreds of cuDevicePrimaryCtxRetain /
+//    cuDevicePrimaryCtxRelease cycles, the driver returns CUDA_ERROR_UNKNOWN.
+//
+// 2. **Stream create/destroy churn**: After hundreds of cuStreamCreate /
+//    cuStreamDestroy cycles, the driver returns CUDA_ERROR_UNKNOWN.
+//
+// Fix:
+// - **Context sentinel**: A process-level CudaContext keeps refcount ≥ 1,
+//   so executor releases never destroy the primary context.
+// - **Stream pool**: Streams are recycled between executor lifetimes via
+//   `PoolableStream`, avoiding cuStreamCreate/cuStreamDestroy churn.
+//
+// PTX poisoning (cuModuleLoadData failures returning CUDA_ERROR_UNKNOWN)
+// permanently corrupts the CUDA context.  The sentinel detects this via
+// `synchronize()` and recreates both the sentinel and stream pool.
+// ---------------------------------------------------------------------------
+
+/// Process-level sentinel: holds one cuDevicePrimaryCtxRetain reference
+/// so the primary context is never fully released during the process.
+static CUDA_SENTINEL: Mutex<Option<CudaContext>> = Mutex::new(None);
+
+/// Stream pool: reusable CUDA streams to avoid cuStreamCreate/Destroy churn.
+static STREAM_POOL: Mutex<Option<(CudaStream, CudaStream, CudaStream)>> = Mutex::new(None);
+
+/// Context pool: reusable CudaContext to avoid cuDevicePrimaryCtxRetain/Release churn.
+/// After the first executor, all subsequent executors reuse the same CudaContext
+/// object (wrapped in ManuallyDrop in the executor to prevent Drop from releasing).
+/// The sentinel keeps the primary context alive; this pool avoids retain() calls.
+static CONTEXT_POOL: Mutex<Option<CudaContext>> = Mutex::new(None);
+
+/// Ensure the sentinel context exists and is healthy for the given device.
+/// If poisoned (e.g. by a previous PTX compilation failure), drops and
+/// recreates it (and discards the stream pool since those streams are
+/// bound to the poisoned context).
+fn ensure_sentinel(device_ordinal: i32) -> Result<(), GpuError> {
+    let count = device_count()?;
+    if device_ordinal < 0 || device_ordinal as usize >= count {
+        return Err(GpuError::DeviceNotFound(device_ordinal, count));
+    }
+    let mut guard = CUDA_SENTINEL.lock().unwrap();
+    if let Some(ref ctx) = *guard {
+        // Health check: sync detects any async kernel crashes from previous tests.
+        // With sync-on-drop in CudaExecutor, poisoning should already be caught.
+        // This is a second line of defense.
+        if ctx.make_current().is_ok() && ctx.synchronize().is_ok() {
+            return Ok(());
+        }
+        // Poisoned — burn everything and start fresh.
+        // Clear ALL pools so refcount reaches 0 when sentinel drops.
+        *STREAM_POOL.lock().unwrap() = None;
+        *CONTEXT_POOL.lock().unwrap() = None;
+        // Drop sentinel: refcount→0 → primary context DESTROYED
+        *guard = None;
+        eprintln!(
+            "[CUDA-FAILFAST] Primary context poisoned — destroyed and recreating. \
+             This means a kernel crashed in a previous test."
+        );
+    }
+    *guard = Some(CudaContext::new(device_ordinal)?);
+    Ok(())
+}
+
+/// Check out a CudaContext: try the pool first, create fresh if empty.
+fn checkout_context(device_ordinal: i32) -> Result<CudaContext, GpuError> {
+    let mut guard = CONTEXT_POOL.lock().unwrap();
+    if let Some(ctx) = guard.take() {
+        // Reuse pooled context — no cuDevicePrimaryCtxRetain needed.
+        ctx.make_current()?;
+        // Fail-fast health check: verify the context isn't poisoned.
+        ctx.synchronize().map_err(|e| {
+            eprintln!("[CUDA-FAILFAST] Pooled context is poisoned: {e:?}");
+            e
+        })?;
+        return Ok(ctx);
+    }
+    drop(guard);
+    CudaContext::new(device_ordinal)
+}
+
+/// Return a CudaContext to the pool for reuse by the next executor.
+/// If the pool already has one, the returned context is dropped normally
+/// (cuDevicePrimaryCtxRelease), but the sentinel keeps refcount ≥ 1.
+fn checkin_context(ctx: CudaContext) {
+    let mut guard = CONTEXT_POOL.lock().unwrap();
+    if guard.is_none() {
+        *guard = Some(ctx);
+    }
+    // If pool already has a context, drop the extra one (sentinel keeps primary alive)
+}
+
+/// Check out 3 streams: try the pool first, create fresh if empty.
+fn checkout_streams(ctx: &CudaContext) -> Result<(CudaStream, CudaStream, CudaStream), GpuError> {
+    let mut guard = STREAM_POOL.lock().unwrap();
+    if let Some(streams) = guard.take() {
+        return Ok(streams);
+    }
+    drop(guard);
+    if verbose() {
+        eprintln!("[CUDA-POOL] Stream pool empty, creating fresh streams");
+    }
+    let s1 = CudaStream::new(ctx)?;
+    let s2 = CudaStream::new(ctx)?;
+    let s3 = CudaStream::new(ctx)?;
+    Ok((s1, s2, s3))
+}
+
+/// Return 3 streams to the pool for reuse by the next executor.
+fn checkin_streams(s1: CudaStream, s2: CudaStream, s3: CudaStream) {
+    let mut guard = STREAM_POOL.lock().unwrap();
+    *guard = Some((s1, s2, s3));
+}
+
+/// A CUDA stream wrapper that can be safely taken out for pooling.
+///
+/// Implements `Deref`/`DerefMut` to `CudaStream` so existing code works
+/// transparently (`self.stream.synchronize()`, `&self.compute_stream`, etc.).
+/// In the custom `Drop` impl, streams are extracted via `take()` and returned
+/// to the process-level pool instead of being destroyed.
+pub(crate) struct PoolableStream(Option<CudaStream>);
+
+impl PoolableStream {
+    fn new(stream: CudaStream) -> Self {
+        Self(Some(stream))
+    }
+
+    /// Take the inner stream, leaving None.  Used by CudaExecutor::Drop
+    /// to extract the stream for pooling.
+    fn take(&mut self) -> Option<CudaStream> {
+        self.0.take()
+    }
+}
+
+impl std::ops::Deref for PoolableStream {
+    type Target = CudaStream;
+    fn deref(&self) -> &CudaStream {
+        self.0.as_ref().expect("stream was already taken")
+    }
+}
+
+impl std::ops::DerefMut for PoolableStream {
+    fn deref_mut(&mut self) -> &mut CudaStream {
+        self.0.as_mut().expect("stream was already taken")
+    }
+}
+
+// Don't auto-destroy the CudaStream on Drop — the custom
+// CudaExecutor::Drop returns it to the pool instead.
+impl Drop for PoolableStream {
+    fn drop(&mut self) {
+        // If the stream hasn't been taken (e.g., CudaExecutor::Drop panicked
+        // or was never called), let it drop normally.  Otherwise, it was
+        // already returned to the pool.
+    }
+}
 
 use trueno_gpu::driver::{
     cuda_available, device_count, CaptureMode, CudaContext, CudaGraphExec, CudaModule, CudaStream,
@@ -43,6 +204,25 @@ use crate::cuda::memory::{
 };
 use crate::cuda::types::{IndexedLayerWeights, TransformerWorkspace, WeightQuantType};
 
+/// Validate that a raw device pointer is non-null before kernel launch.
+///
+/// Launching a CUDA kernel with a null device pointer causes an unrecoverable
+/// GPU crash (CUDA_ERROR_UNKNOWN 700) that permanently poisons the device for
+/// the entire process lifetime.  No amount of context destruction/recreation
+/// can recover — only a process restart fixes it.
+///
+/// This check prevents kernel launch and returns a clean error instead.
+#[inline]
+fn validate_device_ptr(ptr: u64, name: &str) -> Result<(), GpuError> {
+    if ptr == 0 {
+        return Err(GpuError::InvalidParameter(format!(
+            "{name}: null device pointer (0x0) — refusing to launch kernel \
+             to prevent unrecoverable GPU device poisoning"
+        )));
+    }
+    Ok(())
+}
+
 // Implementation modules (split from impl_main.rs for maintainability)
 mod activations;
 mod attention;
@@ -70,6 +250,15 @@ mod gqa_parity_tests;
 #[cfg(test)]
 mod test_fixtures;
 
+#[cfg(test)]
+mod poison_trace_test;
+
+/// Process-level set of PTX hashes that failed compilation.
+/// Prevents re-attempting cuModuleLoadData with the same broken PTX,
+/// which would poison the CUDA context again.
+static BROKEN_PTX: std::sync::LazyLock<Mutex<std::collections::HashSet<u64>>> =
+    std::sync::LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+
 /// Check if verbose mode is enabled (REALIZAR_VERBOSE=1)
 /// Default is quiet - only errors are printed
 fn verbose() -> bool {
@@ -88,8 +277,10 @@ pub struct CudaExecutor {
     memory_pool: GpuMemoryPool,
     // Staging buffer pool for pinned memory transfers (PARITY-042)
     staging_pool: StagingBufferPool,
-    // Modules must be dropped before context (cuModuleUnload needs valid context)
-    modules: HashMap<String, CudaModule>,
+    // Modules wrapped in ManuallyDrop to prevent cuModuleUnload churn.
+    // Thousands of cuModuleUnload cycles exhaust the CUDA driver.
+    // Leaked modules (~KB each) are cleaned up at process exit.
+    modules: std::mem::ManuallyDrop<HashMap<String, CudaModule>>,
     // Persistent weight buffers on GPU (PARITY-037)
     // These are loaded once at startup and reused for all forward passes
     weight_cache: HashMap<String, GpuBuffer<f32>>,
@@ -153,12 +344,13 @@ pub struct CudaExecutor {
     // CORRECTNESS-011: RoPE type (0=NORM adjacent pairs, 2=NEOX split halves)
     rope_type: u32,
     // Compute stream for kernel execution (PARITY-038)
-    compute_stream: CudaStream,
+    // PoolableStream: returned to pool on executor drop, not destroyed.
+    compute_stream: PoolableStream,
     // Transfer stream for async H2D/D2H copies (PARITY-038)
     // Runs in parallel with compute_stream for overlapped execution
-    transfer_stream: CudaStream,
+    transfer_stream: PoolableStream,
     // Legacy alias for compute_stream (kept for backward compatibility)
-    stream: CudaStream,
+    stream: PoolableStream,
     // PAR-054: CUDA Graph Capture for decode loop optimization
     // Captures ~280 kernel launches into single graph replay (~10us vs ~5.6ms)
     decode_graph: Option<CudaGraphExec>,
@@ -217,6 +409,13 @@ pub struct CudaExecutor {
     // PAR-073: BrickProfiler for real per-brick timing
     // Uses std::time::Instant + CUDA sync for accurate GPU timing
     profiler: trueno::BrickProfiler,
-    // Context MUST be dropped LAST (cuDevicePrimaryCtxRelease invalidates all handles)
-    context: CudaContext,
+    // CUDA context — declared last so all GPU resources above drop first
+    // (they need the context alive for cuMemFree etc.).
+    //
+    // Wrapped in ManuallyDrop to prevent cuDevicePrimaryCtxRelease on every
+    // executor drop.  Hundreds of cuDevicePrimaryCtxRetain/Release cycles
+    // cause CUDA_ERROR_UNKNOWN in the driver.  ManuallyDrop skips the
+    // release; the sentinel keeps the primary context alive, and
+    // cuDevicePrimaryCtxRetain (just a refcount bump) is harmless.
+    context: std::mem::ManuallyDrop<CudaContext>,
 }

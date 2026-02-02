@@ -389,18 +389,53 @@ impl CudaExecutor {
             }
         }
 
-        // Run flash attention
+        // Run attention.
+        // Flash attention requires seq_len >= head_dim (trueno-gpu AttentionKernel
+        // shared memory layout limitation).  Fall back to CPU softmax attention
+        // for small seq_len (common during early autoregressive generation).
         let mut output_full = vec![0.0f32; tensor_size];
-        self.flash_attention_multi_head(
-            &q_full,
-            &k_data,
-            &v_data,
-            &mut output_full,
-            new_len as u32,
-            head_dim as u32,
-            num_heads as u32,
-            true, // causal
-        )?;
+        if new_len >= head_dim {
+            self.flash_attention_multi_head(
+                &q_full,
+                &k_data,
+                &v_data,
+                &mut output_full,
+                new_len as u32,
+                head_dim as u32,
+                num_heads as u32,
+                true, // causal
+            )?;
+        } else {
+            // CPU fallback: standard scaled dot-product attention per head
+            let scale = 1.0 / (head_dim as f32).sqrt();
+            for head in 0..num_heads {
+                let ho = head * new_len * head_dim;
+                for row in 0..new_len {
+                    // Compute attention scores: Q[row] · K[col] for col <= row (causal)
+                    let mut scores = vec![f32::NEG_INFINITY; new_len];
+                    for col in 0..=row {
+                        let mut dot = 0.0f32;
+                        for d in 0..head_dim {
+                            dot += q_full[ho + row * head_dim + d]
+                                * k_data[ho + col * head_dim + d];
+                        }
+                        scores[col] = dot * scale;
+                    }
+                    // Softmax
+                    let max_s = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    let exp_sum: f32 = scores.iter().map(|&s| (s - max_s).exp()).sum();
+                    // Weighted sum of V
+                    for d in 0..head_dim {
+                        let mut acc = 0.0f32;
+                        for col in 0..=row {
+                            let w = ((scores[col] - max_s).exp()) / exp_sum;
+                            acc += w * v_data[ho + col * head_dim + d];
+                        }
+                        output_full[ho + row * head_dim + d] = acc;
+                    }
+                }
+            }
+        }
 
         // Extract output for last position, reorganize to [hidden_dim]
         let last_pos = new_len - 1;
@@ -539,7 +574,7 @@ impl CudaExecutor {
         );
 
         if !self.modules.contains_key(&module_key) {
-            let module = CudaModule::from_ptx(&self.context, &ptx)?;
+            let module = self.compile_ptx(&ptx)?;
             self.modules.insert(module_key.clone(), module);
         }
         let module = self
