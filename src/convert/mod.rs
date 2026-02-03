@@ -232,8 +232,10 @@ impl GgufToAprConverter {
         header[20..24].copy_from_slice(&(metadata_bytes.len() as u32).to_le_bytes());
         header[24..32].copy_from_slice(&tensor_index_offset.to_le_bytes());
         header[32..40].copy_from_slice(&data_offset.to_le_bytes());
-        header[40..44].copy_from_slice(&0u32.to_le_bytes()); // checksum: reserved for future use
-                                                             // bytes 44-63 reserved
+        // Compute and set checksum (CRC32 over header excluding checksum field)
+        let checksum = compute_apr_header_checksum(&header);
+        header[40..44].copy_from_slice(&checksum.to_le_bytes());
+        // bytes 44-63 reserved
 
         // Combine all parts
         let total_size =
@@ -641,17 +643,17 @@ impl GgufToAprQ4KConverter {
             // divisible by block size (256 for K-quants, 32 for legacy quants).
             // BUG-APR-044 FIX: Add Q4_0, Q4_1, Q5_0, Q5_1 handlers (was defaulting to F32)
             let byte_size = match qtype {
-                0 => num_elements * 4,                   // F32
-                1 => num_elements * 2,                   // F16
-                2 => num_elements.div_ceil(32) * 18,     // Q4_0: 32 elements = 18 bytes (2 scale + 16 quants)
-                3 => num_elements.div_ceil(32) * 20,     // Q4_1: 32 elements = 20 bytes (2 scale + 2 min + 16 quants)
-                6 => num_elements.div_ceil(32) * 22,     // Q5_0: 32 elements = 22 bytes (2 scale + 4 high + 16 quants)
-                7 => num_elements.div_ceil(32) * 24,     // Q5_1: 32 elements = 24 bytes (2 scale + 2 min + 4 high + 16 quants)
-                8 => num_elements.div_ceil(32) * 34,     // Q8_0: 32 elements = 34 bytes (2 scale + 32 quants)
-                12 => num_elements.div_ceil(256) * 144,  // Q4_K: 256 elements = 144 bytes
-                13 => num_elements.div_ceil(256) * 176,  // Q5_K: 256 elements = 176 bytes
-                14 => num_elements.div_ceil(256) * 210,  // Q6_K: 256 elements = 210 bytes
-                _ => num_elements * 4,                   // Default to F32
+                0 => num_elements * 4,                  // F32
+                1 => num_elements * 2,                  // F16
+                2 => num_elements.div_ceil(32) * 18, // Q4_0: 32 elements = 18 bytes (2 scale + 16 quants)
+                3 => num_elements.div_ceil(32) * 20, // Q4_1: 32 elements = 20 bytes (2 scale + 2 min + 16 quants)
+                6 => num_elements.div_ceil(32) * 22, // Q5_0: 32 elements = 22 bytes (2 scale + 4 high + 16 quants)
+                7 => num_elements.div_ceil(32) * 24, // Q5_1: 32 elements = 24 bytes (2 scale + 2 min + 4 high + 16 quants)
+                8 => num_elements.div_ceil(32) * 34, // Q8_0: 32 elements = 34 bytes (2 scale + 32 quants)
+                12 => num_elements.div_ceil(256) * 144, // Q4_K: 256 elements = 144 bytes
+                13 => num_elements.div_ceil(256) * 176, // Q5_K: 256 elements = 176 bytes
+                14 => num_elements.div_ceil(256) * 210, // Q6_K: 256 elements = 210 bytes
+                _ => num_elements * 4,               // Default to F32
             };
 
             // Extract raw bytes
