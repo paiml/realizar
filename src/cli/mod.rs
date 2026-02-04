@@ -177,13 +177,15 @@ fn detect_model_source(model_ref: &str, verbose: bool) -> Result<ModelSource> {
 }
 
 /// Setup trace environment if enabled
+/// Parse trace config and set up environment
 #[allow(clippy::option_option)]
-fn setup_trace_env(trace: Option<Option<String>>) {
+fn setup_trace_config(trace: Option<Option<String>>) -> Option<crate::inference_trace::TraceConfig> {
     let trace_config = handlers::parse_trace_config(trace);
     if trace_config.is_some() {
         std::env::set_var("GPU_DEBUG", "1");
         eprintln!("[TRACE] Inference tracing enabled - GPU_DEBUG=1");
     }
+    trace_config
 }
 
 /// Dispatch inference based on model format
@@ -197,7 +199,7 @@ fn dispatch_inference(
     format: &str,
     force_gpu: bool,
     verbose: bool,
-    trace_enabled: bool,
+    trace_config: Option<crate::inference_trace::TraceConfig>,
 ) -> Result<()> {
     use crate::format::{detect_format, ModelFormat};
     match detect_format(file_data).unwrap_or(ModelFormat::Gguf) {
@@ -211,13 +213,9 @@ fn dispatch_inference(
             force_gpu,
             verbose,
         ),
-        ModelFormat::SafeTensors => run_safetensors_inference(
-            model_ref,
-            formatted_prompt,
-            max_tokens,
-            temperature,
-            format,
-        ),
+        ModelFormat::SafeTensors => {
+            run_safetensors_inference(model_ref, formatted_prompt, max_tokens, temperature, format)
+        },
         ModelFormat::Gguf => run_gguf_inference(
             model_ref,
             file_data,
@@ -227,7 +225,7 @@ fn dispatch_inference(
             format,
             force_gpu,
             verbose,
-            trace_enabled,
+            trace_config,
         ),
     }
 }
@@ -250,7 +248,8 @@ async fn run_model_command(
     verbose: bool,
     trace: Option<Option<String>>,
 ) -> Result<()> {
-    setup_trace_env(trace.clone());
+    // APR-TRACE-001: Parse trace config and pass through to inference
+    let trace_config = setup_trace_config(trace);
 
     match detect_model_source(model_ref, verbose)? {
         ModelSource::Local => {},
@@ -286,7 +285,7 @@ async fn run_model_command(
             format,
             force_gpu,
             verbose,
-            trace.is_some(),
+            trace_config,
         )?;
     } else {
         println!("Interactive mode - use a prompt argument");
@@ -952,7 +951,15 @@ fn run_external_benchmark(
         tokens_per_sec.iter().sum::<f64>() / tokens_per_sec.len() as f64
     };
 
-    print_benchmark_summary(runtime, url, model, num_iterations, &latencies, avg_tps, output);
+    print_benchmark_summary(
+        runtime,
+        url,
+        model,
+        num_iterations,
+        &latencies,
+        avg_tps,
+        output,
+    );
     Ok(())
 }
 
@@ -1677,8 +1684,7 @@ mod server_commands {
                 },
             }
 
-            let state =
-                crate::api::AppState::with_cached_model_and_vocab(cached_model, vocab)?;
+            let state = crate::api::AppState::with_cached_model_and_vocab(cached_model, vocab)?;
 
             let cached_model_arc = state
                 .cached_model()

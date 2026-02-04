@@ -56,9 +56,7 @@ fn print_inference_output(
         },
         _ => {
             if verbose {
-                println!(
-                    "Generated ({tokens_generated} tokens in {gen_time_ms:.2}ms):"
-                );
+                println!("Generated ({tokens_generated} tokens in {gen_time_ms:.2}ms):");
                 println!("{prompt}{output_text}");
                 println!();
                 println!("Performance: {tokens_per_sec:.1} tok/s");
@@ -81,27 +79,52 @@ fn decode_tokens_with_cache(
     max_tokens: usize,
     temperature: f32,
     eos_token_id: Option<u32>,
-    trace: bool,
-    num_layers: usize,
+    tracer: &mut crate::inference_trace::InferenceTracer,
+    _num_layers: usize,
+    vocab: Option<&[String]>,
 ) -> Result<()> {
+    use crate::inference_trace::TraceStep;
+
     let mut logits = initial_logits;
+    let config = model.config();
+
     for i in 0..max_tokens {
-        let token_start = std::time::Instant::now();
         if i > 0 {
             let position = prompt_len + i - 1;
             let last_token = *all_tokens.last().expect("all_tokens should not be empty");
+
+            // Trace transformer block
+            tracer.start_step(TraceStep::TransformerBlock);
             logits = model.forward_cached(last_token, cache, position)?;
+
+            // Trace layer stats (use last position's hidden state approximation from logits)
+            if tracer.is_enabled() {
+                tracer.trace_layer(
+                    config.num_layers - 1, // Report final layer
+                    i,
+                    Some(&logits[..config.hidden_dim.min(logits.len())]),
+                    1,
+                    config.hidden_dim,
+                );
+            }
         }
 
+        // Trace LM head
+        tracer.start_step(TraceStep::LmHead);
+        tracer.trace_lm_head(i, &logits, config.vocab_size);
+
+        // Trace sampling
+        tracer.start_step(TraceStep::Sample);
         let next_token = sample_next_token(&logits, temperature);
+        tracer.trace_sample(i, &logits, next_token, temperature, 40);
 
-        if trace && i > 0 {
-            let position = prompt_len + i - 1;
-            eprintln!(
-                "[TRACE-CACHE] pos={}: {} layers took {:?}",
-                position, num_layers, token_start.elapsed()
-            );
-        }
+        // Trace decode
+        tracer.start_step(TraceStep::Decode);
+        let decoded_text = vocab
+            .and_then(|v| v.get(next_token as usize))
+            .cloned()
+            .unwrap_or_else(|| format!("<{}>", next_token));
+        tracer.trace_decode(i, next_token, &decoded_text, config.vocab_size);
 
         if eos_token_id.is_some_and(|eos| next_token == eos) {
             break;
@@ -122,12 +145,8 @@ fn print_gpu_model_info(
     eos_token_id: Option<u32>,
     temperature: f32,
 ) {
-    println!(
-        "Vocab size: {vocab_size}, Hidden dim: {hidden_dim}, Layers: {num_layers}"
-    );
-    println!(
-        "Prompt tokens: {prompt_len} (BOS={bos_token_id:?}, EOS={eos_token_id:?})"
-    );
+    println!("Vocab size: {vocab_size}, Hidden dim: {hidden_dim}, Layers: {num_layers}");
+    println!("Prompt tokens: {prompt_len} (BOS={bos_token_id:?}, EOS={eos_token_id:?})");
     println!("Temperature: {temperature:.1}");
     println!();
 }
@@ -188,12 +207,7 @@ fn print_cpu_debug_info(
     let cfg = model.config();
     eprintln!(
         "[PAR-051] Config: hidden={}, heads={}/{}, layers={}, vocab={}, eps={:e}",
-        cfg.hidden_dim,
-        cfg.num_heads,
-        cfg.num_kv_heads,
-        cfg.num_layers,
-        cfg.vocab_size,
-        cfg.eps
+        cfg.hidden_dim, cfg.num_heads, cfg.num_kv_heads, cfg.num_layers, cfg.vocab_size, cfg.eps
     );
 
     let logit_2 = logits.get(29906).copied().unwrap_or(f32::NAN);
@@ -209,10 +223,16 @@ pub fn run_gguf_inference(
     format: &str,
     force_gpu: bool,
     verbose: bool,
-    trace: bool,
+    trace_config: Option<crate::inference_trace::TraceConfig>,
 ) -> Result<()> {
     use crate::gguf::{MappedGGUFModel, OwnedQuantizedKVCache};
+    use crate::inference_trace::{InferenceTracer, ModelInfo, TraceStep};
     use std::time::Instant;
+
+    // Create tracer from config (APR-TRACE-001)
+    let mut tracer = trace_config
+        .map(InferenceTracer::new)
+        .unwrap_or_else(InferenceTracer::disabled);
 
     // Handle --gpu flag warning when CUDA not available
     #[cfg(not(feature = "cuda"))]
@@ -291,39 +311,43 @@ pub fn run_gguf_inference(
         print_model_info(&mapped, config, prompt_len, temperature);
     }
 
+    // APR-TRACE-001: Set model info for tracer
+    tracer.set_model_info(ModelInfo {
+        name: model_ref.to_string(),
+        num_layers: config.num_layers,
+        hidden_dim: config.hidden_dim,
+        vocab_size: config.vocab_size,
+        num_heads: config.num_heads,
+        quant_type: Some("GGUF".to_string()),
+    });
+
+    // Get vocabulary for decode tracing
+    let vocab = mapped.model.vocabulary();
+    let vocab_ref = vocab.as_deref();
+
     // Run inference with KV cache for O(n) per-token cost
     let gen_start = Instant::now();
     let max_seq_len = prompt_tokens.len() + max_tokens;
     let mut cache = OwnedQuantizedKVCache::from_config(config, max_seq_len);
     let mut all_tokens = prompt_tokens.clone();
 
-    // PMAT-TRACE-GGUF-001: Trace config info
-    if trace {
-        eprintln!(
-            "[TRACE-CACHE] GGUF model: {} layers, hidden_dim={}, vocab={}",
-            config.num_layers, config.hidden_dim, config.vocab_size
-        );
-        eprintln!(
-            "[TRACE-CACHE] Prefill: {} tokens, max_gen={}",
-            prompt_tokens.len(),
-            max_tokens
-        );
-    }
+    // APR-TRACE-001: Trace tokenization
+    tracer.start_step(TraceStep::Tokenize);
+    tracer.trace_encode(prompt, &prompt_tokens, config.vocab_size);
 
     // Prefill: process prompt tokens to populate KV cache
     // We process all tokens but keep the logits from the last one
-    let prefill_start = Instant::now();
+    tracer.start_step(TraceStep::Embed);
     let mut logits: Vec<f32> = vec![];
     for (pos, &token_id) in prompt_tokens.iter().enumerate() {
         logits = model.forward_cached(token_id, &mut cache, pos)?;
     }
-    if trace {
-        eprintln!(
-            "[TRACE-CACHE] Prefill complete: {} tokens in {:?}",
-            prompt_tokens.len(),
-            prefill_start.elapsed()
-        );
-    }
+    // Trace embed with first hidden state approximation
+    tracer.trace_embed(
+        prompt_tokens.len(),
+        config.hidden_dim,
+        Some(&logits[..config.hidden_dim.min(logits.len())]),
+    );
 
     // PAR-051: Diagnostic output (gated by CPU_DEBUG=1 environment variable)
     if std::env::var("CPU_DEBUG").is_ok_and(|v| v == "1") {
@@ -340,8 +364,9 @@ pub fn run_gguf_inference(
         max_tokens,
         temperature,
         eos_token_id,
-        trace,
+        &mut tracer,
         config.num_layers,
+        vocab_ref,
     )?;
 
     let generated = all_tokens;
@@ -371,6 +396,13 @@ pub fn run_gguf_inference(
         format,
         verbose,
     );
+
+    // APR-TRACE-001: Write trace output if enabled
+    if tracer.is_enabled() {
+        if let Err(e) = tracer.write_output() {
+            eprintln!("[TRACE] Warning: Failed to write trace output: {}", e);
+        }
+    }
 
     Ok(())
 }
