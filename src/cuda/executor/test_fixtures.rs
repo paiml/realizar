@@ -374,10 +374,30 @@ fn load_layer_attn_weights(
     let q_dim = config.num_heads * config.head_dim;
     let kv_dim = config.num_kv_heads * config.head_dim;
 
-    load_zero_weights(exec, &format!("{prefix}.attn_q.weight"), q_dim, config.hidden_dim)?;
-    load_zero_weights(exec, &format!("{prefix}.attn_k.weight"), kv_dim, config.hidden_dim)?;
-    load_zero_weights(exec, &format!("{prefix}.attn_v.weight"), kv_dim, config.hidden_dim)?;
-    load_zero_weights(exec, &format!("{prefix}.attn_output.weight"), config.hidden_dim, q_dim)
+    load_zero_weights(
+        exec,
+        &format!("{prefix}.attn_q.weight"),
+        q_dim,
+        config.hidden_dim,
+    )?;
+    load_zero_weights(
+        exec,
+        &format!("{prefix}.attn_k.weight"),
+        kv_dim,
+        config.hidden_dim,
+    )?;
+    load_zero_weights(
+        exec,
+        &format!("{prefix}.attn_v.weight"),
+        kv_dim,
+        config.hidden_dim,
+    )?;
+    load_zero_weights(
+        exec,
+        &format!("{prefix}.attn_output.weight"),
+        config.hidden_dim,
+        q_dim,
+    )
 }
 
 /// Load FFN weights (gate/up/down projections) for one layer
@@ -386,9 +406,24 @@ fn load_layer_ffn_weights(
     prefix: &str,
     config: &HarnessConfig,
 ) -> Result<(), crate::cuda::executor::GpuError> {
-    load_zero_weights(exec, &format!("{prefix}.ffn_gate.weight"), config.intermediate_dim, config.hidden_dim)?;
-    load_zero_weights(exec, &format!("{prefix}.ffn_up.weight"), config.intermediate_dim, config.hidden_dim)?;
-    load_zero_weights(exec, &format!("{prefix}.ffn_down.weight"), config.hidden_dim, config.intermediate_dim)
+    load_zero_weights(
+        exec,
+        &format!("{prefix}.ffn_gate.weight"),
+        config.intermediate_dim,
+        config.hidden_dim,
+    )?;
+    load_zero_weights(
+        exec,
+        &format!("{prefix}.ffn_up.weight"),
+        config.intermediate_dim,
+        config.hidden_dim,
+    )?;
+    load_zero_weights(
+        exec,
+        &format!("{prefix}.ffn_down.weight"),
+        config.hidden_dim,
+        config.intermediate_dim,
+    )
 }
 
 /// Setup executor with all required state for integration tests

@@ -39,6 +39,7 @@
 pub mod kernels;
 pub mod memory;
 pub mod pipeline;
+pub mod streaming;
 pub mod types;
 
 // Re-export everything for backwards compatibility
@@ -51,6 +52,7 @@ pub use pipeline::{
     presets, AsyncPipeline, BankConflictStrategy, MemoryPattern, PtxOptimizationHints,
     PtxOptimizer, RegisterTiling,
 };
+pub use streaming::{check_vram_sufficient, should_use_streaming, StreamingConfig, StreamingMode};
 pub use types::{IndexedLayerWeights, TransformerWorkspace, WeightQuantType};
 
 // The executor module (21K lines) - future work to split into submodules:

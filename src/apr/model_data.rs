@@ -148,11 +148,11 @@ impl ModelData {
                             ),
                         })
                 }
-            }
+            },
             Self::Heap(_) => {
                 // No-op for heap data - kernel manages via normal VM pressure
                 Ok(())
-            }
+            },
         }
     }
 
@@ -162,14 +162,15 @@ impl ModelData {
     #[cfg(all(unix, not(target_arch = "wasm32")))]
     pub fn advise_sequential(&self) -> Result<()> {
         match self {
-            Self::Mmap { mmap, path } => mmap
-                .advise(memmap2::Advice::Sequential)
-                .map_err(|e| RealizarError::IoError {
-                    message: format!(
-                        "madvise(MADV_SEQUENTIAL) failed for '{}': {e}",
-                        path.display()
-                    ),
-                }),
+            Self::Mmap { mmap, path } => {
+                mmap.advise(memmap2::Advice::Sequential)
+                    .map_err(|e| RealizarError::IoError {
+                        message: format!(
+                            "madvise(MADV_SEQUENTIAL) failed for '{}': {e}",
+                            path.display()
+                        ),
+                    })
+            },
             Self::Heap(_) => Ok(()),
         }
     }

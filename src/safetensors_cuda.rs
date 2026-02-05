@@ -133,6 +133,12 @@ impl SafeTensorsCudaModel {
 ///
 /// Loads HuggingFace SafeTensors directly to GPU memory for high-performance
 /// inference. Mirrors `AprV2ModelCuda` API for consistency.
+///
+/// ## GH-201: Streaming Mode
+///
+/// Supports two modes based on available VRAM:
+/// - **Full Cache**: Pre-cache all weights (default when VRAM sufficient)
+/// - **Layer Streaming**: Stream layer weights on-demand (when VRAM limited)
 #[cfg(feature = "cuda")]
 pub struct SafeTensorsCudaModel {
     /// CUDA executor with cached weights
@@ -158,6 +164,10 @@ pub struct SafeTensorsCudaModel {
     /// PMAT-120 FIX: Output projection bias cache
     /// Key format: "o_bias.{layer_idx}"
     o_bias_cache: std::collections::HashMap<String, Vec<f32>>,
+    /// GH-201: Streaming mode (true = layer-by-layer, false = full cache)
+    streaming_mode: bool,
+    /// GH-201: Path to SafeTensors file (kept for streaming mode weight loading)
+    model_path: Option<std::path::PathBuf>,
 }
 
 /// Configuration extracted from config.json
@@ -184,6 +194,8 @@ pub struct SafeTensorsCudaConfig {
     pub rope_theta: f32,
     /// RMS norm epsilon
     pub eps: f32,
+    /// F-GT-002: Whether to use tied embeddings (lm_head = embed_tokens)
+    pub tie_word_embeddings: bool,
 }
 
 #[cfg(feature = "cuda")]
@@ -235,6 +247,40 @@ impl SafeTensorsCudaModel {
             .unwrap_or_else(|_| "Unknown GPU".to_string());
         let memory_info = executor.memory_info().unwrap_or((0, 0));
 
+        // GH-201 FIX: Check VRAM and select streaming mode
+        let (free_vram, total_vram) = memory_info;
+        let streaming_config = crate::cuda::StreamingConfig {
+            hidden_dim: config.hidden_dim,
+            num_layers: config.num_layers,
+            num_heads: config.num_heads,
+            num_kv_heads: config.num_kv_heads,
+            vocab_size: config.vocab_size,
+            intermediate_dim: config.intermediate_dim,
+            max_seq_len,
+        };
+
+        let streaming_mode = match crate::cuda::check_vram_sufficient(
+            free_vram,
+            total_vram,
+            &streaming_config,
+        ) {
+            Ok(crate::cuda::StreamingMode::FullCache) => false,
+            Ok(crate::cuda::StreamingMode::LayerStreaming) => {
+                eprintln!(
+                    "[GH-201] Using layer streaming mode (VRAM: {} MB free of {} MB)",
+                    free_vram / (1024 * 1024),
+                    total_vram / (1024 * 1024)
+                );
+                true
+            }
+            Err(msg) => {
+                return Err(RealizarError::UnsupportedOperation {
+                    operation: "safetensors_cuda_load".to_string(),
+                    reason: msg,
+                });
+            }
+        };
+
         // 5. Initialize GPU KV cache (F-PERF-085)
         let head_dim = config.hidden_dim / config.num_heads;
         executor
@@ -254,9 +300,21 @@ impl SafeTensorsCudaModel {
         executor.set_rope_theta(config.rope_theta);
         executor.set_rope_type(0); // NORM style for Qwen2
 
-        // 7. Upload all weights to GPU (F-MEM-021 to F-MEM-035)
-        let (embedding_cache, gamma_cache, qkv_bias_cache, o_bias_cache) =
-            Self::upload_weights(&mut executor, &st_model, &config)?;
+        // 7. Upload weights based on mode
+        let (embedding_cache, gamma_cache, qkv_bias_cache, o_bias_cache) = if streaming_mode {
+            // GH-201: Streaming mode - only upload LM head and norms
+            Self::upload_weights_streaming(&mut executor, &st_model, &config)?
+        } else {
+            // Full cache mode - upload all weights
+            Self::upload_weights(&mut executor, &st_model, &config)?
+        };
+
+        // Keep path for streaming mode (to reload weights on-demand)
+        let model_path = if streaming_mode {
+            Some(model_path.to_path_buf())
+        } else {
+            None
+        };
 
         Ok(Self {
             executor,
@@ -269,7 +327,71 @@ impl SafeTensorsCudaModel {
             gamma_cache,
             qkv_bias_cache,
             o_bias_cache,
+            streaming_mode,
+            model_path,
         })
+    }
+
+    /// GH-201 FIX: Estimate VRAM required for model weights and KV cache.
+    ///
+    /// SafeTensors/APR GPU path pre-caches ALL weights upfront (unlike GGUF streaming),
+    /// which can cause OOM on GPUs with limited VRAM. This function estimates the
+    /// total memory footprint so we can fail early with an actionable error message.
+    ///
+    /// Memory components:
+    /// - LM head: hidden_dim × vocab_size × 4 bytes
+    /// - Per layer (×num_layers):
+    ///   - QKV weights: hidden_dim × (hidden_dim + 2×kv_dim) × 4
+    ///   - O projection: hidden_dim × hidden_dim × 4
+    ///   - FFN gate: intermediate_dim × hidden_dim × 4
+    ///   - FFN up: intermediate_dim × hidden_dim × 4
+    ///   - FFN down: hidden_dim × intermediate_dim × 4
+    ///   - Norms: 2 × hidden_dim × 4 (attn + ffn)
+    /// - KV cache: 2 × num_layers × max_seq_len × kv_dim × 4
+    fn estimate_vram_bytes(config: &SafeTensorsCudaConfig, max_seq_len: usize) -> usize {
+        let hidden_dim = config.hidden_dim;
+        let num_layers = config.num_layers;
+        let num_kv_heads = config.num_kv_heads;
+        let num_heads = config.num_heads;
+        let intermediate_dim = config.intermediate_dim;
+        let vocab_size = config.vocab_size;
+        let head_dim = hidden_dim / num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+
+        // F32 = 4 bytes per element
+        const F32_SIZE: usize = 4;
+
+        // LM head (transposed: hidden_dim × vocab_size)
+        let lm_head_bytes = hidden_dim * vocab_size * F32_SIZE;
+
+        // Output norm gamma
+        let output_norm_bytes = hidden_dim * F32_SIZE;
+
+        // Per-layer weights
+        let qkv_out_dim = hidden_dim + 2 * kv_dim;
+        let per_layer_bytes = {
+            // QKV (transposed: hidden_dim × qkv_out_dim)
+            let qkv = hidden_dim * qkv_out_dim * F32_SIZE;
+            // O projection (transposed: hidden_dim × hidden_dim)
+            let o_proj = hidden_dim * hidden_dim * F32_SIZE;
+            // FFN gate (transposed: hidden_dim × intermediate_dim)
+            let ffn_gate = hidden_dim * intermediate_dim * F32_SIZE;
+            // FFN up (transposed: hidden_dim × intermediate_dim)
+            let ffn_up = hidden_dim * intermediate_dim * F32_SIZE;
+            // FFN down (transposed: intermediate_dim × hidden_dim)
+            let ffn_down = intermediate_dim * hidden_dim * F32_SIZE;
+            // Attn + FFN norms (uploaded to rmsnorm_cache)
+            let norms = 2 * hidden_dim * F32_SIZE;
+
+            qkv + o_proj + ffn_gate + ffn_up + ffn_down + norms
+        };
+
+        let total_layer_bytes = num_layers * per_layer_bytes;
+
+        // KV cache: 2 (K + V) × num_layers × max_seq_len × kv_dim
+        let kv_cache_bytes = 2 * num_layers * max_seq_len * kv_dim * F32_SIZE;
+
+        lm_head_bytes + output_norm_bytes + total_layer_bytes + kv_cache_bytes
     }
 
     /// Extract configuration from JSON config.
@@ -302,6 +424,7 @@ impl SafeTensorsCudaModel {
             context_length: json.max_position_embeddings.unwrap_or(2048),
             rope_theta: json.rope_theta.unwrap_or(10000.0),
             eps: json.rms_norm_eps.unwrap_or(1e-6),
+            tie_word_embeddings: json.tie_word_embeddings.unwrap_or(false),
         })
     }
 
@@ -349,11 +472,16 @@ impl SafeTensorsCudaModel {
         })?;
 
         // LM head (may be tied to embeddings) - use gemm_b_cached (B is weight)
-        // PMAT-120 FIX: Use actual transpose for GEMM (not SafetensorsToAprConverter::transpose_weight which is a no-op)
-        let lm_head = if st_model.has_tensor("lm_head.weight") {
+        // F-GT-002 FIX: Check tie_word_embeddings config FIRST, not just tensor existence
+        // When tie_word_embeddings=true, HuggingFace may store a placeholder lm_head.weight
+        // that's all zeros - we MUST use the embedding matrix instead!
+        let lm_head = if config.tie_word_embeddings {
+            Self::transpose_for_gemm(&embedding, vocab_size, hidden_dim)
+        } else if st_model.has_tensor("lm_head.weight") {
             let raw = st_model.get_tensor_auto("lm_head.weight")?;
             Self::transpose_for_gemm(&raw, vocab_size, hidden_dim)
         } else {
+            // Fallback: assume tied if no lm_head tensor exists
             Self::transpose_for_gemm(&embedding, vocab_size, hidden_dim)
         };
         executor.load_weights("lm_head", &lm_head).map_err(|e| {
@@ -470,6 +598,122 @@ impl SafeTensorsCudaModel {
                     operation: "load_weights".to_string(),
                     reason: format!("Failed to upload layer {layer_idx} ffn_down: {e}"),
                 })?;
+        }
+
+        Ok((embedding, gamma_cache, qkv_bias_cache, o_bias_cache))
+    }
+
+    /// GH-201: Upload only essential weights for streaming mode.
+    ///
+    /// Uploads:
+    /// - LM head (always needed for logits)
+    /// - Output norm (always needed)
+    /// - Layer norms (small, needed for RMS norm)
+    /// - Biases (small, kept on CPU)
+    ///
+    /// Does NOT upload:
+    /// - Per-layer QKV, O, FFN weights (streamed on-demand)
+    #[allow(clippy::type_complexity)]
+    fn upload_weights_streaming(
+        executor: &mut CudaExecutor,
+        st_model: &MappedSafeTensorsModel,
+        config: &SafeTensorsCudaConfig,
+    ) -> Result<(
+        Vec<f32>,
+        std::collections::HashMap<String, Vec<f32>>,
+        std::collections::HashMap<String, Vec<f32>>,
+        std::collections::HashMap<String, Vec<f32>>,
+    )> {
+        let hidden_dim = config.hidden_dim;
+        let num_layers = config.num_layers;
+        let num_kv_heads = config.num_kv_heads;
+        let num_heads = config.num_heads;
+        let vocab_size = config.vocab_size;
+        let head_dim = hidden_dim / num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+
+        let mut gamma_cache = std::collections::HashMap::new();
+        let mut qkv_bias_cache = std::collections::HashMap::new();
+        let mut o_bias_cache = std::collections::HashMap::new();
+
+        // Embedding table (keep on CPU for token lookup)
+        let embedding = st_model.get_tensor_auto("model.embed_tokens.weight")?;
+
+        // Output norm - upload to GPU AND keep CPU copy
+        let output_norm = st_model.get_tensor_auto("model.norm.weight")?;
+        gamma_cache.insert("output".to_string(), output_norm.clone());
+        executor.preload_output_norm(&output_norm).map_err(|e| {
+            RealizarError::UnsupportedOperation {
+                operation: "preload_output_norm".to_string(),
+                reason: format!("Failed to upload output_norm: {e}"),
+            }
+        })?;
+
+        // LM head (always needed) - upload to GPU
+        let lm_head = if config.tie_word_embeddings {
+            Self::transpose_for_gemm(&embedding, vocab_size, hidden_dim)
+        } else if st_model.has_tensor("lm_head.weight") {
+            let raw = st_model.get_tensor_auto("lm_head.weight")?;
+            Self::transpose_for_gemm(&raw, vocab_size, hidden_dim)
+        } else {
+            Self::transpose_for_gemm(&embedding, vocab_size, hidden_dim)
+        };
+        executor.load_weights("lm_head", &lm_head).map_err(|e| {
+            RealizarError::UnsupportedOperation {
+                operation: "load_weights".to_string(),
+                reason: format!("Failed to upload lm_head: {e}"),
+            }
+        })?;
+
+        // Per-layer: only upload norms and cache biases (small tensors)
+        // Layer weights (QKV, O, FFN) will be streamed on-demand
+        for layer_idx in 0..num_layers {
+            let prefix = format!("model.layers.{layer_idx}");
+
+            // Attention norm (small - upload to GPU)
+            let attn_norm =
+                st_model.get_tensor_auto(&format!("{prefix}.input_layernorm.weight"))?;
+            gamma_cache.insert(format!("attn.{layer_idx}"), attn_norm.clone());
+            let attn_norm_key = format!("blk.{layer_idx}.attn_norm.gamma");
+            executor
+                .cache_rmsnorm_gamma(&attn_norm_key, &attn_norm)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "cache_rmsnorm_gamma".to_string(),
+                    reason: format!("Failed to upload layer {layer_idx} attn_norm: {e}"),
+                })?;
+
+            // FFN norm (small - upload to GPU)
+            let ffn_norm =
+                st_model.get_tensor_auto(&format!("{prefix}.post_attention_layernorm.weight"))?;
+            gamma_cache.insert(format!("ffn.{layer_idx}"), ffn_norm.clone());
+            let ffn_norm_key = format!("blk.{layer_idx}.ffn_norm.gamma");
+            executor
+                .cache_rmsnorm_gamma(&ffn_norm_key, &ffn_norm)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "cache_rmsnorm_gamma".to_string(),
+                    reason: format!("Failed to upload layer {layer_idx} ffn_norm: {e}"),
+                })?;
+
+            // Cache biases on CPU (small)
+            let q_bias = st_model
+                .get_tensor_auto(&format!("{prefix}.self_attn.q_proj.bias"))
+                .unwrap_or_else(|_| vec![0.0f32; hidden_dim]);
+            let k_bias = st_model
+                .get_tensor_auto(&format!("{prefix}.self_attn.k_proj.bias"))
+                .unwrap_or_else(|_| vec![0.0f32; kv_dim]);
+            let v_bias = st_model
+                .get_tensor_auto(&format!("{prefix}.self_attn.v_proj.bias"))
+                .unwrap_or_else(|_| vec![0.0f32; kv_dim]);
+            let mut qkv_bias = Vec::with_capacity(hidden_dim + 2 * kv_dim);
+            qkv_bias.extend_from_slice(&q_bias);
+            qkv_bias.extend_from_slice(&k_bias);
+            qkv_bias.extend_from_slice(&v_bias);
+            qkv_bias_cache.insert(format!("qkv_bias.{layer_idx}"), qkv_bias);
+
+            if let Ok(o_bias) = st_model.get_tensor_auto(&format!("{prefix}.self_attn.o_proj.bias"))
+            {
+                o_bias_cache.insert(format!("o_bias.{layer_idx}"), o_bias);
+            }
         }
 
         Ok((embedding, gamma_cache, qkv_bias_cache, o_bias_cache))
@@ -605,10 +849,96 @@ impl SafeTensorsCudaModel {
         Ok(logits)
     }
 
+    /// GH-201: Load layer weights on-demand for streaming mode.
+    ///
+    /// In streaming mode, we don't pre-cache all layer weights. Instead, we load
+    /// them from the SafeTensors file on-demand for each layer.
+    fn ensure_layer_weights_loaded(&mut self, layer_idx: usize) -> Result<()> {
+        if !self.streaming_mode {
+            return Ok(()); // Weights already pre-cached
+        }
+
+        let model_path = self.model_path.as_ref().ok_or_else(|| {
+            RealizarError::UnsupportedOperation {
+                operation: "ensure_layer_weights_loaded".to_string(),
+                reason: "Streaming mode enabled but model_path not set".to_string(),
+            }
+        })?;
+
+        // Reload SafeTensors (mmap is cheap, it just maps the file)
+        let st_model = MappedSafeTensorsModel::load(model_path)?;
+
+        let hidden_dim = self.config.hidden_dim;
+        let num_heads = self.config.num_heads;
+        let num_kv_heads = self.config.num_kv_heads;
+        let intermediate_dim = self.config.intermediate_dim;
+        let head_dim = hidden_dim / num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+
+        let prefix = format!("model.layers.{layer_idx}");
+
+        // Upload QKV weights (reuses buffer slot from previous layer)
+        let q = st_model.get_tensor_auto(&format!("{prefix}.self_attn.q_proj.weight"))?;
+        let k = st_model.get_tensor_auto(&format!("{prefix}.self_attn.k_proj.weight"))?;
+        let v = st_model.get_tensor_auto(&format!("{prefix}.self_attn.v_proj.weight"))?;
+        let qkv = Self::concat_qkv_transposed(&q, &k, &v, hidden_dim, kv_dim);
+        self.executor
+            .load_weights(&format!("blk.{layer_idx}.attn_qkv"), &qkv)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "load_weights".to_string(),
+                reason: format!("Failed to upload layer {layer_idx} qkv: {e}"),
+            })?;
+
+        // Upload O projection
+        let o_raw = st_model.get_tensor_auto(&format!("{prefix}.self_attn.o_proj.weight"))?;
+        let o = Self::transpose_for_gemm(&o_raw, hidden_dim, hidden_dim);
+        self.executor
+            .load_weights(&format!("blk.{layer_idx}.attn_output"), &o)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "load_weights".to_string(),
+                reason: format!("Failed to upload layer {layer_idx} attn_output: {e}"),
+            })?;
+
+        // Upload FFN gate
+        let gate_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.gate_proj.weight"))?;
+        let gate = Self::transpose_for_gemm(&gate_raw, intermediate_dim, hidden_dim);
+        self.executor
+            .load_weights(&format!("blk.{layer_idx}.ffn_gate"), &gate)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "load_weights".to_string(),
+                reason: format!("Failed to upload layer {layer_idx} ffn_gate: {e}"),
+            })?;
+
+        // Upload FFN up
+        let up_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.up_proj.weight"))?;
+        let up = Self::transpose_for_gemm(&up_raw, intermediate_dim, hidden_dim);
+        self.executor
+            .load_weights(&format!("blk.{layer_idx}.ffn_up"), &up)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "load_weights".to_string(),
+                reason: format!("Failed to upload layer {layer_idx} ffn_up: {e}"),
+            })?;
+
+        // Upload FFN down
+        let down_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.down_proj.weight"))?;
+        let down = Self::transpose_for_gemm(&down_raw, hidden_dim, intermediate_dim);
+        self.executor
+            .load_weights(&format!("blk.{layer_idx}.ffn_down"), &down)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "load_weights".to_string(),
+                reason: format!("Failed to upload layer {layer_idx} ffn_down: {e}"),
+            })?;
+
+        Ok(())
+    }
+
     /// Forward pass for a single transformer layer.
     ///
     /// PMAT-120 FIX: RoPE is now applied explicitly here (not in incremental_attention_gpu).
     fn forward_layer(&mut self, layer_idx: usize, hidden: &[f32]) -> Result<Vec<f32>> {
+        // GH-201: Load layer weights on-demand if in streaming mode
+        self.ensure_layer_weights_loaded(layer_idx)?;
+
         let hidden_dim = self.config.hidden_dim;
         let num_heads = self.config.num_heads;
         let num_kv_heads = self.config.num_kv_heads;
@@ -873,6 +1203,7 @@ mod tests {
             model_type: Some("qwen2".to_string()),
             bos_token_id: Some(151643),
             eos_token_id: Some(151645),
+            tie_word_embeddings: Some(true), // F-GT-002: Qwen2 uses tied embeddings
         };
 
         let config = SafeTensorsCudaModel::extract_config(&json).unwrap();
@@ -904,6 +1235,7 @@ mod tests {
             model_type: None,
             bos_token_id: None,
             eos_token_id: None,
+            tie_word_embeddings: None, // Will default to false
         };
 
         let config = SafeTensorsCudaModel::extract_config(&json).unwrap();
@@ -930,6 +1262,7 @@ mod tests {
             model_type: None,
             bos_token_id: None,
             eos_token_id: None,
+            tie_word_embeddings: None,
         };
 
         let result = SafeTensorsCudaModel::extract_config(&json);
@@ -952,6 +1285,7 @@ mod tests {
             model_type: None,
             bos_token_id: None,
             eos_token_id: None,
+            tie_word_embeddings: None,
         };
 
         let result = SafeTensorsCudaModel::extract_config(&json);
@@ -974,6 +1308,7 @@ mod tests {
             model_type: None,
             bos_token_id: None,
             eos_token_id: None,
+            tie_word_embeddings: None,
         };
 
         let result = SafeTensorsCudaModel::extract_config(&json);
@@ -996,6 +1331,7 @@ mod tests {
             model_type: None,
             bos_token_id: None,
             eos_token_id: None,
+            tie_word_embeddings: None,
         };
 
         let result = SafeTensorsCudaModel::extract_config(&json);
@@ -1100,6 +1436,7 @@ mod tests {
             context_length: 2048,
             rope_theta: 10000.0,
             eps: 1e-6,
+            tie_word_embeddings: true,
         };
 
         let debug_str = format!("{:?}", config);
@@ -1121,6 +1458,7 @@ mod tests {
             context_length: 4096,
             rope_theta: 10000.0,
             eps: 1e-5,
+            tie_word_embeddings: false,
         };
 
         let cloned = config.clone();
@@ -1160,5 +1498,107 @@ mod tests {
         for (orig, back) in weight.iter().zip(transposed2.iter()) {
             assert!((orig - back).abs() < 1e-6);
         }
+    }
+
+    #[test]
+    fn test_estimate_vram_bytes_qwen2_1_5b() {
+        // GH-201: Test VRAM estimation for Qwen2.5-Coder-1.5B
+        // This is the model that triggered the OOM issue
+        let config = SafeTensorsCudaConfig {
+            architecture: "Qwen2".to_string(),
+            hidden_dim: 1536,
+            num_layers: 28,
+            num_heads: 12,
+            num_kv_heads: 2,
+            vocab_size: 151936,
+            intermediate_dim: 8960,
+            context_length: 32768,
+            rope_theta: 1000000.0,
+            eps: 1e-6,
+            tie_word_embeddings: true,
+        };
+
+        let vram = SafeTensorsCudaModel::estimate_vram_bytes(&config, 2048);
+        let vram_mb = vram / (1024 * 1024);
+
+        // Qwen2.5-Coder-1.5B (1.5B params) requires ~6GB in F32:
+        // - LM head: 1536 * 151936 * 4 = ~887 MB
+        // - 28 layers × (QKV + O + gate + up + down + norms)
+        //   - QKV: 1536 * (1536 + 2*256) * 4 = ~12.5 MB
+        //   - O: 1536 * 1536 * 4 = ~9.4 MB
+        //   - Gate: 1536 * 8960 * 4 = ~55 MB
+        //   - Up: 1536 * 8960 * 4 = ~55 MB
+        //   - Down: 8960 * 1536 * 4 = ~55 MB
+        //   Total per layer: ~187 MB × 28 = ~5.2 GB
+        // - KV cache: 2 * 28 * 2048 * 256 * 4 = ~57 MB
+        // Total: ~6GB
+        assert!(
+            vram_mb > 5500 && vram_mb < 7000,
+            "Expected 5.5-7 GB for Qwen2.5-Coder-1.5B F32, got {} MB",
+            vram_mb
+        );
+    }
+
+    #[test]
+    fn test_estimate_vram_bytes_scales_with_layers() {
+        // More layers should require more VRAM
+        let config_12 = SafeTensorsCudaConfig {
+            architecture: "Test".to_string(),
+            hidden_dim: 768,
+            num_layers: 12,
+            num_heads: 12,
+            num_kv_heads: 12,
+            vocab_size: 50257,
+            intermediate_dim: 3072,
+            context_length: 2048,
+            rope_theta: 10000.0,
+            eps: 1e-6,
+            tie_word_embeddings: false,
+        };
+
+        let config_24 = SafeTensorsCudaConfig {
+            num_layers: 24,
+            ..config_12.clone()
+        };
+
+        let vram_12 = SafeTensorsCudaModel::estimate_vram_bytes(&config_12, 1024);
+        let vram_24 = SafeTensorsCudaModel::estimate_vram_bytes(&config_24, 1024);
+
+        // 24 layers should use roughly 2x the layer weight memory
+        assert!(
+            vram_24 > vram_12,
+            "24 layers ({}) should use more VRAM than 12 layers ({})",
+            vram_24,
+            vram_12
+        );
+    }
+
+    #[test]
+    fn test_estimate_vram_bytes_scales_with_seq_len() {
+        // Longer sequences need more KV cache
+        let config = SafeTensorsCudaConfig {
+            architecture: "Test".to_string(),
+            hidden_dim: 768,
+            num_layers: 12,
+            num_heads: 12,
+            num_kv_heads: 12,
+            vocab_size: 50257,
+            intermediate_dim: 3072,
+            context_length: 2048,
+            rope_theta: 10000.0,
+            eps: 1e-6,
+            tie_word_embeddings: false,
+        };
+
+        let vram_1k = SafeTensorsCudaModel::estimate_vram_bytes(&config, 1024);
+        let vram_4k = SafeTensorsCudaModel::estimate_vram_bytes(&config, 4096);
+
+        // 4k context should use more VRAM due to KV cache
+        assert!(
+            vram_4k > vram_1k,
+            "4k context ({}) should use more VRAM than 1k context ({})",
+            vram_4k,
+            vram_1k
+        );
     }
 }

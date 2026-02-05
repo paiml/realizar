@@ -43,6 +43,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{RealizarError, Result};
+use crate::safetensors::find_sibling_file;
 
 // PMAT-802: Extracted modules
 #[cfg(feature = "cuda")]
@@ -69,11 +70,9 @@ pub(crate) mod test_factory;
 #[cfg(feature = "cuda")]
 pub use cuda::AprV2ModelCuda;
 #[cfg(feature = "cuda")]
-use helpers::apply_rope_norm;
-#[cfg(feature = "cuda")]
 use helpers::transpose_matrix;
 pub use helpers::{detect_format, is_apr_file, simd_dot};
-use helpers::{matmul, rms_norm, simple_attention};
+use helpers::{apply_rope_norm, matmul, rms_norm, simple_attention};
 use tokenizer::bpe_encode;
 pub use tokenizer::{byte_to_bpe_char, BpeTokenizer, SimpleTokenizer};
 
@@ -1094,8 +1093,8 @@ impl AprV2Model {
             let seq_len = token_ids.len();
             let head_dim = hidden_dim / num_heads;
 
-            let q = matmul(&normed, &q_weight, seq_len, hidden_dim, hidden_dim);
-            let k = matmul(
+            let mut q = matmul(&normed, &q_weight, seq_len, hidden_dim, hidden_dim);
+            let mut k = matmul(
                 &normed,
                 &k_weight,
                 seq_len,
@@ -1110,7 +1109,37 @@ impl AprV2Model {
                 num_kv_heads * head_dim,
             );
 
-            // Simplified attention (no RoPE for now, full attention)
+            // BUG-2 FIX: Apply RoPE (Rotary Position Embedding) to Q and K
+            // Without RoPE, model cannot distinguish token positions → garbage output
+            // CORRECTNESS-011: Qwen2.5 requires rope_type=2 (NEOX style), defaults to 2 for qwen2
+            let rope_theta = self.metadata.rope_theta.unwrap_or(10000.0);
+            let rope_type = self.metadata.rope_type.unwrap_or_else(|| {
+                // Default to NEOX (2) for qwen2 models, NORM (0) for others
+                if self.metadata.architecture.as_deref() == Some("qwen2") {
+                    2
+                } else {
+                    0
+                }
+            });
+            let q_dim_per_token = hidden_dim;
+            let k_dim_per_token = num_kv_heads * head_dim;
+
+            for pos in 0..seq_len {
+                // Apply RoPE to Q at this position
+                let q_start = pos * q_dim_per_token;
+                let q_end = q_start + q_dim_per_token;
+                if q_end <= q.len() {
+                    apply_rope_norm(&mut q[q_start..q_end], num_heads, head_dim, pos, rope_theta, rope_type);
+                }
+
+                // Apply RoPE to K at this position
+                let k_start = pos * k_dim_per_token;
+                let k_end = k_start + k_dim_per_token;
+                if k_end <= k.len() {
+                    apply_rope_norm(&mut k[k_start..k_end], num_kv_heads, head_dim, pos, rope_theta, rope_type);
+                }
+            }
+
             let attn_out = simple_attention(&q, &k, &v, seq_len, num_heads, num_kv_heads, head_dim);
 
             // Output projection
@@ -1307,15 +1336,15 @@ impl AprV2Model {
 
     /// Load tokenizer from sibling tokenizer.json file
     ///
+    /// GAP-UX-002: Tries hash-prefixed companion first (`{stem}.tokenizer.json`),
+    /// then falls back to non-prefixed (`tokenizer.json`) for backwards compatibility.
+    ///
     /// Looks for tokenizer.json in the same directory as the model file.
     /// Returns (vocab, bos_token_id, eos_token_id) if found.
     pub fn load_tokenizer_from_sibling(
         model_path: &Path,
     ) -> Option<(Vec<String>, Option<u32>, Option<u32>)> {
-        let tokenizer_path = model_path.with_file_name("tokenizer.json");
-        if !tokenizer_path.exists() {
-            return None;
-        }
+        let tokenizer_path = find_sibling_file(model_path, "tokenizer.json")?;
 
         let content = fs::read_to_string(&tokenizer_path).ok()?;
         let json: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -1438,21 +1467,25 @@ impl AprV2Model {
 
         // For non-APR files (SafeTensors), use sibling tokenizer.json ONLY
         // NO fallback to HuggingFace cache (PMAT-172: removed Silent Failure Recovery)
-        let tokenizer_path = model_path.with_file_name("tokenizer.json");
-        if !tokenizer_path.exists() {
-            eprintln!(
-                "\n[PMAT-172] ERROR: No tokenizer found for {}.",
-                model_path.display()
-            );
-            eprintln!(
-                "           Expected sibling file: {}",
-                tokenizer_path.display()
-            );
-            eprintln!(
-                "           For SafeTensors models, tokenizer.json must be in same directory.\n"
-            );
-            return None;
-        }
+        // GAP-UX-002: Try hash-prefixed first, then plain filename
+        let tokenizer_path = match find_sibling_file(model_path, "tokenizer.json") {
+            Some(path) => path,
+            None => {
+                eprintln!(
+                    "\n[PMAT-172] ERROR: No tokenizer found for {}.",
+                    model_path.display()
+                );
+                let stem = model_path.file_stem().and_then(|s| s.to_str()).unwrap_or("model");
+                eprintln!(
+                    "           Expected sibling file: {}.tokenizer.json or tokenizer.json",
+                    stem
+                );
+                eprintln!(
+                    "           For SafeTensors models, tokenizer.json must be in same directory.\n"
+                );
+                return None;
+            }
+        };
 
         let content = match fs::read_to_string(&tokenizer_path) {
             Ok(c) => c,
@@ -1582,10 +1615,13 @@ impl AprV2Model {
 
     /// Load a full tokenizer struct from sibling tokenizer.json
     ///
+    /// GAP-UX-002: Tries hash-prefixed companion first (`{stem}.tokenizer.json`),
+    /// then falls back to non-prefixed (`tokenizer.json`) for backwards compatibility.
+    ///
     /// Returns a BpeTokenizer that can be reused for multiple encode/decode calls.
     /// For decode-only operations, prefer `load_embedded_tokenizer()` first.
     pub fn load_tokenizer(model_path: &Path) -> Option<BpeTokenizer> {
-        let tokenizer_path = model_path.with_file_name("tokenizer.json");
+        let tokenizer_path = find_sibling_file(model_path, "tokenizer.json")?;
         Self::load_tokenizer_from_path(&tokenizer_path)
     }
 

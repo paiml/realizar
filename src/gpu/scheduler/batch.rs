@@ -406,7 +406,13 @@ pub fn optimized_lm_head_argmax_transposed(
 }
 
 /// Extract Q tensor for a single head from packed Q data
-fn extract_q_head(q: &[f32], head: usize, seq_len: usize, hidden_dim: usize, head_dim: usize) -> Vec<f32> {
+fn extract_q_head(
+    q: &[f32],
+    head: usize,
+    seq_len: usize,
+    hidden_dim: usize,
+    head_dim: usize,
+) -> Vec<f32> {
     let mut q_head = Vec::with_capacity(seq_len * head_dim);
     for i in 0..seq_len {
         let start = i * hidden_dim + head * head_dim;
@@ -416,7 +422,14 @@ fn extract_q_head(q: &[f32], head: usize, seq_len: usize, hidden_dim: usize, hea
 }
 
 /// Extract K and V tensors for a KV head from packed K/V data
-fn extract_kv_head(k: &[f32], v: &[f32], kv_head: usize, seq_len: usize, kv_dim: usize, head_dim: usize) -> (Vec<f32>, Vec<f32>) {
+fn extract_kv_head(
+    k: &[f32],
+    v: &[f32],
+    kv_head: usize,
+    seq_len: usize,
+    kv_dim: usize,
+    head_dim: usize,
+) -> (Vec<f32>, Vec<f32>) {
     let mut k_head = Vec::with_capacity(seq_len * head_dim);
     let mut v_head = Vec::with_capacity(seq_len * head_dim);
     for i in 0..seq_len {
@@ -506,8 +519,13 @@ pub fn optimized_gqa_attention(
 
 /// Compute attention scores for a single position (causal)
 fn compute_causal_scores(
-    q: &[f32], k: &[f32], i: usize, head: usize,
-    hidden_dim: usize, head_dim: usize, scale: f32,
+    q: &[f32],
+    k: &[f32],
+    i: usize,
+    head: usize,
+    hidden_dim: usize,
+    head_dim: usize,
+    scale: f32,
 ) -> Vec<f32> {
     let mut weights = Vec::with_capacity(i + 1);
     for j in 0..=i {

@@ -3,9 +3,7 @@
 //! This traces intermediate values to find where computation diverges.
 
 use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel, OwnedQuantizedTensor};
-use realizar::quantize::{
-    fused_q4k_parallel_matvec, fused_q6k_colmajor_matvec, fused_q6k_parallel_matvec,
-};
+use realizar::quantize::{fused_q4k_parallel_matvec, fused_q6k_parallel_matvec};
 
 const GGUF_TYPE_Q4_K: u32 = 12;
 const GGUF_TYPE_Q6_K: u32 = 14;
@@ -45,14 +43,9 @@ fn matmul(input: &[f32], weight: &OwnedQuantizedTensor) -> Vec<f32> {
                 .expect("Q4_K matmul failed")
         },
         GGUF_TYPE_Q6_K => {
-            if weight.out_dim == 256 {
-                fused_q6k_colmajor_matvec(&weight.data, input, weight.in_dim, weight.out_dim)
-                    .expect("Q6_K colmajor matmul failed")
-            } else {
-                fused_q6k_parallel_matvec(&weight.data, input, weight.in_dim, weight.out_dim)
-                    .expect("Q6_K rowmajor matmul failed")
-            }
-        },
+            fused_q6k_parallel_matvec(&weight.data, input, weight.in_dim, weight.out_dim)
+                .expect("Q6_K matmul failed")
+        }
         _ => panic!("Unsupported qtype: {}", weight.qtype),
     }
 }

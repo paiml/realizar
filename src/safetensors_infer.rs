@@ -103,22 +103,36 @@ impl SafetensorsToAprConverter {
             "token_embd.weight",
         )?;
 
+        // PMAT-234: MANDATORY validation - catches bad loads BEFORE inference
+        crate::safetensors::enforce_embedding_validation(
+            "token_embedding",
+            &token_embedding,
+            vocab_size,
+            hidden_dim,
+        )?;
+
         // Extract output norm (HuggingFace: model.norm.weight, GGUF: output_norm.weight)
         let output_norm_weight =
             Self::get_tensor_with_fallback(&st_model, "model.norm.weight", "output_norm.weight")?;
 
-        // Check for tied embeddings (lm_head = embed_tokens.T)
-        // lm_head.weight: [vocab_size, hidden_dim] -> transpose -> [hidden_dim, vocab_size]
-        let lm_head_weight =
-            if Self::has_tensor_with_fallback(&st_model, "lm_head.weight", "output.weight") {
-                let raw =
-                    Self::get_tensor_with_fallback(&st_model, "lm_head.weight", "output.weight")?;
-                Self::transpose_weight(&raw, vocab_size, hidden_dim)
-            } else {
-                // Tied embeddings: token_embedding is [vocab_size, hidden_dim]
-                // Need to transpose to [hidden_dim, vocab_size]
-                Self::transpose_weight(&token_embedding, vocab_size, hidden_dim)
-            };
+        // F-GT-002 FIX: Check tie_word_embeddings config FIRST, not just tensor existence
+        // When tie_word_embeddings=true, HuggingFace may store a placeholder lm_head.weight
+        // that's all zeros - we MUST use the embedding matrix instead!
+        let use_tied_embeddings = config.tie_word_embeddings.unwrap_or(false);
+
+        let lm_head_weight = if use_tied_embeddings {
+            // Tied embeddings: token_embedding is [vocab_size, hidden_dim]
+            // For matvec: weight is [out_dim, in_dim] = [vocab_size, hidden_dim] - same layout!
+            Self::transpose_weight(&token_embedding, vocab_size, hidden_dim)
+        } else if Self::has_tensor_with_fallback(&st_model, "lm_head.weight", "output.weight") {
+            // Separate lm_head weights
+            let raw =
+                Self::get_tensor_with_fallback(&st_model, "lm_head.weight", "output.weight")?;
+            Self::transpose_weight(&raw, vocab_size, hidden_dim)
+        } else {
+            // Fallback: assume tied if no lm_head tensor exists
+            Self::transpose_weight(&token_embedding, vocab_size, hidden_dim)
+        };
 
         // Extract layers
         let mut layers = Vec::with_capacity(num_layers);

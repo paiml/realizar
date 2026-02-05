@@ -183,7 +183,6 @@ fn benchmark_gguf_transformer_load(c: &mut Criterion) {
     group.finish();
 }
 
-
 // ============================================================================
 // BENCHMARK: Parameter Scaling (Memory Efficiency)
 // ============================================================================

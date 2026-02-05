@@ -112,20 +112,17 @@ impl AprF32ToGpuAdapter {
             .unwrap_or_else(|| vec![0.0; config.vocab_size]);
 
         // Create GpuModel using internal constructor
-        // F-REGR-231 FIX: The from_apr_weights function expects:
-        //   - lm_head_weight: [hidden_dim, vocab_size] for GPU matmul
-        //   - lm_head_weight_t: [vocab_size, hidden_dim] for CPU matmul
-        // APR stores as [vocab_size, hidden_dim], so:
-        //   - Pass lm_head_weight_t (transposed to [hidden_dim, vocab_size]) as first
-        //   - Pass lm_head_weight (original [vocab_size, hidden_dim]) as second
+        // PMAT-216 FIX: from_apr_weights signature is (lm_head_weight, lm_head_weight_t)
+        // where lm_head_weight_t is used for GPU matmul (transposed layout)
+        // APR stores as [vocab_size, hidden_dim], GPU needs [hidden_dim, vocab_size]
         GpuModel::from_apr_weights(
             config,
             embedding_weights,
             block_weights,
             final_norm_weight,
             final_norm_bias,
-            lm_head_weight_t, // [hidden_dim, vocab_size] for GPU
-            lm_head_weight,   // [vocab_size, hidden_dim] for CPU
+            lm_head_weight,   // Original [vocab_size, hidden_dim]
+            lm_head_weight_t, // Transposed [hidden_dim, vocab_size] for GPU matmul
             lm_head_bias,
         )
     }
@@ -386,20 +383,17 @@ impl AprToGpuAdapter {
         let lm_head_bias = vec![0.0; config.vocab_size];
 
         // Create GpuModel using internal constructor
-        // F-REGR-231 FIX: The from_apr_weights function expects:
-        //   - lm_head_weight: [hidden_dim, vocab_size] for GPU matmul
-        //   - lm_head_weight_t: [vocab_size, hidden_dim] for CPU matmul
-        // APR stores as [vocab_size, hidden_dim], so:
-        //   - Pass lm_head_weight_t (transposed to [hidden_dim, vocab_size]) as first
-        //   - Pass lm_head_weight (original [vocab_size, hidden_dim]) as second
+        // PMAT-216 FIX: from_apr_weights signature is (lm_head_weight, lm_head_weight_t)
+        // where lm_head_weight_t is used for GPU matmul (transposed layout)
+        // APR stores as [vocab_size, hidden_dim], GPU needs [hidden_dim, vocab_size]
         GpuModel::from_apr_weights(
             config,
             embedding_weights,
             block_weights,
             final_norm_weight,
             final_norm_bias,
-            lm_head_weight_t, // [hidden_dim, vocab_size] for GPU
-            lm_head_weight,   // [vocab_size, hidden_dim] for CPU
+            lm_head_weight,   // Original [vocab_size, hidden_dim]
+            lm_head_weight_t, // Transposed [hidden_dim, vocab_size] for GPU matmul
             lm_head_bias,
         )
     }

@@ -15,11 +15,11 @@
 //! - Edge cases: single row, tile boundaries, partial tiles
 //! - Error handling: invalid dimensions, buffer sizes
 
+// LAYOUT-002: ROW-MAJOR ONLY - no colmajor/auto aliases
 use crate::quantize::parallel_k::{
-    fused_q4k_auto_matvec_into, fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into,
-    fused_q4k_q8k_ffn_up_gate_into, fused_q4k_q8k_parallel_matvec_into, fused_q4k_tiled_matvec,
-    fused_q5k_parallel_matvec, fused_q5k_parallel_matvec_into, fused_q6k_colmajor_matvec,
-    fused_q6k_parallel_matvec, fused_q6k_parallel_matvec_into,
+    fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into, fused_q4k_q8k_ffn_up_gate_into,
+    fused_q4k_q8k_parallel_matvec_into, fused_q4k_tiled_matvec, fused_q5k_parallel_matvec,
+    fused_q5k_parallel_matvec_into, fused_q6k_parallel_matvec, fused_q6k_parallel_matvec_into,
 };
 use crate::quantize::types::QK_K;
 
@@ -1029,54 +1029,8 @@ fn test_q4k_q8k_ffn_up_gate_into_gate_output_error_pk14() {
     assert!(result.is_err());
 }
 
-// ============================================================================
-// Tests for backward-compat aliases
-// ============================================================================
-
-#[test]
-fn test_fused_q6k_colmajor_matvec_alias_pk14() {
-    let in_dim = 256;
-    let out_dim = 64;
-    let weights = generate_q6k_weights(out_dim, in_dim);
-    let activations = vec![1.0f32; in_dim];
-
-    // fused_q6k_colmajor_matvec should be an alias for fused_q6k_parallel_matvec
-    let result1 = fused_q6k_colmajor_matvec(&weights, &activations, in_dim, out_dim);
-    let result2 = fused_q6k_parallel_matvec(&weights, &activations, in_dim, out_dim);
-
-    assert!(result1.is_ok());
-    assert!(result2.is_ok());
-
-    let out1 = result1.unwrap();
-    let out2 = result2.unwrap();
-
-    assert_eq!(out1.len(), out2.len());
-    for (a, b) in out1.iter().zip(out2.iter()) {
-        assert!((a - b).abs() < 1e-6);
-    }
-}
-
-#[test]
-fn test_fused_q4k_auto_matvec_into_alias_pk14() {
-    let in_dim = 256;
-    let out_dim = 64;
-    let weights = generate_q4k_weights(out_dim, in_dim);
-    let activations = vec![1.0f32; in_dim];
-    let mut output1 = vec![0.0f32; out_dim];
-    let mut output2 = vec![0.0f32; out_dim];
-
-    // fused_q4k_auto_matvec_into should be an alias for fused_q4k_parallel_matvec_into
-    let result1 = fused_q4k_auto_matvec_into(&weights, &activations, in_dim, out_dim, &mut output1);
-    let result2 =
-        fused_q4k_parallel_matvec_into(&weights, &activations, in_dim, out_dim, &mut output2);
-
-    assert!(result1.is_ok());
-    assert!(result2.is_ok());
-
-    for (a, b) in output1.iter().zip(output2.iter()) {
-        assert!((a - b).abs() < 1e-6);
-    }
-}
+// LAYOUT-002: Backward-compat alias tests DELETED (2026-02-03)
+// ONE WAY ONLY: Use fused_q{4,5,6}k_parallel_matvec* functions directly
 
 // ============================================================================
 // Determinism and consistency tests

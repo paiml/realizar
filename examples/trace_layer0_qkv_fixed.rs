@@ -1,7 +1,7 @@
 //! Trace layer 0 QKV projections with correct qtype handling
 
 use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel};
-use realizar::quantize::{fused_q4k_parallel_matvec, fused_q6k_colmajor_matvec};
+use realizar::quantize::{fused_q4k_parallel_matvec, fused_q6k_parallel_matvec};
 
 const GGUF_TYPE_Q4_K: u32 = 12;
 const GGUF_TYPE_Q6_K: u32 = 14;
@@ -25,7 +25,7 @@ fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: 
         GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec(data, input, in_dim, out_dim).expect("test"),
         GGUF_TYPE_Q6_K => {
             // V weights are column-major with out_dim=256
-            fused_q6k_colmajor_matvec(data, input, in_dim, out_dim).expect("test")
+            fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test")
         },
         _ => panic!("Unsupported qtype: {}", qtype),
     }

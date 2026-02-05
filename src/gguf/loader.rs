@@ -256,17 +256,39 @@ impl GGUFModel {
     }
 
     // Primitive type readers delegated to io.rs (PMAT-COMPLY)
-    fn read_u8(cursor: &mut Cursor<&[u8]>) -> Result<u8> { super::io::read_u8(cursor) }
-    fn read_i8(cursor: &mut Cursor<&[u8]>) -> Result<i8> { super::io::read_i8(cursor) }
-    fn read_u16(cursor: &mut Cursor<&[u8]>) -> Result<u16> { super::io::read_u16(cursor) }
-    fn read_i16(cursor: &mut Cursor<&[u8]>) -> Result<i16> { super::io::read_i16(cursor) }
-    fn read_u32(cursor: &mut Cursor<&[u8]>) -> Result<u32> { super::io::read_u32(cursor) }
-    fn read_i32(cursor: &mut Cursor<&[u8]>) -> Result<i32> { super::io::read_i32(cursor) }
-    fn read_f32(cursor: &mut Cursor<&[u8]>) -> Result<f32> { super::io::read_f32(cursor) }
-    fn read_bool(cursor: &mut Cursor<&[u8]>) -> Result<bool> { super::io::read_bool(cursor) }
-    fn read_u64(cursor: &mut Cursor<&[u8]>) -> Result<u64> { super::io::read_u64(cursor) }
-    fn read_i64(cursor: &mut Cursor<&[u8]>) -> Result<i64> { super::io::read_i64(cursor) }
-    fn read_f64(cursor: &mut Cursor<&[u8]>) -> Result<f64> { super::io::read_f64(cursor) }
+    fn read_u8(cursor: &mut Cursor<&[u8]>) -> Result<u8> {
+        super::io::read_u8(cursor)
+    }
+    fn read_i8(cursor: &mut Cursor<&[u8]>) -> Result<i8> {
+        super::io::read_i8(cursor)
+    }
+    fn read_u16(cursor: &mut Cursor<&[u8]>) -> Result<u16> {
+        super::io::read_u16(cursor)
+    }
+    fn read_i16(cursor: &mut Cursor<&[u8]>) -> Result<i16> {
+        super::io::read_i16(cursor)
+    }
+    fn read_u32(cursor: &mut Cursor<&[u8]>) -> Result<u32> {
+        super::io::read_u32(cursor)
+    }
+    fn read_i32(cursor: &mut Cursor<&[u8]>) -> Result<i32> {
+        super::io::read_i32(cursor)
+    }
+    fn read_f32(cursor: &mut Cursor<&[u8]>) -> Result<f32> {
+        super::io::read_f32(cursor)
+    }
+    fn read_bool(cursor: &mut Cursor<&[u8]>) -> Result<bool> {
+        super::io::read_bool(cursor)
+    }
+    fn read_u64(cursor: &mut Cursor<&[u8]>) -> Result<u64> {
+        super::io::read_u64(cursor)
+    }
+    fn read_i64(cursor: &mut Cursor<&[u8]>) -> Result<i64> {
+        super::io::read_i64(cursor)
+    }
+    fn read_f64(cursor: &mut Cursor<&[u8]>) -> Result<f64> {
+        super::io::read_f64(cursor)
+    }
 
     /// Parse tensor info
     fn parse_tensor_info(cursor: &mut Cursor<&[u8]>, count: u64) -> Result<Vec<TensorInfo>> {

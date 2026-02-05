@@ -44,6 +44,46 @@ pub struct BlockWeights {
     pub ffn_gate_weight: Option<Vec<f32>>,
 }
 
+// =============================================================================
+// PMAT-216 FIX: Type-safe weight wrappers to prevent argument swaps
+// =============================================================================
+// The LM head bug was caused by swapping lm_head_weight and lm_head_weight_t
+// in from_apr_weights(). These newtypes make such swaps a compile-time error.
+
+/// LM head weight in original layout [vocab_size, hidden_dim]
+/// Used for reference/debugging, NOT for GPU matmul
+#[derive(Debug, Clone)]
+pub struct LmHeadWeight(pub Vec<f32>);
+
+/// LM head weight TRANSPOSED [hidden_dim, vocab_size]
+/// This is what GPU matmul kernels expect
+#[derive(Debug, Clone)]
+pub struct LmHeadWeightTransposed(pub Vec<f32>);
+
+impl LmHeadWeight {
+    /// Get inner data
+    pub fn into_inner(self) -> Vec<f32> {
+        self.0
+    }
+
+    /// Borrow inner data
+    pub fn as_slice(&self) -> &[f32] {
+        &self.0
+    }
+}
+
+impl LmHeadWeightTransposed {
+    /// Get inner data
+    pub fn into_inner(self) -> Vec<f32> {
+        self.0
+    }
+
+    /// Borrow inner data
+    pub fn as_slice(&self) -> &[f32] {
+        &self.0
+    }
+}
+
 /// IMP-1007: Weight type for split-borrow matmul
 ///
 /// This enum specifies which weight matrix to use in matmul_split,

@@ -300,7 +300,7 @@ fn test_run_bench_regression_nonexistent() {
     let result = run_bench_regression(
         "/nonexistent/baseline.json",
         "/nonexistent/current.json",
-        false,
+        false, // strict
     );
     assert!(result.is_err());
 }

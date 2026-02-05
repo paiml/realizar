@@ -1629,7 +1629,6 @@ impl CudaExecutor {
     }
 }
 
-
 #[cfg(test)]
 #[cfg(feature = "cuda")]
 #[path = "quantized_tests.rs"]

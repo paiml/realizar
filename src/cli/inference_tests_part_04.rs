@@ -17,6 +17,7 @@ mod artifact_falsification {
     use crate::apr::test_factory::build_executable_pygmy_apr;
     use crate::cli::inference;
     use crate::gguf::test_factory::build_executable_pygmy_gguf;
+    use crate::inference_trace::TraceConfig;
 
     // =========================================================================
     // GGUF Artifact Falsification - Real File, Real CLI
@@ -42,9 +43,9 @@ mod artifact_falsification {
             5,   // max_tokens
             0.0, // temperature (greedy)
             "text",
+            false, // force_gpu
             false, // verbose
-            false, // show_probs
-            false, // debug
+            None,  // trace_config
         );
 
         assert!(
@@ -68,7 +69,7 @@ mod artifact_falsification {
             "json",
             false,
             false,
-            false,
+            None, // trace_config
         );
 
         assert!(
@@ -92,7 +93,7 @@ mod artifact_falsification {
             "text",
             false, // force_gpu
             true,  // verbose
-            false,
+            None, // trace_config
         );
 
         assert!(
@@ -116,7 +117,7 @@ mod artifact_falsification {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
 
         assert!(
@@ -137,7 +138,7 @@ mod artifact_falsification {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
 
         assert!(result.is_err(), "Should fail for nonexistent file");
@@ -161,7 +162,7 @@ mod artifact_falsification {
         let path = file.path().to_str().unwrap();
 
         let result =
-            inference::run_apr_inference(path, &data, "Hello", 5, 0.0, "text", false, false);
+            inference::run_apr_inference(path, &data, "Hello", 5, 0.0, "text", false, false, None);
 
         assert!(
             result.is_ok(),
@@ -176,7 +177,7 @@ mod artifact_falsification {
         let path = file.path().to_str().unwrap();
 
         let result =
-            inference::run_apr_inference(path, &data, "JSON test", 3, 0.0, "json", false, false);
+            inference::run_apr_inference(path, &data, "JSON test", 3, 0.0, "json", false, false, None);
 
         assert!(result.is_ok(), "APR JSON format failed: {:?}", result.err());
     }
@@ -188,7 +189,8 @@ mod artifact_falsification {
 
         let result = inference::run_apr_inference(
             path, &data, "Verbose", 2, 0.0, "text", false, // force_gpu
-            true, // verbose
+            true,  // verbose
+            None,  // trace_config
         );
 
         assert!(
@@ -204,7 +206,7 @@ mod artifact_falsification {
         let path = file.path().to_str().unwrap();
 
         let result =
-            inference::run_apr_inference(path, &data, "Temp test", 3, 0.8, "text", false, false);
+            inference::run_apr_inference(path, &data, "Temp test", 3, 0.8, "text", false, false, None);
 
         assert!(
             result.is_ok(),
@@ -225,6 +227,7 @@ mod artifact_falsification {
             "text",
             false,
             false,
+            None, // trace_config
         );
 
         assert!(result.is_err(), "Should fail for empty data");
@@ -288,7 +291,7 @@ mod artifact_falsification {
         let path = file.path().to_str().unwrap();
 
         let result =
-            inference::run_gguf_inference(path, &[], "Test", 0, 0.0, "text", false, false, false);
+            inference::run_gguf_inference(path, &[], "Test", 0, 0.0, "text", false, false, None);
         // Should handle gracefully (either Ok with empty output or specific error)
         let _ = result; // Don't assert - just ensure no panic
     }
@@ -299,7 +302,7 @@ mod artifact_falsification {
         let path = file.path().to_str().unwrap();
 
         let result =
-            inference::run_apr_inference(path, &data, "Test", 0, 0.0, "text", false, false);
+            inference::run_apr_inference(path, &data, "Test", 0, 0.0, "text", false, false, None);
         let _ = result;
     }
 
@@ -309,7 +312,7 @@ mod artifact_falsification {
         let path = file.path().to_str().unwrap();
 
         let result =
-            inference::run_gguf_inference(path, &[], "", 5, 0.0, "text", false, false, false);
+            inference::run_gguf_inference(path, &[], "", 5, 0.0, "text", false, false, None);
         // Empty prompt should be handled
         let _ = result;
     }
@@ -319,7 +322,7 @@ mod artifact_falsification {
         let (file, data) = create_apr_artifact();
         let path = file.path().to_str().unwrap();
 
-        let result = inference::run_apr_inference(path, &data, "", 5, 0.0, "text", false, false);
+        let result = inference::run_apr_inference(path, &data, "", 5, 0.0, "text", false, false, None);
         let _ = result;
     }
 
@@ -337,7 +340,7 @@ mod artifact_falsification {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_ok(), "High temperature should work");
     }
@@ -348,7 +351,7 @@ mod artifact_falsification {
         let path = file.path().to_str().unwrap();
 
         let result = inference::run_apr_inference(
-            path, &data, "Debug", 2, 0.0, "text", false, true, // verbose (debug)
+            path, &data, "Debug", 2, 0.0, "text", false, true, None, // trace_config
         );
         assert!(result.is_ok(), "Debug mode failed: {:?}", result.err());
     }
@@ -376,7 +379,7 @@ mod artifact_falsification {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
 
         assert!(
@@ -405,6 +408,7 @@ mod artifact_falsification {
             "text",
             false,
             false,
+            None, // trace_config
         );
 
         assert!(
@@ -536,7 +540,7 @@ mod artifact_falsification {
             "text",
             false,
             true,
-            false, // show_probs=true
+            None, // trace_config (no tracing for this test)
         );
         assert!(result.is_ok());
     }
@@ -555,7 +559,7 @@ mod artifact_falsification {
             "text",
             false,
             false,
-            true, // debug=true
+            Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_ok());
     }
@@ -574,7 +578,7 @@ mod artifact_falsification {
             "json",
             false, // force_gpu (pygmy model can't run on GPU)
             true,  // verbose
-            true,  // trace
+            Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_ok());
     }

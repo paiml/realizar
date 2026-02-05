@@ -212,10 +212,16 @@ fn dispatch_inference(
             format,
             force_gpu,
             verbose,
+            trace_config.clone(),
         ),
-        ModelFormat::SafeTensors => {
-            run_safetensors_inference(model_ref, formatted_prompt, max_tokens, temperature, format)
-        },
+        ModelFormat::SafeTensors => run_safetensors_inference(
+            model_ref,
+            formatted_prompt,
+            max_tokens,
+            temperature,
+            format,
+            trace_config.clone(),
+        ),
         ModelFormat::Gguf => run_gguf_inference(
             model_ref,
             file_data,

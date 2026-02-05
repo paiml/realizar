@@ -57,9 +57,9 @@ pub fn apply_rope_inline(
 /// Static method to avoid borrow conflicts with scheduler and weights.
 #[allow(clippy::too_many_arguments)]
 pub fn gqa_multihead_attention(
-    q: &[f32],       // Q: [num_heads * head_dim]
-    k: &[f32],       // K: [kv_len * num_kv_heads * head_dim]
-    v: &[f32],       // V: [kv_len * num_kv_heads * head_dim]
+    q: &[f32], // Q: [num_heads * head_dim]
+    k: &[f32], // K: [kv_len * num_kv_heads * head_dim]
+    v: &[f32], // V: [kv_len * num_kv_heads * head_dim]
     kv_len: usize,
     num_heads: usize,    // Number of Q heads
     num_kv_heads: usize, // Number of K/V heads (for GQA, < num_heads)
@@ -102,8 +102,7 @@ pub fn gqa_multihead_attention(
             |_| {
                 // Fallback to scalar softmax
                 let max_score = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-                let exp_scores: Vec<f32> =
-                    scores.iter().map(|&s| (s - max_score).exp()).collect();
+                let exp_scores: Vec<f32> = scores.iter().map(|&s| (s - max_score).exp()).collect();
                 let sum_exp: f32 = exp_scores.iter().sum();
                 exp_scores.iter().map(|&e| e / sum_exp).collect()
             },
@@ -170,8 +169,7 @@ pub fn sample_topk(logits: &[f32], temperature: f32, top_k: usize) -> usize {
     let probs: Vec<f32> = exp_logits.iter().map(|&x| x / sum).collect();
 
     // Get top-k indices by sorting
-    let mut indexed: Vec<(usize, f32)> =
-        probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
+    let mut indexed: Vec<(usize, f32)> = probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     // Truncate to top_k and return highest probability token (deterministic)

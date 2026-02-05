@@ -1902,7 +1902,6 @@ pub struct ChunkedPrefillStats {
     pub tokens_per_second: f64,
 }
 
-
 #[cfg(test)]
 #[cfg(feature = "gpu")]
 #[path = "batch_scheduler_tests.rs"]

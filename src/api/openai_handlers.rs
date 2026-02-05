@@ -83,10 +83,7 @@ fn tokenize_chat_prompt(
 }
 
 /// Extract common generation parameters from the request.
-fn chat_gen_params(
-    request: &ChatCompletionRequest,
-    tokenizer: &BPETokenizer,
-) -> (usize, f32, u32) {
+fn chat_gen_params(request: &ChatCompletionRequest, tokenizer: &BPETokenizer) -> (usize, f32, u32) {
     let max_tokens = request.max_tokens.unwrap_or(256);
     let temperature = request.temperature.unwrap_or(0.7);
     let eos_token_id = tokenizer
@@ -264,11 +261,11 @@ fn try_gpu_backend(
         Ok(t) => t,
         Err(r) => return Some(r),
     };
-    let prompt_ids =
-        match tokenize_chat_prompt(&tokenizer, &request.messages, Some("qwen"), state) {
-            Ok(ids) => ids,
-            Err(r) => return Some(r),
-        };
+    let prompt_ids = match tokenize_chat_prompt(&tokenizer, &request.messages, Some("qwen"), state)
+    {
+        Ok(ids) => ids,
+        Err(r) => return Some(r),
+    };
     let prompt_tokens = prompt_ids.len();
     let prompt_usize: Vec<usize> = prompt_ids.iter().map(|&x| x as usize).collect();
     let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer);
@@ -289,7 +286,7 @@ fn try_gpu_backend(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("GPU model lock error: {e}"),
             ));
-        }
+        },
     };
     let generated = match model.generate(&prompt_usize, &gpu_config) {
         Ok(g) => g,
@@ -351,11 +348,11 @@ fn try_cached_backend(
         Ok(t) => t,
         Err(r) => return Some(r),
     };
-    let prompt_ids =
-        match tokenize_chat_prompt(&tokenizer, &request.messages, Some("qwen"), state) {
-            Ok(ids) => ids,
-            Err(r) => return Some(r),
-        };
+    let prompt_ids = match tokenize_chat_prompt(&tokenizer, &request.messages, Some("qwen"), state)
+    {
+        Ok(ids) => ids,
+        Err(r) => return Some(r),
+    };
     let prompt_tokens = prompt_ids.len();
     let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer);
 
@@ -367,7 +364,10 @@ fn try_cached_backend(
         trace: false,
     };
 
-    let generated = match cached_model.model().generate_with_cache(&prompt_ids, &q_config) {
+    let generated = match cached_model
+        .model()
+        .generate_with_cache(&prompt_ids, &q_config)
+    {
         Ok(g) => g,
         Err(e) => return Some(fail_response(state, StatusCode::INTERNAL_SERVER_ERROR, e)),
     };
@@ -423,11 +423,11 @@ fn try_cuda_backend(
         Ok(t) => t,
         Err(r) => return Some(r),
     };
-    let prompt_ids =
-        match tokenize_chat_prompt(&tokenizer, &request.messages, Some("qwen"), state) {
-            Ok(ids) => ids,
-            Err(r) => return Some(r),
-        };
+    let prompt_ids = match tokenize_chat_prompt(&tokenizer, &request.messages, Some("qwen"), state)
+    {
+        Ok(ids) => ids,
+        Err(r) => return Some(r),
+    };
     let prompt_tokens = prompt_ids.len();
     let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer);
 
@@ -511,11 +511,11 @@ fn try_quantized_backend(
         Ok(t) => t,
         Err(r) => return Some(r),
     };
-    let prompt_ids =
-        match tokenize_chat_prompt(&tokenizer, &request.messages, Some("qwen"), state) {
-            Ok(ids) => ids,
-            Err(r) => return Some(r),
-        };
+    let prompt_ids = match tokenize_chat_prompt(&tokenizer, &request.messages, Some("qwen"), state)
+    {
+        Ok(ids) => ids,
+        Err(r) => return Some(r),
+    };
     let prompt_tokens = prompt_ids.len();
     let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer);
 
@@ -754,8 +754,7 @@ pub async fn openai_chat_completions_handler(
     );
 
     #[cfg(feature = "gpu")]
-    if let Some(r) = try_gpu_backend(&state, &request, &request_id, trace_level.as_deref(), start)
-    {
+    if let Some(r) = try_gpu_backend(&state, &request, &request_id, trace_level.as_deref(), start) {
         return r;
     }
 
@@ -767,8 +766,7 @@ pub async fn openai_chat_completions_handler(
     }
 
     #[cfg(feature = "cuda")]
-    if let Some(r) =
-        try_cuda_backend(&state, &request, &request_id, trace_level.as_deref(), start)
+    if let Some(r) = try_cuda_backend(&state, &request, &request_id, trace_level.as_deref(), start)
     {
         return r;
     }

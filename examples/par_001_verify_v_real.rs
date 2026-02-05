@@ -5,7 +5,7 @@
 #![allow(clippy::needless_range_loop)]
 
 use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel};
-use realizar::quantize::{dequantize_q6_k, fused_q6k_colmajor_matvec};
+use realizar::quantize::{dequantize_q6_k, fused_q6k_parallel_matvec};
 
 fn l2_norm(v: &[f32]) -> f32 {
     (v.iter().map(|x| x * x).sum::<f32>()).sqrt()
@@ -63,9 +63,9 @@ fn main() {
     println!("V data bytes: {}", v_weight.data.len());
 
     // Method 1: Column-major fused function
-    println!("\n=== Method 1: fused_q6k_colmajor_matvec ===");
+    println!("\n=== Method 1: fused_q6k_parallel_matvec ===");
     let fused_output =
-        fused_q6k_colmajor_matvec(&v_weight.data, &normed, v_weight.in_dim, v_weight.out_dim)
+        fused_q6k_parallel_matvec(&v_weight.data, &normed, v_weight.in_dim, v_weight.out_dim)
             .expect("fused failed");
     println!("Fused output L2: {:.4}", l2_norm(&fused_output));
     println!("First 8: {:?}", &fused_output[..8.min(fused_output.len())]);

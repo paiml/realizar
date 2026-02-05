@@ -64,6 +64,7 @@ use crate::error::{RealizarError, Result};
 
 pub mod activation;
 pub mod dequant;
+pub mod encode;
 pub mod fused_k;
 pub mod fused_q5k_q6k;
 pub mod parallel_dequant;
@@ -91,11 +92,11 @@ pub use fused_q5k_q6k::{
 };
 
 // Re-export parallel K-quant operations (PMAT-802)
+// LAYOUT-002: All kernels are ROW-MAJOR. No colmajor/auto aliases.
 pub use parallel_k::{
-    fused_q4k_auto_matvec_into, fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into,
-    fused_q4k_q8k_ffn_up_gate_into, fused_q4k_q8k_parallel_matvec_into, fused_q4k_tiled_matvec,
-    fused_q5k_parallel_matvec, fused_q5k_parallel_matvec_into, fused_q6k_colmajor_matvec,
-    fused_q6k_parallel_matvec, fused_q6k_parallel_matvec_into,
+    fused_q4k_parallel_matvec, fused_q4k_parallel_matvec_into, fused_q4k_q8k_ffn_up_gate_into,
+    fused_q4k_q8k_parallel_matvec_into, fused_q4k_tiled_matvec, fused_q5k_parallel_matvec,
+    fused_q5k_parallel_matvec_into, fused_q6k_parallel_matvec, fused_q6k_parallel_matvec_into,
 };
 
 // Re-export activation functions (PMAT-802)
@@ -112,6 +113,21 @@ pub use parallel_dequant::{
 
 // Re-export SIMD utilities (for tests and internal use)
 pub use simd::{extract_scale_min, extract_scale_min_from_slice, read_f16};
+
+// Re-export encoding functions (Toyota Way: ONE source of truth)
+// aprender imports these for format conversion - NEVER duplicates
+pub use encode::{
+    // Constants
+    F16_MIN_NORMAL,
+    // Q4_K
+    quantize_q4_k, quantize_q4_k_matrix, dequantize_q4_k_to_f32,
+    // Q5_K
+    quantize_q5_k, quantize_q5_k_matrix, dequantize_q5_k_to_f32,
+    // Q6_K
+    quantize_q6_k, quantize_q6_k_matrix, dequantize_q6_k_to_f32,
+    // Transpose (LAYOUT-002)
+    transpose_q4k_for_matmul, transpose_q5k_for_matmul, transpose_q6k_for_matmul,
+};
 
 /// Pre-computed f16 to f32 lookup table (65536 entries = 256KB)
 ///

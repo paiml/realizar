@@ -357,8 +357,16 @@ fn run_gguf_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     let generated_token_count = generated_tokens.len();
     let tps = tok_per_sec(generated_token_count, inference_ms);
 
-    write_gguf_trace(config, &model_config, input_token_count, generated_token_count,
-                     load_ms, inference_ms, tps, used_gpu);
+    write_gguf_trace(
+        config,
+        &model_config,
+        input_token_count,
+        generated_token_count,
+        load_ms,
+        inference_ms,
+        tps,
+        used_gpu,
+    );
 
     Ok(InferenceResult {
         text,
@@ -674,59 +682,65 @@ fn try_apr_cuda_inference(
     input_token_count: usize,
     load_start: Instant,
 ) -> Option<Result<InferenceResult>> {
-    use crate::apr::{AprV2Model, AprV2ModelCuda};
+    use crate::apr_transformer::AprTransformer;
+    use crate::gpu::adapters::AprF32ToGpuAdapter;
+    use crate::gpu::GpuGenerateConfig;
 
-    let model = AprV2Model::load(&config.model_path).ok()?;
-    if !model.metadata().is_transformer() {
-        if config.verbose {
-            eprintln!("Backend: CPU (model lacks transformer config)");
-        }
-        return None;
-    }
+    // PMAT-APR-PERF-001: Use GpuModel with incremental KV cache for O(n) decode
+    // Previous path used AprV2ModelCuda which did full forward pass per token (O(n²))
+    let transformer = AprTransformer::from_apr_file(&config.model_path).ok()?;
 
-    let mut cuda_model = match AprV2ModelCuda::new(model, 0) {
+    let mut gpu_model = match AprF32ToGpuAdapter::to_gpu_model(&transformer) {
         Ok(m) => m,
         Err(e) => {
             if config.verbose {
-                eprintln!("Backend: CPU (GPU init failed: {})", e);
+                eprintln!("Backend: CPU (GPU adapter failed: {})", e);
             }
             return None;
-        }
+        },
     };
 
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
     if config.verbose {
-        let metadata = cuda_model.model().metadata();
         eprintln!(
             "Architecture: {} ({} layers, vocab_size={})",
-            metadata.architecture.as_deref().unwrap_or("unknown"),
-            metadata.num_layers.unwrap_or(0),
-            metadata.vocab_size.unwrap_or(0)
+            transformer.config.architecture,
+            transformer.config.num_layers,
+            transformer.config.vocab_size
         );
         eprintln!(
-            "Config: hidden_size={}, context_length={}, quant=GPU, threads=1 (GPU)",
-            metadata.hidden_size.unwrap_or(0),
-            metadata.max_position_embeddings.unwrap_or(2048)
+            "Config: hidden_size={}, context_length={}, quant=GPU+KVCache, threads=1 (GPU)",
+            transformer.config.hidden_dim,
+            transformer.config.context_length
         );
         eprintln!("Model loaded in {:.1}ms", load_ms);
-        eprintln!(
-            "Backend: GPU ({}, {} MB VRAM)",
-            cuda_model.device_name(),
-            cuda_model.vram_mb()
-        );
+        eprintln!("Backend: GPU (with incremental KV cache)");
     }
 
     let infer_start = Instant::now();
     let eos_id = 151645u32; // Qwen2 EOS
-    let tokens = match cuda_model.generate_cuda(input_tokens, config.max_tokens.min(128), eos_id) {
-        Ok(t) => t,
+
+    // Convert input tokens to usize for GpuModel API
+    let prompt: Vec<usize> = input_tokens.iter().map(|&t| t as usize).collect();
+
+    // generate_with_cache creates its own StreamingKVCache internally
+    let gen_config = GpuGenerateConfig {
+        max_tokens: config.max_tokens.min(128),
+        temperature: 0.0, // Greedy
+        top_k: 1,         // Greedy sampling
+        stop_tokens: vec![eos_id as usize],
+        trace: false,
+    };
+
+    let tokens = match gpu_model.generate_with_cache(&prompt, &gen_config) {
+        Ok(t) => t.into_iter().map(|t| t as u32).collect::<Vec<_>>(),
         Err(e) => {
             return Some(Err(RealizarError::InferenceError(format!(
                 "GPU generation failed: {}",
                 e
             ))))
-        }
+        },
     };
 
     let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
@@ -894,7 +908,7 @@ fn try_safetensors_cuda_inference(
                 eprintln!("Backend: CPU (GPU init failed: {})", e);
             }
             return None;
-        }
+        },
     };
 
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
@@ -927,7 +941,7 @@ fn try_safetensors_cuda_inference(
                 "GPU generation failed: {}",
                 e
             ))))
-        }
+        },
     };
 
     let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
@@ -1006,6 +1020,10 @@ fn run_safetensors_cpu_inference(
 
     let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
     let generated_tokens = &all_tokens[input_token_count..];
+
+    // DEBUG: Show generated token IDs
+    eprintln!("[DEBUG] Input tokens: {:?}", &all_tokens[..input_token_count]);
+    eprintln!("[DEBUG] Generated tokens: {:?}", generated_tokens);
 
     let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
         clean_model_output(&tokenizer.decode(generated_tokens))
@@ -1099,9 +1117,7 @@ fn convert_simple_tokenizer_to_bpe(
 fn search_external_tokenizer_caches() -> Option<crate::apr::BpeTokenizer> {
     use crate::apr::AprV2Model;
 
-    let home = std::env::var("HOME")
-        .ok()
-        .map(std::path::PathBuf::from)?;
+    let home = std::env::var("HOME").ok().map(std::path::PathBuf::from)?;
 
     // Search HuggingFace cache (PMAT-SHOWCASE-TOKENIZER-001)
     let hf_cache = home.join(".cache/huggingface/hub");
@@ -1114,9 +1130,7 @@ fn search_external_tokenizer_caches() -> Option<crate::apr::BpeTokenizer> {
 }
 
 /// Search HuggingFace model cache for Qwen tokenizer.json
-fn search_hf_cache_for_tokenizer(
-    hf_cache: &std::path::Path,
-) -> Option<crate::apr::BpeTokenizer> {
+fn search_hf_cache_for_tokenizer(hf_cache: &std::path::Path) -> Option<crate::apr::BpeTokenizer> {
     use crate::apr::AprV2Model;
 
     let entries = std::fs::read_dir(hf_cache).ok()?;

@@ -384,10 +384,13 @@ fn http_error(
 /// Validate that model is loaded, return error if not
 #[inline]
 fn require_model(state: &ServeState) -> Result<&LoadedModel, (StatusCode, Json<ErrorResponse>)> {
-    state
-        .model
-        .as_ref()
-        .ok_or_else(|| http_error(StatusCode::SERVICE_UNAVAILABLE, "No model loaded", "E_NO_MODEL"))
+    state.model.as_ref().ok_or_else(|| {
+        http_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "No model loaded",
+            "E_NO_MODEL",
+        )
+    })
 }
 
 /// Validate input dimensions match expected
@@ -414,7 +417,9 @@ type HttpResult<T> = Result<T, (StatusCode, Json<ErrorResponse>)>;
 macro_rules! first_pred {
     ($preds:expr) => {{
         #[allow(clippy::cast_precision_loss)]
-        { *$preds.first().unwrap_or(&Default::default()) as f32 }
+        {
+            *$preds.first().unwrap_or(&Default::default()) as f32
+        }
     }};
 }
 
@@ -426,29 +431,43 @@ fn run_model_prediction(
     return_probs: bool,
 ) -> HttpResult<(f32, Option<Vec<f32>>)> {
     let map_err = |e: aprender::AprenderError| {
-        http_error(StatusCode::INTERNAL_SERVER_ERROR, format!("Inference error: {e}"), "E_INFERENCE_ERROR")
+        http_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Inference error: {e}"),
+            "E_INFERENCE_ERROR",
+        )
     };
 
     match model {
         LoadedModel::LogisticRegression(lr) => {
             let pred = first_pred!(&lr.predict(input));
             let probs = return_probs.then(|| {
-                let p1 = lr.predict_proba(input).as_slice().first().copied().unwrap_or(0.5);
+                let p1 = lr
+                    .predict_proba(input)
+                    .as_slice()
+                    .first()
+                    .copied()
+                    .unwrap_or(0.5);
                 vec![1.0 - p1, p1]
             });
             Ok((pred, probs))
         },
-        LoadedModel::KNearestNeighbors(knn) =>
-            Ok((first_pred!(&knn.predict(input).map_err(map_err)?), None)),
+        LoadedModel::KNearestNeighbors(knn) => {
+            Ok((first_pred!(&knn.predict(input).map_err(map_err)?), None))
+        },
         LoadedModel::GaussianNB(nb) => {
             let pred = first_pred!(&nb.predict(input).map_err(map_err)?);
-            let probs = if return_probs { nb.predict_proba(input).map_err(map_err)?.first().cloned() } else { None };
+            let probs = if return_probs {
+                nb.predict_proba(input).map_err(map_err)?.first().cloned()
+            } else {
+                None
+            };
             Ok((pred, probs))
         },
-        LoadedModel::LinearSVM(svm) =>
-            Ok((first_pred!(&svm.predict(input).map_err(map_err)?), None)),
-        LoadedModel::DecisionTreeClassifier(dt) =>
-            Ok((first_pred!(&dt.predict(input)), None)),
+        LoadedModel::LinearSVM(svm) => {
+            Ok((first_pred!(&svm.predict(input).map_err(map_err)?), None))
+        },
+        LoadedModel::DecisionTreeClassifier(dt) => Ok((first_pred!(&dt.predict(input)), None)),
         LoadedModel::RandomForestClassifier(rf) => {
             let pred = first_pred!(&rf.predict(input));
             let probs = return_probs.then(|| {
@@ -459,11 +478,17 @@ fn run_model_prediction(
         },
         LoadedModel::GradientBoostingClassifier(gb) => {
             let pred = first_pred!(&gb.predict(input).map_err(map_err)?);
-            let probs = if return_probs { gb.predict_proba(input).map_err(map_err)?.first().cloned() } else { None };
+            let probs = if return_probs {
+                gb.predict_proba(input).map_err(map_err)?.first().cloned()
+            } else {
+                None
+            };
             Ok((pred, probs))
         },
-        LoadedModel::LinearRegression(lr) =>
-            Ok((lr.predict(input).as_slice().first().copied().unwrap_or(0.0), None)),
+        LoadedModel::LinearRegression(lr) => Ok((
+            lr.predict(input).as_slice().first().copied().unwrap_or(0.0),
+            None,
+        )),
     }
 }
 
@@ -521,10 +546,18 @@ async fn predict_handler(
 
     let start = Instant::now();
     let n_features = payload.features.len();
-    let input = Matrix::from_vec(1, n_features, payload.features.clone())
-        .map_err(|e| http_error(StatusCode::BAD_REQUEST, format!("Matrix error: {e}"), "E_MATRIX_ERROR"))?;
+    let input = Matrix::from_vec(1, n_features, payload.features.clone()).map_err(|e| {
+        http_error(
+            StatusCode::BAD_REQUEST,
+            format!("Matrix error: {e}"),
+            "E_MATRIX_ERROR",
+        )
+    })?;
 
-    let return_probs = payload.options.as_ref().is_some_and(|o| o.return_probabilities);
+    let return_probs = payload
+        .options
+        .as_ref()
+        .is_some_and(|o| o.return_probabilities);
     let (prediction, probabilities) = run_model_prediction(model, &input, return_probs)?;
 
     let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -565,21 +598,32 @@ async fn batch_predict_handler(
     let model = require_model(&state)?;
 
     if payload.instances.is_empty() {
-        return Err(http_error(StatusCode::BAD_REQUEST, "Empty batch", "E_EMPTY_BATCH"));
+        return Err(http_error(
+            StatusCode::BAD_REQUEST,
+            "Empty batch",
+            "E_EMPTY_BATCH",
+        ));
     }
 
     let batch_start = Instant::now();
     let mut predictions = Vec::with_capacity(payload.instances.len());
 
-    state.request_count.fetch_add(payload.instances.len() as u64, Ordering::Relaxed);
+    state
+        .request_count
+        .fetch_add(payload.instances.len() as u64, Ordering::Relaxed);
 
     for instance in &payload.instances {
         validate_dimensions(state.input_dim, instance.features.len())?;
 
         let start = Instant::now();
         let n_features = instance.features.len();
-        let input = Matrix::from_vec(1, n_features, instance.features.clone())
-            .map_err(|e| http_error(StatusCode::BAD_REQUEST, format!("Matrix error: {e}"), "E_MATRIX_ERROR"))?;
+        let input = Matrix::from_vec(1, n_features, instance.features.clone()).map_err(|e| {
+            http_error(
+                StatusCode::BAD_REQUEST,
+                format!("Matrix error: {e}"),
+                "E_MATRIX_ERROR",
+            )
+        })?;
 
         // Batch doesn't return probabilities to keep response smaller
         let (prediction, probabilities) = run_model_prediction(model, &input, false)?;

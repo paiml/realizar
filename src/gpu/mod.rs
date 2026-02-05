@@ -468,8 +468,15 @@ const Q4_BLOCK_VALUES: usize = 32;
 
 /// Process a Q4_0 block for matvec, returning dot product contribution
 #[inline]
-fn process_q4_block(weights: &[u8], block_offset: usize, input: &[f32], input_offset: usize, cols: usize) -> f32 {
-    let scale = half::f16::from_le_bytes([weights[block_offset], weights[block_offset + 1]]).to_f32();
+fn process_q4_block(
+    weights: &[u8],
+    block_offset: usize,
+    input: &[f32],
+    input_offset: usize,
+    cols: usize,
+) -> f32 {
+    let scale =
+        half::f16::from_le_bytes([weights[block_offset], weights[block_offset + 1]]).to_f32();
     let mut acc = 0.0f32;
 
     for i in 0..16 {
@@ -507,7 +514,13 @@ pub fn quantized_matvec_q4(weights: &[u8], input: &[f32], rows: usize, cols: usi
             if block_offset + Q4_BLOCK_SIZE > weights.len() {
                 break;
             }
-            acc += process_q4_block(weights, block_offset, input, block_idx * Q4_BLOCK_VALUES, cols);
+            acc += process_q4_block(
+                weights,
+                block_offset,
+                input,
+                block_idx * Q4_BLOCK_VALUES,
+                cols,
+            );
         }
 
         *out_val = acc;

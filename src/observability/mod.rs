@@ -1125,8 +1125,7 @@ impl Observer {
         }
 
         for (name, points) in by_name {
-            writeln!(output, "# TYPE {name} gauge")
-                .expect("fmt::Write for String is infallible");
+            writeln!(output, "# TYPE {name} gauge").expect("fmt::Write for String is infallible");
             for point in points {
                 let labels = if point.labels.is_empty() {
                     String::new()
@@ -1215,7 +1214,6 @@ fn simple_hash(input: &str) -> u64 {
 // ============================================================================
 // Tests
 // ============================================================================
-
 
 #[cfg(test)]
 mod tests;

@@ -1492,7 +1492,6 @@ impl CudaExecutor {
     }
 }
 
-
 #[cfg(test)]
 #[cfg(feature = "cuda")]
 #[path = "graphed_tests.rs"]
