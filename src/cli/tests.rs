@@ -196,7 +196,7 @@ mod tests {
         let result = run_bench_regression(
             "/nonexistent/baseline.json",
             "/nonexistent/current.json",
-            false,
+            false, // strict
         );
         assert!(result.is_err());
     }
@@ -277,7 +277,7 @@ mod tests {
         let result = run_bench_regression(
             baseline.to_str().expect("test"),
             "/nonexistent/current.json",
-            false,
+            false, // strict
         );
 
         let _ = std::fs::remove_file(&baseline);
@@ -715,7 +715,7 @@ test benchmark_bar ... bench:         750 ns/iter (+/- 30)
         let result = run_bench_regression(
             "/nonexistent/baseline.json",
             "/nonexistent/current.json",
-            false,
+            false, // strict
         );
         assert!(result.is_err());
     }
@@ -1844,7 +1844,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         let result = run_bench_regression(
             baseline.to_str().expect("invalid UTF-8"),
             current.to_str().expect("invalid UTF-8"),
-            true, // strict mode
+            true, // strict
         );
 
         let _ = std::fs::remove_file(&baseline);
@@ -2277,7 +2277,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
     /// Integration test for prepare_serve_state with a real GGUF model
     /// Run with: cargo test test_prepare_serve_state_gguf_success -- --ignored
     #[test]
-    #[ignore]
+    #[ignore = "requires real GGUF model file"]
     fn test_prepare_serve_state_gguf_success() {
         // Look for a test model file
         let model_paths = [
@@ -2306,7 +2306,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
     /// Integration test for prepare_serve_state with batch mode
     /// Run with: cargo test test_prepare_serve_state_gguf_batch -- --ignored
     #[tokio::test]
-    #[ignore]
+    #[ignore = "requires real GGUF model file"]
     async fn test_prepare_serve_state_gguf_batch() {
         let model_paths = [
             "/home/noah/.apr/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
@@ -2440,6 +2440,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
     mod inference_tests {
 
         use crate::cli::inference;
+        use crate::inference_trace::TraceConfig;
 
         // -------------------------------------------------------------------------
         // run_gguf_inference Tests
@@ -2457,7 +2458,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",  // format
                 false,   // force_gpu
                 false,   // verbose
-                false,   // trace
+                None,    // trace_config
             );
             assert!(result.is_err());
             let err = result.unwrap_err();
@@ -2484,8 +2485,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "json",
                 false,
                 true, // verbose
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2502,8 +2503,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "json", // JSON output format
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2519,8 +2520,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text", // text output format
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2536,8 +2537,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2553,8 +2554,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2570,8 +2571,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 true, // verbose = true
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2587,7 +2588,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                true, // trace = true
+                Some(TraceConfig::enabled()), // trace_config
             );
             assert!(result.is_err()); // Expected - no valid model
         }
@@ -2604,8 +2605,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 true, // force_gpu = true
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2621,7 +2622,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "json",
                 true, // force_gpu
                 true, // verbose
-                true, // trace
+                Some(TraceConfig::enabled()), // trace_config
             );
             assert!(result.is_err()); // Expected - no valid model
         }
@@ -2638,8 +2639,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2655,8 +2656,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2672,8 +2673,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2689,7 +2690,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 10,
                 0.5,
                 "text",
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2701,7 +2703,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 5,
                 0.0,
                 "json",
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2713,7 +2716,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 5,
                 0.0,
                 "text",
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2725,7 +2729,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 10,
                 0.7,
                 "text",
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2744,7 +2749,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2761,7 +2767,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 true,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2776,7 +2783,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "json",
                 false,
                 false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2791,7 +2799,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2807,7 +2816,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 true, // force_gpu
                 false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2822,7 +2832,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 true, // verbose
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2837,6 +2848,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "json",
                 true, // force_gpu
                 true, // verbose
+                Some(TraceConfig::enabled()), // trace_config
             );
             assert!(result.is_err());
         }
@@ -2852,7 +2864,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2867,7 +2880,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2882,7 +2896,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2902,8 +2917,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2919,8 +2934,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2936,8 +2951,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "xml", // Unknown format
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -2958,8 +2973,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
 
             // Set CPU_DEBUG=1 and try again
@@ -2973,8 +2988,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
             std::env::remove_var("CPU_DEBUG");
         }
@@ -2992,8 +3007,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 true, // force_gpu
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
 
             // Set SKIP_GPU_RESIDENT=1 and try again
@@ -3007,8 +3022,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 true, // force_gpu
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
             std::env::remove_var("SKIP_GPU_RESIDENT");
         }
@@ -3028,8 +3043,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
             let err = result.unwrap_err();
             let err_str = err.to_string();
@@ -3052,7 +3067,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
             let err = result.unwrap_err();
             let err_str = err.to_string();
@@ -3071,7 +3087,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         /// Integration test for GGUF inference with a real model
         /// Run with: cargo test test_run_gguf_inference_real -- --ignored
         #[test]
-        #[ignore]
+        #[ignore = "requires real GGUF model file"]
         fn test_run_gguf_inference_real() {
             let model_paths = [
                 "/home/noah/.apr/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
@@ -3095,8 +3111,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 true, // verbose
-                false,
-            );
+                None, // trace_config
+        );
 
             // Should succeed with real model
             assert!(result.is_ok(), "Inference failed: {:?}", result.err());
@@ -3104,7 +3120,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
 
         /// Integration test for GGUF inference with JSON output
         #[test]
-        #[ignore]
+        #[ignore = "requires real GGUF model file"]
         fn test_run_gguf_inference_json_output_real() {
             let model_paths = ["/home/noah/.apr/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"];
 
@@ -3124,8 +3140,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "json", // JSON output
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
 
             assert!(result.is_ok(), "JSON inference failed: {:?}", result.err());
         }
@@ -3138,15 +3154,15 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         fn test_gguf_inference_api_surface() {
             // Verify all parameters are accepted in the expected order
             let _ = inference::run_gguf_inference(
-                "model_ref", // model_ref: &str
-                &[],         // file_data: &[u8]
-                "prompt",    // prompt: &str
-                10usize,     // max_tokens: usize
-                0.5f32,      // temperature: f32
-                "format",    // format: &str
-                true,        // force_gpu: bool
-                true,        // verbose: bool
-                true,        // trace: bool
+                "model_ref",                      // model_ref: &str
+                &[],                              // file_data: &[u8]
+                "prompt",                         // prompt: &str
+                10usize,                          // max_tokens: usize
+                0.5f32,                           // temperature: f32
+                "format",                         // format: &str
+                true,                             // force_gpu: bool
+                true,                             // verbose: bool
+                Some(TraceConfig::enabled()),    // trace_config: Option<TraceConfig>
             );
         }
 
@@ -3154,11 +3170,12 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         fn test_safetensors_inference_api_surface() {
             // Verify all parameters are accepted in the expected order
             let _ = inference::run_safetensors_inference(
-                "model_ref", // model_ref: &str
-                "prompt",    // prompt: &str
-                10usize,     // max_tokens: usize
-                0.5f32,      // temperature: f32 (unused in current impl)
-                "format",    // format: &str
+                "model_ref",                      // model_ref: &str
+                "prompt",                         // prompt: &str
+                10usize,                          // max_tokens: usize
+                0.5f32,                           // temperature: f32 (unused in current impl)
+                "format",                         // format: &str
+                Some(TraceConfig::enabled()),    // trace_config: Option<TraceConfig>
             );
         }
 
@@ -3166,14 +3183,15 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         fn test_apr_inference_api_surface() {
             // Verify all parameters are accepted in the expected order
             let _ = inference::run_apr_inference(
-                "model_ref", // model_ref: &str
-                &[],         // file_data: &[u8]
-                "prompt",    // prompt: &str
-                10usize,     // max_tokens: usize
-                0.5f32,      // temperature: f32
-                "format",    // format: &str
-                true,        // force_gpu: bool
-                true,        // verbose: bool
+                "model_ref",                      // model_ref: &str
+                &[],                              // file_data: &[u8]
+                "prompt",                         // prompt: &str
+                10usize,                          // max_tokens: usize
+                0.5f32,                           // temperature: f32
+                "format",                         // format: &str
+                true,                             // force_gpu: bool
+                true,                             // verbose: bool
+                Some(TraceConfig::enabled()),    // trace_config: Option<TraceConfig>
             );
         }
 
@@ -3192,8 +3210,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -3209,8 +3227,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -3225,8 +3243,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -3241,8 +3259,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -3258,8 +3276,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
 
@@ -3275,8 +3293,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 "text",
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
     }

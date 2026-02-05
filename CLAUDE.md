@@ -95,6 +95,123 @@ let ptx = kernel.emit_ptx();
 3. **Add property tests** - Ensure kernel works for all valid dimensions
 4. **Use trueno-explain** - Run `trueno-explain bugs --kernel <name>` to find issues
 
+## ⚠️ CRITICAL: LAYOUT-002 Row-Major Mandate
+
+**Realizar is EXCLUSIVELY row-major. All data from GGUF is transposed by aprender at import.**
+
+### Why This Matters
+
+GGUF uses column-major layout (GGML convention). Realizar's fused Q4K/Q6K kernels expect row-major layout. Using the wrong layout produces **garbage output**.
+
+```
+GGUF (column-major)     Realizar (row-major)
+─────────────────────   ─────────────────────
+W[i,j] at j*rows + i    W[i,j] at i*cols + j
+
+Same bytes → WRONG interpretation → "olumbia+lsi nunca/localENTS" (garbage)
+```
+
+### The Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│              REALIZAR DOMAIN (Row-Major Only)            │
+│                                                          │
+│  APR file ──► GGUF loader ──► fused_q4k_dot ──► output  │
+│  (already row-major,         (expects row-major)         │
+│   transposed by aprender)                                │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Realizar never handles layout conversion.** Aprender's converter (`src/format/converter/write.rs`) transposes GGUF data during import. By the time data reaches realizar, it's already row-major.
+
+### FORBIDDEN: Trueno Column-Major Kernels
+
+```rust
+// ❌ NEVER USE - These expect column-major layout
+use trueno::backends::q4k::matmul_q4k_f32_colmajor;
+use trueno::backends::q6k::matmul_q6k_f32_colmajor;
+
+// ✅ ALWAYS USE - Row-major kernels in realizar
+use crate::quantize::fused_q4k_parallel_matvec;
+use crate::quantize::fused_q6k_parallel_matvec;
+```
+
+### Key Implementation Files
+
+| File | Responsibility |
+|------|----------------|
+| `src/quantize/fused_k.rs` | Row-major Q4K/Q6K matmul kernels |
+| `src/quantize/parallel_k.rs` | Parallel row-major kernels (ONE WAY ONLY) |
+| `src/gguf/loader.rs` | Loads APR (pre-transposed by aprender) |
+
+### DELETED: Legacy Aliases (2026-02-03)
+
+These confusing aliases were **purged** to enforce ONE WAY ONLY:
+- ~~`fused_q6k_colmajor_matvec`~~ → Use `fused_q6k_parallel_matvec`
+- ~~`fused_q4k_auto_matvec_into`~~ → Use `fused_q4k_parallel_matvec_into`
+
+**If you see these function names in old code, they no longer exist.**
+
+### Falsification Test (F-LAYOUT-001)
+
+```bash
+# Test that GGUF→APR→realizar produces coherent output
+apr import model.gguf -o model.apr
+realizar run model.apr --prompt "2+2=" --max-tokens 10
+# Expected: "4" (coherent math)
+# NOT: "olumbia+lsi" (garbage = layout bug)
+```
+
+## ⚠️ CRITICAL: PMAT-216 GPU Parity Mandate
+
+**GPU inference MUST match CPU inference. This is enforced by CI.**
+
+### Root Cause (Five Whys)
+
+| Why | Answer |
+|-----|--------|
+| 1. Why garbage GPU output? | LM head produces wrong values |
+| 2. Why wrong LM head? | Weight matrix not properly transposed |
+| 3. Why not transposed? | `lm_head_weight_t` contained original data |
+| 4. Why? | Argument order in `from_apr_weights` swapped |
+| 5. Why? | No type safety on weight parameters |
+
+### Fix Applied (2026-02-05)
+
+1. **Type-safe wrappers** in `types.rs`:
+   - `LmHeadWeight` - Original layout [vocab_size, hidden_dim]
+   - `LmHeadWeightTransposed` - GPU layout [hidden_dim, vocab_size]
+
+2. **Runtime validation** in `from_apr_weights`:
+   - Checks first row of original == first column of transposed
+   - Fails with `PMAT-216: Arguments may be swapped` on mismatch
+
+3. **Mandatory parity test** (`tests/gpu_cpu_trace_compare.rs`):
+   ```bash
+   cargo test --features cuda --test gpu_cpu_trace_compare
+   # Expected: CPU L2 ≈ GPU L2 (diff < 0.01%)
+   ```
+
+### Why Tracing Didn't Catch This
+
+| Gap | Impact |
+|-----|--------|
+| `GpuModel` has no `forward_traced` | Can't trace GPU layer-by-layer |
+| No `TracedForward` trait | CPU/GPU can diverge silently |
+| No parity test in CI | GPU bugs ship undetected |
+
+### Mandatory GPU Verification
+
+```rust
+// ALWAYS compare CPU vs GPU for new models:
+let cpu_trace = apr_model.forward_traced(&tokens)?;
+let gpu_logits = gpu_model.forward_gpu(&tokens)?;
+let cpu_l2 = cpu_trace.logits.iter().map(|x| x * x).sum::<f32>().sqrt();
+let gpu_l2 = gpu_logits.iter().map(|x| x * x).sum::<f32>().sqrt();
+assert!((cpu_l2 - gpu_l2).abs() / cpu_l2 < 0.01, "GPU diverged from CPU!");
+```
+
 ### Aprender (ML Library)
 
 **IMPORTANT:** Aprender is actively developed and frequently released. **ALWAYS check for the latest version.**
@@ -268,6 +385,31 @@ cargo test --lib
 pmat analyze tdg
 pmat analyze satd
 pmat analyze complexity
+```
+
+## Code Search (pmat query)
+
+**NEVER use grep or rg for code discovery.** Use `pmat query` instead -- it returns quality-annotated, ranked results with TDG scores and fault annotations.
+
+```bash
+# Find functions by intent
+pmat query "inference forward pass" --limit 10
+
+# Find high-quality code
+pmat query "attention mechanism" --min-grade A --exclude-tests
+
+# Find with fault annotations (unwrap, panic, unsafe, etc.)
+pmat query "tokenizer decode" --faults
+
+# Filter by complexity
+pmat query "gguf loading" --max-complexity 10
+
+# Cross-project search (e.g., find trueno SIMD kernels)
+pmat query "simd matmul" --include-project ../trueno
+
+# Search across the stack
+pmat query "quantization Q4_K" --include-project ../aprender
+pmat query "model checkpoint" --include-project ../entrenar
 ```
 
 ### EXTREME TDD Methodology

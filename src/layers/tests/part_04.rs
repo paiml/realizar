@@ -1307,9 +1307,8 @@ fn test_imp_040_contiguous_attention() {
 
 /// IMP-041: Vectorized RoPE computation
 /// Target: SIMD-accelerated position encoding
-/// Ignored: Flaky under coverage instrumentation due to timing variance
 #[test]
-#[ignore]
+#[ignore = "flaky under coverage instrumentation due to timing variance"]
 fn test_imp_041_vectorized_rope() {
     use crate::gpu::{scalar_rope, simd_rope};
     use std::time::Instant;

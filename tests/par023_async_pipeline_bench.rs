@@ -257,7 +257,7 @@ fn test_par023_gpu_async_vs_sync() {
 
 /// Test: FFN SwiGLU pipeline timing (simulated with host methods)
 #[test]
-#[ignore]
+#[ignore = "CUDA benchmark - run with --ignored on GPU hardware"]
 #[cfg(feature = "cuda")]
 fn test_par023_ffn_swiglu_pipeline_timing() {
     use realizar::cuda::CudaExecutor;
