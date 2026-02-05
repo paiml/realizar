@@ -410,6 +410,10 @@ pmat query "simd matmul" --include-project ../trueno
 # Search across the stack
 pmat query "quantization Q4_K" --include-project ../aprender
 pmat query "model checkpoint" --include-project ../entrenar
+
+# Git history search (find code by commit intent via RRF fusion)
+pmat query "fix inference output" -G
+pmat query "kernel optimization" --git-history --churn
 ```
 
 ### EXTREME TDD Methodology
