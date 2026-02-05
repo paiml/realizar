@@ -7558,9 +7558,6 @@ fn test_cov018_fused_residual_rmsnorm_into_basic() {
     );
 }
 
-// NOTE: q8_quantize_async has PTX compilation issues
-// Test removed to avoid CUDA_ERROR_INVALID_PTX
-
 // =========================================================================
 // COV-019: attention.rs coverage tests
 // Target: 49.32% -> ~55%+ coverage
@@ -9096,9 +9093,6 @@ fn test_cov021_rope_neox_indirect_into_basic() {
     );
 }
 
-// NOTE: fused_qkv_into and fused_gate_up_into tests removed due to PTX generation bugs (CUDA_ERROR_INVALID_PTX)
-// These functions have coverage from error path tests. Full happy-path tests require fixing the kernel PTX.
-
 // =============================================================================
 // COV-022: layer.rs utility functions (Refs PMAT-802)
 // =============================================================================
@@ -10625,8 +10619,6 @@ fn test_cov027_dp4a_q4k_gemv_cached_async_weight_not_cached() {
     let result = executor.dp4a_q4k_gemv_cached_async("nonexistent_dp4a", &input, n, k);
     assert!(result.is_err(), "Should fail when weight not cached");
 }
-
-// NOTE: q8_quantize_async test skipped due to CUDA_ERROR_INVALID_PTX bug in kernel
 
 #[test]
 #[serial]
