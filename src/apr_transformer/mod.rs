@@ -516,8 +516,13 @@ impl AprTransformer {
             .and_then(serde_json::Value::as_f64)
             .unwrap_or(1e-6) as f32;
 
+        // PMAT-238 FIX: APR files use "context_length" (not "max_position_embeddings").
+        // Check all aliases matching aprender's AprMetadata serde aliases.
         let max_position = metadata
             .get("max_position_embeddings")
+            .or_else(|| metadata.get("context_length"))
+            .or_else(|| metadata.get("max_seq_len"))
+            .or_else(|| metadata.get("n_ctx"))
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(2048) as usize;
 

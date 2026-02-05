@@ -358,11 +358,33 @@ fn prepare_tokens_apr(config: &InferenceConfig, prompt: &str) -> Result<Prepared
         .and_then(|n| n.to_str())
         .unwrap_or("");
 
-    // APR models: detect instruct from filename
-    let is_instruct = model_name.to_lowercase().contains("instruct");
+    // PMAT-237: Detect instruct from MODEL DATA, not filename.
+    // Filename heuristic silently skips chat template for hash-named APR files.
+    // Three-tier detection: architecture metadata > vocab special tokens > filename fallback.
+    let (apr_arch, has_chatml_tokens) = if config.model_path.extension().is_some_and(|e| e == "apr") {
+        match AprV2Model::load(&config.model_path) {
+            Ok(model) => {
+                let arch = model.metadata().architecture.clone().unwrap_or_default();
+                let has_chatml = model.metadata().get_embedded_vocabulary()
+                    .is_some_and(|vocab: Vec<String>| vocab.iter().any(|t| t == "<|im_start|>"));
+                (arch, has_chatml)
+            }
+            Err(_) => (String::new(), false),
+        }
+    } else {
+        (String::new(), false)
+    };
+
+    let is_instruct_arch = matches!(
+        apr_arch.to_lowercase().as_str(),
+        "qwen2" | "qwen" | "llama" | "mistral" | "phi" | "phi3"
+    );
+    let filename_instruct = model_name.to_lowercase().contains("instruct");
+
+    let is_instruct = is_instruct_arch || has_chatml_tokens || filename_instruct;
 
     let formatted_prompt = if is_instruct {
-        let template_hint = apr_arch_to_template_hint("unknown", model_name);
+        let template_hint = apr_arch_to_template_hint(&apr_arch, model_name);
         let messages = vec![ChatMessage::user(prompt)];
         format_messages(&messages, Some(template_hint)).unwrap_or_else(|_| prompt.to_string())
     } else {
@@ -536,7 +558,7 @@ pub fn run_inference(config: &InferenceConfig) -> Result<InferenceResult> {
 
     match format {
         ModelFormat::Gguf => run_gguf_inference(config, &prepared),
-        ModelFormat::Apr => run_apr_inference(config),
+        ModelFormat::Apr => run_apr_inference(config, &prepared),
         ModelFormat::SafeTensors => run_safetensors_inference(config, &prepared),
     }
 }
@@ -726,6 +748,125 @@ fn log_cpu_backend(verbose: bool, is_legacy: bool) {
     }
 }
 
+/// F2-FIX: Validate GPU output by comparing first predicted token with CPU.
+///
+/// Runs a full CPU forward pass on the prompt, gets the argmax token,
+/// then compares with GPU's first generated token. Returns `true` if they
+/// agree (GPU is producing correct results for this model's dimensions).
+///
+/// This catches Q6K kernel bugs for certain hidden_dim values (e.g., 7B/3584)
+/// where the GPU produces incorrect logits.
+#[cfg(feature = "cuda")]
+fn validate_gpu_first_token(
+    model: &crate::gguf::OwnedQuantizedModel,
+    cuda_model: &mut crate::gguf::OwnedQuantizedModelCuda,
+    input_tokens: &[u32],
+    gen_config: &crate::gguf::QuantizedGenerateConfig,
+) -> bool {
+    use crate::gguf::OwnedQuantizedKVCache;
+
+    let kv_dim =
+        model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);
+    let mut cpu_cache = OwnedQuantizedKVCache::new(
+        model.config.num_layers,
+        kv_dim,
+        input_tokens.len() + 1,
+    );
+
+    // Prefill all but last token
+    for (pos, &tok) in input_tokens.iter().enumerate() {
+        if pos < input_tokens.len() - 1 {
+            let _ = model.forward_single_with_cache(tok, &mut cpu_cache, pos);
+        }
+    }
+
+    // Get CPU prediction for last prompt token
+    let cpu_logits = match model.forward_single_with_cache(
+        input_tokens[input_tokens.len() - 1],
+        &mut cpu_cache,
+        input_tokens.len() - 1,
+    ) {
+        Ok(logits) => logits,
+        Err(_) => return true, // CPU forward failed — can't validate, assume GPU is fine
+    };
+
+    let cpu_argmax = cpu_logits
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map_or(0, |(i, _)| i as u32);
+
+    // Get GPU prediction for same token via generate (first token only)
+    let gpu_first_config = crate::gguf::QuantizedGenerateConfig {
+        max_tokens: 1,
+        temperature: 0.0,
+        top_k: 1,
+        ..gen_config.clone()
+    };
+    match cuda_model.generate_gpu_resident(input_tokens, &gpu_first_config) {
+        Ok(gpu_tokens) if gpu_tokens.len() > input_tokens.len() => {
+            let gpu_first = gpu_tokens[input_tokens.len()];
+            if gpu_first == cpu_argmax {
+                true
+            } else {
+                eprintln!(
+                    "[F2-VALIDATION] GPU first token {} != CPU first token {} — falling back to CPU",
+                    gpu_first, cpu_argmax
+                );
+                false
+            }
+        }
+        Ok(_) => true, // GPU produced EOS immediately, might be valid
+        Err(_) => false,
+    }
+}
+
+/// Try GPU generation with validation. Returns `Some((tokens, true))` on success,
+/// `None` if GPU is unavailable or produces incorrect output.
+#[cfg(feature = "cuda")]
+fn try_gguf_gpu_generate(
+    model: &crate::gguf::OwnedQuantizedModel,
+    input_tokens: &[u32],
+    gen_config: &crate::gguf::QuantizedGenerateConfig,
+    verbose: bool,
+) -> Option<Result<(Vec<u32>, bool)>> {
+    use crate::gguf::OwnedQuantizedModelCuda;
+
+    let mut cuda_model = match OwnedQuantizedModelCuda::new(model.clone(), 0) {
+        Ok(m) => m,
+        Err(e) => {
+            if verbose {
+                eprintln!("Backend: CPU (GPU unavailable: {})", e);
+            }
+            return None;
+        }
+    };
+
+    if verbose {
+        eprintln!(
+            "Backend: GPU ({}, {} MB VRAM)",
+            cuda_model.device_name(),
+            cuda_model.vram_mb()
+        );
+    }
+
+    if !validate_gpu_first_token(model, &mut cuda_model, input_tokens, gen_config) {
+        return None;
+    }
+
+    // Re-create CUDA model for actual generation (validation consumed first)
+    let mut cuda_model2 = match OwnedQuantizedModelCuda::new(model.clone(), 0) {
+        Ok(m) => m,
+        Err(_) => return None,
+    };
+
+    let result = cuda_model2
+        .generate_gpu_resident(input_tokens, gen_config)
+        .map(|tokens| (tokens, true))
+        .map_err(|e| RealizarError::InferenceError(format!("GPU generation failed: {}", e)));
+    Some(result)
+}
+
 /// Run GGUF generation with GPU or CPU
 #[allow(unused_variables)] // config used only in CUDA feature
 fn run_gguf_generate(
@@ -738,29 +879,10 @@ fn run_gguf_generate(
 
     #[cfg(feature = "cuda")]
     if !config.no_gpu && !has_legacy_quant {
-        use crate::gguf::OwnedQuantizedModelCuda;
-
-        match OwnedQuantizedModelCuda::new(model.clone(), 0) {
-            Ok(mut cuda_model) => {
-                if config.verbose {
-                    eprintln!(
-                        "Backend: GPU ({}, {} MB VRAM)",
-                        cuda_model.device_name(),
-                        cuda_model.vram_mb()
-                    );
-                }
-                let tokens = cuda_model
-                    .generate_gpu_resident(input_tokens, gen_config)
-                    .map_err(|e| {
-                        RealizarError::InferenceError(format!("GPU generation failed: {}", e))
-                    })?;
-                return Ok((tokens, true));
-            },
-            Err(e) => {
-                if config.verbose {
-                    eprintln!("Backend: CPU (GPU unavailable: {})", e);
-                }
-            },
+        if let Some(result) =
+            try_gguf_gpu_generate(&model, input_tokens, gen_config, config.verbose)
+        {
+            return result;
         }
     }
 
@@ -775,73 +897,29 @@ fn run_gguf_generate(
 ///
 /// Uses AprV2ModelCuda for GPU acceleration when available, falls back to
 /// AprTransformer (CPU with proper RoPE and SwiGLU) otherwise.
-fn run_apr_inference(config: &InferenceConfig) -> Result<InferenceResult> {
-    use crate::apr::AprV2Model;
-
+/// PMAT-237: APR inference now uses PreparedTokens (compile-time enforced chat template).
+/// Previously bypassed PreparedTokens entirely via prepare_apr_input_tokens().
+fn run_apr_inference(config: &InferenceConfig, prepared: &PreparedTokens) -> Result<InferenceResult> {
     if config.verbose {
         eprintln!("Loading APR model: {}", config.model_path.display());
     }
 
     let load_start = Instant::now();
-
-    // PMAT-113: Load metadata early for chat template detection
-    let apr_arch = AprV2Model::load(&config.model_path)
-        .ok()
-        .and_then(|m| m.metadata().architecture.clone())
-        .unwrap_or_default();
-
-    let input_tokens = prepare_apr_input_tokens(config, &apr_arch);
-    let input_token_count = input_tokens.len();
+    let input_tokens = prepared.tokens();
+    let input_token_count = prepared.input_count();
 
     // Try GPU path first
     #[cfg(feature = "cuda")]
     if !config.no_gpu {
         if let Some(result) =
-            try_apr_cuda_inference(config, &input_tokens, input_token_count, load_start)
+            try_apr_cuda_inference(config, input_tokens, input_token_count, load_start)
         {
             return result;
         }
     }
 
     // CPU fallback: AprTransformer with RoPE and SwiGLU
-    run_apr_cpu_inference(config, &input_tokens, input_token_count, load_start)
-}
-
-/// Prepare input tokens for APR inference (PMAT-113: chat template support)
-fn prepare_apr_input_tokens(config: &InferenceConfig, apr_arch: &str) -> Vec<u32> {
-    use crate::apr::AprV2Model;
-    use crate::chat_template::{format_messages, ChatMessage};
-
-    if let Some(ref tokens) = config.input_tokens {
-        return tokens.clone();
-    }
-
-    let prompt = match config.prompt {
-        Some(ref p) => p,
-        None => return vec![1u32], // BOS token
-    };
-
-    let is_instruct_arch = matches!(
-        apr_arch.to_lowercase().as_str(),
-        "qwen2" | "qwen" | "llama" | "mistral" | "phi" | "phi3"
-    );
-
-    let model_name = config
-        .model_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
-    let filename_instruct = model_name.to_lowercase().contains("instruct");
-
-    let formatted_prompt = if is_instruct_arch || filename_instruct {
-        let template_hint = apr_arch_to_template_hint(apr_arch, model_name);
-        let messages = vec![ChatMessage::user(prompt)];
-        format_messages(&messages, Some(template_hint)).unwrap_or_else(|_| prompt.clone())
-    } else {
-        prompt.clone()
-    };
-
-    AprV2Model::encode_text(&config.model_path, &formatted_prompt).unwrap_or_else(|| vec![1u32])
+    run_apr_cpu_inference(config, input_tokens, input_token_count, load_start)
 }
 
 /// Map APR architecture string to chat template hint
@@ -875,6 +953,17 @@ fn try_apr_cuda_inference(
     // PMAT-APR-PERF-001: Use GpuModel with incremental KV cache for O(n) decode
     // Previous path used AprV2ModelCuda which did full forward pass per token (O(n²))
     let validated = AprTransformer::from_apr_file_validated(&config.model_path).ok()?;
+
+    // F1-FIX: Skip GPU path for F32 APR models. The GpuModel forward pass produces
+    // incorrect results for F32 weights (garbage output). F32 models should use the
+    // AprTransformer CPU path which has been validated via forward_traced().
+    // Only use GPU for quantized APR models (Q4K/Q6K) where GPU kernels are correct.
+    let has_quantized = validated.q4k_layers.is_some()
+        || validated.lm_head_weight_q4k.is_some()
+        || validated.lm_head_weight_q6k.is_some();
+    if !has_quantized {
+        return None;
+    }
 
     let mut gpu_model = match AprF32ToGpuAdapter::to_gpu_model(&validated) {
         Ok(m) => m,
