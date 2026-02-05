@@ -18,13 +18,13 @@ fn ctx_sync_status(ctx: &CudaContext) -> &'static str {
         Err(e) => {
             eprintln!("    make_current failed: {e:?}");
             "MAKE_CURRENT_FAILED"
-        }
+        },
         Ok(()) => match ctx.synchronize() {
             Ok(()) => "HEALTHY",
             Err(e) => {
                 eprintln!("    synchronize failed: {e:?}");
                 "SYNC_FAILED"
-            }
+            },
         },
     }
 }
@@ -51,7 +51,10 @@ fn test_poison_lifecycle_trace() {
 
     // Do a trivial GPU operation to prove the context works
     let buf = GpuBuffer::from_host(&exec.context, &[1.0f32, 2.0, 3.0]);
-    eprintln!("  [1d] GpuBuffer::from_host: {}", if buf.is_ok() { "OK" } else { "FAILED" });
+    eprintln!(
+        "  [1d] GpuBuffer::from_host: {}",
+        if buf.is_ok() { "OK" } else { "FAILED" }
+    );
     assert!(buf.is_ok(), "Phase 1: must be able to allocate GPU memory");
 
     drop(exec);
@@ -81,7 +84,10 @@ fn test_poison_lifecycle_trace() {
     eprintln!("── Phase 3: Poison via flash_attention ──");
     let mut exec2 = CudaExecutor::new(0).expect("Phase 3: executor must create");
     eprintln!("  [3a] Executor #2 created OK");
-    eprintln!("  [3b] Context status BEFORE kernel: {}", ctx_sync_status(&exec2.context));
+    eprintln!(
+        "  [3b] Context status BEFORE kernel: {}",
+        ctx_sync_status(&exec2.context)
+    );
 
     // Launch the known-crashing flash_attention kernel
     let seq_len = 4usize;
@@ -93,8 +99,20 @@ fn test_poison_lifecycle_trace() {
     let mut output = vec![0.0f32; total];
     let scale = 1.0 / (head_dim as f32).sqrt();
 
-    let result = exec2.flash_attention(&q, &k, &v, &mut output, seq_len as u32, head_dim as u32, scale, true);
-    eprintln!("  [3c] flash_attention returned: {}", if result.is_ok() { "OK" } else { "ERR" });
+    let result = exec2.flash_attention(
+        &q,
+        &k,
+        &v,
+        &mut output,
+        seq_len as u32,
+        head_dim as u32,
+        scale,
+        true,
+    );
+    eprintln!(
+        "  [3c] flash_attention returned: {}",
+        if result.is_ok() { "OK" } else { "ERR" }
+    );
     if let Err(ref e) = result {
         eprintln!("  [3c]   error: {e:?}");
     }
@@ -109,7 +127,10 @@ fn test_poison_lifecycle_trace() {
 
     // Check if we can still allocate GPU memory
     let buf2 = GpuBuffer::from_host(&exec2.context, &[1.0f32, 2.0, 3.0]);
-    eprintln!("  [3f] GpuBuffer after poison: {}", if buf2.is_ok() { "OK" } else { "FAILED" });
+    eprintln!(
+        "  [3f] GpuBuffer after poison: {}",
+        if buf2.is_ok() { "OK" } else { "FAILED" }
+    );
 
     // Sync AGAIN — does it return the same error or OK?
     let sync2 = exec2.context.synchronize();
@@ -158,18 +179,24 @@ fn test_poison_lifecycle_trace() {
         eprintln!("  [5c] Executor #3 stream sync: {stream_ok:?}");
 
         let buf3 = GpuBuffer::from_host(&exec3.context, &[1.0f32, 2.0, 3.0]);
-        eprintln!("  [5d] GPU alloc on executor #3: {}", if buf3.is_ok() { "OK" } else { "FAILED" });
+        eprintln!(
+            "  [5d] GPU alloc on executor #3: {}",
+            if buf3.is_ok() { "OK" } else { "FAILED" }
+        );
 
         // Try a trivial kernel (SiLU — small, simple, known to work)
         let silu_input = GpuBuffer::from_host(&exec3.context, &[0.5f32, -0.5, 1.0, -1.0]);
         match silu_input {
             Ok(buf) => {
                 let silu_result = exec3.silu_gpu(&buf, 4);
-                eprintln!("  [5e] SiLU kernel on executor #3: {}", if silu_result.is_ok() { "OK" } else { "FAILED" });
+                eprintln!(
+                    "  [5e] SiLU kernel on executor #3: {}",
+                    if silu_result.is_ok() { "OK" } else { "FAILED" }
+                );
                 if let Err(ref e) = silu_result {
                     eprintln!("  [5e]   error: {e:?}");
                 }
-            }
+            },
             Err(e) => eprintln!("  [5e] SiLU input alloc FAILED: {e:?}"),
         }
 

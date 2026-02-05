@@ -1,10 +1,10 @@
 //! PAR-001: Verify column-major Q6_K function works correctly
 //!
-//! This test compares the new fused_q6k_colmajor_matvec function against
+//! This test compares the new fused_q6k_parallel_matvec function against
 //! the manual transposed computation that was proven correct.
 
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
-use realizar::quantize::{dequantize_q6_k, fused_q6k_colmajor_matvec};
+use realizar::quantize::{dequantize_q6_k, fused_q6k_parallel_matvec};
 
 fn l2_norm(v: &[f32]) -> f32 {
     (v.iter().map(|x| x * x).sum::<f32>()).sqrt()
@@ -63,9 +63,9 @@ fn main() {
                 &transposed_output[..5.min(transposed_output.len())]
             );
 
-            // Method 2: Our new fused_q6k_colmajor_matvec function
-            println!("\n=== Method 2: fused_q6k_colmajor_matvec function ===");
-            let colmajor_output = fused_q6k_colmajor_matvec(&v.data, &normed, v.in_dim, v.out_dim)
+            // Method 2: Our new fused_q6k_parallel_matvec function
+            println!("\n=== Method 2: fused_q6k_parallel_matvec function ===");
+            let colmajor_output = fused_q6k_parallel_matvec(&v.data, &normed, v.in_dim, v.out_dim)
                 .expect("colmajor matvec failed");
             println!("Column-major V output: L2={:.4}", l2_norm(&colmajor_output));
             println!(

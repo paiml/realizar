@@ -20,7 +20,12 @@ type RErr = (StatusCode, Json<ErrorResponse>);
 /// Build an error response, recording a failure metric.
 fn rerr(state: &AppState, status: StatusCode, msg: impl std::fmt::Display) -> RErr {
     state.metrics.record_failure();
-    (status, Json(ErrorResponse { error: msg.to_string() }))
+    (
+        status,
+        Json(ErrorResponse {
+            error: msg.to_string(),
+        }),
+    )
 }
 
 /// Current unix epoch seconds.
@@ -590,7 +595,11 @@ fn completion_resp(
     completion_tokens: usize,
     max_tokens: usize,
 ) -> CompletionResponse {
-    let finish_reason = if completion_tokens >= max_tokens { "length" } else { "stop" };
+    let finish_reason = if completion_tokens >= max_tokens {
+        "length"
+    } else {
+        "stop"
+    };
     CompletionResponse {
         id: format!("{id_prefix}-{}", epoch_millis()),
         object: "text_completion".to_string(),
@@ -677,19 +686,34 @@ async fn try_cached_completions(
         Some(m) => m,
         None => return Ok(None),
     };
-    let tokenizer = state
-        .tokenizer
-        .clone()
-        .ok_or_else(|| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, "No tokenizer available"))?;
+    let tokenizer = state.tokenizer.clone().ok_or_else(|| {
+        rerr(
+            state,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "No tokenizer available",
+        )
+    })?;
     let prompt_ids = tokenizer.encode(&request.prompt);
     if prompt_ids.is_empty() {
-        return Err(rerr(state, StatusCode::BAD_REQUEST, "Prompt cannot be empty"));
+        return Err(rerr(
+            state,
+            StatusCode::BAD_REQUEST,
+            "Prompt cannot be empty",
+        ));
     }
     let prompt_tokens = prompt_ids.len();
 
     // PARITY-054: Try batch path first
-    if let Some(r) =
-        try_batch_completion(state, &tokenizer, &prompt_ids, prompt_tokens, max_tokens, temperature, start).await?
+    if let Some(r) = try_batch_completion(
+        state,
+        &tokenizer,
+        &prompt_ids,
+        prompt_tokens,
+        max_tokens,
+        temperature,
+        start,
+    )
+    .await?
     {
         return Ok(Some(r));
     }
@@ -719,7 +743,9 @@ async fn try_cached_completions(
     let text = tokenizer
         .decode(&token_ids)
         .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    state.metrics.record_success(completion_tokens, start.elapsed());
+    state
+        .metrics
+        .record_success(completion_tokens, start.elapsed());
 
     Ok(Some(completion_resp(
         "cmpl-cached",
@@ -745,13 +771,20 @@ fn try_quantized_completions(
         Some(m) => m,
         None => return Ok(None),
     };
-    let tokenizer = state
-        .tokenizer
-        .clone()
-        .ok_or_else(|| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, "No tokenizer available"))?;
+    let tokenizer = state.tokenizer.clone().ok_or_else(|| {
+        rerr(
+            state,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "No tokenizer available",
+        )
+    })?;
     let prompt_ids = tokenizer.encode(&request.prompt);
     if prompt_ids.is_empty() {
-        return Err(rerr(state, StatusCode::BAD_REQUEST, "Prompt cannot be empty"));
+        return Err(rerr(
+            state,
+            StatusCode::BAD_REQUEST,
+            "Prompt cannot be empty",
+        ));
     }
     let prompt_tokens = prompt_ids.len();
 
@@ -771,7 +804,9 @@ fn try_quantized_completions(
     let text = tokenizer
         .decode(&token_ids)
         .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    state.metrics.record_success(completion_tokens, start.elapsed());
+    state
+        .metrics
+        .record_success(completion_tokens, start.elapsed());
 
     Ok(Some(completion_resp(
         "cmpl-q4k",
@@ -798,13 +833,20 @@ fn try_gpu_completions(
         Some(l) => l,
         None => return Ok(None),
     };
-    let tokenizer = state
-        .tokenizer
-        .clone()
-        .ok_or_else(|| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, "No tokenizer available"))?;
+    let tokenizer = state.tokenizer.clone().ok_or_else(|| {
+        rerr(
+            state,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "No tokenizer available",
+        )
+    })?;
     let prompt_ids = tokenizer.encode(&request.prompt);
     if prompt_ids.is_empty() {
-        return Err(rerr(state, StatusCode::BAD_REQUEST, "Prompt cannot be empty"));
+        return Err(rerr(
+            state,
+            StatusCode::BAD_REQUEST,
+            "Prompt cannot be empty",
+        ));
     }
     let prompt_tokens = prompt_ids.len();
     let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
@@ -817,9 +859,13 @@ fn try_gpu_completions(
         trace: false,
     };
 
-    let mut gpu_model = gpu_model_lock
-        .write()
-        .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, format!("GPU lock: {e}")))?;
+    let mut gpu_model = gpu_model_lock.write().map_err(|e| {
+        rerr(
+            state,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("GPU lock: {e}"),
+        )
+    })?;
     let generated = gpu_model
         .generate(&prompt, &gpu_config)
         .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -833,7 +879,9 @@ fn try_gpu_completions(
     let text = tokenizer
         .decode(&token_ids)
         .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    state.metrics.record_success(completion_tokens, start.elapsed());
+    state
+        .metrics
+        .record_success(completion_tokens, start.elapsed());
 
     let response_id = format!("cmpl-{}", &uuid::Uuid::new_v4().to_string()[..8]);
     Ok(Some(CompletionResponse {
@@ -874,7 +922,11 @@ fn registry_completions(
         .map_err(|e| rerr(state, StatusCode::NOT_FOUND, e))?;
     let prompt_ids = tokenizer.encode(&request.prompt);
     if prompt_ids.is_empty() {
-        return Err(rerr(state, StatusCode::BAD_REQUEST, "Prompt cannot be empty"));
+        return Err(rerr(
+            state,
+            StatusCode::BAD_REQUEST,
+            "Prompt cannot be empty",
+        ));
     }
     let prompt_tokens = prompt_ids.len();
     let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
@@ -898,7 +950,9 @@ fn registry_completions(
     let text = tokenizer
         .decode(&token_ids)
         .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    state.metrics.record_success(completion_tokens, start.elapsed());
+    state
+        .metrics
+        .record_success(completion_tokens, start.elapsed());
 
     Ok(completion_resp(
         "cmpl",
@@ -919,7 +973,8 @@ pub async fn openai_completions_handler(
     let temperature = request.temperature.unwrap_or(0.7) as f32;
 
     #[cfg(feature = "gpu")]
-    if let Some(r) = try_cached_completions(&state, &request, max_tokens, temperature, start).await?
+    if let Some(r) =
+        try_cached_completions(&state, &request, max_tokens, temperature, start).await?
     {
         return Ok(Json(r));
     }
@@ -933,7 +988,13 @@ pub async fn openai_completions_handler(
         return Ok(Json(r));
     }
 
-    Ok(Json(registry_completions(&state, &request, max_tokens, temperature, start)?))
+    Ok(Json(registry_completions(
+        &state,
+        &request,
+        max_tokens,
+        temperature,
+        start,
+    )?))
 }
 
 /// OpenAI-compatible embeddings handler (/v1/embeddings)

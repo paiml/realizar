@@ -16,6 +16,7 @@ use super::fused_k::{
 use super::fused_q5k_q6k::{fused_q5k_dot_simd, fused_q6k_dot_simd};
 use super::types::QK_K;
 use crate::error::{RealizarError, Result};
+use std::borrow::Cow;
 
 // ============================================================================
 
@@ -26,6 +27,23 @@ use crate::error::{RealizarError, Result};
 /// - Q4_K row size for hidden_dim=2560: ~1440 bytes
 /// - 64 rows = ~92KB of weight data, plus activations
 const DEFAULT_OUTPUT_TILE_SIZE: usize = 64;
+
+/// Pad activations to super-block boundary when `in_dim % QK_K != 0`.
+///
+/// Quantized weights are stored with per-row padding to QK_K (256) element
+/// boundaries. The fused dot product kernels expect activations to match
+/// the padded length. This function zero-pads activations when needed,
+/// returning a borrowed reference when no padding is required (zero-cost).
+#[inline]
+fn pad_activations(activations: &[f32], padded_len: usize) -> Cow<'_, [f32]> {
+    if activations.len() == padded_len {
+        Cow::Borrowed(activations)
+    } else {
+        let mut padded = vec![0.0f32; padded_len];
+        padded[..activations.len()].copy_from_slice(activations);
+        Cow::Owned(padded)
+    }
+}
 
 /// Fused Q4_K matrix-vector multiply with L2-aware tiling
 ///
@@ -91,6 +109,10 @@ pub fn fused_q4k_tiled_matvec(
         });
     }
 
+    // GH-202 FIX: Pad activations to super-block boundary
+    let padded_in_dim = super_blocks_per_row * QK_K;
+    let acts = pad_activations(activations, padded_in_dim);
+
     let mut output = vec![0.0f32; out_dim];
 
     // Process outputs in tiles for L2 cache efficiency
@@ -124,7 +146,7 @@ pub fn fused_q4k_tiled_matvec(
             let row_data = &weight_data[row_start..row_end];
 
             // Fused dequant + dot product
-            *out_slot = fused_q4k_dot_simd(row_data, activations)?;
+            *out_slot = fused_q4k_dot_simd(row_data, &acts)?;
         }
     }
 
@@ -205,6 +227,12 @@ pub fn fused_q4k_parallel_matvec(
         });
     }
 
+    // GH-202 FIX: Pad activations to super-block boundary when in_dim % 256 != 0.
+    // Per-row quantization pads each row to ceil(in_dim/256)*256 elements.
+    // The fused dot kernel requires activations.len() == num_blocks * 256.
+    let padded_in_dim = super_blocks_per_row * QK_K;
+    let acts = pad_activations(activations, padded_in_dim);
+
     if out_dim < PARALLEL_THRESHOLD {
         // Sequential path: avoids rayon overhead for small matrices
         let output: Vec<f32> = (0..out_dim)
@@ -212,7 +240,7 @@ pub fn fused_q4k_parallel_matvec(
                 let row_start = o * bytes_per_row;
                 let row_end = row_start + bytes_per_row;
                 let row_data = &weight_data[row_start..row_end];
-                fused_q4k_dot_simd(row_data, activations).unwrap_or(0.0)
+                fused_q4k_dot_simd(row_data, &acts).unwrap_or(0.0)
             })
             .collect();
 
@@ -232,7 +260,7 @@ pub fn fused_q4k_parallel_matvec(
                 let row_start = o * bytes_per_row;
                 let row_end = row_start + bytes_per_row;
                 let row_data = &weight_data[row_start..row_end];
-                fused_q4k_dot_simd(row_data, activations).unwrap_or(0.0)
+                fused_q4k_dot_simd(row_data, &acts).unwrap_or(0.0)
             })
             .collect();
 
@@ -308,13 +336,17 @@ pub fn fused_q4k_parallel_matvec_into(
         });
     }
 
+    // GH-202 FIX: Pad activations to super-block boundary
+    let padded_in_dim = super_blocks_per_row * QK_K;
+    let acts = pad_activations(activations, padded_in_dim);
+
     if out_dim < PARALLEL_THRESHOLD {
         // Sequential path
         for o in 0..out_dim {
             let row_start = o * bytes_per_row;
             let row_end = row_start + bytes_per_row;
             let row_data = &weight_data[row_start..row_end];
-            output[o] = fused_q4k_dot_simd(row_data, activations).unwrap_or(0.0);
+            output[o] = fused_q4k_dot_simd(row_data, &acts).unwrap_or(0.0);
         }
     } else {
         // Parallel path with TCB-style midi-tile chunking
@@ -335,7 +367,7 @@ pub fn fused_q4k_parallel_matvec_into(
                     let row_start = row * bytes_per_row;
                     let row_end = row_start + bytes_per_row;
                     let row_data = &weight_data[row_start..row_end];
-                    *out = fused_q4k_dot_simd(row_data, activations).unwrap_or(0.0);
+                    *out = fused_q4k_dot_simd(row_data, &acts).unwrap_or(0.0);
                 }
             });
     }
@@ -385,6 +417,10 @@ pub fn fused_q5k_parallel_matvec(
         });
     }
 
+    // GH-202 FIX: Pad activations to super-block boundary
+    let padded_in_dim = super_blocks_per_row * QK_K;
+    let acts = pad_activations(activations, padded_in_dim);
+
     let output: Vec<f32> = (0..out_dim)
         .into_par_iter()
         .map(|o| {
@@ -392,7 +428,7 @@ pub fn fused_q5k_parallel_matvec(
             let row_end = row_start + bytes_per_row;
             let row_data = &weight_data[row_start..row_end];
 
-            fused_q5k_dot_simd(row_data, activations).unwrap_or(0.0)
+            fused_q5k_dot_simd(row_data, &acts).unwrap_or(0.0)
         })
         .collect();
 
@@ -448,6 +484,10 @@ pub fn fused_q5k_parallel_matvec_into(
         });
     }
 
+    // GH-202 FIX: Pad activations to super-block boundary
+    let padded_in_dim = super_blocks_per_row * QK_K;
+    let acts = pad_activations(activations, padded_in_dim);
+
     output[..out_dim]
         .par_iter_mut()
         .enumerate()
@@ -455,7 +495,7 @@ pub fn fused_q5k_parallel_matvec_into(
             let row_start = o * bytes_per_row;
             let row_end = row_start + bytes_per_row;
             let row_data = &weight_data[row_start..row_end];
-            *out = fused_q5k_dot_simd(row_data, activations).unwrap_or(0.0);
+            *out = fused_q5k_dot_simd(row_data, &acts).unwrap_or(0.0);
         });
 
     Ok(())
@@ -503,6 +543,10 @@ pub fn fused_q6k_parallel_matvec(
         });
     }
 
+    // GH-202 FIX: Pad activations to super-block boundary
+    let padded_in_dim = super_blocks_per_row * QK_K;
+    let acts = pad_activations(activations, padded_in_dim);
+
     let output: Vec<f32> = (0..out_dim)
         .into_par_iter()
         .map(|o| {
@@ -510,7 +554,7 @@ pub fn fused_q6k_parallel_matvec(
             let row_end = row_start + bytes_per_row;
             let row_data = &weight_data[row_start..row_end];
 
-            fused_q6k_dot_simd(row_data, activations).unwrap_or(0.0)
+            fused_q6k_dot_simd(row_data, &acts).unwrap_or(0.0)
         })
         .collect();
 
@@ -566,6 +610,10 @@ pub fn fused_q6k_parallel_matvec_into(
         });
     }
 
+    // GH-202 FIX: Pad activations to super-block boundary
+    let padded_in_dim = super_blocks_per_row * QK_K;
+    let acts = pad_activations(activations, padded_in_dim);
+
     // TCB Tiling: Process rows in midi-tiles (64 rows) to maximize activation cache reuse
     // While Q6K×f32 doesn't have integer Q8K, the f32 activation vector still benefits
     // from being kept in L2 cache while processing multiple output rows.
@@ -584,7 +632,7 @@ pub fn fused_q6k_parallel_matvec_into(
                 let row_start = row * bytes_per_row;
                 let row_end = row_start + bytes_per_row;
                 let row_data = &weight_data[row_start..row_end];
-                *out = fused_q6k_dot_simd(row_data, activations).unwrap_or(0.0);
+                *out = fused_q6k_dot_simd(row_data, &acts).unwrap_or(0.0);
             }
         });
 
@@ -593,32 +641,10 @@ pub fn fused_q6k_parallel_matvec_into(
 
 // ============================================================================
 
-/// Backwards-compatible alias for `fused_q6k_parallel_matvec`.
-///
-/// The column-major layout is now the default for the parallel implementation.
-#[inline]
-pub fn fused_q6k_colmajor_matvec(
-    weight_data: &[u8],
-    activations: &[f32],
-    in_dim: usize,
-    out_dim: usize,
-) -> Result<Vec<f32>> {
-    fused_q6k_parallel_matvec(weight_data, activations, in_dim, out_dim)
-}
-
-/// Backwards-compatible alias for `fused_q4k_parallel_matvec_into`.
-///
-/// The "auto" naming referred to automatic thread dispatch which is now the default.
-#[inline]
-pub fn fused_q4k_auto_matvec_into(
-    weight_data: &[u8],
-    activations: &[f32],
-    in_dim: usize,
-    out_dim: usize,
-    output: &mut [f32],
-) -> Result<()> {
-    fused_q4k_parallel_matvec_into(weight_data, activations, in_dim, out_dim, output)
-}
+// LAYOUT-002: Legacy aliases DELETED (2026-02-03)
+// - fused_q6k_colmajor_matvec: Misleading name, was just an alias for fused_q6k_parallel_matvec
+// - fused_q4k_auto_matvec_into: Confusing name, was just an alias for fused_q4k_parallel_matvec_into
+// ONE WAY ONLY: Use fused_q{4,5,6}k_parallel_matvec* functions directly
 
 /// Parallel Q4_K × Q8_K matrix-vector multiply with TCB tiling
 ///
@@ -1189,41 +1215,8 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ============================================================================
-    // BACKWARDS-COMPATIBLE ALIAS TESTS
-    // ============================================================================
-
-    #[test]
-    fn test_fused_q6k_colmajor_matvec_is_alias() {
-        let in_dim: usize = 256;
-        let out_dim: usize = 32;
-
-        let weights = create_q6k_weights(out_dim, in_dim);
-        let activations = vec![0.1f32; in_dim];
-
-        // Both should produce same result
-        let result1 = fused_q6k_parallel_matvec(&weights, &activations, in_dim, out_dim).unwrap();
-        let result2 = fused_q6k_colmajor_matvec(&weights, &activations, in_dim, out_dim).unwrap();
-
-        assert_eq!(result1, result2);
-    }
-
-    #[test]
-    fn test_fused_q4k_auto_matvec_into_is_alias() {
-        let in_dim: usize = 256;
-        let out_dim: usize = 32;
-
-        let weights = create_q4k_weights(out_dim, in_dim);
-        let activations = vec![0.1f32; in_dim];
-        let mut output1 = vec![0.0f32; out_dim];
-        let mut output2 = vec![0.0f32; out_dim];
-
-        fused_q4k_parallel_matvec_into(&weights, &activations, in_dim, out_dim, &mut output1)
-            .unwrap();
-        fused_q4k_auto_matvec_into(&weights, &activations, in_dim, out_dim, &mut output2).unwrap();
-
-        assert_eq!(output1, output2);
-    }
+    // LAYOUT-002: Backwards-compat alias tests DELETED (2026-02-03)
+    // ONE WAY ONLY: Use fused_q{4,5,6}k_parallel_matvec* functions directly
 
     // ============================================================================
     // Q4K × Q8K PARALLEL MATVEC TESTS

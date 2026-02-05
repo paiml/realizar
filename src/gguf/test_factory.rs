@@ -469,11 +469,24 @@ pub fn create_q8_0_data(num_elements: usize) -> Vec<u8> {
 }
 
 /// Create valid Q4_K data for a tensor with given dimensions
-/// Q4_K: 144 bytes per 256 elements
+/// Q4_K: 144 bytes per 256 elements (QK_K)
+///
+/// For 2D tensors, uses row-padded layout to match transformer loader expectations.
+/// Each row is padded independently to a multiple of QK_K=256 elements.
 #[must_use]
 pub fn create_q4_k_data(num_elements: usize) -> Vec<u8> {
     let num_super_blocks = num_elements.div_ceil(256);
     vec![0u8; num_super_blocks * 144]
+}
+
+/// Create valid Q4_K data for a 2D tensor with row-padded layout
+/// This matches the layout expected by `QuantizedGGUFTransformer::get_tensor_ref`
+#[must_use]
+pub fn create_q4_k_data_2d(rows: usize, cols: usize) -> Vec<u8> {
+    const QK_K: usize = 256;
+    const SUPER_BLOCK_BYTES: usize = 144;
+    let super_blocks_per_row = cols.div_ceil(QK_K);
+    vec![0u8; rows * super_blocks_per_row * SUPER_BLOCK_BYTES]
 }
 
 /// Create valid Q5_K data for a tensor with given dimensions
@@ -604,14 +617,14 @@ pub fn build_minimal_llama_gguf(
     let embed_data = create_f32_embedding_data(vocab_size, hidden_dim);
     let norm_data = create_f32_norm_weights(hidden_dim);
 
-    // Q4_K weights for layer 0
-    let q_data = create_q4_k_data(hidden_dim * hidden_dim);
-    let k_data = create_q4_k_data(hidden_dim * kv_dim);
-    let v_data = create_q4_k_data(hidden_dim * kv_dim);
-    let attn_out_data = create_q4_k_data(hidden_dim * hidden_dim);
-    let ffn_up_data = create_q4_k_data(hidden_dim * intermediate_dim);
-    let ffn_down_data = create_q4_k_data(intermediate_dim * hidden_dim);
-    let ffn_gate_data = create_q4_k_data(hidden_dim * intermediate_dim);
+    // Q4_K weights for layer 0 - use row-padded layout for 2D tensors
+    let q_data = create_q4_k_data_2d(hidden_dim, hidden_dim);
+    let k_data = create_q4_k_data_2d(hidden_dim, kv_dim);
+    let v_data = create_q4_k_data_2d(hidden_dim, kv_dim);
+    let attn_out_data = create_q4_k_data_2d(hidden_dim, hidden_dim);
+    let ffn_up_data = create_q4_k_data_2d(hidden_dim, intermediate_dim);
+    let ffn_down_data = create_q4_k_data_2d(intermediate_dim, hidden_dim);
+    let ffn_gate_data = create_q4_k_data_2d(hidden_dim, intermediate_dim);
 
     GGUFBuilder::new()
         // Metadata
@@ -825,12 +838,12 @@ pub fn build_minimal_phi2_gguf(
     let embed_data = create_f32_embedding_data(vocab_size, hidden_dim);
     let norm_data = create_f32_norm_weights(hidden_dim);
 
-    // Fused QKV: hidden -> 3 * hidden
+    // Fused QKV: hidden -> 3 * hidden - use row-padded layout for 2D tensors
     let qkv_out_dim = 3 * hidden_dim;
-    let qkv_data = create_q4_k_data(hidden_dim * qkv_out_dim);
-    let attn_out_data = create_q4_k_data(hidden_dim * hidden_dim);
-    let ffn_up_data = create_q4_k_data(hidden_dim * intermediate_dim);
-    let ffn_down_data = create_q4_k_data(intermediate_dim * hidden_dim);
+    let qkv_data = create_q4_k_data_2d(hidden_dim, qkv_out_dim);
+    let attn_out_data = create_q4_k_data_2d(hidden_dim, hidden_dim);
+    let ffn_up_data = create_q4_k_data_2d(hidden_dim, intermediate_dim);
+    let ffn_down_data = create_q4_k_data_2d(intermediate_dim, hidden_dim);
 
     GGUFBuilder::new()
         // Metadata

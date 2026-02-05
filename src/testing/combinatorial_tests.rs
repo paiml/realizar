@@ -69,7 +69,14 @@ pub fn generate_combinatorial_tests() -> Vec<ModelTestCase> {
             if source == target {
                 continue;
             }
-            generate_conversion_cases(*source, *target, &devices, &configs, &gqa_ratios, &mut tests);
+            generate_conversion_cases(
+                *source,
+                *target,
+                &devices,
+                &configs,
+                &gqa_ratios,
+                &mut tests,
+            );
         }
     }
 

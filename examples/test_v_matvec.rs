@@ -1,7 +1,7 @@
 //! Test V weight matvec manually
 
 use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel};
-use realizar::quantize::{dequantize_q6_k, fused_q6k_colmajor_matvec};
+use realizar::quantize::{dequantize_q6_k, fused_q6k_parallel_matvec};
 
 fn l2_norm(v: &[f32]) -> f32 {
     (v.iter().map(|x| x * x).sum::<f32>()).sqrt()
@@ -47,10 +47,10 @@ fn main() {
     println!("  in_dim (stored): {}", v_weight.in_dim);
     println!("  out_dim (stored): {}", v_weight.out_dim);
 
-    // Method 1: Use fused_q6k_colmajor_matvec
-    let v1 = fused_q6k_colmajor_matvec(&v_weight.data, &normed, v_weight.in_dim, v_weight.out_dim)
+    // Method 1: Use fused_q6k_parallel_matvec
+    let v1 = fused_q6k_parallel_matvec(&v_weight.data, &normed, v_weight.in_dim, v_weight.out_dim)
         .expect("test");
-    println!("\nMethod 1 (fused_q6k_colmajor_matvec):");
+    println!("\nMethod 1 (fused_q6k_parallel_matvec):");
     println!("  Output L2: {:.6}", l2_norm(&v1));
     println!("  Output first 5: {:?}", &v1[..5]);
 

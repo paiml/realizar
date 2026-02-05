@@ -56,7 +56,9 @@ fn ensure_sentinel(device_ordinal: i32) -> Result<(), GpuError> {
     if device_ordinal < 0 || device_ordinal as usize >= count {
         return Err(GpuError::DeviceNotFound(device_ordinal, count));
     }
-    let mut guard = CUDA_SENTINEL.lock().unwrap();
+    let mut guard = CUDA_SENTINEL
+        .lock()
+        .expect("CUDA_SENTINEL mutex poisoned - previous thread panicked while holding lock");
     if let Some(ref ctx) = *guard {
         // Health check: sync detects any async kernel crashes from previous tests.
         // With sync-on-drop in CudaExecutor, poisoning should already be caught.
@@ -66,8 +68,12 @@ fn ensure_sentinel(device_ordinal: i32) -> Result<(), GpuError> {
         }
         // Poisoned — burn everything and start fresh.
         // Clear ALL pools so refcount reaches 0 when sentinel drops.
-        *STREAM_POOL.lock().unwrap() = None;
-        *CONTEXT_POOL.lock().unwrap() = None;
+        *STREAM_POOL
+            .lock()
+            .expect("STREAM_POOL mutex poisoned during context reset") = None;
+        *CONTEXT_POOL
+            .lock()
+            .expect("CONTEXT_POOL mutex poisoned during context reset") = None;
         // Drop sentinel: refcount→0 → primary context DESTROYED
         *guard = None;
         eprintln!(
@@ -81,7 +87,9 @@ fn ensure_sentinel(device_ordinal: i32) -> Result<(), GpuError> {
 
 /// Check out a CudaContext: try the pool first, create fresh if empty.
 fn checkout_context(device_ordinal: i32) -> Result<CudaContext, GpuError> {
-    let mut guard = CONTEXT_POOL.lock().unwrap();
+    let mut guard = CONTEXT_POOL
+        .lock()
+        .expect("CONTEXT_POOL mutex poisoned in checkout");
     if let Some(ctx) = guard.take() {
         // Reuse pooled context — no cuDevicePrimaryCtxRetain needed.
         ctx.make_current()?;
@@ -100,7 +108,9 @@ fn checkout_context(device_ordinal: i32) -> Result<CudaContext, GpuError> {
 /// If the pool already has one, the returned context is dropped normally
 /// (cuDevicePrimaryCtxRelease), but the sentinel keeps refcount ≥ 1.
 fn checkin_context(ctx: CudaContext) {
-    let mut guard = CONTEXT_POOL.lock().unwrap();
+    let mut guard = CONTEXT_POOL
+        .lock()
+        .expect("CONTEXT_POOL mutex poisoned in checkin");
     if guard.is_none() {
         *guard = Some(ctx);
     }
@@ -109,7 +119,9 @@ fn checkin_context(ctx: CudaContext) {
 
 /// Check out 3 streams: try the pool first, create fresh if empty.
 fn checkout_streams(ctx: &CudaContext) -> Result<(CudaStream, CudaStream, CudaStream), GpuError> {
-    let mut guard = STREAM_POOL.lock().unwrap();
+    let mut guard = STREAM_POOL
+        .lock()
+        .expect("STREAM_POOL mutex poisoned in checkout");
     if let Some(streams) = guard.take() {
         return Ok(streams);
     }
@@ -125,7 +137,9 @@ fn checkout_streams(ctx: &CudaContext) -> Result<(CudaStream, CudaStream, CudaSt
 
 /// Return 3 streams to the pool for reuse by the next executor.
 fn checkin_streams(s1: CudaStream, s2: CudaStream, s3: CudaStream) {
-    let mut guard = STREAM_POOL.lock().unwrap();
+    let mut guard = STREAM_POOL
+        .lock()
+        .expect("STREAM_POOL mutex poisoned in checkin");
     *guard = Some((s1, s2, s3));
 }
 

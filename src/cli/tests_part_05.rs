@@ -359,7 +359,7 @@ mod tests {
         let result = run_bench_regression(
             &baseline.to_string_lossy(),
             &current.to_string_lossy(),
-            false,
+            false, // strict
         );
         assert!(result.is_ok());
     }
@@ -378,7 +378,7 @@ mod tests {
         let result = run_bench_regression(
             &baseline.to_string_lossy(),
             &current.to_string_lossy(),
-            true,
+            true, // strict
         );
         // May pass or fail depending on threshold check
         let _ = result;
@@ -389,7 +389,7 @@ mod tests {
         let result = run_bench_regression(
             "/nonexistent/baseline.json",
             "/nonexistent/current.json",
-            false,
+            false, // strict
         );
         assert!(result.is_err());
     }
@@ -405,7 +405,7 @@ mod tests {
         let result = run_bench_regression(
             &baseline.to_string_lossy(),
             &current.to_string_lossy(),
-            false,
+            false, // strict
         );
         assert!(result.is_err());
     }

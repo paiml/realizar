@@ -422,7 +422,7 @@ fn test_run_bench_regression_file_not_found() {
     let result = run_bench_regression(
         "/nonexistent/baseline.json",
         "/nonexistent/current.json",
-        false,
+        false, // strict
     );
     assert!(result.is_err());
 }

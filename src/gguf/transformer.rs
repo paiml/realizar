@@ -188,18 +188,48 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             },
             GGUF_TYPE_Q4_K => {
                 const SUPER_BLOCK_BYTES: usize = 144;
-                let num_super_blocks = num_elements.div_ceil(QK_K);
-                num_super_blocks * SUPER_BLOCK_BYTES
+                // GH-191 FIX: Use row-padded layout for 2D tensors (matching aprender export)
+                // NOTE: tensor.dims are REVERSED from GGML order by loader.rs:323
+                // After reversal: dims = [rows, cols] in standard order
+                // Row-padded: each row has ceil(cols/256) super-blocks
+                // Flat: all elements treated as 1D
+                if tensor.dims.len() == 2 {
+                    let rows = tensor.dims[0] as usize; // out_dim (rows) - after reversal
+                    let cols = tensor.dims[1] as usize; // in_dim (cols) - after reversal
+                    let super_blocks_per_row = cols.div_ceil(QK_K);
+                    rows * super_blocks_per_row * SUPER_BLOCK_BYTES
+                } else {
+                    let num_super_blocks = num_elements.div_ceil(QK_K);
+                    num_super_blocks * SUPER_BLOCK_BYTES
+                }
             },
             GGUF_TYPE_Q5_K => {
                 const SUPER_BLOCK_BYTES: usize = 176;
-                let num_super_blocks = num_elements.div_ceil(QK_K);
-                num_super_blocks * SUPER_BLOCK_BYTES
+                // GH-191 FIX: Use row-padded layout for 2D tensors
+                // NOTE: tensor.dims are in standard [rows, cols] order (reversed from GGML)
+                if tensor.dims.len() == 2 {
+                    let rows = tensor.dims[0] as usize;
+                    let cols = tensor.dims[1] as usize;
+                    let super_blocks_per_row = cols.div_ceil(QK_K);
+                    rows * super_blocks_per_row * SUPER_BLOCK_BYTES
+                } else {
+                    let num_super_blocks = num_elements.div_ceil(QK_K);
+                    num_super_blocks * SUPER_BLOCK_BYTES
+                }
             },
             GGUF_TYPE_Q6_K => {
                 const SUPER_BLOCK_BYTES: usize = 210;
-                let num_super_blocks = num_elements.div_ceil(QK_K);
-                num_super_blocks * SUPER_BLOCK_BYTES
+                // GH-191 FIX: Use row-padded layout for 2D tensors
+                // NOTE: tensor.dims are in standard [rows, cols] order (reversed from GGML)
+                if tensor.dims.len() == 2 {
+                    let rows = tensor.dims[0] as usize;
+                    let cols = tensor.dims[1] as usize;
+                    let super_blocks_per_row = cols.div_ceil(QK_K);
+                    rows * super_blocks_per_row * SUPER_BLOCK_BYTES
+                } else {
+                    let num_super_blocks = num_elements.div_ceil(QK_K);
+                    num_super_blocks * SUPER_BLOCK_BYTES
+                }
             },
             _ => {
                 return Err(RealizarError::UnsupportedOperation {

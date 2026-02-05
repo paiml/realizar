@@ -76,7 +76,7 @@ fn main() {
     println!("  W[0, :5] = [0.0281, 0.0059, -0.0003, -0.0056, 0.0075]");
     println!("  W[:5, 0] = [0.0281, 0.0176, 0.0359, 0.0165, -0.0222]");
 
-    // The fused_q6k_colmajor_matvec assumes:
+    // The fused_q6k_parallel_matvec assumes:
     // - 2048 columns (in_dim)
     // - Each column has one superblock of 256 values
     // - So superblock 0 = column 0 of W^T = row 0 of W

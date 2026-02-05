@@ -1550,31 +1550,8 @@ fn test_cov95_f16_to_f32_special_values() {
     assert!((one - 1.0).abs() < 1e-3);
 }
 
-#[test]
-fn test_cov95_fused_q6k_colmajor_matvec_alias() {
-    let in_dim = 256;
-    let out_dim = 32;
-    let bytes_per_row = 210;
-    let weight_data = vec![0u8; bytes_per_row * out_dim];
-    let activations = vec![1.0f32; in_dim];
-
-    let result = fused_q6k_colmajor_matvec(&weight_data, &activations, in_dim, out_dim);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_cov95_fused_q4k_auto_matvec_into_alias() {
-    let in_dim = 256;
-    let out_dim = 32;
-    let bytes_per_row = 144;
-    let weight_data = vec![0u8; bytes_per_row * out_dim];
-    let activations = vec![1.0f32; in_dim];
-    let mut output = vec![0.0f32; out_dim];
-
-    let result =
-        fused_q4k_auto_matvec_into(&weight_data, &activations, in_dim, out_dim, &mut output);
-    assert!(result.is_ok());
-}
+// LAYOUT-002: Alias tests DELETED (2026-02-03)
+// ONE WAY ONLY: Use fused_q{4,5,6}k_parallel_matvec* functions directly
 
 #[test]
 fn test_cov95_quantize_activations_q8k_into_basic() {

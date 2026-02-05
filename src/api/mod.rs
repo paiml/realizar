@@ -82,15 +82,15 @@ pub use realize_handlers::{
 mod apr_handlers;
 pub(crate) use apr_handlers::{apr_audit_handler, apr_explain_handler, apr_predict_handler};
 mod types;
+pub use crate::registry::ModelInfo;
+pub use types::{default_max_tokens, default_top_k};
+#[cfg(test)]
+pub(crate) use types::{default_strategy, default_temperature, default_top_p};
 pub use types::{
     BatchGenerateRequest, BatchGenerateResponse, BatchTokenizeRequest, BatchTokenizeResponse,
     ErrorResponse, GenerateRequest, GenerateResponse, HealthResponse, ModelsResponse,
     StreamDoneEvent, StreamTokenEvent, TokenizeRequest, TokenizeResponse,
 };
-pub use types::{default_max_tokens, default_top_k};
-#[cfg(test)]
-pub(crate) use types::{default_strategy, default_temperature, default_top_p};
-pub use crate::registry::ModelInfo;
 
 /// Application state shared across handlers
 #[derive(Clone)]

@@ -207,7 +207,11 @@ unsafe fn avx512_quantize_dot(
 
     let act_max = act_slice.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let act_min = act_slice.iter().copied().fold(f32::INFINITY, f32::min);
-    let act_scale = if act_max > act_min { 127.0 / (act_max - act_min) } else { 1.0 };
+    let act_scale = if act_max > act_min {
+        127.0 / (act_max - act_min)
+    } else {
+        1.0
+    };
 
     let mut act_i8 = [0i8; 32];
     for (i, &a) in act_slice.iter().enumerate() {
@@ -1897,7 +1901,6 @@ unsafe fn hsum_epi32(v: std::arch::x86_64::__m256i) -> i32 {
     let sum32 = _mm_add_epi32(sum64, _mm_shuffle_epi32(sum64, 0b00_00_10_10));
     _mm_cvtsi128_si32(sum32)
 }
-
 
 #[cfg(test)]
 #[path = "fused_k_tests.rs"]

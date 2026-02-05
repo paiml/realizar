@@ -10,6 +10,7 @@
 #[cfg(test)]
 mod inference_additional_coverage {
     use crate::cli::inference;
+    use crate::inference_trace::TraceConfig;
     use crate::error::RealizarError;
 
     // =========================================================================
@@ -29,7 +30,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
         // Should fail at mmap stage
@@ -54,7 +55,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -76,7 +77,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err()); // Fails on model load, but exercises temp path
     }
@@ -93,7 +94,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -110,7 +111,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -127,7 +128,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -148,7 +149,7 @@ mod inference_additional_coverage {
             "json", // JSON format
             false,
             true, // verbose to test more output code
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -164,7 +165,7 @@ mod inference_additional_coverage {
             "text",
             false,
             true, // verbose mode
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -180,7 +181,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false, // non-verbose (Ollama-style output)
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -202,6 +203,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -217,6 +219,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -232,6 +235,7 @@ mod inference_additional_coverage {
             "json",
             false,
             true,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -247,6 +251,7 @@ mod inference_additional_coverage {
             "text",
             false,
             true,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -263,6 +268,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
+        None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -275,6 +281,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
+        None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -288,6 +295,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
+        None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -308,7 +316,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
         // Verify the error type
@@ -332,6 +340,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
+            None, // trace_config
         );
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -351,6 +360,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
+        None, // trace_config
         );
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -378,7 +388,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -396,7 +406,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -412,6 +422,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -424,6 +435,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
+        None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -443,7 +455,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -459,6 +471,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -471,6 +484,7 @@ mod inference_additional_coverage {
             100000,
             0.5,
             "text",
+        None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -490,7 +504,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
-            true, // trace enabled
+            Some(TraceConfig::enabled()), // trace enabled
         );
         assert!(result.is_err());
     }
@@ -504,9 +518,9 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
-            false,
-            true,
-            true,
+            false, // force_gpu
+            true,  // verbose
+            Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());
     }
@@ -528,7 +542,7 @@ mod inference_additional_coverage {
             "text",
             true, // force_gpu
             true, // verbose
-            false,
+            None, // trace_config
         );
         assert!(result.is_err()); // Still fails, but warning path exercised
     }
@@ -542,8 +556,9 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
-            true, // force_gpu
-            true, // verbose
+            true,  // force_gpu
+            true,  // verbose
+            None,  // trace_config
         );
         assert!(result.is_err());
     }
@@ -563,7 +578,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -576,6 +591,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
+        None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -591,6 +607,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -610,7 +627,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -623,6 +640,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
+        None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -642,7 +660,7 @@ mod inference_additional_coverage {
             "JSON", // Uppercase - should fall through to text
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -658,6 +676,7 @@ mod inference_additional_coverage {
             "JSON",
             false,
             false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -670,6 +689,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "xml", // Unknown format
+            None,  // trace_config
         );
         assert!(result.is_err());
     }
@@ -687,9 +707,9 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
-            true,
-            true,
-            true,
+            true,  // force_gpu
+            true,  // verbose
+            Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());
     }
@@ -705,7 +725,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -721,6 +741,7 @@ mod inference_additional_coverage {
             "text",
             true,
             true,
+            Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());
     }
@@ -736,6 +757,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -861,6 +883,7 @@ mod server_inference_tests {
 #[cfg(all(test, feature = "cuda"))]
 mod cuda_inference_additional_tests {
     use crate::cli::inference;
+    use crate::inference_trace::TraceConfig;
 
     #[test]
     fn test_gguf_inference_gpu_path_exists() {
@@ -872,9 +895,9 @@ mod cuda_inference_additional_tests {
             5,
             0.5,
             "text",
-            true, // force_gpu - exercises GPU code path
-            true,
-            false,
+            true,  // force_gpu - exercises GPU code path
+            true,  // verbose
+            None,  // trace_config
         );
         assert!(result.is_err());
     }
@@ -890,6 +913,7 @@ mod cuda_inference_additional_tests {
             "text",
             true,
             true,
+            Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());
     }
@@ -903,9 +927,9 @@ mod cuda_inference_additional_tests {
             5,
             0.5,
             "json",
-            true,
-            true,
-            false,
+            true,  // force_gpu
+            true,  // verbose
+            None,  // trace_config
         );
         assert!(result.is_err());
     }
@@ -921,6 +945,7 @@ mod cuda_inference_additional_tests {
             "json",
             true,
             true,
+            Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());
     }

@@ -6,6 +6,7 @@
 #[cfg(test)]
 mod inference_coverage {
     use crate::cli::inference;
+    use crate::inference_trace::TraceConfig;
 
     // =========================================================================
     // Configuration Building Tests (EXTREME TDD)
@@ -24,7 +25,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -41,7 +42,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -58,7 +59,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -75,7 +76,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -95,7 +96,7 @@ mod inference_coverage {
             "json",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -111,7 +112,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -128,7 +129,7 @@ mod inference_coverage {
             "yaml", // Not recognized
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -144,7 +145,7 @@ mod inference_coverage {
             "", // Empty format string
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -167,7 +168,7 @@ mod inference_coverage {
             "text",
             true, // force_gpu - should warn without cuda feature
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err()); // Model loading will still fail
     }
@@ -182,8 +183,9 @@ mod inference_coverage {
             5,
             0.5,
             "text",
-            true, // force_gpu
-            false,
+            true,  // force_gpu
+            false, // verbose
+            None,  // trace_config
         );
         assert!(result.is_err());
     }
@@ -203,7 +205,7 @@ mod inference_coverage {
             "text",
             false,
             true,  // verbose
-            false, // no trace
+            None, // trace_config (disabled)
         );
         assert!(result.is_err());
     }
@@ -219,7 +221,7 @@ mod inference_coverage {
             "text",
             false,
             false, // no verbose
-            true,  // trace
+            Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());
     }
@@ -235,7 +237,7 @@ mod inference_coverage {
             "text",
             false,
             true, // verbose
-            true, // trace
+            Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());
     }
@@ -251,7 +253,7 @@ mod inference_coverage {
             "json",
             true, // force_gpu
             true, // verbose
-            true, // trace
+            Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());
     }
@@ -271,6 +273,7 @@ mod inference_coverage {
             "text",
             false, // no gpu
             true,  // verbose
+            None,  // trace_config
         );
         assert!(result.is_err());
     }
@@ -286,6 +289,7 @@ mod inference_coverage {
             "json",
             true, // force_gpu
             true, // verbose
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -303,7 +307,8 @@ mod inference_coverage {
                 5,
                 0.5,
                 format,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
     }
@@ -319,7 +324,8 @@ mod inference_coverage {
                 5,
                 *temp,
                 "text",
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
     }
@@ -333,7 +339,8 @@ mod inference_coverage {
                 *max_tokens,
                 0.5,
                 "text",
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
     }
@@ -353,7 +360,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -377,8 +384,9 @@ mod inference_coverage {
             5,
             0.5,
             "text",
-            false,
-            false,
+            false, // force_gpu
+            false, // verbose
+            None,  // trace_config
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -400,6 +408,7 @@ mod inference_coverage {
             5,
             0.5,
             "text",
+            None, // trace_config
         );
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -429,7 +438,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -445,7 +454,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -461,7 +470,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -477,7 +486,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -493,7 +502,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -515,6 +524,7 @@ mod inference_coverage {
             "text",
             false,
             false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -532,6 +542,7 @@ mod inference_coverage {
             "text",
             false,
             false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -549,6 +560,7 @@ mod inference_coverage {
             "text",
             false,
             false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -568,7 +580,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -584,7 +596,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -600,7 +612,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -616,7 +628,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -638,7 +650,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
         std::env::remove_var("CPU_DEBUG");
@@ -656,7 +668,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
         std::env::remove_var("CPU_DEBUG");
@@ -674,7 +686,7 @@ mod inference_coverage {
             "text",
             true, // force_gpu
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
         std::env::remove_var("SKIP_GPU_RESIDENT");
@@ -692,7 +704,7 @@ mod inference_coverage {
             "text",
             true, // force_gpu
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
         std::env::remove_var("SKIP_GPU_RESIDENT");
@@ -713,7 +725,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
 
@@ -745,8 +757,8 @@ mod inference_coverage {
                         "text",
                         false,
                         false,
-                        false,
-                    );
+                        None, // trace_config
+        );
                     assert!(result.is_err());
                 })
             })
@@ -782,8 +794,8 @@ mod inference_coverage {
                         format,
                         gpu,
                         false,
-                        false,
-                    );
+                        None, // trace_config
+        );
                     assert!(result.is_err());
                 }
             }
@@ -810,6 +822,7 @@ mod inference_coverage {
                             format,
                             gpu,
                             verbose,
+                            None, // trace_config
                         );
                         assert!(result.is_err());
                     }
@@ -833,7 +846,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -849,7 +862,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -865,7 +878,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -881,7 +894,7 @@ mod inference_coverage {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -901,7 +914,7 @@ mod inference_coverage {
             " json ", // Whitespace around format
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -918,8 +931,8 @@ mod inference_coverage {
                 format,
                 false,
                 false,
-                false,
-            );
+                None, // trace_config
+        );
             assert!(result.is_err());
         }
     }
@@ -940,7 +953,7 @@ mod inference_coverage {
             "",   // format: &str
             true, // force_gpu: bool
             true, // verbose: bool
-            true, // trace: bool
+            Some(TraceConfig::enabled()), // trace_config
         );
     }
 
@@ -952,20 +965,22 @@ mod inference_coverage {
             0,   // max_tokens: usize
             0.0, // temperature: f32
             "",  // format: &str
+            None, // trace_config
         );
     }
 
     #[test]
     fn test_run_apr_inference_public_api() {
         let _: crate::error::Result<()> = inference::run_apr_inference(
-            "",   // model_ref: &str
-            &[],  // file_data: &[u8]
-            "",   // prompt: &str
-            0,    // max_tokens: usize
-            0.0,  // temperature: f32
-            "",   // format: &str
-            true, // force_gpu: bool
-            true, // verbose: bool
+            "",    // model_ref: &str
+            &[],   // file_data: &[u8]
+            "",    // prompt: &str
+            0,     // max_tokens: usize
+            0.0,   // temperature: f32
+            "",    // format: &str
+            true,  // force_gpu: bool
+            false, // verbose: bool
+            None,  // trace_config
         );
     }
 }
@@ -977,6 +992,7 @@ mod inference_coverage {
 #[cfg(all(test, feature = "cuda"))]
 mod cuda_inference_tests {
     use crate::cli::inference;
+    use crate::inference_trace::TraceConfig;
 
     #[test]
     fn test_run_gguf_inference_gpu_function_exists() {
@@ -990,7 +1006,7 @@ mod cuda_inference_tests {
             "text",
             true, // force_gpu - will try to use GPU path
             true, // verbose - shows GPU status
-            false,
+            None, // trace_config
         );
         assert!(result.is_err()); // File doesn't exist, but GPU path is attempted
     }
@@ -1006,6 +1022,7 @@ mod cuda_inference_tests {
             "text",
             true, // force_gpu
             true, // verbose
+        None, // trace_config
         );
         assert!(result.is_err());
     }

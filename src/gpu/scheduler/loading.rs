@@ -196,8 +196,7 @@ fn load_qkv_weights(
             .get_tensor_f32(&format!("{}.attn_v.weight", prefix), data)?;
 
         // Concatenate Q, K, V weights
-        let mut qkv_weight =
-            Vec::with_capacity(q_weight.len() + k_weight.len() + v_weight.len());
+        let mut qkv_weight = Vec::with_capacity(q_weight.len() + k_weight.len() + v_weight.len());
         qkv_weight.extend_from_slice(&q_weight);
         qkv_weight.extend_from_slice(&k_weight);
         qkv_weight.extend_from_slice(&v_weight);

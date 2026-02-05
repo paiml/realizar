@@ -165,7 +165,9 @@ impl CudaExecutor {
         let hash = hasher.finish();
 
         {
-            let bl = BROKEN_PTX.lock().unwrap();
+            let bl = BROKEN_PTX
+                .lock()
+                .expect("BROKEN_PTX mutex poisoned in blocklist check");
             if bl.contains(&hash) {
                 return Err(GpuError::ModuleLoad(
                     "kernel blocklisted (previous compilation failure)".to_string(),
@@ -180,7 +182,10 @@ impl CudaExecutor {
                         "[CUDA-POOL] PTX compilation failed (hash={hash:016x}), blocklisting"
                     );
                 }
-                BROKEN_PTX.lock().unwrap().insert(hash);
+                BROKEN_PTX
+                    .lock()
+                    .expect("BROKEN_PTX mutex poisoned in blocklist insert")
+                    .insert(hash);
                 Err(e)
             },
         }

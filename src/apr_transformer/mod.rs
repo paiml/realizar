@@ -61,6 +61,269 @@ pub use benchmark::{
     APR_CPU_DECODE_THRESHOLD_TOK_S, APR_PARITY_THRESHOLD_PCT, APR_PREFILL_THRESHOLD_TOK_S,
 };
 
+// GH-202 FIX: Per-row dequantization for padded quantized matrices.
+// quantize_q{4,6}_k_matrix pads each row to 256-element boundary.
+// Flat dequant reads blocks sequentially and corrupts data when cols % 256 != 0.
+// This function dequantizes per-row, skipping padding at the end of each row.
+fn dequant_perrow(
+    data: &[u8],
+    dims: &[usize],
+    block_elems: usize,
+    block_bytes: usize,
+    dequant_block: impl Fn(&[u8], &mut [f32]),
+) -> Vec<f32> {
+    let rows = dims[0];
+    let cols = dims[1];
+    let blocks_per_row = cols.div_ceil(block_elems);
+    let bytes_per_row = blocks_per_row * block_bytes;
+    let mut result = Vec::with_capacity(rows * cols);
+
+    for row in 0..rows {
+        let row_start = row * bytes_per_row;
+        if row_start + bytes_per_row > data.len() {
+            // Not enough data, fill remaining with zeros
+            result.resize(rows * cols, 0.0);
+            return result;
+        }
+        // Dequantize all blocks in this row
+        let mut row_values = vec![0.0f32; blocks_per_row * block_elems];
+        for b in 0..blocks_per_row {
+            let block_start = row_start + b * block_bytes;
+            let out_start = b * block_elems;
+            dequant_block(
+                &data[block_start..block_start + block_bytes],
+                &mut row_values[out_start..out_start + block_elems],
+            );
+        }
+        // Keep only the actual cols (discard padding)
+        result.extend_from_slice(&row_values[..cols]);
+    }
+    result
+}
+
+// Dequantize a single Q6K super-block (210 bytes → 256 f32 values)
+fn dequant_q6k_block(block: &[u8], out: &mut [f32]) {
+    let ql = &block[0..128];
+    let qh = &block[128..192];
+    let mut scales = [0i8; 16];
+    #[allow(clippy::cast_possible_wrap)]
+    for (i, s) in scales.iter_mut().enumerate() {
+        *s = block[192 + i] as i8;
+    }
+    let d = dequant::f16_to_f32(u16::from_le_bytes([block[208], block[209]]));
+
+    for n in (0..256).step_by(128) {
+        let idx = n / 128;
+        let sc = &scales[8 * idx..];
+        let ql_s = &ql[64 * idx..];
+        let qh_s = &qh[32 * idx..];
+        for l in 0..32 {
+            let is = l / 16;
+            let q1 = ((ql_s[l] & 0xF) | ((qh_s[l] & 3) << 4)) as i32 - 32;
+            let q2 = ((ql_s[l + 32] & 0xF) | (((qh_s[l] >> 2) & 3) << 4)) as i32 - 32;
+            let q3 = ((ql_s[l] >> 4) | (((qh_s[l] >> 4) & 3) << 4)) as i32 - 32;
+            let q4 = ((ql_s[l + 32] >> 4) | (((qh_s[l] >> 6) & 3) << 4)) as i32 - 32;
+            out[n + l] = d * (sc[is] as f32) * (q1 as f32);
+            out[n + l + 32] = d * (sc[is + 2] as f32) * (q2 as f32);
+            out[n + l + 64] = d * (sc[is + 4] as f32) * (q3 as f32);
+            out[n + l + 96] = d * (sc[is + 6] as f32) * (q4 as f32);
+        }
+    }
+}
+
+// Dequantize a single Q4K super-block (144 bytes → 256 f32 values)
+// Inlined from dequantize_q4_k_apr single-block logic.
+fn dequant_q4k_block(block: &[u8], out: &mut [f32]) {
+    // d (f16) at bytes 0-1, dmin (f16) at bytes 2-3
+    let d = dequant::f16_to_f32(u16::from_le_bytes([block[0], block[1]]));
+    let dmin = dequant::f16_to_f32(u16::from_le_bytes([block[2], block[3]]));
+    // scales: 12 bytes at offset 4
+    let scales = &block[4..16];
+    // qs: 128 bytes at offset 16
+    let qs = &block[16..144];
+
+    let mut ys_index = 0;
+    for j in (0..256).step_by(64) {
+        let q = &qs[j / 2..j / 2 + 32];
+        let is = j / 32;
+        let (sc1, m1) = dequant::extract_scale_min_apr(scales, is);
+        let d1 = d * sc1;
+        let dm1 = dmin * m1;
+        let (sc2, m2) = dequant::extract_scale_min_apr(scales, is + 1);
+        let d2 = d * sc2;
+        let dm2 = dmin * m2;
+        // 32 low nibbles
+        for &byte in q {
+            out[ys_index] = d1 * (byte & 0xF) as f32 - dm1;
+            ys_index += 1;
+        }
+        // 32 high nibbles
+        for &byte in q {
+            out[ys_index] = d2 * (byte >> 4) as f32 - dm2;
+            ys_index += 1;
+        }
+    }
+}
+
+/// Statistics for a vector of activations
+#[derive(Debug, Clone, Default)]
+pub struct ActivationStats {
+    /// Minimum value
+    pub min: f32,
+    /// Maximum value
+    pub max: f32,
+    /// Mean value
+    pub mean: f32,
+    /// Standard deviation
+    pub std_dev: f32,
+    /// Number of NaN values
+    pub nan_count: usize,
+    /// Number of Inf values
+    pub inf_count: usize,
+    /// Number of zeros
+    pub zero_count: usize,
+    /// Total number of elements
+    pub count: usize,
+}
+
+impl ActivationStats {
+    /// Compute statistics from a slice of floats
+    #[must_use]
+    pub fn from_slice(data: &[f32]) -> Self {
+        if data.is_empty() {
+            return Self::default();
+        }
+
+        let count = data.len();
+        let mut min = f32::INFINITY;
+        let mut max = f32::NEG_INFINITY;
+        let mut sum = 0.0f64;
+        let mut nan_count = 0;
+        let mut inf_count = 0;
+        let mut zero_count = 0;
+
+        for &v in data {
+            if v.is_nan() {
+                nan_count += 1;
+                continue;
+            }
+            if v.is_infinite() {
+                inf_count += 1;
+                continue;
+            }
+            if v == 0.0 {
+                zero_count += 1;
+            }
+            min = min.min(v);
+            max = max.max(v);
+            sum += v as f64;
+        }
+
+        let valid_count = count - nan_count - inf_count;
+        let mean = if valid_count > 0 {
+            (sum / valid_count as f64) as f32
+        } else {
+            0.0
+        };
+
+        // Compute std dev
+        let mut var_sum = 0.0f64;
+        for &v in data {
+            if !v.is_nan() && !v.is_infinite() {
+                let diff = v as f64 - mean as f64;
+                var_sum += diff * diff;
+            }
+        }
+        let std_dev = if valid_count > 1 {
+            ((var_sum / (valid_count - 1) as f64).sqrt()) as f32
+        } else {
+            0.0
+        };
+
+        Self {
+            min,
+            max,
+            mean,
+            std_dev,
+            nan_count,
+            inf_count,
+            zero_count,
+            count,
+        }
+    }
+}
+
+/// Per-layer activation trace
+#[derive(Debug, Clone)]
+pub struct LayerActivation {
+    /// Layer index (0-indexed)
+    pub layer_idx: usize,
+    /// Statistics after attention layer norm
+    pub attn_norm_stats: ActivationStats,
+    /// Statistics after QKV projection
+    pub qkv_stats: ActivationStats,
+    /// Statistics after attention output
+    pub attn_out_stats: ActivationStats,
+    /// Statistics after FFN layer norm
+    pub ffn_norm_stats: ActivationStats,
+    /// Statistics after FFN output
+    pub ffn_out_stats: ActivationStats,
+    /// Statistics after residual connection (layer output)
+    pub output_stats: ActivationStats,
+}
+
+/// Forward pass trace with layer-by-layer activations
+#[derive(Debug, Clone)]
+pub struct ForwardTrace {
+    /// Input token IDs
+    pub input_tokens: Vec<u32>,
+    /// Embedding statistics
+    pub embed_stats: ActivationStats,
+    /// Per-layer activations
+    pub layer_activations: Vec<LayerActivation>,
+    /// Final layer norm statistics
+    pub final_norm_stats: ActivationStats,
+    /// Output logits statistics
+    pub logits_stats: ActivationStats,
+    /// Final logits vector (for top-k analysis)
+    pub logits: Vec<f32>,
+}
+
+/// PMAT-216: Trait for inference backends that support layer-by-layer tracing
+///
+/// This trait ensures all inference backends (CPU, GPU, etc.) provide consistent
+/// tracing capability for diagnostics and parity testing.
+///
+/// # Five Whys Root Cause
+///
+/// The GPU path lacked tracing while CPU had it, allowing bugs to ship undetected.
+/// This trait enforces that any new backend MUST implement tracing from day one.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // All backends must implement this:
+/// impl TracedForward for MyNewBackend {
+///     fn forward_traced(&mut self, tokens: &[u32]) -> Result<ForwardTrace> {
+///         // Must capture layer-by-layer statistics
+///     }
+/// }
+/// ```
+pub trait TracedForward {
+    /// Run forward pass with layer-by-layer activation statistics
+    ///
+    /// Returns a `ForwardTrace` containing:
+    /// - Embedding statistics
+    /// - Per-layer activation statistics (attn_norm, qkv, attn_out, ffn_norm, ffn_out, output)
+    /// - Final norm statistics
+    /// - Logits statistics and values
+    ///
+    /// # Errors
+    ///
+    /// Returns error if inference fails
+    fn forward_traced(&mut self, tokens: &[u32]) -> Result<ForwardTrace>;
+}
+
 /// APR Transformer model with all weights
 ///
 /// For Q4K models, raw Q4K bytes can be stored in `q4k_layers` to enable
@@ -372,18 +635,41 @@ impl AprTransformer {
                 match dtype {
                     // Q4_K (GGML type 12)
                     12 => {
-                        let num_elements: usize = dims.iter().product();
-                        dequantize_q4_k_apr(tensor_data, num_elements)
+                        // GH-202 FIX: Handle per-row padding for 2D tensors.
+                        // quantize_q4_k_matrix pads each row to 256-element boundary.
+                        // Flat dequant would read padding as data, corrupting all rows after first.
+                        if dims.len() == 2 && dims[1] % 256 != 0 {
+                            dequant_perrow(tensor_data, dims, 256, 144, |block, out| {
+                                dequant_q4k_block(block, out);
+                            })
+                        } else {
+                            let num_elements: usize = dims.iter().product();
+                            dequantize_q4_k_apr(tensor_data, num_elements)
+                        }
                     },
                     // Q5_K (GGML type 13) - use Q4_K dequant (compatible layout)
                     13 => {
-                        let num_elements: usize = dims.iter().product();
-                        dequantize_q4_k_apr(tensor_data, num_elements)
+                        if dims.len() == 2 && dims[1] % 256 != 0 {
+                            dequant_perrow(tensor_data, dims, 256, 144, |block, out| {
+                                dequant_q4k_block(block, out);
+                            })
+                        } else {
+                            let num_elements: usize = dims.iter().product();
+                            dequantize_q4_k_apr(tensor_data, num_elements)
+                        }
                     },
                     // Q6_K (GGML type 14)
                     14 => {
-                        let num_elements: usize = dims.iter().product();
-                        dequantize_q6_k_apr(tensor_data, num_elements)
+                        // GH-202 FIX: Handle per-row padding for 2D tensors.
+                        // quantize_q6_k_matrix pads each row to 256-element boundary.
+                        if dims.len() == 2 && dims[1] % 256 != 0 {
+                            dequant_perrow(tensor_data, dims, 256, 210, |block, out| {
+                                dequant_q6k_block(block, out);
+                            })
+                        } else {
+                            let num_elements: usize = dims.iter().product();
+                            dequantize_q6_k_apr(tensor_data, num_elements)
+                        }
                     },
                     // Q8_0 (GGML type 8): 34 bytes per block (2 f16 scale + 32 i8 quants)
                     8 => {
@@ -497,49 +783,29 @@ impl AprTransformer {
             }
         }
 
-        // Try to load token embedding
+        // Try to load token embedding - FAIL FAST if not found (no silent zeros)
         let token_embedding_raw = get_f32_tensor("model.embed_tokens.weight")
             .or_else(|| get_f32_tensor("token_embd.weight"))
             .or_else(|| get_f32_tensor("tok_embeddings.weight"))
-            .unwrap_or_else(|| {
-                eprintln!("[APR-LOAD] WARNING: No embedding tensor found! Using zeros.");
-                vec![0.0; vocab_size * hidden_dim]
-            });
+            .ok_or_else(|| RealizarError::FormatError {
+                reason: "FATAL: No embedding tensor found. Tried: model.embed_tokens.weight, \
+                        token_embd.weight, tok_embeddings.weight. APR file may be corrupt or \
+                        use unsupported tensor naming convention.".to_string()
+            })?;
 
-        // GH-187 FIX: Detect and fix embedding transposition
-        // GGML stores as [hidden_dim, vocab_size] but embed() needs [vocab_size, hidden_dim]
-        // Check dims to detect if transposition is needed
-        let needs_transpose = if let Some(ref dims) = embed_dims {
-            // If dims[0] == hidden_dim and dims[1] == vocab_size, data is in GGML layout
-            // and needs transposition for embed() to work correctly
-            dims.len() == 2 && dims[0] == hidden_dim && dims[1] == vocab_size
-        } else {
-            false
-        };
-
-        let token_embedding = if needs_transpose {
+        // GH-208 FIX: Do NOT transpose embedding data
+        // GGML data layout: data[i0 + i1*ne0] for shape [ne0, ne1]
+        // For embedding [ne0=hidden, ne1=vocab]: data[h + v*hidden] = row-major [vocab, hidden]
+        // Token v's embedding = data[v*hidden .. (v+1)*hidden] - ALREADY CORRECT
+        // The GH-187 transpose was WRONG - it corrupted embeddings (correlation 0.001 instead of 1.0)
+        // See: contracts/tensor-layout-v1.yaml, compare_embed example
+        let token_embedding = token_embedding_raw;
+        if let Some(ref dims) = embed_dims {
             eprintln!(
-                "[APR-LOAD] Transposing embedding from GGML [{}x{}] to [{}x{}] layout",
-                hidden_dim, vocab_size, vocab_size, hidden_dim
+                "[APR-LOAD] Embedding dims={:?}, using raw data (no transpose needed)",
+                dims
             );
-            // Transpose from [hidden_dim, vocab_size] to [vocab_size, hidden_dim]
-            let mut transposed = vec![0.0f32; vocab_size * hidden_dim];
-            for v in 0..vocab_size {
-                for h in 0..hidden_dim {
-                    // Source: row h, col v -> index h * vocab_size + v
-                    // Dest: row v, col h -> index v * hidden_dim + h
-                    let src_idx = h * vocab_size + v;
-                    let dst_idx = v * hidden_dim + h;
-                    if src_idx < token_embedding_raw.len() {
-                        transposed[dst_idx] = token_embedding_raw[src_idx];
-                    }
-                }
-            }
-            transposed
-        } else {
-            eprintln!("[APR-LOAD] Embedding already in correct [vocab, hidden] layout");
-            token_embedding_raw
-        };
+        }
 
         // GH-187: Sanity check - verify embedding produces non-garbage for token 0
         if token_embedding.len() >= hidden_dim {
@@ -591,7 +857,7 @@ impl AprTransformer {
             }
         }
 
-        // Load LM head
+        // Load LM head - FAIL FAST if not found (no silent zeros)
         // For tied embeddings (common in Qwen, LLaMA models), use embed_tokens as fallback
         let lm_head_raw =
             get_f32_tensor("lm_head.weight").or_else(|| get_f32_tensor("output.weight"));
@@ -599,14 +865,17 @@ impl AprTransformer {
             (lm_head, false)
         } else {
             // Weight tying: use embedding weights for lm_head
-            eprintln!("[APR-LOAD] No lm_head found, using tied embedding weights");
+            eprintln!("[APR-LOAD] No lm_head found, trying tied embedding weights");
             let tied = get_f32_tensor("model.embed_tokens.weight")
                 .or_else(|| get_f32_tensor("token_embd.weight"));
             if let Some(t) = tied {
                 (t, true)
             } else {
-                eprintln!("[APR-LOAD] WARNING: No lm_head tensor found! Using zeros.");
-                (vec![0.0; hidden_dim * vocab_size], false)
+                return Err(RealizarError::FormatError {
+                    reason: "FATAL: No lm_head tensor found and no embedding for weight tying. \
+                            Tried: lm_head.weight, output.weight, model.embed_tokens.weight, \
+                            token_embd.weight. APR file may be corrupt.".to_string()
+                });
             }
         };
         if used_tied_weights {
@@ -751,18 +1020,29 @@ impl AprTransformer {
                 .unwrap_or_else(|| vec![0.0; intermediate_dim * hidden_dim]);
 
             // PMAT-103 FIX: Extract Q4K and Q6K raw bytes for fused kernel
-            // Now includes separate Q/K/V weights for fused QKV projection
-            let q4k_attn_q = get_q4k_raw_bytes(&format!("{gguf_prefix}.attn_q.weight"));
-            let q4k_attn_k = get_q4k_raw_bytes(&format!("{gguf_prefix}.attn_k.weight"));
-            let q4k_attn_v = get_q4k_raw_bytes(&format!("{gguf_prefix}.attn_v.weight"));
-            let q6k_attn_v = get_q6k_raw_bytes(&format!("{gguf_prefix}.attn_v.weight"));
-            let q4k_attn_output = get_q4k_raw_bytes(&format!("{gguf_prefix}.attn_output.weight"));
-            let q4k_ffn_gate = get_q4k_raw_bytes(&format!("{gguf_prefix}.ffn_gate.weight"));
-            let q4k_ffn_up = get_q4k_raw_bytes(&format!("{gguf_prefix}.ffn_up.weight"));
-            let q4k_ffn_down = get_q4k_raw_bytes(&format!("{gguf_prefix}.ffn_down.weight"));
+            // LAYOUT-002 FIX: Check BOTH naming conventions (HF first, GGUF fallback)
+            // Toyota Way: ONE consistent pattern for all tensor lookups (matches F32 path)
+            let q4k_attn_q = get_q4k_raw_bytes(&format!("{hf_prefix}.self_attn.q_proj.weight"))
+                .or_else(|| get_q4k_raw_bytes(&format!("{gguf_prefix}.attn_q.weight")));
+            let q4k_attn_k = get_q4k_raw_bytes(&format!("{hf_prefix}.self_attn.k_proj.weight"))
+                .or_else(|| get_q4k_raw_bytes(&format!("{gguf_prefix}.attn_k.weight")));
+            let q4k_attn_v = get_q4k_raw_bytes(&format!("{hf_prefix}.self_attn.v_proj.weight"))
+                .or_else(|| get_q4k_raw_bytes(&format!("{gguf_prefix}.attn_v.weight")));
+            let q6k_attn_v = get_q6k_raw_bytes(&format!("{hf_prefix}.self_attn.v_proj.weight"))
+                .or_else(|| get_q6k_raw_bytes(&format!("{gguf_prefix}.attn_v.weight")));
+            let q4k_attn_output = get_q4k_raw_bytes(&format!("{hf_prefix}.self_attn.o_proj.weight"))
+                .or_else(|| get_q4k_raw_bytes(&format!("{gguf_prefix}.attn_output.weight")));
+            let q4k_ffn_gate = get_q4k_raw_bytes(&format!("{hf_prefix}.mlp.gate_proj.weight"))
+                .or_else(|| get_q4k_raw_bytes(&format!("{gguf_prefix}.ffn_gate.weight")));
+            let q4k_ffn_up = get_q4k_raw_bytes(&format!("{hf_prefix}.mlp.up_proj.weight"))
+                .or_else(|| get_q4k_raw_bytes(&format!("{gguf_prefix}.ffn_up.weight")));
+            let q4k_ffn_down = get_q4k_raw_bytes(&format!("{hf_prefix}.mlp.down_proj.weight"))
+                .or_else(|| get_q4k_raw_bytes(&format!("{gguf_prefix}.ffn_down.weight")));
             // Q6K fallback for tensors that aren't Q4K (common in mixed quantization models)
-            let q6k_ffn_down = get_q6k_raw_bytes(&format!("{gguf_prefix}.ffn_down.weight"));
-            let q6k_ffn_up = get_q6k_raw_bytes(&format!("{gguf_prefix}.ffn_up.weight"));
+            let q6k_ffn_down = get_q6k_raw_bytes(&format!("{hf_prefix}.mlp.down_proj.weight"))
+                .or_else(|| get_q6k_raw_bytes(&format!("{gguf_prefix}.ffn_down.weight")));
+            let q6k_ffn_up = get_q6k_raw_bytes(&format!("{hf_prefix}.mlp.up_proj.weight"))
+                .or_else(|| get_q6k_raw_bytes(&format!("{gguf_prefix}.ffn_up.weight")));
 
             let has_q4k_weights = q4k_attn_q.is_some()
                 || q4k_attn_k.is_some()
@@ -1381,6 +1661,237 @@ impl AprTransformer {
         Ok(logits)
     }
 
+    /// Forward pass with layer-by-layer activation tracing.
+    ///
+    /// This is identical to `forward()` but collects statistics at each layer
+    /// for debugging inference divergence issues.
+    ///
+    /// # Arguments
+    ///
+    /// * `token_ids` - Input token IDs
+    ///
+    /// # Returns
+    ///
+    /// `ForwardTrace` containing logits and per-layer activation statistics
+    ///
+    /// # Errors
+    ///
+    /// Returns error if inference fails
+    pub fn forward_traced(&self, token_ids: &[u32]) -> Result<ForwardTrace> {
+        if token_ids.is_empty() {
+            return Err(RealizarError::InvalidShape {
+                reason: "Token sequence cannot be empty".to_string(),
+            });
+        }
+
+        let hidden_dim = self.config.hidden_dim;
+        let intermediate_dim = self.config.intermediate_dim;
+
+        // 1. Token embedding lookup
+        let mut hidden = self.embed(token_ids);
+        let embed_stats = ActivationStats::from_slice(&hidden);
+
+        let mut layer_activations = Vec::with_capacity(self.layers.len());
+
+        // 2. Process through transformer layers with tracing
+        for (layer_idx, layer) in self.layers.iter().enumerate() {
+            // Note: Q4K layers not used in traced forward (uses F32 for accuracy)
+            let _q4k_layer = self.q4k_layers.as_ref().and_then(|l| l.get(layer_idx));
+
+            // 2a. Attention layer norm
+            let normed = self.layer_norm(
+                &hidden,
+                &layer.attn_norm_weight,
+                layer.attn_norm_bias.as_deref(),
+                self.config.eps,
+            );
+            let attn_norm_stats = ActivationStats::from_slice(&normed);
+
+            // 2b. QKV projection
+            let qkv_dim = layer.qkv_weight.len() / hidden_dim;
+            let mut qkv = self.matmul(&normed, &layer.qkv_weight, hidden_dim, qkv_dim);
+            if let Some(ref bias) = layer.qkv_bias {
+                self.add_bias(&mut qkv, bias);
+            }
+            let qkv_stats = ActivationStats::from_slice(&qkv);
+
+            // 2c. Attention computation (simplified for trace - same logic as forward)
+            let seq_len = token_ids.len();
+            let head_dim = hidden_dim / self.config.num_heads;
+            let num_kv_heads = self.config.num_kv_heads;
+            let kv_dim = num_kv_heads * head_dim;
+            let group_size = self.config.num_heads / num_kv_heads;
+            let scale = 1.0 / (head_dim as f32).sqrt();
+
+            let mut q_all = Vec::with_capacity(seq_len * hidden_dim);
+            let mut k_all = Vec::with_capacity(seq_len * kv_dim);
+            let mut v_all = Vec::with_capacity(seq_len * kv_dim);
+
+            for s in 0..seq_len {
+                let qkv_start = s * qkv_dim;
+                let mut q_pos = qkv[qkv_start..qkv_start + hidden_dim].to_vec();
+                let mut k_pos =
+                    qkv[qkv_start + hidden_dim..qkv_start + hidden_dim + kv_dim].to_vec();
+                let v_pos =
+                    &qkv[qkv_start + hidden_dim + kv_dim..qkv_start + hidden_dim + 2 * kv_dim];
+
+                self.apply_rope_f32(&mut q_pos, s, self.config.num_heads, head_dim);
+                self.apply_rope_f32(&mut k_pos, s, num_kv_heads, head_dim);
+
+                q_all.extend_from_slice(&q_pos);
+                k_all.extend_from_slice(&k_pos);
+                v_all.extend_from_slice(v_pos);
+            }
+
+            // Attention output
+            let mut attn_out = vec![0.0f32; seq_len * hidden_dim];
+            for head in 0..self.config.num_heads {
+                let kv_head = head / group_size;
+                let q_head_offset = head * head_dim;
+                let kv_head_offset = kv_head * head_dim;
+
+                for i in 0..seq_len {
+                    let mut scores = Vec::with_capacity(i + 1);
+                    let q_start = i * hidden_dim + q_head_offset;
+
+                    for j in 0..=i {
+                        let k_start = j * kv_dim + kv_head_offset;
+                        let mut score = 0.0f32;
+                        for d in 0..head_dim {
+                            score += q_all[q_start + d] * k_all[k_start + d];
+                        }
+                        scores.push(score * scale);
+                    }
+
+                    // Softmax
+                    let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    let exp_scores: Vec<f32> = scores.iter().map(|s| (s - max_score).exp()).collect();
+                    let sum_exp: f32 = exp_scores.iter().sum();
+                    let probs: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
+
+                    // Weighted sum of values
+                    let out_start = i * hidden_dim + q_head_offset;
+                    for (j, &p) in probs.iter().enumerate() {
+                        let v_start = j * kv_dim + kv_head_offset;
+                        for d in 0..head_dim {
+                            attn_out[out_start + d] += p * v_all[v_start + d];
+                        }
+                    }
+                }
+            }
+
+            // Output projection
+            let mut attn_output = self.matmul(&attn_out, &layer.attn_output_weight, hidden_dim, hidden_dim);
+            if let Some(ref bias) = layer.attn_output_bias {
+                self.add_bias(&mut attn_output, bias);
+            }
+            let attn_out_stats = ActivationStats::from_slice(&attn_output);
+
+            // Residual connection
+            for i in 0..hidden.len() {
+                hidden[i] += attn_output[i];
+            }
+
+            // 2f. FFN layer norm (if present)
+            let ffn_input = if let Some(ref norm_weight) = layer.ffn_norm_weight {
+                let normed = self.layer_norm(
+                    &hidden,
+                    norm_weight,
+                    layer.ffn_norm_bias.as_deref(),
+                    self.config.eps,
+                );
+                normed
+            } else {
+                hidden.clone()
+            };
+            let ffn_norm_stats = ActivationStats::from_slice(&ffn_input);
+
+            // 2g. FFN - check if gated MLP (SwiGLU) by presence of gate weight
+            let ffn_output = if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                let gate = self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim);
+                let up = self.matmul(&ffn_input, &layer.ffn_up_weight, hidden_dim, intermediate_dim);
+
+                let mut ffn_hidden = Vec::with_capacity(gate.len());
+                for (g, u) in gate.iter().zip(up.iter()) {
+                    let silu_g = g / (1.0 + (-g).exp());
+                    ffn_hidden.push(silu_g * u);
+                }
+
+                let mut out = self.matmul(&ffn_hidden, &layer.ffn_down_weight, intermediate_dim, hidden_dim);
+                if let Some(ref bias) = layer.ffn_down_bias {
+                    self.add_bias(&mut out, bias);
+                }
+                out
+            } else {
+                // Standard MLP without gating
+                let mut ffn_hidden = self.matmul(&ffn_input, &layer.ffn_up_weight, hidden_dim, intermediate_dim);
+                if let Some(ref bias) = layer.ffn_up_bias {
+                    self.add_bias(&mut ffn_hidden, bias);
+                }
+                for h in &mut ffn_hidden {
+                    let gelu_approx = 0.5 * *h * (1.0 + (0.797_884_6 * (*h + 0.044_715 * *h * *h * *h)).tanh());
+                    *h = gelu_approx;
+                }
+                let mut out = self.matmul(&ffn_hidden, &layer.ffn_down_weight, intermediate_dim, hidden_dim);
+                if let Some(ref bias) = layer.ffn_down_bias {
+                    self.add_bias(&mut out, bias);
+                }
+                out
+            };
+            let ffn_out_stats = ActivationStats::from_slice(&ffn_output);
+
+            // Residual connection
+            for i in 0..hidden.len() {
+                hidden[i] += ffn_output[i];
+            }
+            let output_stats = ActivationStats::from_slice(&hidden);
+
+            layer_activations.push(LayerActivation {
+                layer_idx,
+                attn_norm_stats,
+                qkv_stats,
+                attn_out_stats,
+                ffn_norm_stats,
+                ffn_out_stats,
+                output_stats,
+            });
+        }
+
+        // 3. Final layer norm
+        let normed = self.layer_norm(
+            &hidden,
+            &self.output_norm_weight,
+            self.output_norm_bias.as_deref(),
+            self.config.eps,
+        );
+        let final_norm_stats = ActivationStats::from_slice(&normed);
+
+        // 4. LM head projection (only last token)
+        let seq_len = token_ids.len();
+        let last_hidden_start = (seq_len - 1) * hidden_dim;
+        let last_hidden = &normed[last_hidden_start..last_hidden_start + hidden_dim];
+
+        let mut logits = self.matmul(
+            last_hidden,
+            &self.lm_head_weight,
+            hidden_dim,
+            self.config.vocab_size,
+        );
+        if let Some(ref bias) = self.lm_head_bias {
+            self.add_bias(&mut logits, bias);
+        }
+        let logits_stats = ActivationStats::from_slice(&logits);
+
+        Ok(ForwardTrace {
+            input_tokens: token_ids.to_vec(),
+            embed_stats,
+            layer_activations,
+            final_norm_stats,
+            logits_stats,
+            logits,
+        })
+    }
+
     /// Predict next token (greedy decoding)
     ///
     /// # Arguments
@@ -1955,6 +2466,15 @@ impl AprTransformer {
         generation::generate_with_cache(self, prompt, config)
     }
 }
+
+/// PMAT-216: Implement TracedForward trait for CPU backend
+impl TracedForward for AprTransformer {
+    fn forward_traced(&mut self, tokens: &[u32]) -> Result<ForwardTrace> {
+        // Delegate to the immutable method (CPU doesn't need mutation)
+        AprTransformer::forward_traced(self, tokens)
+    }
+}
+
 // Tests shattered to tests/ directory (PMAT-803)
 #[cfg(test)]
 mod tests;

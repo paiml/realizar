@@ -5,6 +5,7 @@
 //! exercises the same logic as a 100GB one.
 
 use crate::cli::inference;
+    use crate::inference_trace::TraceConfig;
 use crate::gguf::test_factory::{build_minimal_llama_gguf, GGUFBuilder};
 use std::io::Write;
 use tempfile::NamedTempFile;
@@ -129,8 +130,8 @@ fn test_pygmy_gguf_inference_basic() {
         "text",
         false,
         false,
-        false,
-    );
+        None, // trace_config
+        );
 
     // Should succeed or fail gracefully
     // Either way, we've exercised the mmap loading path
@@ -151,8 +152,8 @@ fn test_pygmy_gguf_inference_verbose() {
         "text",
         false,
         true, // verbose - exercises eprintln! paths
-        false,
-    );
+        None, // trace_config
+        );
 
     let _ = result;
 }
@@ -171,8 +172,8 @@ fn test_pygmy_gguf_inference_json_format() {
         "json", // JSON output format
         false,
         false,
-        false,
-    );
+        None, // trace_config
+        );
 
     let _ = result;
 }
@@ -191,7 +192,7 @@ fn test_pygmy_gguf_inference_with_trace() {
         "text",
         false,
         false,
-        true, // trace enabled
+        Some(TraceConfig::enabled()), // trace_config
     );
 
     let _ = result;
@@ -211,8 +212,8 @@ fn test_micro_gguf_inference() {
         "text",
         false,
         false,
-        false,
-    );
+        None, // trace_config
+        );
 
     let _ = result;
 }
@@ -231,8 +232,8 @@ fn test_pygmy_gguf_empty_prompt() {
         "text",
         false,
         false,
-        false,
-    );
+        None, // trace_config
+        );
 
     let _ = result;
 }
@@ -251,8 +252,8 @@ fn test_pygmy_gguf_high_temperature() {
         "text",
         false,
         false,
-        false,
-    );
+        None, // trace_config
+        );
 
     let _ = result;
 }
@@ -272,8 +273,8 @@ fn test_pygmy_gguf_zero_max_tokens() {
         "text",
         false,
         false,
-        false,
-    );
+        None, // trace_config
+        );
 
     let _ = result;
 }
@@ -297,8 +298,8 @@ fn test_pygmy_gguf_force_gpu_flag() {
         "text",
         true, // force_gpu
         true, // verbose
-        false,
-    );
+        None, // trace_config
+        );
 
     let _ = result;
 }
@@ -321,8 +322,8 @@ fn test_pygmy_gguf_json_verbose() {
         "json",
         false,
         true,
-        false,
-    );
+        None, // trace_config
+        );
 
     let _ = result;
 }
@@ -341,7 +342,7 @@ fn test_pygmy_gguf_json_trace() {
         "json",
         false,
         false,
-        true,
+        Some(TraceConfig::enabled()), // trace_config
     );
 
     let _ = result;
@@ -361,7 +362,7 @@ fn test_pygmy_gguf_all_flags() {
         "json",
         true, // force_gpu
         true, // verbose
-        true, // trace
+        Some(TraceConfig::enabled()), // trace_config
     );
 
     let _ = result;
@@ -386,8 +387,8 @@ fn test_pygmy_gguf_temperature_at_threshold() {
         "text",
         false,
         false,
-        false,
-    );
+        None, // trace_config
+        );
 
     let _ = result;
 }
@@ -407,8 +408,8 @@ fn test_pygmy_gguf_temperature_just_above_threshold() {
         "text",
         false,
         false,
-        false,
-    );
+        None, // trace_config
+        );
 
     let _ = result;
 }
@@ -432,8 +433,8 @@ fn test_pygmy_gguf_long_prompt() {
         "text",
         false,
         false,
-        false,
-    );
+        None, // trace_config
+        );
 
     let _ = result;
 }

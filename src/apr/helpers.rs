@@ -214,7 +214,8 @@ pub(crate) fn simple_attention(
             // Compute causal attention scores
             let mut scores = vec![0.0; seq_len];
             for t in 0..=s {
-                scores[t] = compute_attention_score(q, k, q_base, t * kv_dim + k_base, head_dim, scale);
+                scores[t] =
+                    compute_attention_score(q, k, q_base, t * kv_dim + k_base, head_dim, scale);
             }
 
             softmax_causal(&mut scores, s);
@@ -230,37 +231,63 @@ pub(crate) fn simple_attention(
     output
 }
 
-/// PMAT-110: Apply RoPE rotation using NORM style (adjacent pairs)
-/// This is the standard RoPE used by most models (rope_type == 0)
-/// Pairs elements (2*i, 2*i+1) for rotation
+/// BUG-2 FIX: Apply RoPE rotation with rope_type support
+///
+/// PMAT-110 / CORRECTNESS-011: Qwen2.5 models require rope_type=2 (NEOX style)
+///
+/// # Arguments
+/// * `x` - Tensor to apply RoPE to (modified in place)
+/// * `num_heads` - Number of attention heads
+/// * `head_dim` - Dimension per head
+/// * `position` - Position in sequence
+/// * `theta` - RoPE theta (frequency base)
+/// * `rope_type` - 0=NORM (adjacent pairs), 2=NEOX (split halves)
 pub(crate) fn apply_rope_norm(
     x: &mut [f32],
     num_heads: usize,
     head_dim: usize,
     position: usize,
     theta: f32,
+    rope_type: u32,
 ) {
     let half_dim = head_dim / 2;
 
     for h in 0..num_heads {
         let head_offset = h * head_dim;
 
+        // Pre-compute cos/sin for this position
         for i in 0..half_dim {
             let freq = 1.0 / theta.powf(2.0 * i as f32 / head_dim as f32);
             let angle = position as f32 * freq;
             let cos_val = angle.cos();
             let sin_val = angle.sin();
 
-            // NORM style: adjacent pairs (2*i, 2*i+1)
-            let idx0 = head_offset + 2 * i;
-            let idx1 = head_offset + 2 * i + 1;
+            if rope_type == 2 {
+                // NEOX style: split halves (x[0..half], x[half..])
+                // Used by GPT-NeoX, Qwen2.5, and newer models
+                let idx0 = head_offset + i;
+                let idx1 = head_offset + half_dim + i;
 
-            if idx1 < x.len() {
-                let x0 = x[idx0];
-                let x1 = x[idx1];
+                if idx1 < x.len() {
+                    let x0 = x[idx0];
+                    let x1 = x[idx1];
 
-                x[idx0] = x0 * cos_val - x1 * sin_val;
-                x[idx1] = x0 * sin_val + x1 * cos_val;
+                    x[idx0] = x0 * cos_val - x1 * sin_val;
+                    x[idx1] = x0 * sin_val + x1 * cos_val;
+                }
+            } else {
+                // NORM style (rope_type == 0): adjacent pairs (2*i, 2*i+1)
+                // Default for LLaMA-family models
+                let idx0 = head_offset + 2 * i;
+                let idx1 = head_offset + 2 * i + 1;
+
+                if idx1 < x.len() {
+                    let x0 = x[idx0];
+                    let x1 = x[idx1];
+
+                    x[idx0] = x0 * cos_val - x1 * sin_val;
+                    x[idx1] = x0 * sin_val + x1 * cos_val;
+                }
             }
         }
     }
@@ -440,7 +467,7 @@ mod tests {
     #[test]
     fn test_apply_rope_norm_basic() {
         let mut x = vec![1.0, 0.0, 0.0, 1.0]; // 1 head, head_dim=4
-        apply_rope_norm(&mut x, 1, 4, 0, 10000.0);
+        apply_rope_norm(&mut x, 1, 4, 0, 10000.0, 0); // NORM style
         // At position 0, angle = 0, cos=1, sin=0, so values should be unchanged
         assert!((x[0] - 1.0).abs() < 0.001);
         assert!((x[1] - 0.0).abs() < 0.001);
@@ -449,7 +476,7 @@ mod tests {
     #[test]
     fn test_apply_rope_norm_position_1() {
         let mut x = vec![1.0, 0.0, 0.0, 1.0]; // 1 head, head_dim=4
-        apply_rope_norm(&mut x, 1, 4, 1, 10000.0);
+        apply_rope_norm(&mut x, 1, 4, 1, 10000.0, 0); // NORM style
         // At position 1, some rotation should occur
         // Values should be different from original
         let sum: f32 = x.iter().map(|v| v.abs()).sum();
@@ -459,10 +486,29 @@ mod tests {
     #[test]
     fn test_apply_rope_norm_multiple_heads() {
         let mut x = vec![1.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 2.0]; // 2 heads, head_dim=4
-        apply_rope_norm(&mut x, 2, 4, 0, 10000.0);
+        apply_rope_norm(&mut x, 2, 4, 0, 10000.0, 0); // NORM style
         // At position 0, values should be unchanged for both heads
         assert!((x[0] - 1.0).abs() < 0.001);
         assert!((x[4] - 2.0).abs() < 0.001);
+    }
+
+    // BUG-2 FIX: Test NEOX style rope (rope_type=2) for Qwen2.5
+    #[test]
+    fn test_apply_rope_neox_basic() {
+        let mut x = vec![1.0, 0.0, 0.0, 1.0]; // 1 head, head_dim=4
+        apply_rope_norm(&mut x, 1, 4, 0, 10000.0, 2); // NEOX style
+        // At position 0, angle = 0, cos=1, sin=0, so values should be unchanged
+        assert!((x[0] - 1.0).abs() < 0.001);
+        assert!((x[2] - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_apply_rope_neox_position_1() {
+        let mut x = vec![1.0, 0.0, 0.0, 1.0]; // 1 head, head_dim=4
+        apply_rope_norm(&mut x, 1, 4, 1, 10000.0, 2); // NEOX style
+        // At position 1, some rotation should occur
+        let sum: f32 = x.iter().map(|v| v.abs()).sum();
+        assert!(sum > 0.5); // Non-zero output
     }
 
     // -------------------------------------------------------------------------

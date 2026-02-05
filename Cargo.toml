@@ -39,6 +39,8 @@ trueno = { version = "0.14", path = "../trueno", features = ["gpu"] }
 trueno-gpu = { version = "0.4", path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
 # KV cache storage (for attention caching)
 trueno-db = { version = "0.3", path = "../trueno-db", optional = true }
+# K-quantization formats (Q4_K, Q5_K, Q6_K) - Toyota Way: ONE source of truth
+trueno-quant = { version = "0.1", path = "../trueno/crates/trueno-quant" }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
 # v0.24.1: chat templates, GGUF tokenizer preservation (local may be newer)

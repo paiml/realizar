@@ -1059,8 +1059,9 @@ fn create_eog_only_logits(
     }
 
     Tensor::from_vec(shape.to_vec(), new_data).unwrap_or_else(|_| {
-        Tensor::from_vec(shape.to_vec(), data.to_vec())
-            .unwrap_or_else(|_| Tensor::from_vec(vec![1], vec![0.0]).expect("single-element tensor"))
+        Tensor::from_vec(shape.to_vec(), data.to_vec()).unwrap_or_else(|_| {
+            Tensor::from_vec(vec![1], vec![0.0]).expect("single-element tensor")
+        })
     })
 }
 
@@ -1888,7 +1889,6 @@ impl<M: GenerativeModel> GenerationPipeline<M> {
 }
 
 // Tests extracted to tests.rs (PMAT-802)
-
 
 #[cfg(test)]
 #[path = "sampler_tests.rs"]

@@ -177,6 +177,7 @@ dependencies = [
  "serde",
  "serde_json",
  "trueno 0.14.3",
+ "trueno-quant",
 ]
 
 [[package]]
@@ -3995,6 +3996,7 @@ dependencies = [
  "trueno-cuda-edge",
  "trueno-db",
  "trueno-gpu",
+ "trueno-quant",
  "trueno-viz",
  "ureq",
  "uuid",
@@ -5219,6 +5221,13 @@ version = "0.4.12"
 dependencies = [
  "libloading",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "trueno-quant"
+version = "0.1.0"
+dependencies = [
+ "half",
 ]
 
 [[package]]

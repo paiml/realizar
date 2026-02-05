@@ -17,6 +17,7 @@
 mod tests {
     use super::super::*;
     use crate::cli::inference;
+    use crate::inference_trace::TraceConfig;
 
     // =========================================================================
     // display_model_info: GGUF format detection via magic bytes
@@ -361,7 +362,7 @@ mod tests {
             "text",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -378,7 +379,7 @@ mod tests {
             "text",
             true, // force_gpu
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -394,7 +395,7 @@ mod tests {
             "json",
             false,
             false,
-            false,
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -410,7 +411,7 @@ mod tests {
             "text",
             false,
             true, // verbose
-            true, // trace
+            Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());
     }
@@ -423,6 +424,7 @@ mod tests {
             10,
             0.0,
             "text",
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -436,8 +438,9 @@ mod tests {
             10,
             0.0,
             "text",
-            false,
-            false,
+            false, // force_gpu
+            false, // verbose
+            None,  // trace_config
         );
         assert!(result.is_err());
     }
@@ -785,7 +788,7 @@ mod tests {
         let result = run_bench_regression(
             baseline.to_str().unwrap(),
             current.to_str().unwrap(),
-            true, // strict mode
+            true, // strict
         );
         // Should fail parsing or detect regression
         assert!(result.is_err());

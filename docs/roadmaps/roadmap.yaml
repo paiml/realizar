@@ -4134,7 +4134,7 @@ roadmap:
 - id: QWEN-PMAT-001
   github_issue: null
   item_type: task
-  title: 'Fix GQA naive KV head broadcasting in attention'
+  title: Fix GQA naive KV head broadcasting in attention
   status: completed
   priority: critical
   assigned_to: null
@@ -4168,7 +4168,7 @@ roadmap:
 - id: QWEN-PMAT-002
   github_issue: null
   item_type: task
-  title: 'Wire fused SwiGLU kernel into APR Q4 adapter'
+  title: Wire fused SwiGLU kernel into APR Q4 adapter
   status: completed
   priority: critical
   assigned_to: null
@@ -4206,7 +4206,7 @@ roadmap:
 - id: QWEN-PMAT-011
   github_issue: null
   item_type: task
-  title: 'Wire GELU GPU kernel into standard FFN'
+  title: Wire GELU GPU kernel into standard FFN
   status: completed
   priority: high
   assigned_to: null
@@ -4241,7 +4241,7 @@ roadmap:
 - id: QWEN-PMAT-013
   github_issue: null
   item_type: task
-  title: 'Wire GPU RMSNorm and fused residual kernels into APR Q4 adapter'
+  title: Wire GPU RMSNorm and fused residual kernels into APR Q4 adapter
   status: completed
   priority: critical
   assigned_to: null
@@ -4278,7 +4278,7 @@ roadmap:
 - id: QWEN-PMAT-003
   github_issue: null
   item_type: task
-  title: 'Implement SageAttention INT8 Q/K quantized attention'
+  title: Implement SageAttention INT8 Q/K quantized attention
   status: planned
   priority: high
   assigned_to: null
@@ -4305,7 +4305,7 @@ roadmap:
 - id: QWEN-PMAT-004
   github_issue: null
   item_type: task
-  title: 'Complete EAGLE speculative decoding for Qwen models'
+  title: Complete EAGLE speculative decoding for Qwen models
   status: planned
   priority: high
   assigned_to: null
@@ -4332,7 +4332,7 @@ roadmap:
 - id: QWEN-PMAT-005
   github_issue: null
   item_type: task
-  title: 'Implement Marlin-style L2-optimized GPTQ kernel'
+  title: Implement Marlin-style L2-optimized GPTQ kernel
   status: planned
   priority: medium
   assigned_to: null
@@ -4357,7 +4357,7 @@ roadmap:
 - id: QWEN-PMAT-006
   github_issue: null
   item_type: task
-  title: 'Implement Dual Chunk Attention (DCA) for Qwen long context'
+  title: Implement Dual Chunk Attention (DCA) for Qwen long context
   status: planned
   priority: medium
   assigned_to: null
@@ -4382,7 +4382,7 @@ roadmap:
 - id: QWEN-PMAT-007
   github_issue: null
   item_type: task
-  title: 'Implement INT8 KV cache quantization'
+  title: Implement INT8 KV cache quantization
   status: planned
   priority: medium
   assigned_to: null
@@ -4405,3 +4405,19 @@ roadmap:
     Per KIVI (arXiv:2402.02750).
     Scaffolding exists at paged_kv/mod.rs#1041.
     2x memory reduction enables longer contexts.
+- id: PMAT-806
+  github_issue: null
+  item_type: task
+  title: CB-122
+  status: inprogress
+  priority: medium
+  assigned_to: null
+  created: 2026-02-05T15:12:31Z
+  updated: 2026-02-05T15:12:36.894614542+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null

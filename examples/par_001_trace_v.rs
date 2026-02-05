@@ -4,7 +4,7 @@
 //! to verify the column-major fix is working correctly.
 
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
-use realizar::quantize::fused_q6k_colmajor_matvec;
+use realizar::quantize::fused_q6k_parallel_matvec;
 
 fn l2_norm(v: &[f32]) -> f32 {
     (v.iter().map(|x| x * x).sum::<f32>()).sqrt()
@@ -53,7 +53,7 @@ fn main() {
 
             // Call the column-major function directly on V
             println!("\n=== V projection (column-major) ===");
-            let v_out = fused_q6k_colmajor_matvec(&v.data, &normed, v.in_dim, v.out_dim)
+            let v_out = fused_q6k_parallel_matvec(&v.data, &normed, v.in_dim, v.out_dim)
                 .expect("V projection failed");
             println!("V output L2: {:.4}", l2_norm(&v_out));
             println!("V output first 10: {:?}", &v_out[..10.min(v_out.len())]);

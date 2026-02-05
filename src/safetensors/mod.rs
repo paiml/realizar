@@ -34,6 +34,42 @@ use serde::{Deserialize, Serialize};
 use crate::error::{RealizarError, Result};
 use crate::inference::simd_bf16_to_f32;
 
+/// GAP-UX-002: Find sibling companion file with hash-prefix fallback.
+///
+/// Companion files (config.json, tokenizer.json) may be stored with:
+/// 1. Hash prefix: `{stem}.{filename}` (e.g., `d71534cb.config.json`) - PREFERRED
+/// 2. Plain name: `{filename}` (e.g., `config.json`) - FALLBACK for backwards compatibility
+///
+/// # Arguments
+///
+/// * `model_path` - Path to the model file (e.g., `/cache/d71534cb.safetensors`)
+/// * `companion_name` - Name of companion file (e.g., `config.json`)
+///
+/// # Returns
+///
+/// Path to the companion file if found, None otherwise
+pub fn find_sibling_file(
+    model_path: &std::path::Path,
+    companion_name: &str,
+) -> Option<std::path::PathBuf> {
+    let parent = model_path.parent()?;
+    let stem = model_path.file_stem()?.to_str()?;
+
+    // GAP-UX-002: Try hash-prefixed first (e.g., "d71534cb.config.json")
+    let prefixed = parent.join(format!("{}.{}", stem, companion_name));
+    if prefixed.exists() {
+        return Some(prefixed);
+    }
+
+    // Fallback: Try plain name for backwards compatibility
+    let plain = parent.join(companion_name);
+    if plain.exists() {
+        return Some(plain);
+    }
+
+    None
+}
+
 /// Safetensors data type
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub enum SafetensorsDtype {
@@ -465,10 +501,15 @@ pub struct SafetensorsConfig {
     pub bos_token_id: Option<u32>,
     /// EOS token ID
     pub eos_token_id: Option<u32>,
+    /// Whether to tie input/output embeddings (lm_head = embed_tokens)
+    pub tie_word_embeddings: Option<bool>,
 }
 
 impl SafetensorsConfig {
     /// Load config from sibling config.json file
+    ///
+    /// GAP-UX-002: Tries hash-prefixed companion first (`{stem}.config.json`),
+    /// then falls back to non-prefixed (`config.json`) for backwards compatibility.
     ///
     /// # Arguments
     ///
@@ -478,11 +519,7 @@ impl SafetensorsConfig {
     ///
     /// Config if found and parsed, None otherwise
     pub fn load_from_sibling(model_path: &std::path::Path) -> Option<Self> {
-        let config_path = model_path.with_file_name("config.json");
-        if !config_path.exists() {
-            return None;
-        }
-
+        let config_path = find_sibling_file(model_path, "config.json")?;
         let content = std::fs::read_to_string(&config_path).ok()?;
         serde_json::from_str(&content).ok()
     }
@@ -931,6 +968,16 @@ impl MappedSafeTensorsModel {
     }
 }
 
+// PMAT-234/235: Validation contract - makes bad loads IMPOSSIBLE
+// Implements Poka-Yoke (mistake-proofing) via newtype pattern
+pub mod validation;
+pub use validation::{
+    // Runtime validation functions (legacy API)
+    enforce_embedding_validation, enforce_weight_validation, validate_embedding, validate_weight,
+    TensorStats, ValidationResult,
+    // Compile-time enforcement via newtypes (PMAT-235)
+    ContractValidationError, ValidatedEmbedding, ValidatedVector, ValidatedWeight,
+};
 
 #[cfg(test)]
 mod tests;

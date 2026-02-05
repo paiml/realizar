@@ -1,22 +1,7 @@
 {
-  "version": "2.200.0",
-  "created_at": "2025-11-22T08:21:32.600640401Z",
-  "git_context": {
-    "commit_sha": "c63d9888e900ea78603165f92852c3665f5f67a5",
-    "commit_sha_short": "c63d988",
-    "branch": "main",
-    "author_name": "Noah Gift",
-    "author_email": "noah.gift@gmail.com",
-    "commit_timestamp": "2025-11-22T08:15:42Z",
-    "commit_message": "perf: Add quantization benchmark suite",
-    "tags": [],
-    "parent_commits": [
-      "c6ac0476ae6d0c2dc0ccbb0bc301643ab2f323e0"
-    ],
-    "remote_url": "git@github.com:paiml/realizar.git",
-    "is_clean": false,
-    "uncommitted_files": 3
-  },
+  "version": "2.217.0",
+  "created_at": "2026-02-05T16:05:04.802156239Z",
+  "git_context": null,
   "files": {},
   "summary": {
     "total_files": 0,
