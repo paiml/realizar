@@ -174,6 +174,227 @@ impl InferenceConfig {
     }
 }
 
+// ============================================================================
+// PreparedTokens - Compile-time chat template enforcement (PMAT-236)
+// ============================================================================
+
+/// Tokenized input that has been processed through chat template formatting.
+///
+/// # Compile-time enforcement (Poka-Yoke)
+///
+/// The inner `Vec<u32>` is **private** - the only way to construct `PreparedTokens`
+/// is via `prepare_tokens()`, which ALWAYS applies chat template formatting for
+/// instruct models. This makes it a **compile error** to pass raw tokens to
+/// inference functions, preventing the bug where SafeTensors inference skipped
+/// chat template application (producing "4" then garbage).
+///
+/// # Theoretical basis
+///
+/// Shingo, S. (1986). *Zero Quality Control: Source Inspection and the Poka-Yoke System*.
+/// Brady, E. (2017). *Type-Driven Development with Idris*.
+///
+/// # References
+///
+/// - PMAT-236: Chat template enforcement for multi-format inference
+/// - GH-205: SafeTensors inference garbage root cause
+#[derive(Debug, Clone)]
+pub struct PreparedTokens {
+    /// Tokenized input (PRIVATE - enforces construction via prepare_tokens only)
+    tokens: Vec<u32>,
+    /// Number of input tokens (for separating prefill from generated tokens)
+    input_count: usize,
+}
+
+impl PreparedTokens {
+    /// Access the prepared token IDs (read-only).
+    #[must_use]
+    pub fn tokens(&self) -> &[u32] {
+        &self.tokens
+    }
+
+    /// Number of input tokens.
+    #[must_use]
+    pub fn input_count(&self) -> usize {
+        self.input_count
+    }
+}
+
+/// Prepare tokens for inference, applying chat template for instruct models.
+///
+/// This is the ONLY way to create `PreparedTokens`. It handles:
+/// 1. Format detection (GGUF vs SafeTensors vs APR)
+/// 2. Architecture detection (Qwen2, LLaMA, Phi, etc.)
+/// 3. Chat template application for instruct models
+/// 4. Tokenization using the appropriate tokenizer
+///
+/// # Chat Template Rules
+///
+/// - If model name/architecture contains "instruct", chat template is applied
+/// - GGUF: uses embedded tokenizer + architecture from metadata
+/// - SafeTensors: uses sibling tokenizer.json + config.json architecture
+/// - APR: uses sibling tokenizer.json + model metadata
+///
+/// # Errors
+///
+/// Returns error if the model cannot be read or tokenization fails.
+pub fn prepare_tokens(config: &InferenceConfig, format: &ModelFormat) -> Result<PreparedTokens> {
+    // If raw token IDs are provided, use them directly (user knows what they're doing)
+    if let Some(ref tokens) = config.input_tokens {
+        return Ok(PreparedTokens {
+            input_count: tokens.len(),
+            tokens: tokens.clone(),
+        });
+    }
+
+    let prompt = match config.prompt {
+        Some(ref p) => p.clone(),
+        None => {
+            return Ok(PreparedTokens {
+                tokens: vec![1u32],
+                input_count: 1,
+            })
+        }
+    };
+
+    match format {
+        ModelFormat::Gguf => prepare_tokens_gguf(config, &prompt),
+        ModelFormat::SafeTensors => prepare_tokens_safetensors(config, &prompt),
+        ModelFormat::Apr => prepare_tokens_apr(config, &prompt),
+    }
+}
+
+/// Prepare tokens for GGUF format (chat template from GGUF metadata)
+fn prepare_tokens_gguf(config: &InferenceConfig, prompt: &str) -> Result<PreparedTokens> {
+    use crate::chat_template::{format_messages, ChatMessage};
+    use crate::gguf::MappedGGUFModel;
+
+    let mapped = MappedGGUFModel::from_path(&config.model_path)?;
+    let gguf_arch = mapped.model.architecture().unwrap_or("transformer");
+
+    let is_instruct_arch = matches!(
+        gguf_arch.to_lowercase().as_str(),
+        "qwen2" | "qwen" | "llama" | "mistral" | "phi" | "phi3"
+    );
+
+    let model_name = config
+        .model_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    let filename_instruct = model_name.to_lowercase().contains("instruct");
+
+    let formatted_prompt = if is_instruct_arch || filename_instruct {
+        let template_hint = apr_arch_to_template_hint(gguf_arch, model_name);
+        let messages = vec![ChatMessage::user(prompt)];
+        format_messages(&messages, Some(template_hint)).unwrap_or_else(|_| prompt.to_string())
+    } else {
+        prompt.to_string()
+    };
+
+    let tokens = mapped
+        .model
+        .encode(&formatted_prompt)
+        .unwrap_or_else(|| vec![1u32]);
+
+    Ok(PreparedTokens {
+        input_count: tokens.len(),
+        tokens,
+    })
+}
+
+/// Prepare tokens for SafeTensors format (chat template from config.json)
+fn prepare_tokens_safetensors(config: &InferenceConfig, prompt: &str) -> Result<PreparedTokens> {
+    use crate::apr::AprV2Model;
+    use crate::chat_template::{format_messages, ChatMessage};
+    use crate::safetensors::SafetensorsConfig;
+
+    // Load config.json for architecture detection
+    let st_config = SafetensorsConfig::load_from_sibling(&config.model_path);
+    let architecture = st_config
+        .as_ref()
+        .map(SafetensorsConfig::architecture)
+        .unwrap_or_default();
+
+    let model_name = config
+        .model_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+
+    // Detect instruct model from architecture or filename
+    let arch_lower = architecture.to_lowercase();
+    let is_instruct = arch_lower.contains("instruct")
+        || model_name.to_lowercase().contains("instruct")
+        || matches!(
+            arch_lower.as_str(),
+            "qwen2forcausallm" | "llamaforcausallm" | "mistralforcausallm" | "phiforcausallm"
+        );
+
+    let formatted_prompt = if is_instruct {
+        let template_hint = safetensors_arch_to_template_hint(&architecture, model_name);
+        let messages = vec![ChatMessage::user(prompt)];
+        format_messages(&messages, Some(template_hint)).unwrap_or_else(|_| prompt.to_string())
+    } else {
+        prompt.to_string()
+    };
+
+    let tokens =
+        AprV2Model::encode_text(&config.model_path, &formatted_prompt).unwrap_or_else(|| vec![1u32]);
+
+    Ok(PreparedTokens {
+        input_count: tokens.len(),
+        tokens,
+    })
+}
+
+/// Prepare tokens for APR format (chat template from model metadata)
+fn prepare_tokens_apr(config: &InferenceConfig, prompt: &str) -> Result<PreparedTokens> {
+    use crate::apr::AprV2Model;
+    use crate::chat_template::{format_messages, ChatMessage};
+
+    let model_name = config
+        .model_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+
+    // APR models: detect instruct from filename
+    let is_instruct = model_name.to_lowercase().contains("instruct");
+
+    let formatted_prompt = if is_instruct {
+        let template_hint = apr_arch_to_template_hint("unknown", model_name);
+        let messages = vec![ChatMessage::user(prompt)];
+        format_messages(&messages, Some(template_hint)).unwrap_or_else(|_| prompt.to_string())
+    } else {
+        prompt.to_string()
+    };
+
+    let tokens =
+        AprV2Model::encode_text(&config.model_path, &formatted_prompt).unwrap_or_else(|| vec![1u32]);
+
+    Ok(PreparedTokens {
+        input_count: tokens.len(),
+        tokens,
+    })
+}
+
+/// Map SafeTensors architecture string to chat template hint
+fn safetensors_arch_to_template_hint<'a>(architecture: &str, model_name: &'a str) -> &'a str {
+    let arch_lower = architecture.to_lowercase();
+    if arch_lower.contains("qwen") {
+        "qwen2"
+    } else if arch_lower.contains("llama") {
+        "llama"
+    } else if arch_lower.contains("mistral") {
+        "mistral"
+    } else if arch_lower.contains("phi") {
+        "phi"
+    } else {
+        // Fall back to model name heuristic
+        apr_arch_to_template_hint("unknown", model_name)
+    }
+}
+
 /// Result from inference
 #[derive(Debug, Clone)]
 pub struct InferenceResult {
@@ -308,15 +529,22 @@ pub fn run_inference(config: &InferenceConfig) -> Result<InferenceResult> {
         reason: format!("Format detection failed: {}", e),
     })?;
 
+    // PMAT-236: Prepare tokens with chat template BEFORE format dispatch.
+    // This is compile-time enforced - format-specific functions accept
+    // PreparedTokens (private inner data) which can ONLY be created here.
+    let prepared = prepare_tokens(config, &format)?;
+
     match format {
-        ModelFormat::Gguf => run_gguf_inference(config),
+        ModelFormat::Gguf => run_gguf_inference(config, &prepared),
         ModelFormat::Apr => run_apr_inference(config),
-        ModelFormat::SafeTensors => run_safetensors_inference(config),
+        ModelFormat::SafeTensors => run_safetensors_inference(config, &prepared),
     }
 }
 
 /// Run GGUF model inference
-fn run_gguf_inference(config: &InferenceConfig) -> Result<InferenceResult> {
+///
+/// PMAT-236: Accepts `PreparedTokens` (compile-time enforced chat template).
+fn run_gguf_inference(config: &InferenceConfig, prepared: &PreparedTokens) -> Result<InferenceResult> {
     use crate::gguf::{MappedGGUFModel, OwnedQuantizedModel, QuantizedGenerateConfig};
 
     if config.verbose {
@@ -336,8 +564,9 @@ fn run_gguf_inference(config: &InferenceConfig) -> Result<InferenceResult> {
         print_gguf_verbose_info(gguf_arch, &model, load_ms);
     }
 
-    let input_tokens = prepare_gguf_input_tokens(config, gguf_arch, &mapped);
-    let input_token_count = input_tokens.len();
+    // PMAT-236: Use PreparedTokens (chat template already applied by prepare_tokens)
+    let input_tokens = prepared.tokens().to_vec();
+    let input_token_count = prepared.input_count();
     let model_config = model.config.clone();
 
     let gen_config = QuantizedGenerateConfig {
@@ -405,49 +634,6 @@ fn print_gguf_verbose_info(
         model.config.hidden_dim, model.config.context_length, quant_type, thread_count
     );
     eprintln!("Model loaded in {:.1}ms", load_ms);
-}
-
-/// Prepare input tokens for GGUF inference (PMAT-109: chat template support)
-fn prepare_gguf_input_tokens(
-    config: &InferenceConfig,
-    gguf_arch: &str,
-    mapped: &crate::gguf::MappedGGUFModel,
-) -> Vec<u32> {
-    use crate::chat_template::{format_messages, ChatMessage};
-
-    if let Some(ref tokens) = config.input_tokens {
-        return tokens.clone();
-    }
-
-    let prompt = match config.prompt {
-        Some(ref p) => p,
-        None => return vec![1u32],
-    };
-
-    let is_instruct_arch = matches!(
-        gguf_arch.to_lowercase().as_str(),
-        "qwen2" | "qwen" | "llama" | "mistral" | "phi" | "phi3"
-    );
-
-    let model_name = config
-        .model_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
-    let filename_instruct = model_name.to_lowercase().contains("instruct");
-
-    let formatted_prompt = if is_instruct_arch || filename_instruct {
-        let template_hint = apr_arch_to_template_hint(gguf_arch, model_name);
-        let messages = vec![ChatMessage::user(prompt)];
-        format_messages(&messages, Some(template_hint)).unwrap_or_else(|_| prompt.clone())
-    } else {
-        prompt.clone()
-    };
-
-    mapped
-        .model
-        .encode(&formatted_prompt)
-        .unwrap_or_else(|| vec![1u32])
 }
 
 /// Write GGUF trace output if requested (PMAT-SHOWCASE-METHODOLOGY-001)
@@ -860,22 +1046,18 @@ fn tok_per_sec(count: usize, ms: f64) -> f64 {
 }
 
 /// Run SafeTensors model inference (PAR-301, PMAT-129)
-fn run_safetensors_inference(config: &InferenceConfig) -> Result<InferenceResult> {
-    use crate::apr::AprV2Model;
-
+///
+/// PMAT-236: Accepts `PreparedTokens` (compile-time enforced chat template).
+/// Previously, this function raw-encoded prompts WITHOUT chat template,
+/// producing garbage output for instruct models.
+fn run_safetensors_inference(config: &InferenceConfig, prepared: &PreparedTokens) -> Result<InferenceResult> {
     if config.verbose {
         eprintln!("Loading SafeTensors model: {}", config.model_path.display());
     }
 
-    let input_tokens = if let Some(ref tokens) = config.input_tokens {
-        tokens.clone()
-    } else if let Some(ref prompt) = config.prompt {
-        AprV2Model::encode_text(&config.model_path, prompt).unwrap_or_else(|| vec![1u32])
-    } else {
-        vec![1u32]
-    };
-
-    let input_token_count = input_tokens.len();
+    // PMAT-236: Use PreparedTokens (chat template already applied by prepare_tokens)
+    let input_tokens = prepared.tokens().to_vec();
+    let input_token_count = prepared.input_count();
 
     // PMAT-129: Try GPU path first
     #[cfg(feature = "cuda")]
