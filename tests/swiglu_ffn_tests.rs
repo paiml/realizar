@@ -257,7 +257,7 @@ fn test_ffn08_swiglu_forward_coherent() {
 
 /// FFN-09: Verify ffn_norm is loaded for LLaMA models
 #[test]
-#[ignore]
+#[ignore = "requires TinyLlama GGUF model file"]
 fn test_ffn09_verify_model_weights() {
     use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
     use std::path::Path;
@@ -327,7 +327,7 @@ fn test_ffn09_verify_model_weights() {
 
 /// FFN-10: Verify output norm and lm_head are loaded
 #[test]
-#[ignore]
+#[ignore = "requires TinyLlama GGUF model file"]
 fn test_ffn10_verify_output_layers() {
     use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
     use std::path::Path;

@@ -258,7 +258,7 @@ mod integration {
 
     /// Ignored: Flaky due to env var manipulation conflicting with parallel tests
     #[test]
-    #[ignore]
+    #[ignore = "flaky due to env var manipulation conflicting with parallel tests"]
     fn test_force_simd_env_var_set() {
         force_backend(Backend::Simd);
 
