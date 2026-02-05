@@ -382,6 +382,7 @@ pub use inference_trace::{InferenceTracer, ModelInfo, TraceConfig, TraceStep};
 #[cfg(not(target_arch = "wasm32"))]
 pub use safetensors::MappedSafeTensorsModel;
 pub use safetensors::SafetensorsConfig;
+pub use safetensors::ValidatedAprTransformer;
 pub use tensor::Tensor;
 
 /// Library version

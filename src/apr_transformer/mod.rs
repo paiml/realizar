@@ -396,6 +396,22 @@ impl AprTransformer {
         Self::from_apr_bytes(&data)
     }
 
+    /// Load APR transformer from file with validation (PMAT-235)
+    ///
+    /// Loads and then validates ALL tensors using `ValidatedAprTransformer::validate()`.
+    /// Returns a wrapper that `Deref`s to `AprTransformer` for transparent access.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if the file cannot be read, parsed, or if any tensor fails validation.
+    pub fn from_apr_file_validated<P: AsRef<Path>>(
+        path: P,
+    ) -> Result<crate::safetensors::validation::ValidatedAprTransformer> {
+        let transformer = Self::from_apr_file(path)?;
+        crate::safetensors::validation::ValidatedAprTransformer::validate(transformer)
+            .map_err(Into::into)
+    }
+
     /// Load APR transformer from bytes
     ///
     /// Parses APR v2 format from memory buffer.

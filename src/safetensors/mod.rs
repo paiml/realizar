@@ -976,7 +976,8 @@ pub use validation::{
     enforce_embedding_validation, enforce_weight_validation, validate_embedding, validate_weight,
     TensorStats, ValidationResult,
     // Compile-time enforcement via newtypes (PMAT-235)
-    ContractValidationError, ValidatedEmbedding, ValidatedVector, ValidatedWeight,
+    ContractValidationError, ValidatedAprTransformer, ValidatedEmbedding, ValidatedVector,
+    ValidatedWeight,
 };
 
 #[cfg(test)]
