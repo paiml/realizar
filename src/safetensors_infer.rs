@@ -12,6 +12,7 @@
 
 use crate::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
 use crate::error::{RealizarError, Result};
+use crate::safetensors::validation::ValidatedAprTransformer;
 use crate::safetensors::{MappedSafeTensorsModel, SafetensorsConfig};
 use std::path::Path;
 
@@ -41,7 +42,7 @@ impl SafetensorsToAprConverter {
     /// # Errors
     ///
     /// Returns error if SafeTensors file, config.json, or required tensors are missing
-    pub fn convert(model_path: &Path) -> Result<AprTransformer> {
+    pub fn convert(model_path: &Path) -> Result<ValidatedAprTransformer> {
         // Load SafeTensors model using mmap for zero-copy access (T-QA-020)
         // This is critical for fast model loading - mmap is O(1) regardless of file size
         let st_model = MappedSafeTensorsModel::load(model_path)?;
@@ -103,14 +104,6 @@ impl SafetensorsToAprConverter {
             "token_embd.weight",
         )?;
 
-        // PMAT-234: MANDATORY validation - catches bad loads BEFORE inference
-        crate::safetensors::enforce_embedding_validation(
-            "token_embedding",
-            &token_embedding,
-            vocab_size,
-            hidden_dim,
-        )?;
-
         // Extract output norm (HuggingFace: model.norm.weight, GGUF: output_norm.weight)
         let output_norm_weight =
             Self::get_tensor_with_fallback(&st_model, "model.norm.weight", "output_norm.weight")?;
@@ -148,7 +141,7 @@ impl SafetensorsToAprConverter {
             layers.push(layer);
         }
 
-        Ok(AprTransformer {
+        let transformer = AprTransformer {
             config: apr_config,
             token_embedding,
             layers,
@@ -159,7 +152,10 @@ impl SafetensorsToAprConverter {
             q4k_layers: None,
             lm_head_weight_q6k: None,
             lm_head_weight_q4k: None,
-        })
+        };
+
+        // PMAT-235: Validate ALL tensors at construction time
+        ValidatedAprTransformer::validate(transformer).map_err(Into::into)
     }
 
     /// Extract a single transformer layer from SafeTensors
@@ -484,6 +480,14 @@ mod tests {
     // =========================================================================
     // Extended Coverage Tests (15+ tests ending with _ext_cov)
     // =========================================================================
+
+    /// Generate valid non-zero F32 bytes for `count` elements.
+    /// Uses sin pattern to pass all validation gates (density, L2, variation).
+    fn valid_f32_bytes(count: usize) -> Vec<u8> {
+        (0..count)
+            .flat_map(|i| ((i as f32 * 0.01).sin() * 0.1 + 0.05).to_le_bytes())
+            .collect()
+    }
 
     /// Helper function to create a minimal SafeTensors file with given tensors
     fn create_safetensors_bytes(tensors: &[(&str, &str, &[usize], &[u8])]) -> Vec<u8> {
@@ -828,8 +832,8 @@ mod tests {
         std::fs::write(&config_path, config).expect("write config");
 
         // Create safetensors with minimal required tensors for 0 layers
-        let embed_data: Vec<u8> = vec![0u8; 100 * 64 * 4]; // vocab_size * hidden_dim * 4 bytes
-        let norm_data: Vec<u8> = vec![0u8; 64 * 4]; // hidden_dim * 4 bytes
+        let embed_data = valid_f32_bytes(100 * 64);
+        let norm_data: Vec<u8> = (0..64).flat_map(|_| 1.0f32.to_le_bytes()).collect();
 
         let data = create_safetensors_bytes(&[
             ("model.embed_tokens.weight", "F32", &[100, 64], &embed_data),
@@ -838,7 +842,7 @@ mod tests {
         std::fs::write(&model_path, data).expect("write safetensors");
 
         let result = SafetensorsToAprConverter::convert(&model_path);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "convert failed: {:?}", result.err());
         let transformer = result.expect("operation failed");
         assert_eq!(transformer.config.intermediate_dim, 64 * 4);
     }
@@ -859,8 +863,8 @@ mod tests {
         }"#;
         std::fs::write(&config_path, config).expect("write config");
 
-        let embed_data: Vec<u8> = vec![0u8; 100 * 64 * 4];
-        let norm_data: Vec<u8> = vec![0u8; 64 * 4];
+        let embed_data = valid_f32_bytes(100 * 64);
+        let norm_data: Vec<u8> = (0..64).flat_map(|_| 1.0f32.to_le_bytes()).collect();
 
         let data = create_safetensors_bytes(&[
             ("model.embed_tokens.weight", "F32", &[100, 64], &embed_data),
@@ -869,7 +873,7 @@ mod tests {
         std::fs::write(&model_path, data).expect("write safetensors");
 
         let result = SafetensorsToAprConverter::convert(&model_path);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "convert failed: {:?}", result.err());
         let transformer = result.expect("operation failed");
         assert_eq!(transformer.config.context_length, 2048);
     }
@@ -959,8 +963,8 @@ mod tests {
         }"#;
         std::fs::write(&config_path, config).expect("write config");
 
-        let embed_data: Vec<u8> = vec![0u8; 100 * 64 * 4];
-        let norm_data: Vec<u8> = vec![0u8; 64 * 4];
+        let embed_data = valid_f32_bytes(100 * 64);
+        let norm_data: Vec<u8> = (0..64).flat_map(|_| 1.0f32.to_le_bytes()).collect();
 
         let data = create_safetensors_bytes(&[
             ("model.embed_tokens.weight", "F32", &[100, 64], &embed_data),
@@ -969,7 +973,7 @@ mod tests {
         std::fs::write(&model_path, data).expect("write safetensors");
 
         let result = SafetensorsToAprConverter::convert(&model_path);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "convert failed: {:?}", result.err());
         let transformer = result.expect("operation failed");
         assert!((transformer.config.rope_theta - 500000.0).abs() < 1.0);
     }
@@ -990,8 +994,8 @@ mod tests {
         }"#;
         std::fs::write(&config_path, config).expect("write config");
 
-        let embed_data: Vec<u8> = vec![0u8; 100 * 64 * 4];
-        let norm_data: Vec<u8> = vec![0u8; 64 * 4];
+        let embed_data = valid_f32_bytes(100 * 64);
+        let norm_data: Vec<u8> = (0..64).flat_map(|_| 1.0f32.to_le_bytes()).collect();
 
         let data = create_safetensors_bytes(&[
             ("model.embed_tokens.weight", "F32", &[100, 64], &embed_data),
@@ -1000,7 +1004,7 @@ mod tests {
         std::fs::write(&model_path, data).expect("write safetensors");
 
         let result = SafetensorsToAprConverter::convert(&model_path);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "convert failed: {:?}", result.err());
         let transformer = result.expect("operation failed");
         assert!((transformer.config.eps - 1e-5).abs() < 1e-9);
     }
@@ -1021,8 +1025,8 @@ mod tests {
         let config = create_config_json(64, 0, 4, 100);
         std::fs::write(&config_path, config).expect("write config");
 
-        let embed_data: Vec<u8> = vec![0u8; 100 * 64 * 4];
-        let norm_data: Vec<u8> = vec![0u8; 64 * 4];
+        let embed_data = valid_f32_bytes(100 * 64);
+        let norm_data: Vec<u8> = (0..64).flat_map(|_| 1.0f32.to_le_bytes()).collect();
 
         let data = create_safetensors_bytes(&[
             ("model.embed_tokens.weight", "F32", &[100, 64], &embed_data),
@@ -1031,7 +1035,7 @@ mod tests {
         std::fs::write(&model_path, data).expect("write safetensors");
 
         let result = SafetensorsToAprConverter::convert(&model_path);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "convert failed: {:?}", result.err());
         let transformer = result.expect("operation failed");
         assert_eq!(transformer.config.architecture, "LlamaForCausalLM");
     }
@@ -1042,9 +1046,6 @@ mod tests {
         hidden_dim: usize,
         intermediate_dim: usize,
     ) -> Vec<(&'static str, String, Vec<usize>, Vec<u8>)> {
-        // Lease the string from Box to get 'static lifetime approximation
-        // We'll build it differently - just use the layer_idx in the data
-
         let prefix = format!("model.layers.{layer_idx}");
 
         // Calculate tensor sizes
@@ -1063,55 +1064,56 @@ mod tests {
                 "attn_norm",
                 format!("{prefix}.input_layernorm.weight"),
                 vec![attn_norm_size],
-                vec![0u8; attn_norm_size * 4],
+                // Norm vectors: ValidatedVector only checks NaN/Inf/length, 1.0 is safe
+                (0..attn_norm_size).flat_map(|_| 1.0f32.to_le_bytes()).collect(),
             ),
             (
                 "q_proj",
                 format!("{prefix}.self_attn.q_proj.weight"),
                 vec![hidden_dim, hidden_dim],
-                vec![0u8; q_size * 4],
+                valid_f32_bytes(q_size),
             ),
             (
                 "k_proj",
                 format!("{prefix}.self_attn.k_proj.weight"),
                 vec![hidden_dim, hidden_dim],
-                vec![0u8; k_size * 4],
+                valid_f32_bytes(k_size),
             ),
             (
                 "v_proj",
                 format!("{prefix}.self_attn.v_proj.weight"),
                 vec![hidden_dim, hidden_dim],
-                vec![0u8; v_size * 4],
+                valid_f32_bytes(v_size),
             ),
             (
                 "o_proj",
                 format!("{prefix}.self_attn.o_proj.weight"),
                 vec![hidden_dim, hidden_dim],
-                vec![0u8; o_size * 4],
+                valid_f32_bytes(o_size),
             ),
             (
                 "ffn_norm",
                 format!("{prefix}.post_attention_layernorm.weight"),
                 vec![ffn_norm_size],
-                vec![0u8; ffn_norm_size * 4],
+                (0..ffn_norm_size).flat_map(|_| 1.0f32.to_le_bytes()).collect(),
             ),
             (
                 "gate_proj",
                 format!("{prefix}.mlp.gate_proj.weight"),
                 vec![intermediate_dim, hidden_dim],
-                vec![0u8; gate_size * 4],
+                valid_f32_bytes(gate_size),
             ),
             (
                 "up_proj",
                 format!("{prefix}.mlp.up_proj.weight"),
                 vec![intermediate_dim, hidden_dim],
-                vec![0u8; up_size * 4],
+                valid_f32_bytes(up_size),
             ),
             (
                 "down_proj",
                 format!("{prefix}.mlp.down_proj.weight"),
                 vec![hidden_dim, intermediate_dim],
-                vec![0u8; down_size * 4],
+                valid_f32_bytes(down_size),
             ),
         ]
     }
@@ -1146,9 +1148,9 @@ mod tests {
         // Build layer tensors
         let layer_tensors = create_layer_tensors(0, hidden_dim, intermediate_dim);
 
-        // Build safetensors with all required tensors
-        let embed_data: Vec<u8> = vec![0u8; vocab_size * hidden_dim * 4];
-        let norm_data: Vec<u8> = vec![0u8; hidden_dim * 4];
+        // Build safetensors with all required tensors (valid non-zero data)
+        let embed_data = valid_f32_bytes(vocab_size * hidden_dim);
+        let norm_data: Vec<u8> = (0..hidden_dim).flat_map(|_| 1.0f32.to_le_bytes()).collect();
 
         // Create a comprehensive tensor list
         use serde_json::json;
@@ -1253,8 +1255,8 @@ mod tests {
         let mut all_data = Vec::new();
         let mut offset = 0usize;
 
-        // Add embed_tokens
-        let embed_data: Vec<u8> = vec![0u8; vocab_size * hidden_dim * 4];
+        // Add embed_tokens (valid non-zero data)
+        let embed_data = valid_f32_bytes(vocab_size * hidden_dim);
         tensor_entries.insert(
             "model.embed_tokens.weight".to_string(),
             json!({
@@ -1267,7 +1269,7 @@ mod tests {
         offset += embed_data.len();
 
         // Add norm
-        let norm_data: Vec<u8> = vec![0u8; hidden_dim * 4];
+        let norm_data: Vec<u8> = (0..hidden_dim).flat_map(|_| 1.0f32.to_le_bytes()).collect();
         tensor_entries.insert(
             "model.norm.weight".to_string(),
             json!({
@@ -1351,8 +1353,8 @@ mod tests {
         }"#;
         std::fs::write(&config_path, config).expect("write config");
 
-        let embed_data: Vec<u8> = vec![0u8; 100 * 64 * 4];
-        let norm_data: Vec<u8> = vec![0u8; 64 * 4];
+        let embed_data = valid_f32_bytes(100 * 64);
+        let norm_data: Vec<u8> = (0..64).flat_map(|_| 1.0f32.to_le_bytes()).collect();
         let data = create_safetensors_bytes(&[
             ("model.embed_tokens.weight", "F32", &[100, 64], &embed_data),
             ("model.norm.weight", "F32", &[64], &norm_data),
@@ -1360,7 +1362,7 @@ mod tests {
         std::fs::write(&model_path, data).expect("write safetensors");
 
         let result = SafetensorsToAprConverter::convert(&model_path);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "convert failed: {:?}", result.err());
         let transformer = result.expect("operation failed");
         assert_eq!(transformer.config.num_heads, 8);
         assert_eq!(transformer.config.num_kv_heads, 4);

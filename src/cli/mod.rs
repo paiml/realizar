@@ -1757,7 +1757,7 @@ mod server_commands {
         println!("  Vocab size: {}", vocab.len());
         println!("  Mode: CPU (F32 inference)");
 
-        let state = crate::api::AppState::with_apr_transformer_and_vocab(transformer, vocab)?;
+        let state = crate::api::AppState::with_apr_transformer_and_vocab(transformer.into_inner(), vocab)?;
 
         Ok(PreparedServer {
             state,

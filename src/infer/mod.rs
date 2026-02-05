@@ -874,9 +874,9 @@ fn try_apr_cuda_inference(
 
     // PMAT-APR-PERF-001: Use GpuModel with incremental KV cache for O(n) decode
     // Previous path used AprV2ModelCuda which did full forward pass per token (O(n²))
-    let transformer = AprTransformer::from_apr_file(&config.model_path).ok()?;
+    let validated = AprTransformer::from_apr_file_validated(&config.model_path).ok()?;
 
-    let mut gpu_model = match AprF32ToGpuAdapter::to_gpu_model(&transformer) {
+    let mut gpu_model = match AprF32ToGpuAdapter::to_gpu_model(&validated) {
         Ok(m) => m,
         Err(e) => {
             if config.verbose {
@@ -891,14 +891,14 @@ fn try_apr_cuda_inference(
     if config.verbose {
         eprintln!(
             "Architecture: {} ({} layers, vocab_size={})",
-            transformer.config.architecture,
-            transformer.config.num_layers,
-            transformer.config.vocab_size
+            validated.config.architecture,
+            validated.config.num_layers,
+            validated.config.vocab_size
         );
         eprintln!(
             "Config: hidden_size={}, context_length={}, quant=GPU+KVCache, threads=1 (GPU)",
-            transformer.config.hidden_dim,
-            transformer.config.context_length
+            validated.config.hidden_dim,
+            validated.config.context_length
         );
         eprintln!("Model loaded in {:.1}ms", load_ms);
         eprintln!("Backend: GPU (with incremental KV cache)");
@@ -956,19 +956,19 @@ fn run_apr_cpu_inference(
 ) -> Result<InferenceResult> {
     use crate::apr_transformer::AprTransformer;
 
-    let transformer = AprTransformer::from_apr_file(&config.model_path)?;
+    let validated = AprTransformer::from_apr_file_validated(&config.model_path)?;
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
     if config.verbose {
-        let arch = &transformer.config.architecture;
+        let arch = &validated.config.architecture;
         let thread_count = rayon::current_num_threads();
         eprintln!(
             "Architecture: {} ({} layers, vocab_size={})",
-            arch, transformer.config.num_layers, transformer.config.vocab_size
+            arch, validated.config.num_layers, validated.config.vocab_size
         );
         eprintln!(
             "Config: hidden_size={}, context_length={}, quant=F32 (dequantized), threads={}",
-            transformer.config.hidden_dim, transformer.config.context_length, thread_count
+            validated.config.hidden_dim, validated.config.context_length, thread_count
         );
         eprintln!("Model loaded in {:.1}ms", load_ms);
         eprintln!("Backend: CPU (SIMD-accelerated)");
@@ -976,18 +976,18 @@ fn run_apr_cpu_inference(
 
     let infer_start = Instant::now();
     let mut all_tokens = input_tokens.to_vec();
-    let mut cache = crate::apr_transformer::AprKVCache::new(&transformer.config);
+    let mut cache = crate::apr_transformer::AprKVCache::new(&validated.config);
 
     // Prefill: populate KV cache
     for (pos, &token) in input_tokens.iter().enumerate() {
-        let _ = transformer.forward_with_cache(token, &mut cache, pos)?;
+        let _ = validated.forward_with_cache(token, &mut cache, pos)?;
     }
 
     // Generate with KV cache (O(1) per token)
     let mut position = input_tokens.len();
     for _ in 0..config.max_tokens.min(128) {
         let last_token = *all_tokens.last().unwrap_or(&1);
-        let logits = transformer.forward_with_cache(last_token, &mut cache, position)?;
+        let logits = validated.forward_with_cache(last_token, &mut cache, position)?;
 
         let next_token = logits
             .iter()
