@@ -413,7 +413,13 @@ pmat query "model checkpoint" --include-project ../entrenar
 
 # Git history search (find code by commit intent via RRF fusion)
 pmat query "fix inference output" -G
-pmat query "kernel optimization" --git-history --churn
+pmat query "kernel optimization" --git-history
+
+# Enrichment flags (combine freely)
+pmat query "attention mechanism" --churn           # git volatility (commit count, churn score)
+pmat query "gguf loading" --duplicates             # code clone detection (MinHash+LSH)
+pmat query "tokenizer" --entropy                   # pattern diversity (repetitive vs unique)
+pmat query "forward pass" --churn --duplicates --entropy --faults -G  # full audit
 ```
 
 ### EXTREME TDD Methodology
