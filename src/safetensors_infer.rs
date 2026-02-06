@@ -34,32 +34,32 @@ pub(crate) trait TensorSource {
 #[cfg(not(target_arch = "wasm32"))]
 impl TensorSource for MappedSafeTensorsModel {
     fn get_tensor_auto(&self, name: &str) -> Result<Vec<f32>> {
-        self.get_tensor_auto(name)
+        MappedSafeTensorsModel::get_tensor_auto(self, name)
     }
     fn has_tensor(&self, name: &str) -> bool {
-        self.has_tensor(name)
+        MappedSafeTensorsModel::has_tensor(self, name)
     }
     fn tensor_names(&self) -> Vec<&str> {
-        self.tensor_names()
+        MappedSafeTensorsModel::tensor_names(self)
     }
     fn get_tensor_info(&self, name: &str) -> Option<&SafetensorsTensorInfo> {
-        self.get_tensor_info(name)
+        MappedSafeTensorsModel::get_tensor_info(self, name)
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl TensorSource for ShardedSafeTensorsModel {
     fn get_tensor_auto(&self, name: &str) -> Result<Vec<f32>> {
-        self.get_tensor_auto(name)
+        ShardedSafeTensorsModel::get_tensor_auto(self, name)
     }
     fn has_tensor(&self, name: &str) -> bool {
-        self.has_tensor(name)
+        ShardedSafeTensorsModel::has_tensor(self, name)
     }
     fn tensor_names(&self) -> Vec<&str> {
-        self.tensor_names()
+        ShardedSafeTensorsModel::tensor_names(self)
     }
     fn get_tensor_info(&self, name: &str) -> Option<&SafetensorsTensorInfo> {
-        self.get_tensor_info(name)
+        ShardedSafeTensorsModel::get_tensor_info(self, name)
     }
 }
 
