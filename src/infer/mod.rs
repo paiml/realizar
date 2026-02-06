@@ -750,42 +750,25 @@ fn log_cpu_backend(verbose: bool, is_legacy: bool) {
 
 /// F2-FIX: Validate GPU output by comparing first predicted token with CPU.
 ///
-/// Runs a full CPU forward pass on the prompt, gets the argmax token,
-/// then compares with GPU's first generated token. Returns `true` if they
-/// agree (GPU is producing correct results for this model's dimensions).
-///
-/// This catches Q6K kernel bugs for certain hidden_dim values (e.g., 7B/3584)
-/// where the GPU produces incorrect logits.
+/// Uses a single BOS token (not the full prompt) to test kernel correctness.
+/// The Q6K kernel bug is dimension-dependent, not prompt-dependent, so a
+/// single-token probe is sufficient and avoids O(n) CPU prefill overhead.
 #[cfg(feature = "cuda")]
 fn validate_gpu_first_token(
     model: &crate::gguf::OwnedQuantizedModel,
     cuda_model: &mut crate::gguf::OwnedQuantizedModelCuda,
-    input_tokens: &[u32],
     gen_config: &crate::gguf::QuantizedGenerateConfig,
 ) -> bool {
     use crate::gguf::OwnedQuantizedKVCache;
 
+    // Use a single BOS token — tests all kernel dimensions with O(1) cost
+    let probe_token: &[u32] = &[1];
+
     let kv_dim =
         model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);
-    let mut cpu_cache = OwnedQuantizedKVCache::new(
-        model.config.num_layers,
-        kv_dim,
-        input_tokens.len() + 1,
-    );
+    let mut cpu_cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 2);
 
-    // Prefill all but last token
-    for (pos, &tok) in input_tokens.iter().enumerate() {
-        if pos < input_tokens.len() - 1 {
-            let _ = model.forward_single_with_cache(tok, &mut cpu_cache, pos);
-        }
-    }
-
-    // Get CPU prediction for last prompt token
-    let cpu_logits = match model.forward_single_with_cache(
-        input_tokens[input_tokens.len() - 1],
-        &mut cpu_cache,
-        input_tokens.len() - 1,
-    ) {
+    let cpu_logits = match model.forward_single_with_cache(probe_token[0], &mut cpu_cache, 0) {
         Ok(logits) => logits,
         Err(_) => return true, // CPU forward failed — can't validate, assume GPU is fine
     };
@@ -796,27 +779,27 @@ fn validate_gpu_first_token(
         .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
         .map_or(0, |(i, _)| i as u32);
 
-    // Get GPU prediction for same token via generate (first token only)
+    // GPU: generate 1 token from same BOS probe
     let gpu_first_config = crate::gguf::QuantizedGenerateConfig {
         max_tokens: 1,
         temperature: 0.0,
         top_k: 1,
         ..gen_config.clone()
     };
-    match cuda_model.generate_gpu_resident(input_tokens, &gpu_first_config) {
-        Ok(gpu_tokens) if gpu_tokens.len() > input_tokens.len() => {
-            let gpu_first = gpu_tokens[input_tokens.len()];
+    match cuda_model.generate_gpu_resident(probe_token, &gpu_first_config) {
+        Ok(gpu_tokens) if gpu_tokens.len() > 1 => {
+            let gpu_first = gpu_tokens[1];
             if gpu_first == cpu_argmax {
                 true
             } else {
                 eprintln!(
-                    "[F2-VALIDATION] GPU first token {} != CPU first token {} — falling back to CPU",
+                    "[F2-VALIDATION] GPU token {} != CPU token {} for BOS probe — falling back to CPU",
                     gpu_first, cpu_argmax
                 );
                 false
             }
         }
-        Ok(_) => true, // GPU produced EOS immediately, might be valid
+        Ok(_) => true,
         Err(_) => false,
     }
 }
@@ -850,7 +833,7 @@ fn try_gguf_gpu_generate(
         );
     }
 
-    if !validate_gpu_first_token(model, &mut cuda_model, input_tokens, gen_config) {
+    if !validate_gpu_first_token(model, &mut cuda_model, gen_config) {
         return None;
     }
 
