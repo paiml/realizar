@@ -666,6 +666,26 @@ impl MappedSafeTensorsModel {
         let json_bytes = &mmap[8..data_offset];
         let tensors = Self::parse_metadata(json_bytes)?;
 
+        // GH-213: Validate file covers all tensor data (catches truncated downloads)
+        let max_tensor_end = tensors
+            .values()
+            .map(|t| t.data_offsets[1])
+            .max()
+            .unwrap_or(0);
+        let required_size = data_offset + max_tensor_end;
+        if mmap.len() < required_size {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "validate_safetensors_size".to_string(),
+                reason: format!(
+                    "SafeTensors file '{}' is truncated: file has {} bytes but tensor data \
+                     requires {} bytes. The file may have been partially downloaded.",
+                    path.display(),
+                    mmap.len(),
+                    required_size
+                ),
+            });
+        }
+
         Ok(Self {
             mmap,
             path,
@@ -1036,14 +1056,21 @@ impl ShardedSafeTensorsModel {
         let base_path = index_path
             .parent()
             .ok_or_else(|| RealizarError::IoError {
-                message: format!("Cannot determine parent directory of '{}'", index_path.display()),
+                message: format!(
+                    "Cannot determine parent directory of '{}'",
+                    index_path.display()
+                ),
             })?
             .to_path_buf();
 
         // Parse index.json
         let index_content =
             std::fs::read_to_string(index_path).map_err(|e| RealizarError::IoError {
-                message: format!("Failed to read index file '{}': {}", index_path.display(), e),
+                message: format!(
+                    "Failed to read index file '{}': {}",
+                    index_path.display(),
+                    e
+                ),
             })?;
 
         let index: SafetensorsIndex =
@@ -1090,13 +1117,13 @@ impl ShardedSafeTensorsModel {
     ///
     /// Supports F32, F16, and BF16 dtypes with automatic conversion to F32.
     pub fn get_tensor_auto(&self, name: &str) -> Result<Vec<f32>> {
-        let shard_idx = self
-            .tensor_to_shard
-            .get(name)
-            .ok_or_else(|| RealizarError::UnsupportedOperation {
-                operation: "get_tensor_auto".to_string(),
-                reason: format!("Tensor '{}' not found in sharded model", name),
-            })?;
+        let shard_idx =
+            self.tensor_to_shard
+                .get(name)
+                .ok_or_else(|| RealizarError::UnsupportedOperation {
+                    operation: "get_tensor_auto".to_string(),
+                    reason: format!("Tensor '{}' not found in sharded model", name),
+                })?;
 
         self.shards[*shard_idx].get_tensor_auto(name)
     }
@@ -1144,11 +1171,18 @@ impl ShardedSafeTensorsModel {
 pub mod validation;
 pub use validation::{
     // Runtime validation functions (legacy API)
-    enforce_embedding_validation, enforce_weight_validation, validate_embedding, validate_weight,
-    TensorStats, ValidationResult,
+    enforce_embedding_validation,
+    enforce_weight_validation,
+    validate_embedding,
+    validate_weight,
     // Compile-time enforcement via newtypes (PMAT-235)
-    ContractValidationError, ValidatedAprTransformer, ValidatedEmbedding, ValidatedVector,
+    ContractValidationError,
+    TensorStats,
+    ValidatedAprTransformer,
+    ValidatedEmbedding,
+    ValidatedVector,
     ValidatedWeight,
+    ValidationResult,
 };
 
 #[cfg(test)]
