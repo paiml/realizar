@@ -1082,13 +1082,13 @@ mod mapped_tests {
             .expect("write only 8 bytes of data");
         file.flush().expect("flush");
 
-        let model = MappedSafeTensorsModel::load(file.path()).expect("load");
-        let result = model.get_tensor_bytes("weight");
+        // GH-213: Truncated files are now caught at load time (Layer 3 safety net)
+        let result = MappedSafeTensorsModel::load(file.path());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            format!("{err:?}").contains("exceed file size"),
-            "Expected 'exceed file size' error, got: {err:?}"
+            format!("{err:?}").contains("truncated"),
+            "Expected 'truncated' error at load time, got: {err:?}"
         );
     }
 
