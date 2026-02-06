@@ -13,8 +13,55 @@
 use crate::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
 use crate::error::{RealizarError, Result};
 use crate::safetensors::validation::ValidatedAprTransformer;
-use crate::safetensors::{MappedSafeTensorsModel, SafetensorsConfig};
+use crate::safetensors::{
+    MappedSafeTensorsModel, SafetensorsConfig, SafetensorsTensorInfo,
+};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::safetensors::ShardedSafeTensorsModel;
 use std::path::Path;
+
+/// Trait abstracting tensor access for both single-file and sharded SafeTensors models.
+///
+/// This enables `SafetensorsToAprConverter` to work identically with
+/// `MappedSafeTensorsModel` (single file) and `ShardedSafeTensorsModel` (multi-shard).
+pub(crate) trait TensorSource {
+    fn get_tensor_auto(&self, name: &str) -> Result<Vec<f32>>;
+    fn has_tensor(&self, name: &str) -> bool;
+    fn tensor_names(&self) -> Vec<&str>;
+    fn get_tensor_info(&self, name: &str) -> Option<&SafetensorsTensorInfo>;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl TensorSource for MappedSafeTensorsModel {
+    fn get_tensor_auto(&self, name: &str) -> Result<Vec<f32>> {
+        self.get_tensor_auto(name)
+    }
+    fn has_tensor(&self, name: &str) -> bool {
+        self.has_tensor(name)
+    }
+    fn tensor_names(&self) -> Vec<&str> {
+        self.tensor_names()
+    }
+    fn get_tensor_info(&self, name: &str) -> Option<&SafetensorsTensorInfo> {
+        self.get_tensor_info(name)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl TensorSource for ShardedSafeTensorsModel {
+    fn get_tensor_auto(&self, name: &str) -> Result<Vec<f32>> {
+        self.get_tensor_auto(name)
+    }
+    fn has_tensor(&self, name: &str) -> bool {
+        self.has_tensor(name)
+    }
+    fn tensor_names(&self) -> Vec<&str> {
+        self.tensor_names()
+    }
+    fn get_tensor_info(&self, name: &str) -> Option<&SafetensorsTensorInfo> {
+        self.get_tensor_info(name)
+    }
+}
 
 /// SafeTensors to APR Transformer converter
 ///
@@ -55,6 +102,32 @@ impl SafetensorsToAprConverter {
             }
         })?;
 
+        Self::convert_from_source(&st_model, &config)
+    }
+
+    /// Convert a sharded SafeTensors model to APR Transformer (GH-213)
+    ///
+    /// # Arguments
+    ///
+    /// * `sharded` - Loaded sharded model (from index.json)
+    /// * `config` - Model config.json
+    ///
+    /// # Errors
+    ///
+    /// Returns error if required tensors are missing from any shard
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn convert_sharded(
+        sharded: &ShardedSafeTensorsModel,
+        config: &SafetensorsConfig,
+    ) -> Result<ValidatedAprTransformer> {
+        Self::convert_from_source(sharded, config)
+    }
+
+    /// Core conversion logic shared between single-file and sharded paths
+    fn convert_from_source<S: TensorSource>(
+        source: &S,
+        config: &SafetensorsConfig,
+    ) -> Result<ValidatedAprTransformer> {
         // Extract architecture parameters
         let hidden_dim = config
             .hidden_size
@@ -98,15 +171,18 @@ impl SafetensorsToAprConverter {
         };
 
         // Extract embeddings (HuggingFace: model.embed_tokens.weight, GGUF: token_embd.weight)
-        let token_embedding = Self::get_tensor_with_fallback(
-            &st_model,
+        let token_embedding = Self::get_tensor_with_fallback_generic(
+            source,
             "model.embed_tokens.weight",
             "token_embd.weight",
         )?;
 
         // Extract output norm (HuggingFace: model.norm.weight, GGUF: output_norm.weight)
-        let output_norm_weight =
-            Self::get_tensor_with_fallback(&st_model, "model.norm.weight", "output_norm.weight")?;
+        let output_norm_weight = Self::get_tensor_with_fallback_generic(
+            source,
+            "model.norm.weight",
+            "output_norm.weight",
+        )?;
 
         // F-GT-002 FIX: Check tie_word_embeddings config FIRST, not just tensor existence
         // When tie_word_embeddings=true, HuggingFace may store a placeholder lm_head.weight
@@ -114,13 +190,14 @@ impl SafetensorsToAprConverter {
         let use_tied_embeddings = config.tie_word_embeddings.unwrap_or(false);
 
         let lm_head_weight = if use_tied_embeddings {
-            // Tied embeddings: token_embedding is [vocab_size, hidden_dim]
-            // For matvec: weight is [out_dim, in_dim] = [vocab_size, hidden_dim] - same layout!
             Self::transpose_weight(&token_embedding, vocab_size, hidden_dim)
-        } else if Self::has_tensor_with_fallback(&st_model, "lm_head.weight", "output.weight") {
-            // Separate lm_head weights
-            let raw =
-                Self::get_tensor_with_fallback(&st_model, "lm_head.weight", "output.weight")?;
+        } else if Self::has_tensor_with_fallback_generic(source, "lm_head.weight", "output.weight")
+        {
+            let raw = Self::get_tensor_with_fallback_generic(
+                source,
+                "lm_head.weight",
+                "output.weight",
+            )?;
             Self::transpose_weight(&raw, vocab_size, hidden_dim)
         } else {
             // Fallback: assume tied if no lm_head tensor exists
@@ -130,8 +207,8 @@ impl SafetensorsToAprConverter {
         // Extract layers
         let mut layers = Vec::with_capacity(num_layers);
         for i in 0..num_layers {
-            let layer = Self::extract_layer(
-                &st_model,
+            let layer = Self::extract_layer_generic(
+                source,
                 i,
                 hidden_dim,
                 num_heads,
@@ -158,9 +235,21 @@ impl SafetensorsToAprConverter {
         ValidatedAprTransformer::validate(transformer).map_err(Into::into)
     }
 
-    /// Extract a single transformer layer from SafeTensors
+    /// Extract a single transformer layer from SafeTensors (MappedSafeTensorsModel)
     fn extract_layer(
         st_model: &MappedSafeTensorsModel,
+        layer_idx: usize,
+        hidden_dim: usize,
+        num_heads: usize,
+        num_kv_heads: usize,
+        intermediate_dim: usize,
+    ) -> Result<AprTransformerLayer> {
+        Self::extract_layer_generic(st_model, layer_idx, hidden_dim, num_heads, num_kv_heads, intermediate_dim)
+    }
+
+    /// Extract a single transformer layer from any TensorSource (GH-213)
+    fn extract_layer_generic<S: TensorSource>(
+        source: &S,
         layer_idx: usize,
         hidden_dim: usize,
         num_heads: usize,
@@ -171,82 +260,66 @@ impl SafetensorsToAprConverter {
         let hf_prefix = format!("model.layers.{layer_idx}");
         let gguf_prefix = format!("blk.{layer_idx}");
 
-        // Attention norm (input_layernorm) - 1D vector, no transpose needed
-        // HuggingFace: model.layers.{i}.input_layernorm.weight
-        // GGUF: blk.{i}.attn_norm.weight
-        let attn_norm_weight = Self::get_tensor_with_fallback(
-            st_model,
+        let attn_norm_weight = Self::get_tensor_with_fallback_generic(
+            source,
             &format!("{hf_prefix}.input_layernorm.weight"),
             &format!("{gguf_prefix}.attn_norm.weight"),
         )?;
 
-        // Q, K, V projections (separate in HuggingFace, combined in APR)
-        // HuggingFace: [out_dim, in_dim], APR needs: [in_dim, out_dim]
-        let q_weight = Self::get_tensor_with_fallback(
-            st_model,
+        let q_weight = Self::get_tensor_with_fallback_generic(
+            source,
             &format!("{hf_prefix}.self_attn.q_proj.weight"),
             &format!("{gguf_prefix}.attn_q.weight"),
         )?;
-        let k_weight = Self::get_tensor_with_fallback(
-            st_model,
+        let k_weight = Self::get_tensor_with_fallback_generic(
+            source,
             &format!("{hf_prefix}.self_attn.k_proj.weight"),
             &format!("{gguf_prefix}.attn_k.weight"),
         )?;
-        let v_weight = Self::get_tensor_with_fallback(
-            st_model,
+        let v_weight = Self::get_tensor_with_fallback_generic(
+            source,
             &format!("{hf_prefix}.self_attn.v_proj.weight"),
             &format!("{gguf_prefix}.attn_v.weight"),
         )?;
 
-        // Concatenate and transpose Q, K, V into combined QKV weight
         let head_dim = hidden_dim / num_heads;
         let kv_dim = head_dim * num_kv_heads;
         let qkv_weight =
             Self::concat_qkv_transposed(&q_weight, &k_weight, &v_weight, hidden_dim, kv_dim);
 
-        // QKV bias (optional) - 1D vector, no transpose needed
+        // QKV bias (optional)
         let qkv_bias =
-            Self::try_concat_qkv_bias_dual(st_model, &hf_prefix, &gguf_prefix, hidden_dim, kv_dim);
+            Self::try_concat_qkv_bias_dual_generic(source, &hf_prefix, &gguf_prefix, hidden_dim, kv_dim);
 
-        // Attention output projection: [hidden_dim, hidden_dim]
-        // HuggingFace: o_proj is [hidden_dim, hidden_dim] (out=hidden, in=hidden)
-        // GGUF: blk.{i}.attn_output.weight
-        let attn_output_raw = Self::get_tensor_with_fallback(
-            st_model,
+        let attn_output_raw = Self::get_tensor_with_fallback_generic(
+            source,
             &format!("{hf_prefix}.self_attn.o_proj.weight"),
             &format!("{gguf_prefix}.attn_output.weight"),
         )?;
         let attn_output_weight = Self::transpose_weight(&attn_output_raw, hidden_dim, hidden_dim);
 
-        // FFN norm (post_attention_layernorm) - 1D vector, no transpose needed
-        // HuggingFace: model.layers.{i}.post_attention_layernorm.weight
-        // GGUF: blk.{i}.ffn_norm.weight
-        let ffn_norm_weight = Self::get_tensor_with_fallback(
-            st_model,
+        let ffn_norm_weight = Self::get_tensor_with_fallback_generic(
+            source,
             &format!("{hf_prefix}.post_attention_layernorm.weight"),
             &format!("{gguf_prefix}.ffn_norm.weight"),
         )?;
 
-        // FFN projections (SwiGLU architecture)
-        // gate_proj: [intermediate_dim, hidden_dim] -> transpose -> [hidden_dim, intermediate_dim]
-        // up_proj: [intermediate_dim, hidden_dim] -> transpose -> [hidden_dim, intermediate_dim]
-        // down_proj: [hidden_dim, intermediate_dim] -> transpose -> [intermediate_dim, hidden_dim]
-        let ffn_gate_raw = Self::get_tensor_with_fallback(
-            st_model,
+        let ffn_gate_raw = Self::get_tensor_with_fallback_generic(
+            source,
             &format!("{hf_prefix}.mlp.gate_proj.weight"),
             &format!("{gguf_prefix}.ffn_gate.weight"),
         )?;
         let ffn_gate_weight = Self::transpose_weight(&ffn_gate_raw, intermediate_dim, hidden_dim);
 
-        let ffn_up_raw = Self::get_tensor_with_fallback(
-            st_model,
+        let ffn_up_raw = Self::get_tensor_with_fallback_generic(
+            source,
             &format!("{hf_prefix}.mlp.up_proj.weight"),
             &format!("{gguf_prefix}.ffn_up.weight"),
         )?;
         let ffn_up_weight = Self::transpose_weight(&ffn_up_raw, intermediate_dim, hidden_dim);
 
-        let ffn_down_raw = Self::get_tensor_with_fallback(
-            st_model,
+        let ffn_down_raw = Self::get_tensor_with_fallback_generic(
+            source,
             &format!("{hf_prefix}.mlp.down_proj.weight"),
             &format!("{gguf_prefix}.ffn_down.weight"),
         )?;
@@ -351,28 +424,38 @@ impl SafetensorsToAprConverter {
         hidden_dim: usize,
         kv_dim: usize,
     ) -> Option<Vec<f32>> {
-        // Try HuggingFace naming first
-        let q_bias = st_model
+        Self::try_concat_qkv_bias_dual_generic(st_model, hf_prefix, gguf_prefix, hidden_dim, kv_dim)
+    }
+
+    /// Generic version of QKV bias concatenation (GH-213)
+    fn try_concat_qkv_bias_dual_generic<S: TensorSource>(
+        source: &S,
+        hf_prefix: &str,
+        gguf_prefix: &str,
+        hidden_dim: usize,
+        kv_dim: usize,
+    ) -> Option<Vec<f32>> {
+        let q_bias = source
             .get_tensor_auto(&format!("{hf_prefix}.self_attn.q_proj.bias"))
             .ok()
             .or_else(|| {
-                st_model
+                source
                     .get_tensor_auto(&format!("{gguf_prefix}.attn_q.bias"))
                     .ok()
             })?;
-        let k_bias = st_model
+        let k_bias = source
             .get_tensor_auto(&format!("{hf_prefix}.self_attn.k_proj.bias"))
             .ok()
             .or_else(|| {
-                st_model
+                source
                     .get_tensor_auto(&format!("{gguf_prefix}.attn_k.bias"))
                     .ok()
             })?;
-        let v_bias = st_model
+        let v_bias = source
             .get_tensor_auto(&format!("{hf_prefix}.self_attn.v_proj.bias"))
             .ok()
             .or_else(|| {
-                st_model
+                source
                     .get_tensor_auto(&format!("{gguf_prefix}.attn_v.bias"))
                     .ok()
             })?;
@@ -397,24 +480,33 @@ impl SafetensorsToAprConverter {
         hf_name: &str,
         gguf_name: &str,
     ) -> Result<Vec<f32>> {
+        Self::get_tensor_with_fallback_generic(st_model, hf_name, gguf_name)
+    }
+
+    /// Generic version of tensor lookup with fallback naming (GH-213)
+    fn get_tensor_with_fallback_generic<S: TensorSource>(
+        source: &S,
+        hf_name: &str,
+        gguf_name: &str,
+    ) -> Result<Vec<f32>> {
         // Try HuggingFace name first (e.g., "model.norm.weight")
-        if let Ok(t) = st_model.get_tensor_auto(hf_name) {
+        if let Ok(t) = source.get_tensor_auto(hf_name) {
             return Ok(t);
         }
         // Try GGUF name (e.g., "output_norm.weight")
-        if let Ok(t) = st_model.get_tensor_auto(gguf_name) {
+        if let Ok(t) = source.get_tensor_auto(gguf_name) {
             return Ok(t);
         }
         // Try bare name without "model." prefix (APR canonical names)
         let bare_name = hf_name.strip_prefix("model.").unwrap_or(hf_name);
         if bare_name != hf_name {
-            if let Ok(t) = st_model.get_tensor_auto(bare_name) {
+            if let Ok(t) = source.get_tensor_auto(bare_name) {
                 return Ok(t);
             }
         }
 
         // Diagnostic: list available tensor names for debugging
-        let available = st_model.tensor_names();
+        let available = source.tensor_names();
         let sample: Vec<&str> = available.iter().take(5).copied().collect();
         Err(RealizarError::UnsupportedOperation {
             operation: "get_tensor_auto".to_string(),
@@ -437,12 +529,21 @@ impl SafetensorsToAprConverter {
         hf_name: &str,
         gguf_name: &str,
     ) -> bool {
-        if st_model.has_tensor(hf_name) || st_model.has_tensor(gguf_name) {
+        Self::has_tensor_with_fallback_generic(st_model, hf_name, gguf_name)
+    }
+
+    /// Generic version of tensor existence check (GH-213)
+    fn has_tensor_with_fallback_generic<S: TensorSource>(
+        source: &S,
+        hf_name: &str,
+        gguf_name: &str,
+    ) -> bool {
+        if source.has_tensor(hf_name) || source.has_tensor(gguf_name) {
             return true;
         }
         // GH-196: Also check bare name without "model." prefix
         let bare_name = hf_name.strip_prefix("model.").unwrap_or(hf_name);
-        bare_name != hf_name && st_model.has_tensor(bare_name)
+        bare_name != hf_name && source.has_tensor(bare_name)
     }
 
     /// Get optional tensor with fallback naming

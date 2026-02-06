@@ -382,6 +382,8 @@ pub use inference_trace::{InferenceTracer, ModelInfo, TraceConfig, TraceStep};
 #[cfg(not(target_arch = "wasm32"))]
 pub use safetensors::MappedSafeTensorsModel;
 pub use safetensors::SafetensorsConfig;
+#[cfg(not(target_arch = "wasm32"))]
+pub use safetensors::ShardedSafeTensorsModel;
 pub use safetensors::ValidatedAprTransformer;
 pub use tensor::Tensor;
 

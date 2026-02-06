@@ -445,7 +445,7 @@ pub struct InferenceResult {
 // ============================================================================
 
 /// Valid model file extensions
-const VALID_MODEL_EXTENSIONS: &[&str] = &["gguf", "safetensors", "apr", "bin"];
+const VALID_MODEL_EXTENSIONS: &[&str] = &["gguf", "safetensors", "apr", "bin", "json"];
 
 /// Validate that a path is a valid model file path.
 ///
@@ -530,6 +530,19 @@ pub fn run_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     // PMAT-COV-95: Mock backend for testing without disk I/O
     if config.use_mock_backend {
         return run_mock_inference(config);
+    }
+
+    // GH-213: Detect sharded SafeTensors index.json BEFORE reading the file.
+    // The index.json is a small JSON file (~15KB) that maps tensor names to shard files.
+    // We detect it by suffix to avoid reading it as binary model data.
+    let path_str = config.model_path.to_string_lossy();
+    if path_str.ends_with(".safetensors.index.json") {
+        // Validate path (F-SEC-222) - json extension is now allowed
+        validate_model_path(&config.model_path)?;
+
+        let format = ModelFormat::SafeTensors;
+        let prepared = prepare_tokens(config, &format)?;
+        return run_sharded_safetensors_inference(config, &prepared);
     }
 
     // Validate path to prevent traversal attacks (F-SEC-222)
@@ -1276,6 +1289,128 @@ fn run_safetensors_cpu_inference(
     let generated_tokens = &all_tokens[input_token_count..];
 
     // DEBUG: Show generated token IDs
+    eprintln!("[DEBUG] Input tokens: {:?}", &all_tokens[..input_token_count]);
+    eprintln!("[DEBUG] Generated tokens: {:?}", generated_tokens);
+
+    let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
+        clean_model_output(&tokenizer.decode(generated_tokens))
+    } else {
+        format!(
+            "[{} tokens generated, tokenizer not found]",
+            generated_tokens.len()
+        )
+    };
+
+    let generated_token_count = generated_tokens.len();
+
+    Ok(InferenceResult {
+        text,
+        tokens: all_tokens,
+        input_token_count,
+        generated_token_count,
+        inference_ms,
+        tok_per_sec: tok_per_sec(generated_token_count, inference_ms),
+        load_ms,
+        format: "SafeTensors".to_string(),
+        used_gpu: false,
+    })
+}
+
+/// Run sharded SafeTensors inference (GH-213)
+///
+/// Loads a sharded model from its index.json, converts to AprTransformer,
+/// and runs the same CPU inference loop as single-file SafeTensors.
+fn run_sharded_safetensors_inference(
+    config: &InferenceConfig,
+    prepared: &PreparedTokens,
+) -> Result<InferenceResult> {
+    use crate::apr::AprV2Model;
+    use crate::apr_transformer::AprKVCache;
+    use crate::safetensors::{SafetensorsConfig, ShardedSafeTensorsModel};
+    use crate::safetensors_infer::SafetensorsToAprConverter;
+
+    if config.verbose {
+        eprintln!(
+            "Loading sharded SafeTensors model: {}",
+            config.model_path.display()
+        );
+    }
+
+    let load_start = Instant::now();
+
+    // Load the sharded model from index.json
+    let sharded = ShardedSafeTensorsModel::load_from_index(&config.model_path)?;
+
+    if config.verbose {
+        eprintln!(
+            "Loaded {} shards, {} tensors",
+            sharded.shard_count(),
+            sharded.tensor_count()
+        );
+    }
+
+    // Load config.json from the same directory
+    let st_config =
+        SafetensorsConfig::load_from_sibling(&config.model_path).ok_or_else(|| {
+            RealizarError::UnsupportedOperation {
+                operation: "sharded_safetensors_convert".to_string(),
+                reason: "config.json not found (required for SafeTensors inference)".to_string(),
+            }
+        })?;
+
+    // Convert sharded model to AprTransformer
+    let transformer = SafetensorsToAprConverter::convert_sharded(&sharded, &st_config)?;
+    let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+
+    if config.verbose {
+        let arch = &transformer.config.architecture;
+        let thread_count = rayon::current_num_threads();
+        eprintln!(
+            "Architecture: {} ({} layers, vocab_size={})",
+            arch, transformer.config.num_layers, transformer.config.vocab_size
+        );
+        eprintln!(
+            "Config: hidden_size={}, context_length={}, quant=F32, threads={}",
+            transformer.config.hidden_dim, transformer.config.context_length, thread_count
+        );
+        eprintln!("Model loaded in {:.1}ms", load_ms);
+        eprintln!("Backend: CPU (SIMD-accelerated)");
+    }
+
+    // Inference loop (identical to run_safetensors_cpu_inference)
+    let input_tokens = prepared.tokens().to_vec();
+    let input_token_count = prepared.input_count();
+
+    let infer_start = Instant::now();
+    let mut cache = AprKVCache::new(&transformer.config);
+    let mut all_tokens = input_tokens.clone();
+
+    // Prefill phase
+    let mut logits = Vec::new();
+    for (pos, &token) in input_tokens.iter().enumerate() {
+        logits = transformer.forward_with_cache(token, &mut cache, pos)?;
+    }
+
+    // Decode phase: greedy sampling
+    for _ in 0..config.max_tokens.min(128) {
+        let next_token = logits
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map_or(0, |(i, _)| i as u32);
+
+        if next_token == 151645 || next_token == 151643 || next_token == 2 {
+            break;
+        }
+
+        all_tokens.push(next_token);
+        let pos = all_tokens.len() - 1;
+        logits = transformer.forward_with_cache(next_token, &mut cache, pos)?;
+    }
+
+    let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
+    let generated_tokens = &all_tokens[input_token_count..];
+
     eprintln!("[DEBUG] Input tokens: {:?}", &all_tokens[..input_token_count]);
     eprintln!("[DEBUG] Generated tokens: {:?}", generated_tokens);
 
