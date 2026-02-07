@@ -892,3 +892,28 @@ mod convert_tests_part_08;
 #[cfg(test)]
 #[path = "tests_part_09.rs"]
 mod convert_tests_part_09;
+
+// T-COV-95 Coverage Bridge (Part 10 - CRC32, checksum, metadata alignment, error paths)
+#[cfg(test)]
+#[path = "tests_part_10.rs"]
+mod convert_tests_part_10;
+
+// T-COV-95 Coverage Bridge (Part 11 - ConversionStats, RawTensor, Q4KConversionStats, CRC32)
+#[cfg(test)]
+#[path = "tests_part_11.rs"]
+mod convert_tests_part_11;
+
+// T-COV-95 Coverage Bridge (Part 12 - CRC32 vectors, uncovered rope_type archs, error paths)
+#[cfg(test)]
+#[path = "tests_part_12.rs"]
+mod convert_tests_part_12;
+
+// T-COV-95 Coverage Bridge (Part 13 - convert() pipeline, from_gguf_transformer edge cases, roundtrip)
+#[cfg(test)]
+#[path = "tests_part_13.rs"]
+mod convert_tests_part_13;
+
+// T-COV-95 Coverage Bridge (Part 14 - GgufToAprQ4KConverter::convert full pipeline + roundtrip)
+#[cfg(test)]
+#[path = "tests_part_14.rs"]
+mod convert_tests_part_14;

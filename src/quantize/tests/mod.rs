@@ -30,3 +30,6 @@ mod part_30; // T-COV-95 Deep Coverage Bridge (q8k_into, q8_blocks, InterleavedQ
 mod part_31; // T-COV-95 Coverage Bridge (fused Q4_0/Q8_0 matvec, extract_scale_min blocks 4-7)
 mod part_32; // T-COV-95 Coverage Bridge (q8k_into, dequant q4_0/q8_0/q4_1/q5_0/q5_1)
 mod part_33; // T-COV-95 Extended Coverage (Q8 blocks, dequant edge cases, block boundaries)
+mod part_34; // T-COV-95 Phase 50: Deep coverage for quantize/mod.rs and activation.rs
+mod part_35; // T-COV-95 Phase 50: Deep coverage for fused_q5k_q6k.rs and fused_k.rs
+mod part_36; // T-COV-95: Deep inner-loop coverage for fused_k.rs (scalar + SIMD parity)

@@ -422,6 +422,30 @@ pmat query "tokenizer" --entropy                   # pattern diversity (repetiti
 pmat query "forward pass" --churn --duplicates --entropy --faults -G  # full audit
 ```
 
+### Coverage-Guided Search (pmat 3.0.0+)
+
+**Use `pmat query --coverage` to find untested code. NEVER parse coverage JSON manually.**
+
+```bash
+# Find top uncovered functions (no query needed)
+pmat query --coverage-gaps
+
+# Find uncovered functions matching a semantic query
+pmat query "quantization" --coverage --uncovered-only
+
+# Use pre-existing coverage data (avoids re-running cargo llvm-cov)
+pmat query --coverage-gaps --coverage-file /path/to/coverage.json
+
+# Coverage auto-detection: runs `cargo llvm-cov report --json` automatically
+# Prerequisite: run `cargo llvm-cov test --lib --no-report` first to generate data
+```
+
+**Workflow for coverage improvement:**
+1. `cargo llvm-cov test --lib --no-report` — generate coverage data
+2. `pmat query --coverage-gaps` — find top uncovered functions
+3. Write tests targeting those functions
+4. `make coverage` — verify improvement
+
 ### EXTREME TDD Methodology
 
 **Follow RED-GREEN-REFACTOR:**

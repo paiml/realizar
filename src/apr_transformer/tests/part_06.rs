@@ -19,7 +19,7 @@ fn test_apr_from_pygmy_llama() {
     let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
     let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).unwrap();
 
-    let loaded = AprTransformer::from_apr_bytes(&apr_bytes).unwrap();
+    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).unwrap();
     assert_eq!(loaded.config.architecture, "llama");
     assert_eq!(loaded.config.hidden_dim, 64);
     assert_eq!(loaded.config.num_layers, 1);
@@ -31,7 +31,7 @@ fn test_apr_from_pygmy_phi2() {
     let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
     let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).unwrap();
 
-    let loaded = AprTransformer::from_apr_bytes(&apr_bytes).unwrap();
+    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).unwrap();
     assert_eq!(loaded.config.architecture, "phi2");
 }
 
@@ -335,7 +335,7 @@ fn test_apr_config_from_pygmy_architecture() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
     let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
     let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).unwrap();
-    let loaded = AprTransformer::from_apr_bytes(&apr_bytes).unwrap();
+    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).unwrap();
 
     // Architecture should be preserved through round-trip
     assert_eq!(loaded.config.architecture, "llama");
@@ -346,7 +346,7 @@ fn test_apr_config_from_pygmy_hidden_dim() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
     let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
     let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).unwrap();
-    let loaded = AprTransformer::from_apr_bytes(&apr_bytes).unwrap();
+    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).unwrap();
 
     assert_eq!(loaded.config.hidden_dim, 64);
 }
@@ -356,7 +356,7 @@ fn test_apr_config_from_pygmy_num_heads() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
     let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
     let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).unwrap();
-    let loaded = AprTransformer::from_apr_bytes(&apr_bytes).unwrap();
+    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).unwrap();
 
     assert_eq!(loaded.config.num_heads, 4);
 }

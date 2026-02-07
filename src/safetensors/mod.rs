@@ -1187,3 +1187,7 @@ pub use validation::{
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "tests_part_02.rs"]
+mod safetensors_tests_part_02;

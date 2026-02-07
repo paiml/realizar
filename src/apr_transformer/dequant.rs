@@ -442,4 +442,78 @@ mod tests {
         let result = dequantize_q6_k_apr(&data, 512);
         assert_eq!(result.len(), 512);
     }
+
+    // -------------------------------------------------------------------------
+    // dequantize_q8_0_apr Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_dequantize_q8_0_apr_zeros() {
+        // Q8_0: 34 bytes per block (2 f16 scale + 32 i8 quants)
+        // All zeros => scale=0, so all outputs should be 0
+        let data = vec![0u8; 34];
+        let result = dequantize_q8_0_apr(&data, 32);
+        assert_eq!(result.len(), 32);
+        assert!(result.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn test_dequantize_q8_0_apr_single_block() {
+        // scale = 1.0 in f16 = 0x3C00 little-endian
+        let mut data = vec![0u8; 34];
+        data[0] = 0x00; // f16 1.0 low byte
+        data[1] = 0x3C; // f16 1.0 high byte
+        // Set quants: all i8 = 1 (unsigned byte 1)
+        for i in 2..34 {
+            data[i] = 1;
+        }
+        let result = dequantize_q8_0_apr(&data, 32);
+        assert_eq!(result.len(), 32);
+        // Each value should be scale * q = 1.0 * 1 = 1.0
+        for &v in &result {
+            assert!((v - 1.0).abs() < 0.01, "expected ~1.0, got {v}");
+        }
+    }
+
+    #[test]
+    fn test_dequantize_q8_0_apr_negative_quants() {
+        let mut data = vec![0u8; 34];
+        data[0] = 0x00;
+        data[1] = 0x3C; // scale = 1.0
+        // Set quants: all i8 = -1 (0xFF as u8)
+        for i in 2..34 {
+            data[i] = 0xFF;
+        }
+        let result = dequantize_q8_0_apr(&data, 32);
+        assert_eq!(result.len(), 32);
+        for &v in &result {
+            assert!((v - (-1.0)).abs() < 0.01, "expected ~-1.0, got {v}");
+        }
+    }
+
+    #[test]
+    fn test_dequantize_q8_0_apr_truncation() {
+        // Request fewer elements than block size
+        let data = vec![0u8; 34];
+        let result = dequantize_q8_0_apr(&data, 16);
+        assert_eq!(result.len(), 16);
+    }
+
+    #[test]
+    fn test_dequantize_q8_0_apr_multiple_blocks() {
+        // Two blocks (68 bytes)
+        let data = vec![0u8; 68];
+        let result = dequantize_q8_0_apr(&data, 64);
+        assert_eq!(result.len(), 64);
+    }
+
+    #[test]
+    fn test_dequantize_q8_0_apr_insufficient_data() {
+        // Not enough data for even one block
+        let data = vec![0u8; 10];
+        let result = dequantize_q8_0_apr(&data, 32);
+        assert_eq!(result.len(), 32);
+        // Should return zeros when data is insufficient
+        assert!(result.iter().all(|&x| x == 0.0));
+    }
 }

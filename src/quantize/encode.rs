@@ -18,16 +18,23 @@
 
 // Toyota Way: ONE source of truth - all quantization from trueno-quant
 pub use trueno_quant::{
+    // Dequantization functions
+    dequantize_q4_k_to_f32,
+    dequantize_q5_k_to_f32,
+    dequantize_q6_k_to_f32,
+    // Quantization functions
+    quantize_q4_k,
+    quantize_q4_k_matrix,
+    quantize_q5_k,
+    quantize_q5_k_matrix,
+    quantize_q6_k,
+    quantize_q6_k_matrix,
+    // Transpose functions (LAYOUT-002: GGUF column-major → APR row-major)
+    transpose_q4k_for_matmul,
+    transpose_q5k_for_matmul,
+    transpose_q6k_for_matmul,
     // Constants
     F16_MIN_NORMAL,
-    // Quantization functions
-    quantize_q4_k, quantize_q4_k_matrix,
-    quantize_q5_k, quantize_q5_k_matrix,
-    quantize_q6_k, quantize_q6_k_matrix,
-    // Dequantization functions
-    dequantize_q4_k_to_f32, dequantize_q5_k_to_f32, dequantize_q6_k_to_f32,
-    // Transpose functions (LAYOUT-002: GGUF column-major → APR row-major)
-    transpose_q4k_for_matmul, transpose_q5k_for_matmul, transpose_q6k_for_matmul,
 };
 
 // ============================================================================
@@ -55,8 +62,8 @@ mod tests {
         // Q4K has 4 bits per value (16 levels) with block-wise scaling
         // For a range of ~25.6, expect quantization step of ~1.7
         // Allow error up to 2x the step size for edge cases
-        let data_range = data.iter().fold(0.0f32, |a, &b| a.max(b))
-            - data.iter().fold(0.0f32, |a, &b| a.min(b));
+        let data_range =
+            data.iter().fold(0.0f32, |a, &b| a.max(b)) - data.iter().fold(0.0f32, |a, &b| a.min(b));
         let _expected_step = data_range / 15.0;
 
         let max_error: f32 = data
@@ -93,7 +100,11 @@ mod tests {
             .fold(0.0f32, f32::max);
 
         // Q6K should have lower error than Q4K
-        assert!(max_error < 1.0, "Q6K roundtrip error too high: {}", max_error);
+        assert!(
+            max_error < 1.0,
+            "Q6K roundtrip error too high: {}",
+            max_error
+        );
     }
 
     #[test]

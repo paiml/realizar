@@ -13,11 +13,9 @@
 use crate::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
 use crate::error::{RealizarError, Result};
 use crate::safetensors::validation::ValidatedAprTransformer;
-use crate::safetensors::{
-    MappedSafeTensorsModel, SafetensorsConfig, SafetensorsTensorInfo,
-};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::safetensors::ShardedSafeTensorsModel;
+use crate::safetensors::{MappedSafeTensorsModel, SafetensorsConfig, SafetensorsTensorInfo};
 use std::path::Path;
 
 /// Trait abstracting tensor access for both single-file and sharded SafeTensors models.
@@ -193,11 +191,8 @@ impl SafetensorsToAprConverter {
             Self::transpose_weight(&token_embedding, vocab_size, hidden_dim)
         } else if Self::has_tensor_with_fallback_generic(source, "lm_head.weight", "output.weight")
         {
-            let raw = Self::get_tensor_with_fallback_generic(
-                source,
-                "lm_head.weight",
-                "output.weight",
-            )?;
+            let raw =
+                Self::get_tensor_with_fallback_generic(source, "lm_head.weight", "output.weight")?;
             Self::transpose_weight(&raw, vocab_size, hidden_dim)
         } else {
             // Fallback: assume tied if no lm_head tensor exists
@@ -244,7 +239,14 @@ impl SafetensorsToAprConverter {
         num_kv_heads: usize,
         intermediate_dim: usize,
     ) -> Result<AprTransformerLayer> {
-        Self::extract_layer_generic(st_model, layer_idx, hidden_dim, num_heads, num_kv_heads, intermediate_dim)
+        Self::extract_layer_generic(
+            st_model,
+            layer_idx,
+            hidden_dim,
+            num_heads,
+            num_kv_heads,
+            intermediate_dim,
+        )
     }
 
     /// Extract a single transformer layer from any TensorSource (GH-213)
@@ -288,8 +290,13 @@ impl SafetensorsToAprConverter {
             Self::concat_qkv_transposed(&q_weight, &k_weight, &v_weight, hidden_dim, kv_dim);
 
         // QKV bias (optional)
-        let qkv_bias =
-            Self::try_concat_qkv_bias_dual_generic(source, &hf_prefix, &gguf_prefix, hidden_dim, kv_dim);
+        let qkv_bias = Self::try_concat_qkv_bias_dual_generic(
+            source,
+            &hf_prefix,
+            &gguf_prefix,
+            hidden_dim,
+            kv_dim,
+        );
 
         let attn_output_raw = Self::get_tensor_with_fallback_generic(
             source,
@@ -1166,7 +1173,9 @@ mod tests {
                 format!("{prefix}.input_layernorm.weight"),
                 vec![attn_norm_size],
                 // Norm vectors: ValidatedVector only checks NaN/Inf/length, 1.0 is safe
-                (0..attn_norm_size).flat_map(|_| 1.0f32.to_le_bytes()).collect(),
+                (0..attn_norm_size)
+                    .flat_map(|_| 1.0f32.to_le_bytes())
+                    .collect(),
             ),
             (
                 "q_proj",
@@ -1196,7 +1205,9 @@ mod tests {
                 "ffn_norm",
                 format!("{prefix}.post_attention_layernorm.weight"),
                 vec![ffn_norm_size],
-                (0..ffn_norm_size).flat_map(|_| 1.0f32.to_le_bytes()).collect(),
+                (0..ffn_norm_size)
+                    .flat_map(|_| 1.0f32.to_le_bytes())
+                    .collect(),
             ),
             (
                 "gate_proj",

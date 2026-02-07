@@ -47,3 +47,4 @@ mod part_24; // T-COV-95 Protocol Falsification: Potemkin Village GPU Mocks
 mod part_25; // T-COV-95 Chaotic Citizens: GPU Batch Resilience Falsification
 mod part_26; // T-COV-95 Interleaved Chaos: GPU Batch Processor Saturation
 mod part_27; // T-COV-95 Generative Falsification: Proptest API Request Assault
+mod part_28; // Coverage: realize_handlers pure functions, ContextWindow, clean_chat, build_trace_data, serde

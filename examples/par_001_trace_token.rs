@@ -45,7 +45,7 @@ fn matmul(input: &[f32], weight: &OwnedQuantizedTensor) -> Vec<f32> {
         GGUF_TYPE_Q6_K => {
             fused_q6k_parallel_matvec(&weight.data, input, weight.in_dim, weight.out_dim)
                 .expect("Q6_K matmul failed")
-        }
+        },
         _ => panic!("Unsupported qtype: {}", weight.qtype),
     }
 }

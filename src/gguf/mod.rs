@@ -97,6 +97,8 @@ mod format_factory_tests;
 #[cfg(test)]
 mod inference_types_tests;
 #[cfg(test)]
+mod io_tests;
+#[cfg(test)]
 mod quantized_tests;
 #[cfg(test)]
 mod tests;

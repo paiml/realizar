@@ -740,8 +740,9 @@ pub fn run_apr_inference(
     use std::time::Instant;
 
     // APR-TRACE-001: Create tracer from config
-    let mut tracer =
-        trace_config.clone().map_or_else(InferenceTracer::disabled, InferenceTracer::new);
+    let mut tracer = trace_config
+        .clone()
+        .map_or_else(InferenceTracer::disabled, InferenceTracer::new);
 
     // Handle --gpu flag warning when CUDA not available
     #[cfg(not(feature = "cuda"))]

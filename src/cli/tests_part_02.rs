@@ -204,7 +204,7 @@ mod inference_coverage {
             0.5,
             "text",
             false,
-            true,  // verbose
+            true, // verbose
             None, // trace_config (disabled)
         );
         assert!(result.is_err());
@@ -220,7 +220,7 @@ mod inference_coverage {
             0.5,
             "text",
             false,
-            false, // no verbose
+            false,                        // no verbose
             Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());
@@ -236,7 +236,7 @@ mod inference_coverage {
             0.5,
             "text",
             false,
-            true, // verbose
+            true,                         // verbose
             Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());
@@ -251,8 +251,8 @@ mod inference_coverage {
             5,
             0.5,
             "json",
-            true, // force_gpu
-            true, // verbose
+            true,                         // force_gpu
+            true,                         // verbose
             Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());
@@ -308,7 +308,7 @@ mod inference_coverage {
                 0.5,
                 format,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
     }
@@ -325,7 +325,7 @@ mod inference_coverage {
                 *temp,
                 "text",
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
     }
@@ -340,7 +340,7 @@ mod inference_coverage {
                 0.5,
                 "text",
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
     }
@@ -758,7 +758,7 @@ mod inference_coverage {
                         false,
                         false,
                         None, // trace_config
-        );
+                    );
                     assert!(result.is_err());
                 })
             })
@@ -795,7 +795,7 @@ mod inference_coverage {
                         gpu,
                         false,
                         None, // trace_config
-        );
+                    );
                     assert!(result.is_err());
                 }
             }
@@ -932,7 +932,7 @@ mod inference_coverage {
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
     }
@@ -945,14 +945,14 @@ mod inference_coverage {
     fn test_run_gguf_inference_public_api() {
         // Verify public function signature matches expected API
         let _: crate::error::Result<()> = inference::run_gguf_inference(
-            "",   // model_ref: &str
-            &[],  // file_data: &[u8]
-            "",   // prompt: &str
-            0,    // max_tokens: usize
-            0.0,  // temperature: f32
-            "",   // format: &str
-            true, // force_gpu: bool
-            true, // verbose: bool
+            "",                           // model_ref: &str
+            &[],                          // file_data: &[u8]
+            "",                           // prompt: &str
+            0,                            // max_tokens: usize
+            0.0,                          // temperature: f32
+            "",                           // format: &str
+            true,                         // force_gpu: bool
+            true,                         // verbose: bool
             Some(TraceConfig::enabled()), // trace_config
         );
     }
@@ -960,11 +960,11 @@ mod inference_coverage {
     #[test]
     fn test_run_safetensors_inference_public_api() {
         let _: crate::error::Result<()> = inference::run_safetensors_inference(
-            "",  // model_ref: &str
-            "",  // prompt: &str
-            0,   // max_tokens: usize
-            0.0, // temperature: f32
-            "",  // format: &str
+            "",   // model_ref: &str
+            "",   // prompt: &str
+            0,    // max_tokens: usize
+            0.0,  // temperature: f32
+            "",   // format: &str
             None, // trace_config
         );
     }
@@ -1022,7 +1022,7 @@ mod cuda_inference_tests {
             "text",
             true, // force_gpu
             true, // verbose
-        None, // trace_config
+            None, // trace_config
         );
         assert!(result.is_err());
     }

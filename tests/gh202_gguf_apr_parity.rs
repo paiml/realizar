@@ -53,17 +53,17 @@ fn test_gh202_embedding_tensor_parity() {
 
         // Compute byte size based on quantization type
         let size = match tensor_info.qtype {
-            0 => n_elements as usize * 4,    // F32: 4 bytes per element
-            1 => n_elements as usize * 2,    // F16: 2 bytes per element
+            0 => n_elements as usize * 4, // F32: 4 bytes per element
+            1 => n_elements as usize * 2, // F16: 2 bytes per element
             12 => {
                 // Q4K: 144 bytes per 256 elements
                 let n_blocks = n_elements.div_ceil(256) as usize;
                 n_blocks * 144
-            }
+            },
             _ => {
                 eprintln!("GH-202-PARITY-001: Unsupported qtype {}", tensor_info.qtype);
                 return None;
-            }
+            },
         };
 
         let data = mapped_gguf.tensor_slice(offset, size)?;
@@ -137,16 +137,16 @@ fn test_gh202_embedding_tensor_parity() {
                 "GH-202-PARITY-001: {}% values mismatched - APR loading is broken",
                 mismatch_pct
             );
-        }
+        },
         (None, Some(_)) => {
             eprintln!("GH-202-PARITY-001: FAIL - Embedding not found in GGUF");
-        }
+        },
         (Some(_), None) => {
             eprintln!("GH-202-PARITY-001: FAIL - Embedding not found in APR");
-        }
+        },
         (None, None) => {
             eprintln!("GH-202-PARITY-001: FAIL - Embedding not found in either model");
-        }
+        },
     }
 }
 
@@ -242,10 +242,10 @@ fn test_gh202_attn_q_tensor_parity() {
                 (gguf_mean - apr_mean).abs() < 0.01,
                 "GH-202-PARITY-002: Mean differs significantly - data corruption"
             );
-        }
+        },
         _ => {
             eprintln!("GH-202-PARITY-002: SKIP - Q weight not found in both models");
-        }
+        },
     }
 }
 
@@ -307,10 +307,10 @@ fn test_gh202_q4k_dequant_sanity() {
             // Verify values are not all zero (basic sanity)
             let nonzero = values.iter().filter(|&&v| v != 0.0).count();
             eprintln!("  Non-zero values: {}/{}", nonzero, values.len());
-        }
+        },
         Err(e) => {
             eprintln!("GH-202-PARITY-004: Dequantization error: {}", e);
-        }
+        },
     }
 }
 

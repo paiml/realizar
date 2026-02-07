@@ -10,8 +10,8 @@
 #[cfg(test)]
 mod inference_additional_coverage {
     use crate::cli::inference;
-    use crate::inference_trace::TraceConfig;
     use crate::error::RealizarError;
+    use crate::inference_trace::TraceConfig;
 
     // =========================================================================
     // GGUF Inference: File Data Validation Tests
@@ -181,7 +181,7 @@ mod inference_additional_coverage {
             "text",
             false,
             false, // non-verbose (Ollama-style output)
-            None, // trace_config
+            None,  // trace_config
         );
         assert!(result.is_err());
     }
@@ -268,7 +268,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
-        None, // trace_config
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -281,7 +281,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
-        None, // trace_config
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -295,7 +295,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
-        None, // trace_config
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -360,7 +360,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
-        None, // trace_config
+            None, // trace_config
         );
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -435,7 +435,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
-        None, // trace_config
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -484,7 +484,7 @@ mod inference_additional_coverage {
             100000,
             0.5,
             "text",
-        None, // trace_config
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -518,8 +518,8 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
-            false, // force_gpu
-            true,  // verbose
+            false,                        // force_gpu
+            true,                         // verbose
             Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());
@@ -556,9 +556,9 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
-            true,  // force_gpu
-            true,  // verbose
-            None,  // trace_config
+            true, // force_gpu
+            true, // verbose
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -591,7 +591,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
-        None, // trace_config
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -640,7 +640,7 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
-        None, // trace_config
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -707,8 +707,8 @@ mod inference_additional_coverage {
             5,
             0.5,
             "text",
-            true,  // force_gpu
-            true,  // verbose
+            true,                         // force_gpu
+            true,                         // verbose
             Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());
@@ -895,9 +895,9 @@ mod cuda_inference_additional_tests {
             5,
             0.5,
             "text",
-            true,  // force_gpu - exercises GPU code path
-            true,  // verbose
-            None,  // trace_config
+            true, // force_gpu - exercises GPU code path
+            true, // verbose
+            None, // trace_config
         );
         assert!(result.is_err());
     }
@@ -927,9 +927,9 @@ mod cuda_inference_additional_tests {
             5,
             0.5,
             "json",
-            true,  // force_gpu
-            true,  // verbose
-            None,  // trace_config
+            true, // force_gpu
+            true, // verbose
+            None, // trace_config
         );
         assert!(result.is_err());
     }

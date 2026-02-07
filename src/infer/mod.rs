@@ -253,7 +253,7 @@ pub fn prepare_tokens(config: &InferenceConfig, format: &ModelFormat) -> Result<
                 tokens: vec![1u32],
                 input_count: 1,
             })
-        }
+        },
     };
 
     match format {
@@ -338,8 +338,8 @@ fn prepare_tokens_safetensors(config: &InferenceConfig, prompt: &str) -> Result<
         prompt.to_string()
     };
 
-    let tokens =
-        AprV2Model::encode_text(&config.model_path, &formatted_prompt).unwrap_or_else(|| vec![1u32]);
+    let tokens = AprV2Model::encode_text(&config.model_path, &formatted_prompt)
+        .unwrap_or_else(|| vec![1u32]);
 
     Ok(PreparedTokens {
         input_count: tokens.len(),
@@ -361,19 +361,21 @@ fn prepare_tokens_apr(config: &InferenceConfig, prompt: &str) -> Result<Prepared
     // PMAT-237: Detect instruct from MODEL DATA, not filename.
     // Filename heuristic silently skips chat template for hash-named APR files.
     // Three-tier detection: architecture metadata > vocab special tokens > filename fallback.
-    let (apr_arch, has_chatml_tokens) = if config.model_path.extension().is_some_and(|e| e == "apr") {
-        match AprV2Model::load(&config.model_path) {
-            Ok(model) => {
-                let arch = model.metadata().architecture.clone().unwrap_or_default();
-                let has_chatml = model.metadata().get_embedded_vocabulary()
-                    .is_some_and(|vocab: Vec<String>| vocab.iter().any(|t| t == "<|im_start|>"));
-                (arch, has_chatml)
+    let (apr_arch, has_chatml_tokens) =
+        if config.model_path.extension().is_some_and(|e| e == "apr") {
+            match AprV2Model::load(&config.model_path) {
+                Ok(model) => {
+                    let arch = model.metadata().architecture.clone().unwrap_or_default();
+                    let has_chatml = model.metadata().get_embedded_vocabulary().is_some_and(
+                        |vocab: Vec<String>| vocab.iter().any(|t| t == "<|im_start|>"),
+                    );
+                    (arch, has_chatml)
+                },
+                Err(_) => (String::new(), false),
             }
-            Err(_) => (String::new(), false),
-        }
-    } else {
-        (String::new(), false)
-    };
+        } else {
+            (String::new(), false)
+        };
 
     let is_instruct_arch = matches!(
         apr_arch.to_lowercase().as_str(),
@@ -391,8 +393,8 @@ fn prepare_tokens_apr(config: &InferenceConfig, prompt: &str) -> Result<Prepared
         prompt.to_string()
     };
 
-    let tokens =
-        AprV2Model::encode_text(&config.model_path, &formatted_prompt).unwrap_or_else(|| vec![1u32]);
+    let tokens = AprV2Model::encode_text(&config.model_path, &formatted_prompt)
+        .unwrap_or_else(|| vec![1u32]);
 
     Ok(PreparedTokens {
         input_count: tokens.len(),
@@ -579,7 +581,10 @@ pub fn run_inference(config: &InferenceConfig) -> Result<InferenceResult> {
 /// Run GGUF model inference
 ///
 /// PMAT-236: Accepts `PreparedTokens` (compile-time enforced chat template).
-fn run_gguf_inference(config: &InferenceConfig, prepared: &PreparedTokens) -> Result<InferenceResult> {
+fn run_gguf_inference(
+    config: &InferenceConfig,
+    prepared: &PreparedTokens,
+) -> Result<InferenceResult> {
     use crate::gguf::{MappedGGUFModel, OwnedQuantizedModel, QuantizedGenerateConfig};
 
     if config.verbose {
@@ -777,8 +782,7 @@ fn validate_gpu_first_token(
     // Use a single BOS token — tests all kernel dimensions with O(1) cost
     let probe_token: &[u32] = &[1];
 
-    let kv_dim =
-        model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);
+    let kv_dim = model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);
     let mut cpu_cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 2);
 
     let cpu_logits = match model.forward_single_with_cache(probe_token[0], &mut cpu_cache, 0) {
@@ -811,7 +815,7 @@ fn validate_gpu_first_token(
                 );
                 false
             }
-        }
+        },
         Ok(_) => true,
         Err(_) => false,
     }
@@ -835,7 +839,7 @@ fn try_gguf_gpu_generate(
                 eprintln!("Backend: CPU (GPU unavailable: {})", e);
             }
             return None;
-        }
+        },
     };
 
     if verbose {
@@ -895,7 +899,10 @@ fn run_gguf_generate(
 /// AprTransformer (CPU with proper RoPE and SwiGLU) otherwise.
 /// PMAT-237: APR inference now uses PreparedTokens (compile-time enforced chat template).
 /// Previously bypassed PreparedTokens entirely via prepare_apr_input_tokens().
-fn run_apr_inference(config: &InferenceConfig, prepared: &PreparedTokens) -> Result<InferenceResult> {
+fn run_apr_inference(
+    config: &InferenceConfig,
+    prepared: &PreparedTokens,
+) -> Result<InferenceResult> {
     if config.verbose {
         eprintln!("Loading APR model: {}", config.model_path.display());
     }
@@ -976,14 +983,11 @@ fn try_apr_cuda_inference(
     if config.verbose {
         eprintln!(
             "Architecture: {} ({} layers, vocab_size={})",
-            validated.config.architecture,
-            validated.config.num_layers,
-            validated.config.vocab_size
+            validated.config.architecture, validated.config.num_layers, validated.config.vocab_size
         );
         eprintln!(
             "Config: hidden_size={}, context_length={}, quant=GPU+KVCache, threads=1 (GPU)",
-            validated.config.hidden_dim,
-            validated.config.context_length
+            validated.config.hidden_dim, validated.config.context_length
         );
         eprintln!("Model loaded in {:.1}ms", load_ms);
         eprintln!("Backend: GPU (with incremental KV cache)");
@@ -1135,7 +1139,10 @@ fn tok_per_sec(count: usize, ms: f64) -> f64 {
 /// PMAT-236: Accepts `PreparedTokens` (compile-time enforced chat template).
 /// Previously, this function raw-encoded prompts WITHOUT chat template,
 /// producing garbage output for instruct models.
-fn run_safetensors_inference(config: &InferenceConfig, prepared: &PreparedTokens) -> Result<InferenceResult> {
+fn run_safetensors_inference(
+    config: &InferenceConfig,
+    prepared: &PreparedTokens,
+) -> Result<InferenceResult> {
     if config.verbose {
         eprintln!("Loading SafeTensors model: {}", config.model_path.display());
     }
@@ -1289,7 +1296,10 @@ fn run_safetensors_cpu_inference(
     let generated_tokens = &all_tokens[input_token_count..];
 
     // DEBUG: Show generated token IDs
-    eprintln!("[DEBUG] Input tokens: {:?}", &all_tokens[..input_token_count]);
+    eprintln!(
+        "[DEBUG] Input tokens: {:?}",
+        &all_tokens[..input_token_count]
+    );
     eprintln!("[DEBUG] Generated tokens: {:?}", generated_tokens);
 
     let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
@@ -1350,13 +1360,12 @@ fn run_sharded_safetensors_inference(
     }
 
     // Load config.json from the same directory
-    let st_config =
-        SafetensorsConfig::load_from_sibling(&config.model_path).ok_or_else(|| {
-            RealizarError::UnsupportedOperation {
-                operation: "sharded_safetensors_convert".to_string(),
-                reason: "config.json not found (required for SafeTensors inference)".to_string(),
-            }
-        })?;
+    let st_config = SafetensorsConfig::load_from_sibling(&config.model_path).ok_or_else(|| {
+        RealizarError::UnsupportedOperation {
+            operation: "sharded_safetensors_convert".to_string(),
+            reason: "config.json not found (required for SafeTensors inference)".to_string(),
+        }
+    })?;
 
     // Convert sharded model to AprTransformer
     let transformer = SafetensorsToAprConverter::convert_sharded(&sharded, &st_config)?;
@@ -1411,7 +1420,10 @@ fn run_sharded_safetensors_inference(
     let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
     let generated_tokens = &all_tokens[input_token_count..];
 
-    eprintln!("[DEBUG] Input tokens: {:?}", &all_tokens[..input_token_count]);
+    eprintln!(
+        "[DEBUG] Input tokens: {:?}",
+        &all_tokens[..input_token_count]
+    );
     eprintln!("[DEBUG] Generated tokens: {:?}", generated_tokens);
 
     let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
@@ -1721,3 +1733,18 @@ mod infer_tests_part_07;
 #[cfg(test)]
 #[path = "tests_part_08.rs"]
 mod infer_tests_part_08;
+
+// T-COV-95 Phase 50: Deep coverage for infer/mod.rs pure functions
+#[cfg(test)]
+#[path = "tests_part_09.rs"]
+mod infer_tests_part_09;
+
+// T-COV-95 Phase 55: Extended coverage for mock paths, builder, result types
+#[cfg(test)]
+#[path = "tests_part_10.rs"]
+mod infer_tests_part_10;
+
+// T-COV-95 Phase 60: Extended coverage for uncovered lines
+#[cfg(test)]
+#[path = "tests_part_11.rs"]
+mod infer_tests_part_11;

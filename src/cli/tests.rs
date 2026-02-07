@@ -2486,7 +2486,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 true, // verbose
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2504,7 +2504,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2521,7 +2521,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2538,7 +2538,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2555,7 +2555,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2572,7 +2572,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 true, // verbose = true
                 None, // trace_config
-        );
+            );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2606,7 +2606,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 true, // force_gpu = true
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2620,8 +2620,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 10,
                 0.8,
                 "json",
-                true, // force_gpu
-                true, // verbose
+                true,                         // force_gpu
+                true,                         // verbose
                 Some(TraceConfig::enabled()), // trace_config
             );
             assert!(result.is_err()); // Expected - no valid model
@@ -2640,7 +2640,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2657,7 +2657,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2674,7 +2674,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err()); // Expected - no valid model
         }
 
@@ -2691,7 +2691,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 0.5,
                 "text",
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2704,7 +2704,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 0.0,
                 "json",
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2717,7 +2717,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 0.0,
                 "text",
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2730,7 +2730,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 0.7,
                 "text",
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2750,7 +2750,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2768,7 +2768,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 true,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2784,7 +2784,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2800,7 +2800,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2817,7 +2817,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 true, // force_gpu
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2833,7 +2833,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 true, // verbose
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2846,8 +2846,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 10,
                 0.8,
                 "json",
-                true, // force_gpu
-                true, // verbose
+                true,                         // force_gpu
+                true,                         // verbose
                 Some(TraceConfig::enabled()), // trace_config
             );
             assert!(result.is_err());
@@ -2865,7 +2865,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2881,7 +2881,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2897,7 +2897,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2918,7 +2918,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2935,7 +2935,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2952,7 +2952,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -2974,7 +2974,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
 
             // Set CPU_DEBUG=1 and try again
@@ -2989,7 +2989,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
             std::env::remove_var("CPU_DEBUG");
         }
@@ -3008,7 +3008,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 true, // force_gpu
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
 
             // Set SKIP_GPU_RESIDENT=1 and try again
@@ -3023,7 +3023,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 true, // force_gpu
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
             std::env::remove_var("SKIP_GPU_RESIDENT");
         }
@@ -3044,7 +3044,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
             let err = result.unwrap_err();
             let err_str = err.to_string();
@@ -3068,7 +3068,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
             let err = result.unwrap_err();
             let err_str = err.to_string();
@@ -3112,7 +3112,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 true, // verbose
                 None, // trace_config
-        );
+            );
 
             // Should succeed with real model
             assert!(result.is_ok(), "Inference failed: {:?}", result.err());
@@ -3141,7 +3141,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
 
             assert!(result.is_ok(), "JSON inference failed: {:?}", result.err());
         }
@@ -3154,15 +3154,15 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         fn test_gguf_inference_api_surface() {
             // Verify all parameters are accepted in the expected order
             let _ = inference::run_gguf_inference(
-                "model_ref",                      // model_ref: &str
-                &[],                              // file_data: &[u8]
-                "prompt",                         // prompt: &str
-                10usize,                          // max_tokens: usize
-                0.5f32,                           // temperature: f32
-                "format",                         // format: &str
-                true,                             // force_gpu: bool
-                true,                             // verbose: bool
-                Some(TraceConfig::enabled()),    // trace_config: Option<TraceConfig>
+                "model_ref",                  // model_ref: &str
+                &[],                          // file_data: &[u8]
+                "prompt",                     // prompt: &str
+                10usize,                      // max_tokens: usize
+                0.5f32,                       // temperature: f32
+                "format",                     // format: &str
+                true,                         // force_gpu: bool
+                true,                         // verbose: bool
+                Some(TraceConfig::enabled()), // trace_config: Option<TraceConfig>
             );
         }
 
@@ -3170,12 +3170,12 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         fn test_safetensors_inference_api_surface() {
             // Verify all parameters are accepted in the expected order
             let _ = inference::run_safetensors_inference(
-                "model_ref",                      // model_ref: &str
-                "prompt",                         // prompt: &str
-                10usize,                          // max_tokens: usize
-                0.5f32,                           // temperature: f32 (unused in current impl)
-                "format",                         // format: &str
-                Some(TraceConfig::enabled()),    // trace_config: Option<TraceConfig>
+                "model_ref",                  // model_ref: &str
+                "prompt",                     // prompt: &str
+                10usize,                      // max_tokens: usize
+                0.5f32,                       // temperature: f32 (unused in current impl)
+                "format",                     // format: &str
+                Some(TraceConfig::enabled()), // trace_config: Option<TraceConfig>
             );
         }
 
@@ -3183,15 +3183,15 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
         fn test_apr_inference_api_surface() {
             // Verify all parameters are accepted in the expected order
             let _ = inference::run_apr_inference(
-                "model_ref",                      // model_ref: &str
-                &[],                              // file_data: &[u8]
-                "prompt",                         // prompt: &str
-                10usize,                          // max_tokens: usize
-                0.5f32,                           // temperature: f32
-                "format",                         // format: &str
-                true,                             // force_gpu: bool
-                true,                             // verbose: bool
-                Some(TraceConfig::enabled()),    // trace_config: Option<TraceConfig>
+                "model_ref",                  // model_ref: &str
+                &[],                          // file_data: &[u8]
+                "prompt",                     // prompt: &str
+                10usize,                      // max_tokens: usize
+                0.5f32,                       // temperature: f32
+                "format",                     // format: &str
+                true,                         // force_gpu: bool
+                true,                         // verbose: bool
+                Some(TraceConfig::enabled()), // trace_config: Option<TraceConfig>
             );
         }
 
@@ -3211,7 +3211,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -3228,7 +3228,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -3244,7 +3244,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -3260,7 +3260,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -3277,7 +3277,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
 
@@ -3294,7 +3294,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 3 measured; 0 filtered out
                 false,
                 false,
                 None, // trace_config
-        );
+            );
             assert!(result.is_err());
         }
     }

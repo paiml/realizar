@@ -1,8 +1,6 @@
 //! Check index 5475 across layers
 use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel};
-use realizar::quantize::{
-    dequantize_q4_k, fused_q4k_parallel_matvec, fused_q6k_parallel_matvec,
-};
+use realizar::quantize::{dequantize_q4_k, fused_q4k_parallel_matvec, fused_q6k_parallel_matvec};
 
 const GGUF_TYPE_Q4_K: u32 = 12;
 const GGUF_TYPE_Q6_K: u32 = 14;

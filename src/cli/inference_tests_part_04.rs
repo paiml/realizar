@@ -93,7 +93,7 @@ mod artifact_falsification {
             "text",
             false, // force_gpu
             true,  // verbose
-            None, // trace_config
+            None,  // trace_config
         );
 
         assert!(
@@ -176,8 +176,17 @@ mod artifact_falsification {
         let (file, data) = create_apr_artifact();
         let path = file.path().to_str().unwrap();
 
-        let result =
-            inference::run_apr_inference(path, &data, "JSON test", 3, 0.0, "json", false, false, None);
+        let result = inference::run_apr_inference(
+            path,
+            &data,
+            "JSON test",
+            3,
+            0.0,
+            "json",
+            false,
+            false,
+            None,
+        );
 
         assert!(result.is_ok(), "APR JSON format failed: {:?}", result.err());
     }
@@ -205,8 +214,17 @@ mod artifact_falsification {
         let (file, data) = create_apr_artifact();
         let path = file.path().to_str().unwrap();
 
-        let result =
-            inference::run_apr_inference(path, &data, "Temp test", 3, 0.8, "text", false, false, None);
+        let result = inference::run_apr_inference(
+            path,
+            &data,
+            "Temp test",
+            3,
+            0.8,
+            "text",
+            false,
+            false,
+            None,
+        );
 
         assert!(
             result.is_ok(),
@@ -322,7 +340,8 @@ mod artifact_falsification {
         let (file, data) = create_apr_artifact();
         let path = file.path().to_str().unwrap();
 
-        let result = inference::run_apr_inference(path, &data, "", 5, 0.0, "text", false, false, None);
+        let result =
+            inference::run_apr_inference(path, &data, "", 5, 0.0, "text", false, false, None);
         let _ = result;
     }
 
@@ -576,8 +595,8 @@ mod artifact_falsification {
             3,
             0.5,
             "json",
-            false, // force_gpu (pygmy model can't run on GPU)
-            true,  // verbose
+            false,                        // force_gpu (pygmy model can't run on GPU)
+            true,                         // verbose
             Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_ok());

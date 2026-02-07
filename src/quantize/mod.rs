@@ -117,16 +117,24 @@ pub use simd::{extract_scale_min, extract_scale_min_from_slice, read_f16};
 // Re-export encoding functions (Toyota Way: ONE source of truth)
 // aprender imports these for format conversion - NEVER duplicates
 pub use encode::{
+    dequantize_q4_k_to_f32,
+    dequantize_q5_k_to_f32,
+    dequantize_q6_k_to_f32,
+    // Q4_K
+    quantize_q4_k,
+    quantize_q4_k_matrix,
+    // Q5_K
+    quantize_q5_k,
+    quantize_q5_k_matrix,
+    // Q6_K
+    quantize_q6_k,
+    quantize_q6_k_matrix,
+    // Transpose (LAYOUT-002)
+    transpose_q4k_for_matmul,
+    transpose_q5k_for_matmul,
+    transpose_q6k_for_matmul,
     // Constants
     F16_MIN_NORMAL,
-    // Q4_K
-    quantize_q4_k, quantize_q4_k_matrix, dequantize_q4_k_to_f32,
-    // Q5_K
-    quantize_q5_k, quantize_q5_k_matrix, dequantize_q5_k_to_f32,
-    // Q6_K
-    quantize_q6_k, quantize_q6_k_matrix, dequantize_q6_k_to_f32,
-    // Transpose (LAYOUT-002)
-    transpose_q4k_for_matmul, transpose_q5k_for_matmul, transpose_q6k_for_matmul,
 };
 
 /// Pre-computed f16 to f32 lookup table (65536 entries = 256KB)
@@ -1949,3 +1957,8 @@ pub fn fused_q8_0_q8_0_parallel_matvec_into(
 
 #[cfg(test)]
 mod tests;
+
+// T-COV-95 Coverage tests for quantize/mod.rs pure functions
+#[cfg(test)]
+#[path = "tests_coverage.rs"]
+mod tests_coverage;

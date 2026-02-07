@@ -13,7 +13,9 @@ mod tests {
 
     fn correlation(a: &[f32], b: &[f32]) -> f64 {
         let n = a.len().min(b.len());
-        if n == 0 { return 0.0; }
+        if n == 0 {
+            return 0.0;
+        }
         let a_mean: f64 = a.iter().map(|&x| x as f64).sum::<f64>() / n as f64;
         let b_mean: f64 = b.iter().map(|&x| x as f64).sum::<f64>() / n as f64;
         let mut cov = 0.0f64;
@@ -28,7 +30,9 @@ mod tests {
         }
         if a_var > 0.0 && b_var > 0.0 {
             cov / (a_var.sqrt() * b_var.sqrt())
-        } else { 0.0 }
+        } else {
+            0.0
+        }
     }
 
     #[test]
@@ -86,8 +90,13 @@ mod tests {
         eprintln!("GPU-style QKV first 10: {:?}", &gpu_output[..10]);
 
         // Compare
-        eprintln!("\nCorrelation: {:.6}", correlation(&cpu_output, &gpu_output));
-        let max_diff = cpu_output.iter().zip(gpu_output.iter())
+        eprintln!(
+            "\nCorrelation: {:.6}",
+            correlation(&cpu_output, &gpu_output)
+        );
+        let max_diff = cpu_output
+            .iter()
+            .zip(gpu_output.iter())
             .map(|(&c, &g)| (c - g).abs())
             .fold(0.0f32, f32::max);
         eprintln!("Max diff: {:.6}", max_diff);
@@ -95,8 +104,13 @@ mod tests {
         if max_diff > 1e-5 {
             eprintln!("\nMISMATCH! Element-wise comparison:");
             for i in 0..10 {
-                eprintln!("  [{}] CPU: {:.6}, GPU: {:.6}, diff: {:.6}",
-                    i, cpu_output[i], gpu_output[i], (cpu_output[i] - gpu_output[i]).abs());
+                eprintln!(
+                    "  [{}] CPU: {:.6}, GPU: {:.6}, diff: {:.6}",
+                    i,
+                    cpu_output[i],
+                    gpu_output[i],
+                    (cpu_output[i] - gpu_output[i]).abs()
+                );
             }
         } else {
             eprintln!("\nPARITY VERIFIED - CPU and GPU produce same output!");
