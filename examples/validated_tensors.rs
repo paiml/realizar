@@ -52,7 +52,7 @@ fn demo_valid_embedding() {
             println!("     hidden_dim: {}", embedding.hidden_dim());
             let stats = embedding.stats();
             println!("     zero_pct: {:.1}%", stats.zero_pct());
-        }
+        },
         Err(e) => println!("  ❌ Error: {e}"),
     }
     println!();
@@ -76,7 +76,7 @@ fn demo_density_rejection() {
         Err(e) => {
             println!("  ✅ Correctly rejected!");
             print_error(&e);
-        }
+        },
     }
     println!();
 }
@@ -101,7 +101,7 @@ fn demo_validated_weight() {
         Err(e) => {
             println!("  ✅ Correctly rejected!");
             print_error(&e);
-        }
+        },
     }
     println!();
 }

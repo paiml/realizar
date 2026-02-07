@@ -71,8 +71,8 @@ pub(crate) mod test_factory;
 pub use cuda::AprV2ModelCuda;
 #[cfg(feature = "cuda")]
 use helpers::transpose_matrix;
-pub use helpers::{detect_format, is_apr_file, simd_dot};
 use helpers::{apply_rope_norm, matmul, rms_norm, simple_attention};
+pub use helpers::{detect_format, is_apr_file, simd_dot};
 use tokenizer::bpe_encode;
 pub use tokenizer::{byte_to_bpe_char, BpeTokenizer, SimpleTokenizer};
 
@@ -1129,14 +1129,28 @@ impl AprV2Model {
                 let q_start = pos * q_dim_per_token;
                 let q_end = q_start + q_dim_per_token;
                 if q_end <= q.len() {
-                    apply_rope_norm(&mut q[q_start..q_end], num_heads, head_dim, pos, rope_theta, rope_type);
+                    apply_rope_norm(
+                        &mut q[q_start..q_end],
+                        num_heads,
+                        head_dim,
+                        pos,
+                        rope_theta,
+                        rope_type,
+                    );
                 }
 
                 // Apply RoPE to K at this position
                 let k_start = pos * k_dim_per_token;
                 let k_end = k_start + k_dim_per_token;
                 if k_end <= k.len() {
-                    apply_rope_norm(&mut k[k_start..k_end], num_kv_heads, head_dim, pos, rope_theta, rope_type);
+                    apply_rope_norm(
+                        &mut k[k_start..k_end],
+                        num_kv_heads,
+                        head_dim,
+                        pos,
+                        rope_theta,
+                        rope_type,
+                    );
                 }
             }
 
@@ -1475,7 +1489,10 @@ impl AprV2Model {
                     "\n[PMAT-172] ERROR: No tokenizer found for {}.",
                     model_path.display()
                 );
-                let stem = model_path.file_stem().and_then(|s| s.to_str()).unwrap_or("model");
+                let stem = model_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("model");
                 eprintln!(
                     "           Expected sibling file: {}.tokenizer.json or tokenizer.json",
                     stem
@@ -1484,7 +1501,7 @@ impl AprV2Model {
                     "           For SafeTensors models, tokenizer.json must be in same directory.\n"
                 );
                 return None;
-            }
+            },
         };
 
         let content = match fs::read_to_string(&tokenizer_path) {
@@ -1983,3 +2000,13 @@ mod apr_tests_part_03;
 #[cfg(test)]
 #[path = "tests_part_04.rs"]
 mod apr_tests_part_04;
+
+// T-COV-95 Coverage Bridge (Part 05 - AprFlags, AprHeader, TensorEntry, AprMetadata, dtype_to_qtype)
+#[cfg(test)]
+#[path = "tests_part_05.rs"]
+mod apr_tests_part_05;
+
+// T-COV-95 Coverage Bridge (Part 06 - from_bytes edge cases, predict, tensor access, metadata aliases)
+#[cfg(test)]
+#[path = "tests_part_06.rs"]
+mod apr_tests_part_06;

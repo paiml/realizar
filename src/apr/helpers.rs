@@ -468,7 +468,7 @@ mod tests {
     fn test_apply_rope_norm_basic() {
         let mut x = vec![1.0, 0.0, 0.0, 1.0]; // 1 head, head_dim=4
         apply_rope_norm(&mut x, 1, 4, 0, 10000.0, 0); // NORM style
-        // At position 0, angle = 0, cos=1, sin=0, so values should be unchanged
+                                                      // At position 0, angle = 0, cos=1, sin=0, so values should be unchanged
         assert!((x[0] - 1.0).abs() < 0.001);
         assert!((x[1] - 0.0).abs() < 0.001);
     }
@@ -477,8 +477,8 @@ mod tests {
     fn test_apply_rope_norm_position_1() {
         let mut x = vec![1.0, 0.0, 0.0, 1.0]; // 1 head, head_dim=4
         apply_rope_norm(&mut x, 1, 4, 1, 10000.0, 0); // NORM style
-        // At position 1, some rotation should occur
-        // Values should be different from original
+                                                      // At position 1, some rotation should occur
+                                                      // Values should be different from original
         let sum: f32 = x.iter().map(|v| v.abs()).sum();
         assert!(sum > 0.5); // Non-zero output
     }
@@ -487,7 +487,7 @@ mod tests {
     fn test_apply_rope_norm_multiple_heads() {
         let mut x = vec![1.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 2.0]; // 2 heads, head_dim=4
         apply_rope_norm(&mut x, 2, 4, 0, 10000.0, 0); // NORM style
-        // At position 0, values should be unchanged for both heads
+                                                      // At position 0, values should be unchanged for both heads
         assert!((x[0] - 1.0).abs() < 0.001);
         assert!((x[4] - 2.0).abs() < 0.001);
     }
@@ -497,7 +497,7 @@ mod tests {
     fn test_apply_rope_neox_basic() {
         let mut x = vec![1.0, 0.0, 0.0, 1.0]; // 1 head, head_dim=4
         apply_rope_norm(&mut x, 1, 4, 0, 10000.0, 2); // NEOX style
-        // At position 0, angle = 0, cos=1, sin=0, so values should be unchanged
+                                                      // At position 0, angle = 0, cos=1, sin=0, so values should be unchanged
         assert!((x[0] - 1.0).abs() < 0.001);
         assert!((x[2] - 0.0).abs() < 0.001);
     }
@@ -506,7 +506,7 @@ mod tests {
     fn test_apply_rope_neox_position_1() {
         let mut x = vec![1.0, 0.0, 0.0, 1.0]; // 1 head, head_dim=4
         apply_rope_norm(&mut x, 1, 4, 1, 10000.0, 2); // NEOX style
-        // At position 1, some rotation should occur
+                                                      // At position 1, some rotation should occur
         let sum: f32 = x.iter().map(|v| v.abs()).sum();
         assert!(sum > 0.5); // Non-zero output
     }

@@ -1,7 +1,7 @@
 //! Trace SafeTensors inference to diagnose garbage output
 
-use realizar::safetensors_infer::SafetensorsToAprConverter;
 use realizar::apr_transformer::GenerateConfig;
+use realizar::safetensors_infer::SafetensorsToAprConverter;
 use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -16,7 +16,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  num_heads: {}", transformer.config.num_heads);
     println!("  num_kv_heads: {}", transformer.config.num_kv_heads);
     println!("  vocab_size: {}", transformer.config.vocab_size);
-    println!("  intermediate_dim: {}", transformer.config.intermediate_dim);
+    println!(
+        "  intermediate_dim: {}",
+        transformer.config.intermediate_dim
+    );
 
     let hidden_dim = transformer.config.hidden_dim;
 
@@ -64,7 +67,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut first_nonzero = None;
     for i in 0..1000 {
         let start = i * hidden_dim;
-        let tok_l2: f32 = emb[start..start + hidden_dim].iter().map(|x| x * x).sum::<f32>().sqrt();
+        let tok_l2: f32 = emb[start..start + hidden_dim]
+            .iter()
+            .map(|x| x * x)
+            .sum::<f32>()
+            .sqrt();
         if tok_l2 > 0.1 {
             first_nonzero = Some((i, tok_l2));
             break;
@@ -75,7 +82,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let emb_mean: f32 = emb.iter().sum::<f32>() / emb_len as f32;
     let emb_min = emb.iter().cloned().fold(f32::INFINITY, f32::min);
     let emb_max = emb.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    println!("  mean: {:.6}, min: {:.6}, max: {:.6}", emb_mean, emb_min, emb_max);
+    println!(
+        "  mean: {:.6}, min: {:.6}, max: {:.6}",
+        emb_mean, emb_min, emb_max
+    );
 
     println!("\n=== LM Head Stats ===");
     let lm = &transformer.lm_head_weight;
@@ -86,7 +96,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lm_mean: f32 = lm.iter().sum::<f32>() / lm_len as f32;
     let lm_min = lm.iter().cloned().fold(f32::INFINITY, f32::min);
     let lm_max = lm.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    println!("  mean: {:.6}, min: {:.6}, max: {:.6}", lm_mean, lm_min, lm_max);
+    println!(
+        "  mean: {:.6}, min: {:.6}, max: {:.6}",
+        lm_mean, lm_min, lm_max
+    );
 
     // Simple inference test
     println!("\n=== Simple Forward Pass ===");
@@ -105,7 +118,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for &tok in generated {
         if tok > transformer.config.vocab_size as u32 {
-            println!("  WARNING: Token {} > vocab_size {}!", tok, transformer.config.vocab_size);
+            println!(
+                "  WARNING: Token {} > vocab_size {}!",
+                tok, transformer.config.vocab_size
+            );
         }
     }
 

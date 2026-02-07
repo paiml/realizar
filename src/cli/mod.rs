@@ -179,7 +179,9 @@ fn detect_model_source(model_ref: &str, verbose: bool) -> Result<ModelSource> {
 /// Setup trace environment if enabled
 /// Parse trace config and set up environment
 #[allow(clippy::option_option)]
-fn setup_trace_config(trace: Option<Option<String>>) -> Option<crate::inference_trace::TraceConfig> {
+fn setup_trace_config(
+    trace: Option<Option<String>>,
+) -> Option<crate::inference_trace::TraceConfig> {
     let trace_config = handlers::parse_trace_config(trace);
     if trace_config.is_some() {
         std::env::set_var("GPU_DEBUG", "1");
@@ -1757,7 +1759,8 @@ mod server_commands {
         println!("  Vocab size: {}", vocab.len());
         println!("  Mode: CPU (F32 inference)");
 
-        let state = crate::api::AppState::with_apr_transformer_and_vocab(transformer.into_inner(), vocab)?;
+        let state =
+            crate::api::AppState::with_apr_transformer_and_vocab(transformer.into_inner(), vocab)?;
 
         Ok(PreparedServer {
             state,

@@ -410,7 +410,7 @@ mod tests {
             0.0,
             "text",
             false,
-            true, // verbose
+            true,                         // verbose
             Some(TraceConfig::enabled()), // trace_config
         );
         assert!(result.is_err());

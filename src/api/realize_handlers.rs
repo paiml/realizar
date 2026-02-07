@@ -1605,4 +1605,949 @@ mod tests {
         // Should format without panic
         assert!(!result.is_empty());
     }
+
+    // =========================================================================
+    // format_chat_messages: multi-role conversations
+    // =========================================================================
+
+    #[test]
+    fn test_format_chat_messages_system_user_assistant() {
+        let messages = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: "You are a helpful assistant.".to_string(),
+                name: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "What is 2+2?".to_string(),
+                name: None,
+            },
+            ChatMessage {
+                role: "assistant".to_string(),
+                content: "4".to_string(),
+                name: None,
+            },
+        ];
+        let result = format_chat_messages(&messages, None);
+        assert!(result.contains("helpful assistant"));
+        assert!(result.contains("2+2"));
+        assert!(result.contains("4"));
+    }
+
+    #[test]
+    fn test_format_chat_messages_multi_turn() {
+        let messages = vec![
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+                name: None,
+            },
+            ChatMessage {
+                role: "assistant".to_string(),
+                content: "Hi there!".to_string(),
+                name: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "How are you?".to_string(),
+                name: None,
+            },
+        ];
+        let result = format_chat_messages(&messages, None);
+        assert!(result.contains("Hello"));
+        assert!(result.contains("Hi there!"));
+        assert!(result.contains("How are you?"));
+    }
+
+    #[test]
+    fn test_format_chat_messages_with_qwen_model() {
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Test".to_string(),
+            name: None,
+        }];
+        let result = format_chat_messages(&messages, Some("qwen2"));
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_format_chat_messages_with_unknown_model() {
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Test prompt".to_string(),
+            name: None,
+        }];
+        let result = format_chat_messages(&messages, Some("unknown_model_xyz"));
+        assert!(result.contains("Test prompt"));
+    }
+
+    #[test]
+    fn test_format_chat_messages_only_system() {
+        let messages = vec![ChatMessage {
+            role: "system".to_string(),
+            content: "System prompt only".to_string(),
+            name: None,
+        }];
+        let result = format_chat_messages(&messages, None);
+        assert!(result.contains("System prompt only"));
+    }
+
+    // =========================================================================
+    // clean_chat_output: remaining stop sequences
+    // =========================================================================
+
+    #[test]
+    fn test_clean_chat_output_with_end_tag() {
+        let text = "Some output<|end|>extra stuff";
+        let cleaned = clean_chat_output(text);
+        assert_eq!(cleaned, "Some output");
+    }
+
+    #[test]
+    fn test_clean_chat_output_with_user_turn() {
+        let text = "Response here\nUser: next question";
+        let cleaned = clean_chat_output(text);
+        assert_eq!(cleaned, "Response here");
+    }
+
+    #[test]
+    fn test_clean_chat_output_with_double_newline_human() {
+        let text = "Response here\n\nHuman: next question";
+        let cleaned = clean_chat_output(text);
+        assert_eq!(cleaned, "Response here");
+    }
+
+    #[test]
+    fn test_clean_chat_output_with_double_newline_user() {
+        let text = "Response here\n\nUser: next question";
+        let cleaned = clean_chat_output(text);
+        assert_eq!(cleaned, "Response here");
+    }
+
+    #[test]
+    fn test_clean_chat_output_with_im_start() {
+        let text = "Response here<|im_start|>user\nAnother message";
+        let cleaned = clean_chat_output(text);
+        assert_eq!(cleaned, "Response here");
+    }
+
+    #[test]
+    fn test_clean_chat_output_empty_before_stop() {
+        let text = "<|im_end|>stuff";
+        let cleaned = clean_chat_output(text);
+        assert_eq!(cleaned, "");
+    }
+
+    #[test]
+    fn test_clean_chat_output_only_whitespace_before_stop() {
+        let text = "   \n  </s>garbage";
+        let cleaned = clean_chat_output(text);
+        assert_eq!(cleaned, "");
+    }
+
+    #[test]
+    fn test_clean_chat_output_no_content() {
+        let text = "";
+        let cleaned = clean_chat_output(text);
+        assert_eq!(cleaned, "");
+    }
+
+    #[test]
+    fn test_clean_chat_output_only_whitespace() {
+        let text = "   \n\t  ";
+        let cleaned = clean_chat_output(text);
+        assert_eq!(cleaned, "");
+    }
+
+    #[test]
+    fn test_clean_chat_output_preserves_internal_newlines() {
+        let text = "Line 1\nLine 2\nLine 3";
+        let cleaned = clean_chat_output(text);
+        assert_eq!(cleaned, "Line 1\nLine 2\nLine 3");
+    }
+
+    #[test]
+    fn test_clean_chat_output_earliest_of_multiple() {
+        // <|end|> is at index 2, </s> is at index 10
+        let text = "OK<|end|>middle</s>end";
+        let cleaned = clean_chat_output(text);
+        assert_eq!(cleaned, "OK");
+    }
+
+    #[test]
+    fn test_clean_chat_output_endoftext_earliest() {
+        let text = "A<|endoftext|>B<|im_end|>C";
+        let cleaned = clean_chat_output(text);
+        assert_eq!(cleaned, "A");
+    }
+
+    // =========================================================================
+    // ContextWindowManager: truncation edge cases
+    // =========================================================================
+
+    #[test]
+    fn test_context_window_manager_truncate_preserves_recent_messages() {
+        let config = ContextWindowConfig::new(200).with_reserved_output(50);
+        let manager = ContextWindowManager::new(config);
+
+        let messages: Vec<ChatMessage> = (0..20)
+            .map(|i| ChatMessage {
+                role: "user".to_string(),
+                content: format!("Message number {}", i),
+                name: None,
+            })
+            .collect();
+
+        let (result, truncated) = manager.truncate_messages(&messages);
+        assert!(truncated);
+        // Most recent messages should be preserved
+        if !result.is_empty() {
+            let last_result = &result[result.len() - 1];
+            let last_original = &messages[messages.len() - 1];
+            assert_eq!(last_result.content, last_original.content);
+        }
+    }
+
+    #[test]
+    fn test_context_window_manager_truncate_no_messages() {
+        let manager = ContextWindowManager::default_manager();
+        let messages: Vec<ChatMessage> = vec![];
+        let (result, truncated) = manager.truncate_messages(&messages);
+        assert!(!truncated);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_context_window_manager_truncate_single_huge_message() {
+        let config = ContextWindowConfig::new(50).with_reserved_output(10);
+        let manager = ContextWindowManager::new(config);
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "x".repeat(10000),
+            name: None,
+        }];
+        let (result, truncated) = manager.truncate_messages(&messages);
+        assert!(truncated);
+        // The single message doesn't fit, so result should be empty
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_context_window_manager_needs_truncation_empty() {
+        let manager = ContextWindowManager::default_manager();
+        assert!(!manager.needs_truncation(&[]));
+    }
+
+    #[test]
+    fn test_context_window_manager_estimate_total_tokens_empty() {
+        let manager = ContextWindowManager::default_manager();
+        assert_eq!(manager.estimate_total_tokens(&[]), 0);
+    }
+
+    #[test]
+    fn test_context_window_manager_estimate_total_tokens_multiple() {
+        let manager = ContextWindowManager::default_manager();
+        let messages = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: "You are helpful.".to_string(),
+                name: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Hi".to_string(),
+                name: None,
+            },
+        ];
+        let total = manager.estimate_total_tokens(&messages);
+        // Each message: len/4 + 10 overhead
+        // "You are helpful." = 16 chars -> 4 tokens + 10 = 14
+        // "Hi" = 2 chars -> 1 token + 10 = 11
+        // Total ~= 25
+        assert!(total > 20);
+        assert!(total < 50);
+    }
+
+    #[test]
+    fn test_context_window_config_zero_max_tokens() {
+        let config = ContextWindowConfig::new(0);
+        assert_eq!(config.available_tokens(), 0);
+    }
+
+    #[test]
+    fn test_context_window_config_chained_builder() {
+        let config = ContextWindowConfig::new(8192).with_reserved_output(1024);
+        assert_eq!(config.max_tokens, 8192);
+        assert_eq!(config.reserved_output_tokens, 1024);
+        assert_eq!(config.available_tokens(), 7168);
+    }
+
+    // =========================================================================
+    // CompletionRequest serialization/deserialization
+    // =========================================================================
+
+    #[test]
+    fn test_completion_request_minimal() {
+        let json = r#"{"model": "gpt-4", "prompt": "Hello"}"#;
+        let request: CompletionRequest = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(request.model, "gpt-4");
+        assert_eq!(request.prompt, "Hello");
+        assert!(request.max_tokens.is_none());
+        assert!(request.temperature.is_none());
+        assert!(request.top_p.is_none());
+        assert!(request.stop.is_none());
+    }
+
+    #[test]
+    fn test_completion_request_full() {
+        let request = CompletionRequest {
+            model: "llama2".to_string(),
+            prompt: "Once upon a time".to_string(),
+            max_tokens: Some(100),
+            temperature: Some(0.7),
+            top_p: Some(0.9),
+            stop: Some(vec!["\n".to_string(), "END".to_string()]),
+        };
+        let json = serde_json::to_string(&request).expect("serialize");
+        assert!(json.contains("llama2"));
+        assert!(json.contains("Once upon a time"));
+        assert!(json.contains("100"));
+        assert!(json.contains("0.7"));
+        assert!(json.contains("0.9"));
+        assert!(json.contains("END"));
+    }
+
+    #[test]
+    fn test_completion_request_optional_fields_skipped() {
+        let request = CompletionRequest {
+            model: "test".to_string(),
+            prompt: "hi".to_string(),
+            max_tokens: None,
+            temperature: None,
+            top_p: None,
+            stop: None,
+        };
+        let json = serde_json::to_string(&request).expect("serialize");
+        assert!(!json.contains("max_tokens"));
+        assert!(!json.contains("temperature"));
+        assert!(!json.contains("top_p"));
+        assert!(!json.contains("stop"));
+    }
+
+    #[test]
+    fn test_completion_request_debug() {
+        let request = CompletionRequest {
+            model: "debug_test".to_string(),
+            prompt: "test".to_string(),
+            max_tokens: None,
+            temperature: None,
+            top_p: None,
+            stop: None,
+        };
+        let debug = format!("{:?}", request);
+        assert!(debug.contains("CompletionRequest"));
+        assert!(debug.contains("debug_test"));
+    }
+
+    #[test]
+    fn test_completion_request_clone() {
+        let request = CompletionRequest {
+            model: "test".to_string(),
+            prompt: "hello".to_string(),
+            max_tokens: Some(50),
+            temperature: Some(0.5),
+            top_p: None,
+            stop: None,
+        };
+        let cloned = request.clone();
+        assert_eq!(cloned.model, "test");
+        assert_eq!(cloned.prompt, "hello");
+        assert_eq!(cloned.max_tokens, Some(50));
+    }
+
+    // =========================================================================
+    // CompletionResponse serialization/deserialization
+    // =========================================================================
+
+    #[test]
+    fn test_completion_response_basic() {
+        let response = CompletionResponse {
+            id: "cmpl-123".to_string(),
+            object: "text_completion".to_string(),
+            created: 1234567890,
+            model: "llama2".to_string(),
+            choices: vec![CompletionChoice {
+                text: "generated text".to_string(),
+                index: 0,
+                logprobs: None,
+                finish_reason: "stop".to_string(),
+            }],
+            usage: Usage {
+                prompt_tokens: 5,
+                completion_tokens: 10,
+                total_tokens: 15,
+            },
+        };
+        assert_eq!(response.choices.len(), 1);
+        assert_eq!(response.choices[0].text, "generated text");
+        assert_eq!(response.usage.total_tokens, 15);
+    }
+
+    #[test]
+    fn test_completion_response_serialization() {
+        let response = CompletionResponse {
+            id: "cmpl-test".to_string(),
+            object: "text_completion".to_string(),
+            created: 1000,
+            model: "test".to_string(),
+            choices: vec![CompletionChoice {
+                text: "output".to_string(),
+                index: 0,
+                logprobs: None,
+                finish_reason: "length".to_string(),
+            }],
+            usage: Usage {
+                prompt_tokens: 3,
+                completion_tokens: 7,
+                total_tokens: 10,
+            },
+        };
+        let json = serde_json::to_string(&response).expect("serialize");
+        assert!(json.contains("text_completion"));
+        assert!(json.contains("output"));
+        assert!(json.contains("length"));
+    }
+
+    #[test]
+    fn test_completion_response_clone() {
+        let response = CompletionResponse {
+            id: "test".to_string(),
+            object: "text_completion".to_string(),
+            created: 0,
+            model: "m".to_string(),
+            choices: vec![],
+            usage: Usage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: 0,
+            },
+        };
+        let cloned = response.clone();
+        assert_eq!(cloned.id, "test");
+    }
+
+    #[test]
+    fn test_completion_response_debug() {
+        let response = CompletionResponse {
+            id: "debug-id".to_string(),
+            object: "text_completion".to_string(),
+            created: 0,
+            model: "m".to_string(),
+            choices: vec![],
+            usage: Usage {
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: 0,
+            },
+        };
+        let debug = format!("{:?}", response);
+        assert!(debug.contains("CompletionResponse"));
+        assert!(debug.contains("debug-id"));
+    }
+
+    // =========================================================================
+    // CompletionChoice
+    // =========================================================================
+
+    #[test]
+    fn test_completion_choice_with_logprobs() {
+        let choice = CompletionChoice {
+            text: "hello".to_string(),
+            index: 0,
+            logprobs: Some(serde_json::json!({"tokens": ["hello"], "token_logprobs": [-0.5]})),
+            finish_reason: "stop".to_string(),
+        };
+        assert!(choice.logprobs.is_some());
+        let json = serde_json::to_string(&choice).expect("serialize");
+        assert!(json.contains("logprobs"));
+        assert!(json.contains("token_logprobs"));
+    }
+
+    #[test]
+    fn test_completion_choice_no_logprobs() {
+        let choice = CompletionChoice {
+            text: "world".to_string(),
+            index: 1,
+            logprobs: None,
+            finish_reason: "length".to_string(),
+        };
+        let json = serde_json::to_string(&choice).expect("serialize");
+        assert!(!json.contains("logprobs"));
+        assert!(json.contains("length"));
+    }
+
+    #[test]
+    fn test_completion_choice_clone() {
+        let choice = CompletionChoice {
+            text: "test".to_string(),
+            index: 0,
+            logprobs: None,
+            finish_reason: "stop".to_string(),
+        };
+        let cloned = choice.clone();
+        assert_eq!(cloned.text, "test");
+        assert_eq!(cloned.index, 0);
+    }
+
+    #[test]
+    fn test_completion_choice_debug() {
+        let choice = CompletionChoice {
+            text: "debug".to_string(),
+            index: 0,
+            logprobs: None,
+            finish_reason: "stop".to_string(),
+        };
+        let debug = format!("{:?}", choice);
+        assert!(debug.contains("CompletionChoice"));
+    }
+
+    // =========================================================================
+    // epoch_secs / epoch_millis
+    // =========================================================================
+
+    #[test]
+    fn test_epoch_secs_returns_reasonable_value() {
+        let secs = epoch_secs();
+        // Should be after Jan 1, 2020 (1577836800)
+        assert!(secs > 1_577_836_800);
+    }
+
+    #[test]
+    fn test_epoch_millis_returns_reasonable_value() {
+        let millis = epoch_millis();
+        // Should be after Jan 1, 2020 in millis
+        assert!(millis > 1_577_836_800_000);
+    }
+
+    #[test]
+    fn test_epoch_millis_greater_than_secs() {
+        let secs = epoch_secs() as u128;
+        let millis = epoch_millis();
+        assert!(millis >= secs * 1000);
+        assert!(millis < (secs + 2) * 1000);
+    }
+
+    // =========================================================================
+    // completion_resp helper
+    // =========================================================================
+
+    #[test]
+    fn test_completion_resp_stop_reason() {
+        let resp = completion_resp(
+            "cmpl-test",
+            "model-x".to_string(),
+            "output text".to_string(),
+            10,
+            5,
+            100, // max_tokens = 100, completion_tokens = 5 < 100 => "stop"
+        );
+        assert_eq!(resp.choices[0].finish_reason, "stop");
+        assert_eq!(resp.usage.prompt_tokens, 10);
+        assert_eq!(resp.usage.completion_tokens, 5);
+        assert_eq!(resp.usage.total_tokens, 15);
+        assert!(resp.id.starts_with("cmpl-test-"));
+        assert_eq!(resp.model, "model-x");
+        assert_eq!(resp.object, "text_completion");
+    }
+
+    #[test]
+    fn test_completion_resp_length_reason() {
+        let resp = completion_resp(
+            "cmpl-len",
+            "model-y".to_string(),
+            "long output".to_string(),
+            5,
+            100,
+            100, // max_tokens = 100, completion_tokens = 100 >= 100 => "length"
+        );
+        assert_eq!(resp.choices[0].finish_reason, "length");
+    }
+
+    #[test]
+    fn test_completion_resp_length_reason_exceeds() {
+        let resp = completion_resp(
+            "cmpl",
+            "m".to_string(),
+            "text".to_string(),
+            1,
+            200,
+            100, // completion_tokens = 200 > max_tokens = 100 => "length"
+        );
+        assert_eq!(resp.choices[0].finish_reason, "length");
+    }
+
+    #[test]
+    fn test_completion_resp_zero_tokens() {
+        let resp = completion_resp("cmpl", "m".to_string(), String::new(), 0, 0, 100);
+        assert_eq!(resp.choices[0].finish_reason, "stop");
+        assert_eq!(resp.usage.total_tokens, 0);
+        assert!(resp.choices[0].text.is_empty());
+    }
+
+    #[test]
+    fn test_completion_resp_single_choice() {
+        let resp = completion_resp("prefix", "model".to_string(), "text".to_string(), 1, 1, 10);
+        assert_eq!(resp.choices.len(), 1);
+        assert_eq!(resp.choices[0].index, 0);
+        assert!(resp.choices[0].logprobs.is_none());
+    }
+
+    // =========================================================================
+    // EmbeddingRequest edge cases
+    // =========================================================================
+
+    #[test]
+    fn test_embedding_request_empty_input() {
+        let request = EmbeddingRequest {
+            input: String::new(),
+            model: None,
+        };
+        let json = serde_json::to_string(&request).expect("serialize");
+        let parsed: EmbeddingRequest = serde_json::from_str(&json).expect("deserialize");
+        assert!(parsed.input.is_empty());
+    }
+
+    #[test]
+    fn test_embedding_request_long_input() {
+        let request = EmbeddingRequest {
+            input: "word ".repeat(1000),
+            model: Some("ada".to_string()),
+        };
+        assert_eq!(request.input.len(), 5000);
+    }
+
+    #[test]
+    fn test_embedding_request_debug() {
+        let request = EmbeddingRequest {
+            input: "test".to_string(),
+            model: None,
+        };
+        let debug = format!("{:?}", request);
+        assert!(debug.contains("EmbeddingRequest"));
+    }
+
+    #[test]
+    fn test_embedding_request_clone() {
+        let request = EmbeddingRequest {
+            input: "clone test".to_string(),
+            model: Some("model-a".to_string()),
+        };
+        let cloned = request.clone();
+        assert_eq!(cloned.input, "clone test");
+        assert_eq!(cloned.model, Some("model-a".to_string()));
+    }
+
+    // =========================================================================
+    // ReloadRequest/Response deserialization edge cases
+    // =========================================================================
+
+    #[test]
+    fn test_reload_request_deserialization_empty_json() {
+        let json = "{}";
+        let request: ReloadRequest = serde_json::from_str(json).expect("deserialize");
+        assert!(request.model.is_none());
+        assert!(request.path.is_none());
+    }
+
+    #[test]
+    fn test_reload_request_full_deserialization() {
+        let json = r#"{"model": "llama3", "path": "/models/llama3.gguf"}"#;
+        let request: ReloadRequest = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(request.model, Some("llama3".to_string()));
+        assert_eq!(request.path, Some("/models/llama3.gguf".to_string()));
+    }
+
+    #[test]
+    fn test_reload_response_deserialization() {
+        let json = r#"{"success": true, "message": "OK", "reload_time_ms": 42}"#;
+        let response: ReloadResponse = serde_json::from_str(json).expect("deserialize");
+        assert!(response.success);
+        assert_eq!(response.message, "OK");
+        assert_eq!(response.reload_time_ms, 42);
+    }
+
+    #[test]
+    fn test_reload_request_debug() {
+        let request = ReloadRequest {
+            model: Some("test".to_string()),
+            path: Some("/path".to_string()),
+        };
+        let debug = format!("{:?}", request);
+        assert!(debug.contains("ReloadRequest"));
+    }
+
+    // =========================================================================
+    // ModelMetadataResponse edge cases
+    // =========================================================================
+
+    #[test]
+    fn test_model_metadata_response_deserialization() {
+        let json = r#"{"id":"m1","name":"Model 1","format":"GGUF","size_bytes":100,"context_length":4096,"loaded":true}"#;
+        let response: ModelMetadataResponse = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(response.id, "m1");
+        assert_eq!(response.name, "Model 1");
+        assert!(response.loaded);
+        assert!(response.quantization.is_none());
+        assert!(response.lineage.is_none());
+    }
+
+    #[test]
+    fn test_model_metadata_response_debug() {
+        let response = ModelMetadataResponse {
+            id: "debug".to_string(),
+            name: "Debug Model".to_string(),
+            format: "APR".to_string(),
+            size_bytes: 0,
+            quantization: None,
+            context_length: 2048,
+            lineage: None,
+            loaded: false,
+        };
+        let debug = format!("{:?}", response);
+        assert!(debug.contains("ModelMetadataResponse"));
+    }
+
+    #[test]
+    fn test_model_metadata_response_clone() {
+        let response = ModelMetadataResponse {
+            id: "c".to_string(),
+            name: "Clone".to_string(),
+            format: "GGUF".to_string(),
+            size_bytes: 42,
+            quantization: Some("Q4_K_M".to_string()),
+            context_length: 4096,
+            lineage: None,
+            loaded: true,
+        };
+        let cloned = response.clone();
+        assert_eq!(cloned.id, "c");
+        assert_eq!(cloned.quantization, Some("Q4_K_M".to_string()));
+    }
+
+    // =========================================================================
+    // ModelLineage serialization edge cases
+    // =========================================================================
+
+    #[test]
+    fn test_model_lineage_serialization_skip_none() {
+        let lineage = ModelLineage {
+            uri: "pacha://test".to_string(),
+            version: "1.0.0".to_string(),
+            recipe: None,
+            parent: None,
+            content_hash: "hash".to_string(),
+        };
+        let json = serde_json::to_string(&lineage).expect("serialize");
+        assert!(!json.contains("recipe"));
+        assert!(!json.contains("parent"));
+    }
+
+    #[test]
+    fn test_model_lineage_serialization_with_all_fields() {
+        let lineage = ModelLineage {
+            uri: "pacha://test".to_string(),
+            version: "2.0".to_string(),
+            recipe: Some("sft".to_string()),
+            parent: Some("base".to_string()),
+            content_hash: "abc123".to_string(),
+        };
+        let json = serde_json::to_string(&lineage).expect("serialize");
+        assert!(json.contains("sft"));
+        assert!(json.contains("base"));
+    }
+
+    #[test]
+    fn test_model_lineage_debug() {
+        let lineage = ModelLineage {
+            uri: "test".to_string(),
+            version: "1.0".to_string(),
+            recipe: None,
+            parent: None,
+            content_hash: "h".to_string(),
+        };
+        let debug = format!("{:?}", lineage);
+        assert!(debug.contains("ModelLineage"));
+    }
+
+    // =========================================================================
+    // EmbeddingUsage / EmbeddingData edge cases
+    // =========================================================================
+
+    #[test]
+    fn test_embedding_usage_deserialization() {
+        let json = r#"{"prompt_tokens": 42, "total_tokens": 42}"#;
+        let usage: EmbeddingUsage = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(usage.prompt_tokens, 42);
+        assert_eq!(usage.total_tokens, 42);
+    }
+
+    #[test]
+    fn test_embedding_usage_debug() {
+        let usage = EmbeddingUsage {
+            prompt_tokens: 10,
+            total_tokens: 10,
+        };
+        let debug = format!("{:?}", usage);
+        assert!(debug.contains("EmbeddingUsage"));
+    }
+
+    #[test]
+    fn test_embedding_usage_clone() {
+        let usage = EmbeddingUsage {
+            prompt_tokens: 5,
+            total_tokens: 5,
+        };
+        let cloned = usage.clone();
+        assert_eq!(cloned.prompt_tokens, 5);
+    }
+
+    #[test]
+    fn test_embedding_data_debug() {
+        let data = EmbeddingData {
+            object: "embedding".to_string(),
+            index: 0,
+            embedding: vec![0.1, 0.2],
+        };
+        let debug = format!("{:?}", data);
+        assert!(debug.contains("EmbeddingData"));
+    }
+
+    #[test]
+    fn test_embedding_data_serialization() {
+        let data = EmbeddingData {
+            object: "embedding".to_string(),
+            index: 0,
+            embedding: vec![1.0, 2.0, 3.0],
+        };
+        let json = serde_json::to_string(&data).expect("serialize");
+        assert!(json.contains("embedding"));
+        assert!(json.contains("1.0"));
+    }
+
+    #[test]
+    fn test_embedding_response_debug() {
+        let response = EmbeddingResponse {
+            object: "list".to_string(),
+            data: vec![],
+            model: "test".to_string(),
+            usage: EmbeddingUsage {
+                prompt_tokens: 0,
+                total_tokens: 0,
+            },
+        };
+        let debug = format!("{:?}", response);
+        assert!(debug.contains("EmbeddingResponse"));
+    }
+
+    #[test]
+    fn test_embedding_response_clone() {
+        let response = EmbeddingResponse {
+            object: "list".to_string(),
+            data: vec![EmbeddingData {
+                object: "embedding".to_string(),
+                index: 0,
+                embedding: vec![0.5],
+            }],
+            model: "m".to_string(),
+            usage: EmbeddingUsage {
+                prompt_tokens: 1,
+                total_tokens: 1,
+            },
+        };
+        let cloned = response.clone();
+        assert_eq!(cloned.data.len(), 1);
+    }
+
+    #[test]
+    fn test_embedding_response_deserialization() {
+        let json = r#"{"object":"list","data":[],"model":"test","usage":{"prompt_tokens":0,"total_tokens":0}}"#;
+        let response: EmbeddingResponse = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(response.object, "list");
+        assert!(response.data.is_empty());
+    }
+
+    // =========================================================================
+    // ContextWindowManager: estimate_tokens static method
+    // =========================================================================
+
+    #[test]
+    fn test_estimate_tokens_short() {
+        // "Hi" = 2 chars => ceil(2/4) + 10 = 1 + 10 = 11
+        let manager = ContextWindowManager::default_manager();
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Hi".to_string(),
+            name: None,
+        }];
+        let tokens = manager.estimate_total_tokens(&messages);
+        assert_eq!(tokens, 11);
+    }
+
+    #[test]
+    fn test_estimate_tokens_empty_content() {
+        // "" = 0 chars => ceil(0/4) + 10 = 0 + 10 = 10
+        let manager = ContextWindowManager::default_manager();
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: String::new(),
+            name: None,
+        }];
+        let tokens = manager.estimate_total_tokens(&messages);
+        assert_eq!(tokens, 10);
+    }
+
+    #[test]
+    fn test_estimate_tokens_exact_multiple_of_four() {
+        // "abcd" = 4 chars => ceil(4/4) + 10 = 1 + 10 = 11
+        let manager = ContextWindowManager::default_manager();
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "abcd".to_string(),
+            name: None,
+        }];
+        let tokens = manager.estimate_total_tokens(&messages);
+        assert_eq!(tokens, 11);
+    }
+
+    #[test]
+    fn test_context_window_truncate_system_not_preserved() {
+        let mut config = ContextWindowConfig::new(100);
+        config.preserve_system = false;
+        config.reserved_output_tokens = 10;
+        let manager = ContextWindowManager::new(config);
+
+        let messages = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: "x".repeat(500),
+                name: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "short".to_string(),
+                name: None,
+            },
+        ];
+
+        let (result, truncated) = manager.truncate_messages(&messages);
+        assert!(truncated);
+        // With preserve_system=false, system is just another message
+        // The user message should be included (it's the most recent)
+        if !result.is_empty() {
+            // The most recent non-system message is "short"
+            let has_user = result.iter().any(|m| m.content == "short");
+            assert!(has_user);
+        }
+    }
 }

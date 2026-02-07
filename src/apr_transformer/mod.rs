@@ -811,7 +811,8 @@ impl AprTransformer {
             .ok_or_else(|| RealizarError::FormatError {
                 reason: "FATAL: No embedding tensor found. Tried: model.embed_tokens.weight, \
                         token_embd.weight, tok_embeddings.weight. APR file may be corrupt or \
-                        use unsupported tensor naming convention.".to_string()
+                        use unsupported tensor naming convention."
+                    .to_string(),
             })?;
 
         // GH-208 FIX: Do NOT transpose embedding data
@@ -895,7 +896,8 @@ impl AprTransformer {
                 return Err(RealizarError::FormatError {
                     reason: "FATAL: No lm_head tensor found and no embedding for weight tying. \
                             Tried: lm_head.weight, output.weight, model.embed_tokens.weight, \
-                            token_embd.weight. APR file may be corrupt.".to_string()
+                            token_embd.weight. APR file may be corrupt."
+                        .to_string(),
                 });
             }
         };
@@ -1051,8 +1053,9 @@ impl AprTransformer {
                 .or_else(|| get_q4k_raw_bytes(&format!("{gguf_prefix}.attn_v.weight")));
             let q6k_attn_v = get_q6k_raw_bytes(&format!("{hf_prefix}.self_attn.v_proj.weight"))
                 .or_else(|| get_q6k_raw_bytes(&format!("{gguf_prefix}.attn_v.weight")));
-            let q4k_attn_output = get_q4k_raw_bytes(&format!("{hf_prefix}.self_attn.o_proj.weight"))
-                .or_else(|| get_q4k_raw_bytes(&format!("{gguf_prefix}.attn_output.weight")));
+            let q4k_attn_output =
+                get_q4k_raw_bytes(&format!("{hf_prefix}.self_attn.o_proj.weight"))
+                    .or_else(|| get_q4k_raw_bytes(&format!("{gguf_prefix}.attn_output.weight")));
             let q4k_ffn_gate = get_q4k_raw_bytes(&format!("{hf_prefix}.mlp.gate_proj.weight"))
                 .or_else(|| get_q4k_raw_bytes(&format!("{gguf_prefix}.ffn_gate.weight")));
             let q4k_ffn_up = get_q4k_raw_bytes(&format!("{hf_prefix}.mlp.up_proj.weight"))
@@ -1786,7 +1789,8 @@ impl AprTransformer {
 
                     // Softmax
                     let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                    let exp_scores: Vec<f32> = scores.iter().map(|s| (s - max_score).exp()).collect();
+                    let exp_scores: Vec<f32> =
+                        scores.iter().map(|s| (s - max_score).exp()).collect();
                     let sum_exp: f32 = exp_scores.iter().sum();
                     let probs: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();
 
@@ -1802,7 +1806,8 @@ impl AprTransformer {
             }
 
             // Output projection
-            let mut attn_output = self.matmul(&attn_out, &layer.attn_output_weight, hidden_dim, hidden_dim);
+            let mut attn_output =
+                self.matmul(&attn_out, &layer.attn_output_weight, hidden_dim, hidden_dim);
             if let Some(ref bias) = layer.attn_output_bias {
                 self.add_bias(&mut attn_output, bias);
             }
@@ -1830,7 +1835,12 @@ impl AprTransformer {
             // 2g. FFN - check if gated MLP (SwiGLU) by presence of gate weight
             let ffn_output = if let Some(ref gate_weight) = layer.ffn_gate_weight {
                 let gate = self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim);
-                let up = self.matmul(&ffn_input, &layer.ffn_up_weight, hidden_dim, intermediate_dim);
+                let up = self.matmul(
+                    &ffn_input,
+                    &layer.ffn_up_weight,
+                    hidden_dim,
+                    intermediate_dim,
+                );
 
                 let mut ffn_hidden = Vec::with_capacity(gate.len());
                 for (g, u) in gate.iter().zip(up.iter()) {
@@ -1838,22 +1848,38 @@ impl AprTransformer {
                     ffn_hidden.push(silu_g * u);
                 }
 
-                let mut out = self.matmul(&ffn_hidden, &layer.ffn_down_weight, intermediate_dim, hidden_dim);
+                let mut out = self.matmul(
+                    &ffn_hidden,
+                    &layer.ffn_down_weight,
+                    intermediate_dim,
+                    hidden_dim,
+                );
                 if let Some(ref bias) = layer.ffn_down_bias {
                     self.add_bias(&mut out, bias);
                 }
                 out
             } else {
                 // Standard MLP without gating
-                let mut ffn_hidden = self.matmul(&ffn_input, &layer.ffn_up_weight, hidden_dim, intermediate_dim);
+                let mut ffn_hidden = self.matmul(
+                    &ffn_input,
+                    &layer.ffn_up_weight,
+                    hidden_dim,
+                    intermediate_dim,
+                );
                 if let Some(ref bias) = layer.ffn_up_bias {
                     self.add_bias(&mut ffn_hidden, bias);
                 }
                 for h in &mut ffn_hidden {
-                    let gelu_approx = 0.5 * *h * (1.0 + (0.797_884_6 * (*h + 0.044_715 * *h * *h * *h)).tanh());
+                    let gelu_approx =
+                        0.5 * *h * (1.0 + (0.797_884_6 * (*h + 0.044_715 * *h * *h * *h)).tanh());
                     *h = gelu_approx;
                 }
-                let mut out = self.matmul(&ffn_hidden, &layer.ffn_down_weight, intermediate_dim, hidden_dim);
+                let mut out = self.matmul(
+                    &ffn_hidden,
+                    &layer.ffn_down_weight,
+                    intermediate_dim,
+                    hidden_dim,
+                );
                 if let Some(ref bias) = layer.ffn_down_bias {
                     self.add_bias(&mut out, bias);
                 }

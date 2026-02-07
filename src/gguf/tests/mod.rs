@@ -31,6 +31,7 @@
 //! - `part_24.rs`: Phase 52 - GGUF Loader Metadata Types (state-space exhaustion)
 //! - `part_25.rs`: Phase 54 - Fixture-Based Loader Tests (ModelFixture pattern)
 
+mod loader_tests_part_03;
 mod part_01;
 mod part_02;
 mod part_03;
@@ -65,3 +66,4 @@ mod part_31; // T-COV-95 Data Storm: Multi-Tensor Pygmies for loader.rs
 mod part_32; // T-COV-95 Menagerie of Pygmies: Complex Structural GGUF Generators
 mod part_33; // T-COV-95 Ancestral Pygmies: GGUF Legacy Version & Alignment Assault
 mod part_34; // T-COV-95 Generative Falsification: Proptest GGUF Header Assault
+mod part_35; // Coverage: loader.rs decode/encode edge cases, rope_type paths, metadata accessors // Coverage: OwnedQuantizedModel::to_apr_bytes + from_apr roundtrip

@@ -998,6 +998,8 @@ mod tests {
     fn test_json_file_audit_sink_append() {
         use std::fs;
         let path = std::env::temp_dir().join("audit_test_append.jsonl");
+        // Clean up stale data from previous runs
+        let _ = fs::remove_file(&path);
         let sink = JsonFileAuditSink::new(&path);
 
         // Write first batch

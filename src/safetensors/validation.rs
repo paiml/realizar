@@ -139,7 +139,12 @@ pub struct ValidationResult {
 /// - No NaN or Inf values
 /// - Non-zero L2 norm
 /// - Reasonable value range (not all identical)
-pub fn validate_embedding(name: &str, data: &[f32], vocab_size: usize, hidden_dim: usize) -> ValidationResult {
+pub fn validate_embedding(
+    name: &str,
+    data: &[f32],
+    vocab_size: usize,
+    hidden_dim: usize,
+) -> ValidationResult {
     let stats = TensorStats::compute(data);
     let mut failures = Vec::new();
 
@@ -148,7 +153,10 @@ pub fn validate_embedding(name: &str, data: &[f32], vocab_size: usize, hidden_di
     if data.len() != expected_len {
         failures.push(format!(
             "Shape mismatch: got {} elements, expected {} ({}x{})",
-            data.len(), expected_len, vocab_size, hidden_dim
+            data.len(),
+            expected_len,
+            vocab_size,
+            hidden_dim
         ));
     }
 
@@ -199,11 +207,20 @@ pub fn validate_embedding(name: &str, data: &[f32], vocab_size: usize, hidden_di
         eprintln!("[VALIDATION FAILED] {}: {:?}", name, failures);
     }
 
-    ValidationResult { passed, stats, failures }
+    ValidationResult {
+        passed,
+        stats,
+        failures,
+    }
 }
 
 /// Validate a weight matrix (linear layer)
-pub fn validate_weight(name: &str, data: &[f32], out_dim: usize, in_dim: usize) -> ValidationResult {
+pub fn validate_weight(
+    name: &str,
+    data: &[f32],
+    out_dim: usize,
+    in_dim: usize,
+) -> ValidationResult {
     let stats = TensorStats::compute(data);
     let mut failures = Vec::new();
 
@@ -212,17 +229,17 @@ pub fn validate_weight(name: &str, data: &[f32], out_dim: usize, in_dim: usize) 
     if data.len() != expected_len {
         failures.push(format!(
             "Shape mismatch: got {} elements, expected {} ({}x{})",
-            data.len(), expected_len, out_dim, in_dim
+            data.len(),
+            expected_len,
+            out_dim,
+            in_dim
         ));
     }
 
     // Gate 2: Density (weights should be mostly non-zero)
     let zero_pct = stats.zero_pct();
     if zero_pct > 80.0 {
-        failures.push(format!(
-            "DENSITY FAILURE: {:.1}% zeros (max 80%)",
-            zero_pct
-        ));
+        failures.push(format!("DENSITY FAILURE: {:.1}% zeros (max 80%)", zero_pct));
     }
 
     // Gate 3: NaN/Inf
@@ -243,7 +260,11 @@ pub fn validate_weight(name: &str, data: &[f32], out_dim: usize, in_dim: usize) 
         eprintln!("[VALIDATION FAILED] {}: {:?}", name, failures);
     }
 
-    ValidationResult { passed, stats, failures }
+    ValidationResult {
+        passed,
+        stats,
+        failures,
+    }
 }
 
 /// Validate a 1D tensor (bias, norm weight)
@@ -254,7 +275,8 @@ pub fn validate_vector(_name: &str, data: &[f32], expected_len: usize) -> Valida
     if data.len() != expected_len {
         failures.push(format!(
             "Length mismatch: got {}, expected {}",
-            data.len(), expected_len
+            data.len(),
+            expected_len
         ));
     }
 
@@ -266,7 +288,11 @@ pub fn validate_vector(_name: &str, data: &[f32], expected_len: usize) -> Valida
     }
 
     let passed = failures.is_empty();
-    ValidationResult { passed, stats, failures }
+    ValidationResult {
+        passed,
+        stats,
+        failures,
+    }
 }
 
 /// Enforce validation - returns error if validation fails
@@ -760,23 +786,29 @@ impl ValidatedAprTransformer {
     /// # Errors
     ///
     /// Returns `ContractValidationError` identifying the first tensor that fails.
-    pub fn validate(transformer: AprTransformer) -> std::result::Result<Self, ContractValidationError> {
+    pub fn validate(
+        transformer: AprTransformer,
+    ) -> std::result::Result<Self, ContractValidationError> {
         let config = &transformer.config;
         let hidden_dim = config.hidden_dim;
         let vocab_size = config.vocab_size;
         let intermediate_dim = config.intermediate_dim;
-        let head_dim = if config.num_heads > 0 { hidden_dim / config.num_heads } else { hidden_dim };
+        let head_dim = if config.num_heads > 0 {
+            hidden_dim / config.num_heads
+        } else {
+            hidden_dim
+        };
         let kv_dim = config.num_kv_heads * head_dim;
         let qkv_out_dim = hidden_dim + 2 * kv_dim;
 
         // === Global tensors ===
 
         // token_embedding: [vocab_size * hidden_dim]
-        ValidatedEmbedding::new(
-            transformer.token_embedding.clone(),
-            vocab_size,
-            hidden_dim,
-        ).map_err(|mut e| { e.tensor_name = "token_embedding".to_string(); e })?;
+        ValidatedEmbedding::new(transformer.token_embedding.clone(), vocab_size, hidden_dim)
+            .map_err(|mut e| {
+                e.tensor_name = "token_embedding".to_string();
+                e
+            })?;
 
         // output_norm_weight: [hidden_dim]
         ValidatedVector::new(
@@ -831,11 +863,7 @@ impl ValidatedAprTransformer {
 
             // qkv_bias (optional)
             if let Some(ref bias) = layer.qkv_bias {
-                ValidatedVector::new(
-                    bias.clone(),
-                    qkv_out_dim,
-                    &format!("layers.{i}.qkv_bias"),
-                )?;
+                ValidatedVector::new(bias.clone(), qkv_out_dim, &format!("layers.{i}.qkv_bias"))?;
             }
 
             // attn_output_weight: [hidden_dim * hidden_dim]
@@ -977,7 +1005,11 @@ mod tests {
             .collect();
 
         let result = validate_embedding("test", &data, vocab_size, hidden_dim);
-        assert!(result.passed, "Good embedding should pass: {:?}", result.failures);
+        assert!(
+            result.passed,
+            "Good embedding should pass: {:?}",
+            result.failures
+        );
     }
 
     #[test]
@@ -1047,7 +1079,11 @@ mod tests {
             .map(|i| (i as f32 * 0.01).sin() * 0.1)
             .collect();
         let result = ValidatedEmbedding::new(data, vocab_size, hidden_dim);
-        assert!(result.is_ok(), "Should accept good data: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Should accept good data: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -1148,7 +1184,9 @@ mod tests {
 
         // Non-zero sin pattern data
         let make_data = |n: usize| -> Vec<f32> {
-            (0..n).map(|i| (i as f32 * 0.01).sin() * 0.1 + 0.05).collect()
+            (0..n)
+                .map(|i| (i as f32 * 0.01).sin() * 0.1 + 0.05)
+                .collect()
         };
 
         let layers = (0..num_layers)
@@ -1213,7 +1251,10 @@ mod tests {
         let result = ValidatedAprTransformer::validate(t);
         assert!(result.is_err(), "Should reject NaN in layer 3 ffn_up");
         let err = result.unwrap_err();
-        assert!(err.tensor_name.contains("layers.3.ffn_up_weight"), "Error: {err}");
+        assert!(
+            err.tensor_name.contains("layers.3.ffn_up_weight"),
+            "Error: {err}"
+        );
     }
 
     #[test]
@@ -1225,7 +1266,10 @@ mod tests {
         let result = ValidatedAprTransformer::validate(t);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.tensor_name, "lm_head_weight", "Error should name the tensor: {err}");
+        assert_eq!(
+            err.tensor_name, "lm_head_weight",
+            "Error should name the tensor: {err}"
+        );
     }
 
     #[test]
@@ -1258,3 +1302,8 @@ mod tests {
         assert_eq!(inner.config.hidden_dim, 16);
     }
 }
+
+// T-COV-95 Coverage Bridge (Part 02 - Accessors, error paths, optional biases)
+#[cfg(test)]
+#[path = "validation_tests_part_02.rs"]
+mod validation_tests_part_02;

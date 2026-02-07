@@ -5,8 +5,8 @@
 //! exercises the same logic as a 100GB one.
 
 use crate::cli::inference;
-    use crate::inference_trace::TraceConfig;
 use crate::gguf::test_factory::{build_minimal_llama_gguf, GGUFBuilder};
+use crate::inference_trace::TraceConfig;
 use std::io::Write;
 use tempfile::NamedTempFile;
 
@@ -131,7 +131,7 @@ fn test_pygmy_gguf_inference_basic() {
         false,
         false,
         None, // trace_config
-        );
+    );
 
     // Should succeed or fail gracefully
     // Either way, we've exercised the mmap loading path
@@ -153,7 +153,7 @@ fn test_pygmy_gguf_inference_verbose() {
         false,
         true, // verbose - exercises eprintln! paths
         None, // trace_config
-        );
+    );
 
     let _ = result;
 }
@@ -173,7 +173,7 @@ fn test_pygmy_gguf_inference_json_format() {
         false,
         false,
         None, // trace_config
-        );
+    );
 
     let _ = result;
 }
@@ -213,7 +213,7 @@ fn test_micro_gguf_inference() {
         false,
         false,
         None, // trace_config
-        );
+    );
 
     let _ = result;
 }
@@ -233,7 +233,7 @@ fn test_pygmy_gguf_empty_prompt() {
         false,
         false,
         None, // trace_config
-        );
+    );
 
     let _ = result;
 }
@@ -253,7 +253,7 @@ fn test_pygmy_gguf_high_temperature() {
         false,
         false,
         None, // trace_config
-        );
+    );
 
     let _ = result;
 }
@@ -274,7 +274,7 @@ fn test_pygmy_gguf_zero_max_tokens() {
         false,
         false,
         None, // trace_config
-        );
+    );
 
     let _ = result;
 }
@@ -299,7 +299,7 @@ fn test_pygmy_gguf_force_gpu_flag() {
         true, // force_gpu
         true, // verbose
         None, // trace_config
-        );
+    );
 
     let _ = result;
 }
@@ -323,7 +323,7 @@ fn test_pygmy_gguf_json_verbose() {
         false,
         true,
         None, // trace_config
-        );
+    );
 
     let _ = result;
 }
@@ -360,8 +360,8 @@ fn test_pygmy_gguf_all_flags() {
         2,
         0.5,
         "json",
-        true, // force_gpu
-        true, // verbose
+        true,                         // force_gpu
+        true,                         // verbose
         Some(TraceConfig::enabled()), // trace_config
     );
 
@@ -388,7 +388,7 @@ fn test_pygmy_gguf_temperature_at_threshold() {
         false,
         false,
         None, // trace_config
-        );
+    );
 
     let _ = result;
 }
@@ -409,7 +409,7 @@ fn test_pygmy_gguf_temperature_just_above_threshold() {
         false,
         false,
         None, // trace_config
-        );
+    );
 
     let _ = result;
 }
@@ -434,7 +434,7 @@ fn test_pygmy_gguf_long_prompt() {
         false,
         false,
         None, // trace_config
-        );
+    );
 
     let _ = result;
 }
