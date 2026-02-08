@@ -53,7 +53,10 @@ pub use pipeline::{
     PtxOptimizer, RegisterTiling,
 };
 pub use streaming::{check_vram_sufficient, should_use_streaming, StreamingConfig, StreamingMode};
-pub use types::{IndexedLayerWeights, TransformerWorkspace, WeightQuantType};
+pub use types::{
+    BoundLayerWeights, BoundWeight, GemvKernel, IndexedLayerWeights, TransformerWorkspace,
+    WeightQuantType,
+};
 
 // The executor module (21K lines) - future work to split into submodules:
 // - executor/core.rs: Basic context and profiling

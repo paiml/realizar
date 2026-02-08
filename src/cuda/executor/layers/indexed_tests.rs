@@ -5,6 +5,27 @@ fn create_executor() -> Option<CudaExecutor> {
     CudaExecutor::new(0).ok()
 }
 
+/// Helper to create zeroed `IndexedLayerWeights` for tests.
+/// PMAT-232: `Default` was intentionally removed from `IndexedLayerWeights`
+/// to enforce explicit construction from GGUF metadata in production code.
+/// Tests that only need a dummy/zeroed struct use this helper instead.
+fn test_zeroed_layer_weights() -> IndexedLayerWeights {
+    IndexedLayerWeights {
+        attn_q_ptr: 0, attn_q_len: 0, attn_q_qtype: WeightQuantType::Q4K,
+        attn_k_ptr: 0, attn_k_len: 0, attn_k_qtype: WeightQuantType::Q4K,
+        attn_v_ptr: 0, attn_v_len: 0, attn_v_qtype: WeightQuantType::Q4K,
+        attn_output_ptr: 0, attn_output_len: 0, attn_output_qtype: WeightQuantType::Q4K,
+        ffn_gate_ptr: 0, ffn_gate_len: 0, ffn_gate_qtype: WeightQuantType::Q4K,
+        ffn_up_ptr: 0, ffn_up_len: 0, ffn_up_qtype: WeightQuantType::Q4K,
+        ffn_down_ptr: 0, ffn_down_len: 0, ffn_down_qtype: WeightQuantType::Q4K,
+        attn_norm_ptr: 0, attn_norm_len: 0,
+        ffn_norm_ptr: 0, ffn_norm_len: 0,
+        attn_q_bias_ptr: 0, attn_q_bias_len: 0,
+        attn_k_bias_ptr: 0, attn_k_bias_len: 0,
+        attn_v_bias_ptr: 0, attn_v_bias_len: 0,
+    }
+}
+
 // ========================================================================
 // Tests for transformer_layer_indexed
 // ========================================================================
@@ -16,7 +37,7 @@ fn test_transformer_layer_indexed_missing_kv_cache() {
     };
 
     // Create dummy IndexedLayerWeights using Default
-    let layer_weights = IndexedLayerWeights::default();
+    let layer_weights = test_zeroed_layer_weights();
 
     let input: Vec<f32> = vec![0.1; 256];
     let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
@@ -36,9 +57,9 @@ fn test_transformer_layer_indexed_missing_kv_cache() {
 }
 
 #[test]
-fn test_indexed_layer_weights_default() {
-    // Test that default creates valid zeroed structure
-    let weights = IndexedLayerWeights::default();
+fn test_indexed_layer_weights_zeroed() {
+    // Test that zeroed helper creates valid structure with expected values
+    let weights = test_zeroed_layer_weights();
     assert_eq!(weights.attn_norm_ptr, 0);
     assert_eq!(weights.attn_norm_len, 0);
     assert_eq!(weights.attn_q_ptr, 0);
@@ -95,7 +116,7 @@ fn test_indexed_rejects_null_weight_pointer() {
     let _ = exec.init_workspace(256, 1024);
 
     // Create weights with null pointer (0)
-    let mut null_weights = IndexedLayerWeights::default();
+    let mut null_weights = test_zeroed_layer_weights();
     null_weights.attn_norm_ptr = 0; // Null pointer
 
     let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; 256]).unwrap();

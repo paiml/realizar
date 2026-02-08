@@ -3992,7 +3992,7 @@ dependencies = [
  "tokio-stream",
  "tower 0.4.13",
  "tracing",
- "trueno 0.14.4",
+ "trueno 0.14.5",
  "trueno-cuda-edge",
  "trueno-db",
  "trueno-gpu",
@@ -5164,7 +5164,7 @@ dependencies = [
 
 [[package]]
 name = "trueno"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "anyhow",
  "bytemuck",

@@ -240,6 +240,7 @@ fn validate_device_ptr(ptr: u64, name: &str) -> Result<(), GpuError> {
 // Implementation modules (split from impl_main.rs for maintainability)
 mod activations;
 mod attention;
+mod bound_dispatch;
 mod core;
 mod gemm;
 mod kv_cache;

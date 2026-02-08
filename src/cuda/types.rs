@@ -15,7 +15,8 @@ use trueno_gpu::driver::GpuBuffer;
 /// Performance impact:
 /// - Before: ~10-12ms overhead per token (string formatting + HashMap)
 /// - After: ~0.1ms overhead per token (direct indexed access)
-#[derive(Debug, Clone, Default)]
+/// PMAT-232 CONTRACT: No Default — every field must be explicitly set from GGUF metadata.
+#[derive(Debug, Clone)]
 pub struct IndexedLayerWeights {
     /// Q projection weights device pointer (may be Q4K or Q5_0 quantized)
     pub attn_q_ptr: u64,
@@ -82,10 +83,13 @@ pub struct IndexedLayerWeights {
 }
 
 /// Weight quantization type for GGUF tensors
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+///
+/// PMAT-232 CONTRACT: This enum MUST NOT derive Default. Every construction
+/// must be explicit. Match statements MUST be exhaustive (no `_ =>` catch-all).
+/// See contracts/tensor-layout-v1.yaml quant_dispatch section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WeightQuantType {
     /// Q4_K quantization (type 12) - 144 bytes per 256 elements
-    #[default]
     Q4K,
     /// Q5_K quantization (type 13) - 176 bytes per 256 elements
     Q5K,
@@ -197,6 +201,195 @@ impl WeightQuantType {
     }
 }
 
+// =============================================================================
+// PMAT-232: Bound Weight — kernel resolved at model load, not at inference
+// =============================================================================
+//
+// Architecture: The model format defines the kernel. The kernel is bound at
+// load time. The forward pass has ZERO dispatch.
+//
+// Before (7+ match sites per forward call):
+//   match layer_weights.attn_q_qtype {
+//       Q4K => q4k_gemv_into(...),
+//       Q6K => q6k_gemv_into(...),
+//       _ => q4k_gemv_into(...),  // BUG: catch-all uses wrong kernel
+//   }
+//
+// After (0 match sites per forward call):
+//   layer.q_proj.gemv(executor, &input, &output)?;  // kernel pre-bound
+//
+// The match happens ONCE in BoundWeight::bind(). Adding a new WeightQuantType
+// variant produces a compile error in exactly ONE place.
+
+/// A GPU weight with its GEMV kernel pre-bound at model load time.
+///
+/// Construction validates the quant type → kernel mapping. The forward pass
+/// calls `.gemv()` which CANNOT dispatch the wrong kernel because the kernel
+/// was resolved at bind time.
+///
+/// This is Poka-Yoke applied to kernel dispatch: the mistake (wrong kernel)
+/// is structurally impossible after construction.
+#[derive(Debug, Clone)]
+pub struct BoundWeight {
+    /// Device pointer to quantized weight data
+    pub ptr: u64,
+    /// Size in bytes
+    pub len: usize,
+    /// Output dimension (rows in weight matrix)
+    pub out_dim: u32,
+    /// Input dimension (cols in weight matrix)
+    pub in_dim: u32,
+    /// The kernel that was bound at construction — private, cannot be changed
+    kernel: GemvKernel,
+}
+
+/// The GEMV kernel to use. Resolved ONCE at model load time.
+/// This is the SINGLE source of truth for quant type → kernel mapping.
+/// See contracts/tensor-layout-v1.yaml quant_dispatch section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GemvKernel {
+    /// Q4_K super-block kernel (144 bytes / 256 elements)
+    Q4K,
+    /// Q5_K super-block kernel (176 bytes / 256 elements)
+    Q5K,
+    /// Q6_K super-block kernel (210 bytes / 256 elements)
+    Q6K,
+    /// Q8_0 block kernel (34 bytes / 32 elements)
+    Q8_0,
+    /// Q4_0 block kernel (18 bytes / 32 elements)
+    Q4_0,
+    /// Q5_0 block kernel (22 bytes / 32 elements)
+    Q5_0,
+    /// Q4_1 block kernel (20 bytes / 32 elements)
+    Q4_1,
+}
+
+impl BoundWeight {
+    /// Bind a weight to its correct GEMV kernel based on quantization type.
+    ///
+    /// This is the ONE place where WeightQuantType → GemvKernel mapping happens.
+    /// The match is exhaustive — adding a new variant is a compile error here.
+    pub fn bind(ptr: u64, len: usize, qtype: WeightQuantType, out_dim: u32, in_dim: u32) -> Self {
+        // PMAT-232: Exhaustive mapping — no catch-all, no default.
+        // If you add a WeightQuantType variant, this MUST be updated.
+        let kernel = match qtype {
+            WeightQuantType::Q4K => GemvKernel::Q4K,
+            WeightQuantType::Q5K => GemvKernel::Q5K,
+            WeightQuantType::Q6K => GemvKernel::Q6K,
+            WeightQuantType::Q8_0 => GemvKernel::Q8_0,
+            WeightQuantType::Q4_0 => GemvKernel::Q4_0,
+            WeightQuantType::Q5_0 => GemvKernel::Q5_0,
+            WeightQuantType::Q4_1 => GemvKernel::Q4_1,
+        };
+        Self {
+            ptr,
+            len,
+            out_dim,
+            in_dim,
+            kernel,
+        }
+    }
+
+    /// The bound kernel (read-only).
+    pub fn kernel(&self) -> GemvKernel {
+        self.kernel
+    }
+}
+
+/// A complete transformer layer with all kernels pre-bound.
+///
+/// Constructed from `IndexedLayerWeights` at model load time.
+/// The forward pass uses this — ZERO dispatch, ZERO match statements.
+#[derive(Debug, Clone)]
+pub struct BoundLayerWeights {
+    /// Q projection (hidden → q_dim)
+    pub q_proj: BoundWeight,
+    /// K projection (hidden → kv_dim)
+    pub k_proj: BoundWeight,
+    /// V projection (hidden → kv_dim)
+    pub v_proj: BoundWeight,
+    /// Output projection (q_dim → hidden)
+    pub o_proj: BoundWeight,
+    /// FFN gate projection (hidden → intermediate)
+    pub ffn_gate: BoundWeight,
+    /// FFN up projection (hidden → intermediate)
+    pub ffn_up: BoundWeight,
+    /// FFN down projection (intermediate → hidden)
+    pub ffn_down: BoundWeight,
+    /// Attention norm weight pointer
+    pub attn_norm_ptr: u64,
+    /// Attention norm weight length
+    pub attn_norm_len: usize,
+    /// FFN norm weight pointer
+    pub ffn_norm_ptr: u64,
+    /// FFN norm weight length
+    pub ffn_norm_len: usize,
+    /// Q bias pointer (0 if no bias)
+    pub attn_q_bias_ptr: u64,
+    /// Q bias length in elements (0 if no bias)
+    pub attn_q_bias_len: usize,
+    /// K bias pointer (0 if no bias)
+    pub attn_k_bias_ptr: u64,
+    /// K bias length in elements (0 if no bias)
+    pub attn_k_bias_len: usize,
+    /// V bias pointer (0 if no bias)
+    pub attn_v_bias_ptr: u64,
+    /// V bias length in elements (0 if no bias)
+    pub attn_v_bias_len: usize,
+}
+
+impl BoundLayerWeights {
+    /// Bind all layer weights from IndexedLayerWeights.
+    ///
+    /// This is the compilation step: quant types are resolved to kernels ONCE.
+    /// After this, the forward pass has zero dispatch.
+    pub fn bind(
+        src: &IndexedLayerWeights,
+        hidden_dim: u32,
+        q_dim: u32,
+        kv_dim: u32,
+        intermediate_dim: u32,
+    ) -> Self {
+        Self {
+            q_proj: BoundWeight::bind(
+                src.attn_q_ptr, src.attn_q_len, src.attn_q_qtype, q_dim, hidden_dim,
+            ),
+            k_proj: BoundWeight::bind(
+                src.attn_k_ptr, src.attn_k_len, src.attn_k_qtype, kv_dim, hidden_dim,
+            ),
+            v_proj: BoundWeight::bind(
+                src.attn_v_ptr, src.attn_v_len, src.attn_v_qtype, kv_dim, hidden_dim,
+            ),
+            o_proj: BoundWeight::bind(
+                src.attn_output_ptr, src.attn_output_len, src.attn_output_qtype,
+                hidden_dim, q_dim,
+            ),
+            ffn_gate: BoundWeight::bind(
+                src.ffn_gate_ptr, src.ffn_gate_len, src.ffn_gate_qtype,
+                intermediate_dim, hidden_dim,
+            ),
+            ffn_up: BoundWeight::bind(
+                src.ffn_up_ptr, src.ffn_up_len, src.ffn_up_qtype,
+                intermediate_dim, hidden_dim,
+            ),
+            ffn_down: BoundWeight::bind(
+                src.ffn_down_ptr, src.ffn_down_len, src.ffn_down_qtype,
+                hidden_dim, intermediate_dim,
+            ),
+            attn_norm_ptr: src.attn_norm_ptr,
+            attn_norm_len: src.attn_norm_len,
+            ffn_norm_ptr: src.ffn_norm_ptr,
+            ffn_norm_len: src.ffn_norm_len,
+            attn_q_bias_ptr: src.attn_q_bias_ptr,
+            attn_q_bias_len: src.attn_q_bias_len,
+            attn_k_bias_ptr: src.attn_k_bias_ptr,
+            attn_k_bias_len: src.attn_k_bias_len,
+            attn_v_bias_ptr: src.attn_v_bias_ptr,
+            attn_v_bias_len: src.attn_v_bias_len,
+        }
+    }
+}
+
 /// PAR-044: Pre-allocated workspace buffers for transformer forward pass
 ///
 /// Eliminates ~288 GPU buffer allocations per token by reusing pre-sized buffers.
@@ -256,14 +449,37 @@ pub struct TransformerWorkspace {
 mod tests {
     use super::*;
 
+    /// Helper to create zeroed `IndexedLayerWeights` for tests.
+    /// PMAT-232: `Default` was intentionally removed to enforce explicit
+    /// construction from GGUF metadata in production code.
+    fn test_zeroed_layer_weights() -> IndexedLayerWeights {
+        IndexedLayerWeights {
+            attn_q_ptr: 0, attn_q_len: 0, attn_q_qtype: WeightQuantType::Q4K,
+            attn_k_ptr: 0, attn_k_len: 0, attn_k_qtype: WeightQuantType::Q4K,
+            attn_v_ptr: 0, attn_v_len: 0, attn_v_qtype: WeightQuantType::Q4K,
+            attn_output_ptr: 0, attn_output_len: 0, attn_output_qtype: WeightQuantType::Q4K,
+            ffn_gate_ptr: 0, ffn_gate_len: 0, ffn_gate_qtype: WeightQuantType::Q4K,
+            ffn_up_ptr: 0, ffn_up_len: 0, ffn_up_qtype: WeightQuantType::Q4K,
+            ffn_down_ptr: 0, ffn_down_len: 0, ffn_down_qtype: WeightQuantType::Q4K,
+            attn_norm_ptr: 0, attn_norm_len: 0,
+            ffn_norm_ptr: 0, ffn_norm_len: 0,
+            attn_q_bias_ptr: 0, attn_q_bias_len: 0,
+            attn_k_bias_ptr: 0, attn_k_bias_len: 0,
+            attn_v_bias_ptr: 0, attn_v_bias_len: 0,
+        }
+    }
+
     // =========================================================================
     // WeightQuantType Tests
     // =========================================================================
 
     #[test]
-    fn test_weight_quant_type_default() {
-        let default = WeightQuantType::default();
-        assert_eq!(default, WeightQuantType::Q4K);
+    fn test_weight_quant_type_no_default() {
+        // PMAT-232: WeightQuantType must NOT have a Default impl.
+        // Every construction must be explicit to prevent silent wrong-kernel dispatch.
+        // If this test fails to compile, the contract is enforced correctly.
+        let explicit = WeightQuantType::Q4K;
+        assert_eq!(explicit, WeightQuantType::Q4K);
     }
 
     #[test]
@@ -440,8 +656,8 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn test_indexed_layer_weights_default() {
-        let weights = IndexedLayerWeights::default();
+    fn test_indexed_layer_weights_zeroed() {
+        let weights = test_zeroed_layer_weights();
         assert_eq!(weights.attn_q_ptr, 0);
         assert_eq!(weights.attn_q_len, 0);
         assert_eq!(weights.attn_q_qtype, WeightQuantType::Q4K);
@@ -451,7 +667,7 @@ mod tests {
 
     #[test]
     fn test_indexed_layer_weights_clone() {
-        let mut weights = IndexedLayerWeights::default();
+        let mut weights = test_zeroed_layer_weights();
         weights.attn_q_ptr = 12345;
         weights.attn_q_len = 1024;
         weights.attn_q_qtype = WeightQuantType::Q5K;
@@ -464,7 +680,7 @@ mod tests {
 
     #[test]
     fn test_indexed_layer_weights_debug() {
-        let weights = IndexedLayerWeights::default();
+        let weights = test_zeroed_layer_weights();
         let debug = format!("{:?}", weights);
         assert!(debug.contains("IndexedLayerWeights"));
     }

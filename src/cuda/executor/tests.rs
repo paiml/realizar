@@ -6,6 +6,27 @@ use crate::cuda::pipeline::{
 };
 use serial_test::serial;
 
+/// Helper to create zeroed `IndexedLayerWeights` for tests.
+/// PMAT-232: `Default` was intentionally removed from `IndexedLayerWeights`
+/// to enforce explicit construction from GGUF metadata in production code.
+/// Tests that only need a dummy/zeroed struct use this helper instead.
+fn test_zeroed_layer_weights() -> IndexedLayerWeights {
+    IndexedLayerWeights {
+        attn_q_ptr: 0, attn_q_len: 0, attn_q_qtype: WeightQuantType::Q4K,
+        attn_k_ptr: 0, attn_k_len: 0, attn_k_qtype: WeightQuantType::Q4K,
+        attn_v_ptr: 0, attn_v_len: 0, attn_v_qtype: WeightQuantType::Q4K,
+        attn_output_ptr: 0, attn_output_len: 0, attn_output_qtype: WeightQuantType::Q4K,
+        ffn_gate_ptr: 0, ffn_gate_len: 0, ffn_gate_qtype: WeightQuantType::Q4K,
+        ffn_up_ptr: 0, ffn_up_len: 0, ffn_up_qtype: WeightQuantType::Q4K,
+        ffn_down_ptr: 0, ffn_down_len: 0, ffn_down_qtype: WeightQuantType::Q4K,
+        attn_norm_ptr: 0, attn_norm_len: 0,
+        ffn_norm_ptr: 0, ffn_norm_len: 0,
+        attn_q_bias_ptr: 0, attn_q_bias_len: 0,
+        attn_k_bias_ptr: 0, attn_k_bias_len: 0,
+        attn_v_bias_ptr: 0, attn_v_bias_len: 0,
+    }
+}
+
 #[test]
 fn test_cuda_kernels_creation() {
     let kernels = CudaKernels::new();
@@ -785,133 +806,69 @@ fn test_cuda_executor_gemm_non_square() {
 #[test]
 #[serial]
 fn test_cuda_vs_wgpu_matmul_parity() {
-    use crate::gpu::{CudaScheduler, HybridScheduler};
+    cuda_vs_wgpu_single_tile();
+    cuda_vs_wgpu_uniform_k64();
+    cuda_vs_wgpu_patterned();
+}
 
-    // Test case matching model forward pass: 4x64x192
+/// Sub-test 0: Single tile (k=32) uniform data
+fn cuda_vs_wgpu_single_tile() {
+    let m0 = 4usize;
+    let k0 = 32usize;
+    let n0 = 192usize;
+    let a = vec![1.0f32; m0 * k0];
+    let b = vec![1.0f32; k0 * n0];
+    let expected = k0 as f32;
+
+    let mut executor = CudaExecutor::new(0).expect("CudaExecutor should init");
+    let mut c = vec![0.0f32; m0 * n0];
+    executor
+        .gemm(&a, &b, &mut c, m0 as u32, n0 as u32, k0 as u32)
+        .expect("CUDA gemm should succeed");
+
+    assert!(
+        (c[0] - expected).abs() < 1e-3,
+        "k=32 CUDA failed: {} vs {}",
+        c[0],
+        expected
+    );
+}
+
+/// Sub-test 1: Uniform 1.0 data with k=64 (multi-tile)
+fn cuda_vs_wgpu_uniform_k64() {
     let m = 4usize;
     let k = 64usize;
     let n = 192usize;
+    let a = vec![1.0f32; m * k];
+    let b = vec![1.0f32; k * n];
+    let expected = k as f32;
 
-    // Test 0: Single tile (k=32)
-    eprintln!("\n=== Test 0: Single tile k=32 ===");
-    {
-        let m0 = 4usize;
-        let k0 = 32usize;
-        let n0 = 192usize;
-        let a = vec![1.0f32; m0 * k0];
-        let b = vec![1.0f32; k0 * n0];
-        let expected = k0 as f32;
+    let mut executor = CudaExecutor::new(0).expect("CudaExecutor should init");
+    let mut c = vec![0.0f32; m * n];
+    executor
+        .gemm(&a, &b, &mut c, m as u32, n as u32, k as u32)
+        .expect("CUDA gemm should succeed");
 
-        // Check what PTX would be generated for this configuration
-        use trueno_gpu::kernels::{GemmKernel, Kernel};
-        let kernel = GemmKernel::tiled(m0 as u32, n0 as u32, k0 as u32, 32);
-        let ptx = kernel.emit_ptx();
+    assert!(
+        (c[0] - expected).abs() < 1e-3,
+        "Uniform CUDA failed: {} vs {}",
+        c[0],
+        expected
+    );
+}
 
-        // Look for the key constants in this kernel
-        eprintln!("k=32 kernel constants:");
-        for line in ptx.lines() {
-            if line.contains("256;")
-                || line.contains("128;")
-                || line.contains("768;")
-                || line.contains("384;")
-            {
-                eprintln!("  {}", line.trim());
-            }
-        }
-        // Check n_tiles
-        let count_1 = ptx.matches(", 1;").count();
-        eprintln!(
-            "Occurrences of ', 1;': {} (expected n_tiles=1 for k=32)",
-            count_1
-        );
+/// Sub-test 2: Patterned data — CUDA vs wgpu vs CPU reference
+fn cuda_vs_wgpu_patterned() {
+    use crate::gpu::{CudaScheduler, HybridScheduler};
 
-        let mut executor = CudaExecutor::new(0).expect("CudaExecutor should init");
-        let mut c = vec![0.0f32; m0 * n0];
-        executor
-            .gemm(&a, &b, &mut c, m0 as u32, n0 as u32, k0 as u32)
-            .expect("CUDA gemm should succeed");
-
-        eprintln!("k=32: CUDA[0]={} (expected {})", c[0], expected);
-        assert!(
-            (c[0] - expected).abs() < 1e-3,
-            "k=32 CUDA failed: {} vs {}",
-            c[0],
-            expected
-        );
-    }
-
-    // Test 1: Uniform data (1.0s) - this should work
-    eprintln!("\n=== Test 1: Uniform 1.0 data k=64 ===");
-    eprintln!("Dimensions: m={}, k={}, n={}", m, k, n);
-    eprintln!("Expected n_tiles = ({}+31)/32 = {}", k, (k + 31) / 32);
-    {
-        let a = vec![1.0f32; m * k];
-        let b = vec![1.0f32; k * n];
-
-        // CPU reference
-        let expected = k as f32; // All 1s dot product = k
-
-        // Use CudaExecutor directly for debugging
-        let mut executor = CudaExecutor::new(0).expect("CudaExecutor should init");
-
-        // Print some debug info about what kernel will be generated
-        use trueno_gpu::kernels::{GemmKernel, Kernel};
-        let kernel = GemmKernel::tiled(m as u32, n as u32, k as u32, 32);
-        let ptx = kernel.emit_ptx();
-
-        // Look for embedded constants
-        eprintln!("PTX constants search:");
-        for line in ptx.lines() {
-            if line.contains("mov.u32")
-                && (line.contains(", 2;")
-                    || line.contains(", 32;")
-                    || line.contains(", 64;")
-                    || line.contains(", 192;")
-                    || line.contains(", 256;")
-                    || line.contains(", 768;"))
-            {
-                eprintln!("  {}", line.trim());
-            }
-        }
-        // Show the full inner_k_loop section
-        if let Some(start) = ptx.find("inner_k_loop:") {
-            let end = ptx[start..].find("inner_k_end:").unwrap_or(800) + start;
-            eprintln!(
-                "\ninner_k_loop section:\n{}",
-                &ptx[start..end.min(start + 1000)]
-            );
-        }
-
-        let mut c = vec![0.0f32; m * n];
-        executor
-            .gemm(&a, &b, &mut c, m as u32, n as u32, k as u32)
-            .expect("CUDA gemm should succeed");
-
-        eprintln!("Uniform: CUDA[0]={} (expected {})", c[0], expected);
-        assert!(
-            (c[0] - expected).abs() < 1e-3,
-            "Uniform CUDA failed: {} vs {}",
-            c[0],
-            expected
-        );
-    }
-
-    // Test 2: Patterned data
-    eprintln!("\n=== Test 2: Patterned data ===");
+    let m = 4usize;
+    let k = 64usize;
+    let n = 192usize;
     let a: Vec<f32> = (0..m * k).map(|i| (i % 7) as f32 * 0.1).collect();
     let b: Vec<f32> = (0..k * n).map(|i| (i % 11) as f32 * 0.1).collect();
 
     // CPU reference (ground truth)
-    let mut cpu_result = vec![0.0f32; m * n];
-    for i in 0..m {
-        for j in 0..n {
-            let mut sum = 0.0f32;
-            for l in 0..k {
-                sum += a[i * k + l] * b[l * n + j];
-            }
-            cpu_result[i * n + j] = sum;
-        }
-    }
+    let cpu_result = cpu_matmul_reference(&a, &b, m, k, n);
 
     // CUDA path
     let mut cuda_sched = CudaScheduler::new().expect("CudaScheduler should init");
@@ -922,23 +879,9 @@ fn test_cuda_vs_wgpu_matmul_parity() {
     // wgpu path
     let mut wgpu_sched =
         HybridScheduler::with_threshold(1000).expect("HybridScheduler should init");
-    let wgpu_result = wgpu_sched
+    let _wgpu_result = wgpu_sched
         .matmul(&a, &b, m, k, n)
         .expect("wgpu matmul should succeed");
-
-    // Print all values for debugging
-    eprintln!(
-        "Patterned: CPU[0]={}, CUDA[0]={}, wgpu[0]={}",
-        cpu_result[0], cuda_result[0], wgpu_result[0]
-    );
-
-    // Check CUDA vs CPU
-    let cuda_vs_cpu_diff = (cuda_result[0] - cpu_result[0]).abs();
-    let wgpu_vs_cpu_diff = (wgpu_result[0] - cpu_result[0]).abs();
-    eprintln!(
-        "Patterned: CUDA vs CPU diff={}, wgpu vs CPU diff={}",
-        cuda_vs_cpu_diff, wgpu_vs_cpu_diff
-    );
 
     // Compare CUDA to CPU reference
     assert_eq!(cuda_result.len(), cpu_result.len());
@@ -953,7 +896,21 @@ fn test_cuda_vs_wgpu_matmul_parity() {
             diff
         );
     }
-    eprintln!("PARITY-114: CUDA matches CPU reference");
+}
+
+/// Naive CPU matrix multiply for test reference
+fn cpu_matmul_reference(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
+    let mut result = vec![0.0f32; m * n];
+    for i in 0..m {
+        for j in 0..n {
+            let mut sum = 0.0f32;
+            for l in 0..k {
+                sum += a[i * k + l] * b[l * n + j];
+            }
+            result[i * n + j] = sum;
+        }
+    }
+    result
 }
 
 #[test]
@@ -11723,7 +11680,7 @@ fn test_cov030_transformer_layer_batched_validation() {
     let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
 
     // Create dummy IndexedLayerWeights
-    let layer_weights = IndexedLayerWeights::default();
+    let layer_weights = test_zeroed_layer_weights();
 
     // Without workspace init, should return error
     let result = executor.transformer_layer_batched(
@@ -11759,7 +11716,7 @@ fn test_cov030_transformer_layer_batched_mismatch() {
 
     let input_data = vec![0.1f32; 512 * 4];
     let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
-    let layer_weights = IndexedLayerWeights::default();
+    let layer_weights = test_zeroed_layer_weights();
 
     // Request batch_size=4 but workspace is for 2
     let result = executor.transformer_layer_batched(
@@ -11792,7 +11749,7 @@ fn test_cov030_transformer_layer_batched_positions_mismatch() {
 
     let input_data = vec![0.1f32; 512 * 4];
     let input = GpuBuffer::from_host(executor.context(), &input_data).expect("input");
-    let layer_weights = IndexedLayerWeights::default();
+    let layer_weights = test_zeroed_layer_weights();
 
     // Positions length != m
     let result = executor.transformer_layer_batched(
