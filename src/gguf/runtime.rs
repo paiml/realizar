@@ -377,6 +377,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let cache = OwnedQuantizedKVCache::from_config(&config, 512);

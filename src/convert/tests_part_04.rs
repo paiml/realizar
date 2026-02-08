@@ -316,6 +316,7 @@ fn test_from_gguf_transformer_preserves_config() {
             rope_theta: 10000.0,
             eps: 1e-6,
             rope_type: 0,
+            bos_token_id: None,
         },
         token_embedding: vec![0.0; 512 * 32000],
         layers: vec![GGUFTransformerLayer {

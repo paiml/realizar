@@ -34,6 +34,7 @@ async fn test_imp_116d_scheduler_reuse_across_requests() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -84,6 +85,7 @@ fn test_imp_126a_appstate_has_dispatch_metrics() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -131,6 +133,7 @@ fn test_imp_126b_cached_sync_has_generate_adaptive() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -176,6 +179,7 @@ fn test_imp_126c_dispatch_metrics_integration() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -222,6 +226,7 @@ fn test_imp_126d_handler_uses_adaptive_generation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -281,6 +286,7 @@ async fn test_imp_127a_dispatch_metrics_endpoint_exists() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -335,6 +341,7 @@ async fn test_imp_127b_dispatch_metrics_response_structure() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -397,6 +404,7 @@ async fn test_imp_127c_dispatch_metrics_starts_zero() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -485,6 +493,7 @@ async fn test_imp_128a_prometheus_format_endpoint() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -539,6 +548,7 @@ async fn test_imp_128b_prometheus_format_structure() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -596,6 +606,7 @@ async fn test_imp_128c_default_format_is_json() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -644,6 +655,7 @@ async fn test_imp_128d_explicit_json_format() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -693,6 +705,7 @@ async fn test_imp_130a_prometheus_includes_cpu_latency_histogram() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -758,6 +771,7 @@ async fn test_imp_130b_prometheus_includes_gpu_latency_histogram() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -822,6 +836,7 @@ async fn test_imp_130c_prometheus_latency_buckets_have_correct_labels() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -888,6 +903,7 @@ async fn test_imp_130d_prometheus_latency_has_help_and_type() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -955,6 +971,7 @@ async fn test_imp_141a_prometheus_includes_throughput_rps() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -1013,6 +1030,7 @@ async fn test_imp_141b_prometheus_includes_elapsed_seconds() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -1063,6 +1081,7 @@ async fn test_imp_141c_throughput_rps_has_help_and_type() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -1116,6 +1135,7 @@ async fn test_imp_141d_elapsed_seconds_has_help_and_type() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -1234,6 +1254,7 @@ async fn test_imp_131c_json_response_includes_percentiles() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -1334,6 +1355,7 @@ fn test_imp_132a_adaptive_attention_records_cpu_latency() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -1381,6 +1403,7 @@ fn test_imp_132b_latency_values_are_reasonable() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -1428,6 +1451,7 @@ fn test_imp_132c_latency_count_matches_dispatch_count() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -1477,6 +1501,7 @@ fn test_imp_132d_gpu_dispatches_record_latency() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);

@@ -36,6 +36,7 @@ fn create_minimal_gguf_transformer(
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let layers: Vec<GGUFTransformerLayer> = (0..num_layers)
@@ -826,6 +827,7 @@ fn test_gguf_transformer_with_gate_weights() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -1438,6 +1440,7 @@ fn test_from_gguf_transformer_with_all_biases() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -1495,6 +1498,7 @@ fn test_from_gguf_transformer_with_ffn_norm() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -1550,6 +1554,7 @@ fn test_from_gguf_transformer_different_kv_heads() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -2068,6 +2073,7 @@ fn test_gguf_transformer_with_output_norm_bias() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -2116,6 +2122,7 @@ fn test_gguf_transformer_with_lm_head_bias() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -2168,6 +2175,7 @@ fn test_layer_attn_norm_bias_preservation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -2215,6 +2223,7 @@ fn test_layer_qkv_bias_preservation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -2262,6 +2271,7 @@ fn test_layer_attn_output_bias_preservation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -2309,6 +2319,7 @@ fn test_layer_ffn_up_bias_preservation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -2356,6 +2367,7 @@ fn test_layer_ffn_down_bias_preservation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let layer = GGUFTransformerLayer {

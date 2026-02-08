@@ -33,6 +33,9 @@ pub struct GGUFConfig {
     pub eps: f32,
     /// RoPE type: 0 = NORM (adjacent pairs), 2 = NEOX (split halves)
     pub rope_type: u32,
+    /// BOS token ID from GGUF metadata (used for GPU validation probe)
+    /// None means BOS is unknown — GPU validation will be skipped.
+    pub bos_token_id: Option<u32>,
 }
 
 impl GGUFConfig {
@@ -99,6 +102,9 @@ impl GGUFConfig {
         // LLaMA models use type 0 (adjacent pairs) per llama.cpp's LLAMA_ROPE_TYPE_NORM
         let rope_type = model.rope_type().unwrap_or(0);
 
+        // BOS token ID from GGUF metadata — None means unknown
+        let bos_token_id = model.bos_token_id();
+
         Ok(Self {
             architecture,
             hidden_dim,
@@ -111,6 +117,7 @@ impl GGUFConfig {
             rope_theta,
             eps,
             rope_type,
+            bos_token_id,
         })
     }
 }
@@ -133,6 +140,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         assert_eq!(config.architecture, "llama");
@@ -162,6 +170,7 @@ mod tests {
             rope_theta: 1_000_000.0,
             eps: 1e-6,
             rope_type: 2,
+            bos_token_id: None,
         };
 
         let cloned = config.clone();
@@ -184,6 +193,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let debug_str = format!("{:?}", config);
@@ -206,6 +216,7 @@ mod tests {
             rope_theta: 500000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         assert_eq!(config.num_heads / config.num_kv_heads, 4);
@@ -226,6 +237,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         assert_eq!(config.num_heads, config.num_kv_heads);
@@ -246,6 +258,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 2, // NEOX
+            bos_token_id: None,
         };
 
         assert_eq!(config.rope_type, 2);
@@ -266,6 +279,7 @@ mod tests {
             rope_theta: 1_000_000.0,
             eps: 1e-6,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         assert!(config.rope_theta > 100_000.0);
@@ -287,6 +301,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-6, // Smaller epsilon
             rope_type: 0,
+            bos_token_id: None,
         };
 
         assert!((config.eps - 1e-6).abs() < 1e-10);
@@ -307,6 +322,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let head_dim = config.hidden_dim / config.num_heads;
@@ -328,6 +344,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let head_dim = config.hidden_dim / config.num_heads;
@@ -350,6 +367,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let head_dim = config.hidden_dim / config.num_heads;
@@ -372,6 +390,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let debug = format!("{:?}", config);
@@ -402,6 +421,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let cloned = original.clone();

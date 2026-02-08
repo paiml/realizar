@@ -24,6 +24,7 @@ fn create_llama_style_config() -> GGUFConfig {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     }
 }
 
@@ -41,6 +42,7 @@ fn create_phi_style_config() -> GGUFConfig {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     }
 }
 
@@ -438,6 +440,7 @@ fn test_forward_single_gqa_config() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let hidden_dim = config.hidden_dim;
@@ -513,6 +516,7 @@ fn test_forward_single_multiple_layers() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let hidden_dim = config.hidden_dim;
@@ -837,6 +841,7 @@ fn create_llama_256_model() -> crate::gguf::OwnedQuantizedModel {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let hidden_dim = config.hidden_dim;
     let intermediate_dim = config.intermediate_dim;
@@ -924,6 +929,7 @@ fn create_phi_256_model() -> crate::gguf::OwnedQuantizedModel {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let hidden_dim = config.hidden_dim;
     let intermediate_dim = config.intermediate_dim;
@@ -980,6 +986,7 @@ fn create_llama_256_gqa_model() -> crate::gguf::OwnedQuantizedModel {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let hidden_dim = config.hidden_dim;
     let intermediate_dim = config.intermediate_dim;

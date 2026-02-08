@@ -179,6 +179,7 @@ fn test_driver_cpu_forward_llama_single_token() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_llama_style_test_model(&config);
@@ -214,6 +215,7 @@ fn test_driver_cpu_forward_llama_multi_token() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_llama_style_test_model(&config);
@@ -243,6 +245,7 @@ fn test_driver_cpu_forward_phi2_single_token() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_phi2_style_test_model(&config);
@@ -274,6 +277,7 @@ fn test_driver_cpu_forward_gqa_attention() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_llama_style_test_model(&config);
@@ -307,6 +311,7 @@ fn test_driver_cpu_forward_cached_single() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_llama_style_test_model(&config);
@@ -334,6 +339,7 @@ fn test_driver_cpu_forward_cached_sequence() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_llama_style_test_model(&config);
@@ -375,6 +381,7 @@ fn test_driver_cpu_forward_cached_gqa() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_llama_style_test_model(&config);
@@ -488,6 +495,7 @@ fn test_driver_cpu_forward_max_context() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_llama_style_test_model(&config);
@@ -516,6 +524,7 @@ fn test_driver_cpu_forward_cached_long_generation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_llama_style_test_model(&config);
@@ -543,6 +552,7 @@ fn test_driver_cpu_neox_rope() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 2, // NEOX style
+        bos_token_id: None,
     };
 
     let model = create_llama_style_test_model(&config);

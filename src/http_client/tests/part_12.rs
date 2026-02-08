@@ -332,6 +332,7 @@ fn test_imp_400c_realizar_native_forward_performance() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     // Create layers with properly sized weights
@@ -452,6 +453,7 @@ fn test_imp_400d_full_e2e_comparison() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let layers: Vec<GGUFTransformerLayer> = (0..num_layers)

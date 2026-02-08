@@ -287,6 +287,7 @@ fn test_cov_scratch_buffer_from_config() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let scratch = InferenceScratchBuffer::from_config(&config);
@@ -319,6 +320,7 @@ fn test_cov_scratch_buffer_q8k_buffers() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let scratch = InferenceScratchBuffer::from_config(&config);
@@ -347,6 +349,7 @@ fn test_cov_scratch_buffer_reset() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let mut scratch = InferenceScratchBuffer::from_config(&config);
@@ -380,6 +383,7 @@ fn test_cov_scratch_buffer_small_model() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let scratch = InferenceScratchBuffer::from_config(&config);
@@ -405,6 +409,7 @@ fn test_cov_owned_scratch_buffer_from_config() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let scratch = OwnedInferenceScratchBuffer::from_config(&config);
 
@@ -431,6 +436,7 @@ fn test_cov_owned_scratch_buffer_qkv_size() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let scratch = OwnedInferenceScratchBuffer::from_config(&config);
 
@@ -455,6 +461,7 @@ fn test_cov_owned_scratch_buffer_reset() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let mut scratch = OwnedInferenceScratchBuffer::from_config(&config);
 
@@ -485,6 +492,7 @@ fn test_cov_owned_scratch_buffer_q8k_buffers() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let scratch = OwnedInferenceScratchBuffer::from_config(&config);
 

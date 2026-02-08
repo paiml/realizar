@@ -178,6 +178,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0, // NORM style (adjacent pairs)
+            bos_token_id: None,
         };
 
         let layers: Vec<GGUFTransformerLayer> = (0..num_layers)
@@ -1983,6 +1984,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let layer = GGUFTransformerLayer {
@@ -2037,6 +2039,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let layer = GGUFTransformerLayer {
@@ -2268,6 +2271,7 @@ mod tests {
             rope_theta: 1_000_000.0,
             eps: 1e-6,
             rope_type: 2, // NEOX style
+            bos_token_id: None,
         };
 
         let layers: Vec<GGUFTransformerLayer> = (0..num_layers)

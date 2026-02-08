@@ -1431,6 +1431,7 @@ impl OwnedQuantizedModel {
             rope_theta,
             rope_type: 2, // NEOX style for Qwen2.5
             context_length: 32768,
+            bos_token_id: None,
         };
 
         // Helper to get tensor data
