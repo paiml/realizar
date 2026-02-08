@@ -511,8 +511,9 @@ fn test_weight_quant_type_bytes_per_block() {
 }
 
 #[test]
-fn test_weight_quant_type_default() {
-    let qt = WeightQuantType::default();
+fn test_weight_quant_type_explicit_construction() {
+    // PMAT-232: WeightQuantType has no Default — must be explicit
+    let qt = WeightQuantType::Q4K;
     assert!(matches!(qt, WeightQuantType::Q4K));
 }
 

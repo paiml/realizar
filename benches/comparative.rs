@@ -229,6 +229,7 @@ fn create_test_gguf_transformer(
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0, // NORM (adjacent pairs)
+        bos_token_id: None,
     };
 
     let layers: Vec<GGUFTransformerLayer> = (0..num_layers)
