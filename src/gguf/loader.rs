@@ -1431,44 +1431,70 @@ impl OwnedQuantizedModel {
             rope_theta,
             rope_type: 2, // NEOX style for Qwen2.5
             context_length: 32768,
-            bos_token_id: None,
+            bos_token_id: apr.metadata.get_embedded_bos_token_id(),
         };
 
-        // Helper to get tensor data
-        let get_tensor = |name: &str| -> Result<&[u8]> {
-            let tensor = apr
-                .find_tensor(name)
-                .ok_or_else(|| RealizarError::FormatError {
-                    reason: format!("APR: tensor not found: {name}"),
-                })?;
-            let start = data_offset + tensor.offset as usize;
-            let end = start + tensor.size as usize;
-            if end > data.len() {
-                return Err(RealizarError::FormatError {
-                    reason: format!("APR: tensor {name} extends past EOF"),
-                });
-            }
-            Ok(&data[start..end])
-        };
-
-        // Helper to get tensor qtype
-        let get_qtype = |name: &str| -> u32 {
-            apr.find_tensor(name)
-                .map_or(0, |t| MappedAprModel::dtype_to_qtype(&t.dtype))
-        };
-
-        // Helper to make OwnedQuantizedTensor
+        // Helper to make OwnedQuantizedTensor (tries multiple names for GGUF/HF compat)
         let make_tensor =
-            |name: &str, in_dim: usize, out_dim: usize| -> Result<OwnedQuantizedTensor> {
-                let tensor_data = get_tensor(name)?;
-                let qtype = get_qtype(name);
+            |names: &[&str], in_dim: usize, out_dim: usize| -> Result<OwnedQuantizedTensor> {
+                let (tensor, found_name) = names
+                    .iter()
+                    .find_map(|name| apr.find_tensor(name).map(|t| (t, *name)))
+                    .ok_or_else(|| RealizarError::FormatError {
+                        reason: format!("APR: tensor not found (tried: {})", names.join(", ")),
+                    })?;
+                let start = data_offset + tensor.offset as usize;
+                let end = start + tensor.size as usize;
+                if end > data.len() {
+                    return Err(RealizarError::FormatError {
+                        reason: format!("APR: tensor {found_name} extends past EOF"),
+                    });
+                }
+                let qtype = MappedAprModel::dtype_to_qtype(&tensor.dtype);
                 Ok(OwnedQuantizedTensor {
-                    data: tensor_data.to_vec(),
+                    data: data[start..end].to_vec(),
                     in_dim,
                     out_dim,
                     qtype,
                 })
             };
+
+        // Helper to get F32 tensor data (tries multiple names)
+        let get_f32_tensor = |names: &[&str]| -> Result<Vec<f32>> {
+            let (tensor, found_name) = names
+                .iter()
+                .find_map(|name| apr.find_tensor(name).map(|t| (t, *name)))
+                .ok_or_else(|| RealizarError::FormatError {
+                    reason: format!("APR: tensor not found (tried: {})", names.join(", ")),
+                })?;
+            let start = data_offset + tensor.offset as usize;
+            let end = start + tensor.size as usize;
+            if end > data.len() {
+                return Err(RealizarError::FormatError {
+                    reason: format!("APR: tensor {found_name} extends past EOF"),
+                });
+            }
+            Ok(data[start..end]
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect())
+        };
+
+        // Helper to try loading an optional F32 bias tensor
+        let try_get_f32 = |name: &str| -> Option<Vec<f32>> {
+            let tensor = apr.find_tensor(name)?;
+            let start = data_offset + tensor.offset as usize;
+            let end = start + tensor.size as usize;
+            if end > data.len() {
+                return None;
+            }
+            Some(
+                data[start..end]
+                    .chunks_exact(4)
+                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect(),
+            )
+        };
 
         // Load token embeddings (F32)
         let embed_name = apr
@@ -1484,8 +1510,20 @@ impl OwnedQuantizedModel {
                 reason: "APR: embedding tensor not found".to_string(),
             })?;
 
-        let embed_data = get_tensor(embed_name)?;
-        let embed_dtype = apr.find_tensor(embed_name).map(|t| t.dtype.as_str());
+        let embed_tensor = apr.find_tensor(embed_name).ok_or_else(|| {
+            RealizarError::FormatError {
+                reason: "APR: embedding tensor not found".to_string(),
+            }
+        })?;
+        let embed_start = data_offset + embed_tensor.offset as usize;
+        let embed_end = embed_start + embed_tensor.size as usize;
+        if embed_end > data.len() {
+            return Err(RealizarError::FormatError {
+                reason: "APR: embedding tensor extends past EOF".to_string(),
+            });
+        }
+        let embed_data = &data[embed_start..embed_end];
+        let embed_dtype = Some(embed_tensor.dtype.as_str());
         let token_embedding: Vec<f32> = match embed_dtype {
             Some("F32") => embed_data
                 .chunks_exact(4)
@@ -1508,28 +1546,42 @@ impl OwnedQuantizedModel {
         };
 
         // Build layers
+        // Supports both HuggingFace names (SafeTensors→APR path) and GGUF names
         let mut layers = Vec::with_capacity(num_layers);
         let head_dim = hidden_dim / num_heads;
         let kv_dim = num_kv_heads * head_dim;
 
         for layer_idx in 0..num_layers {
-            // Find layer tensors (try multiple naming conventions)
-            let q_name = format!("blk.{layer_idx}.attn_q.weight");
-            let k_name = format!("blk.{layer_idx}.attn_k.weight");
-            let v_name = format!("blk.{layer_idx}.attn_v.weight");
-            let o_name = format!("blk.{layer_idx}.attn_output.weight");
+            // HF names (primary, from SafeTensors→APR pipeline)
+            let hf_q = format!("model.layers.{layer_idx}.self_attn.q_proj.weight");
+            let hf_k = format!("model.layers.{layer_idx}.self_attn.k_proj.weight");
+            let hf_v = format!("model.layers.{layer_idx}.self_attn.v_proj.weight");
+            let hf_o = format!("model.layers.{layer_idx}.self_attn.o_proj.weight");
+            let hf_gate = format!("model.layers.{layer_idx}.mlp.gate_proj.weight");
+            let hf_up = format!("model.layers.{layer_idx}.mlp.up_proj.weight");
+            let hf_down = format!("model.layers.{layer_idx}.mlp.down_proj.weight");
+            let hf_attn_norm = format!("model.layers.{layer_idx}.input_layernorm.weight");
+            let hf_ffn_norm =
+                format!("model.layers.{layer_idx}.post_attention_layernorm.weight");
 
-            let gate_name = format!("blk.{layer_idx}.ffn_gate.weight");
-            let up_name = format!("blk.{layer_idx}.ffn_up.weight");
-            let down_name = format!("blk.{layer_idx}.ffn_down.weight");
+            // GGUF names (fallback, from GGUF→APR path)
+            let gguf_q = format!("blk.{layer_idx}.attn_q.weight");
+            let gguf_k = format!("blk.{layer_idx}.attn_k.weight");
+            let gguf_v = format!("blk.{layer_idx}.attn_v.weight");
+            let gguf_o = format!("blk.{layer_idx}.attn_output.weight");
+            let gguf_gate = format!("blk.{layer_idx}.ffn_gate.weight");
+            let gguf_up = format!("blk.{layer_idx}.ffn_up.weight");
+            let gguf_down = format!("blk.{layer_idx}.ffn_down.weight");
+            let gguf_attn_norm = format!("blk.{layer_idx}.attn_norm.weight");
+            let gguf_ffn_norm = format!("blk.{layer_idx}.ffn_norm.weight");
 
-            let attn_norm_name = format!("blk.{layer_idx}.attn_norm.weight");
-            let ffn_norm_name = format!("blk.{layer_idx}.ffn_norm.weight");
-
-            // Q/K/V weights
-            let q_weight = make_tensor(&q_name, hidden_dim, hidden_dim)?;
-            let k_weight = make_tensor(&k_name, hidden_dim, kv_dim)?;
-            let v_weight = make_tensor(&v_name, hidden_dim, kv_dim)?;
+            // Q/K/V weights (try HF first, then GGUF)
+            let q_weight =
+                make_tensor(&[&hf_q, &gguf_q], hidden_dim, hidden_dim)?;
+            let k_weight =
+                make_tensor(&[&hf_k, &gguf_k], hidden_dim, kv_dim)?;
+            let v_weight =
+                make_tensor(&[&hf_v, &gguf_v], hidden_dim, kv_dim)?;
 
             let qkv_weight = OwnedQKVWeights::Separate {
                 q: q_weight,
@@ -1537,32 +1589,43 @@ impl OwnedQuantizedModel {
                 v: v_weight,
             };
 
+            // QKV biases (Qwen2 has separate Q, K, V biases — concatenate for CUDA)
+            let hf_q_bias = format!("model.layers.{layer_idx}.self_attn.q_proj.bias");
+            let hf_k_bias = format!("model.layers.{layer_idx}.self_attn.k_proj.bias");
+            let hf_v_bias = format!("model.layers.{layer_idx}.self_attn.v_proj.bias");
+            let qkv_bias = try_get_f32(&hf_q_bias).and_then(|q_b| {
+                let k_b = try_get_f32(&hf_k_bias)?;
+                let v_b = try_get_f32(&hf_v_bias)?;
+                let mut combined = Vec::with_capacity(q_b.len() + k_b.len() + v_b.len());
+                combined.extend_from_slice(&q_b);
+                combined.extend_from_slice(&k_b);
+                combined.extend_from_slice(&v_b);
+                Some(combined)
+            });
+
             // O projection
-            let o_weight = make_tensor(&o_name, hidden_dim, hidden_dim)?;
+            let o_weight =
+                make_tensor(&[&hf_o, &gguf_o], hidden_dim, hidden_dim)?;
 
             // FFN weights
-            let ffn_gate_weight = make_tensor(&gate_name, hidden_dim, intermediate_dim)?;
-            let ffn_up_weight = make_tensor(&up_name, hidden_dim, intermediate_dim)?;
-            let ffn_down_weight = make_tensor(&down_name, intermediate_dim, hidden_dim)?;
+            let ffn_gate_weight =
+                make_tensor(&[&hf_gate, &gguf_gate], hidden_dim, intermediate_dim)?;
+            let ffn_up_weight =
+                make_tensor(&[&hf_up, &gguf_up], hidden_dim, intermediate_dim)?;
+            let ffn_down_weight =
+                make_tensor(&[&hf_down, &gguf_down], intermediate_dim, hidden_dim)?;
 
             // Norm weights (F32)
-            let attn_norm_data = get_tensor(&attn_norm_name)?;
-            let ffn_norm_data = get_tensor(&ffn_norm_name)?;
-
-            let attn_norm_weight: Vec<f32> = attn_norm_data
-                .chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect();
-            let ffn_norm_weight: Vec<f32> = ffn_norm_data
-                .chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect();
+            let attn_norm_weight =
+                get_f32_tensor(&[&hf_attn_norm, &gguf_attn_norm])?;
+            let ffn_norm_weight =
+                get_f32_tensor(&[&hf_ffn_norm, &gguf_ffn_norm])?;
 
             layers.push(OwnedQuantizedLayer {
                 attn_norm_weight,
                 attn_norm_bias: None,
                 qkv_weight,
-                qkv_bias: None,
+                qkv_bias,
                 attn_output_weight: o_weight,
                 attn_output_bias: None,
                 ffn_norm_weight: Some(ffn_norm_weight),
@@ -1577,32 +1640,14 @@ impl OwnedQuantizedModel {
         }
 
         // Output norm
-        let output_norm_name = apr
-            .tensors
-            .iter()
-            .find(|t| t.name.contains("output_norm") || t.name.contains("norm.weight"))
-            .map_or("output_norm.weight", |t| t.name.as_str());
+        let output_norm_weight = get_f32_tensor(&[
+            "model.norm.weight",
+            "output_norm.weight",
+        ])?;
 
-        let output_norm_data = get_tensor(output_norm_name)?;
-        let output_norm_weight: Vec<f32> = output_norm_data
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-            .collect();
-
-        // LM head - prioritize exact match, then contains (excluding layer tensors)
-        let lm_head_name = apr
-            .tensors
-            .iter()
-            .find(|t| t.name == "output.weight" || t.name == "lm_head.weight")
-            .or_else(|| {
-                apr.tensors.iter().find(|t| {
-                    !t.name.starts_with("blk.")
-                        && (t.name.contains("output.weight") || t.name.contains("lm_head"))
-                })
-            })
-            .map_or("output.weight", |t| t.name.as_str());
-
-        let lm_head_weight = make_tensor(lm_head_name, hidden_dim, vocab_size)?;
+        // LM head (try HF name first, then GGUF)
+        let lm_head_weight =
+            make_tensor(&["lm_head.weight", "output.weight"], hidden_dim, vocab_size)?;
 
         Ok(Self {
             config,

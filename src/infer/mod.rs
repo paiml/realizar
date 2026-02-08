@@ -955,7 +955,11 @@ fn apr_arch_to_template_hint<'a>(apr_arch: &str, model_name: &'a str) -> &'a str
     }
 }
 
-/// Try APR CUDA inference, returning None to fall through to CPU
+/// Try APR CUDA inference, returning None to fall through to CPU.
+///
+/// Converts APR Q4K model to `OwnedQuantizedModel` and uses the proven GGUF CUDA
+/// pipeline (same path as `try_gguf_gpu_generate`). The previous wgpu path used
+/// `AprF32ToGpuAdapter` which only reads F32 fields — empty for Q4K models → garbage.
 #[cfg(feature = "cuda")]
 fn try_apr_cuda_inference(
     config: &InferenceConfig,
@@ -963,30 +967,45 @@ fn try_apr_cuda_inference(
     input_token_count: usize,
     load_start: Instant,
 ) -> Option<Result<InferenceResult>> {
-    use crate::apr_transformer::AprTransformer;
-    use crate::gpu::adapters::AprF32ToGpuAdapter;
-    use crate::gpu::GpuGenerateConfig;
+    use crate::apr::MappedAprModel;
+    use crate::gguf::{OwnedQuantizedModel, OwnedQuantizedModelCuda, QuantizedGenerateConfig};
 
-    // PMAT-APR-PERF-001: Use GpuModel with incremental KV cache for O(n) decode
-    // Previous path used AprV2ModelCuda which did full forward pass per token (O(n²))
-    let validated = AprTransformer::from_apr_file_validated(&config.model_path).ok()?;
-
-    // F1-FIX: Skip GPU path for F32 APR models. The GpuModel forward pass produces
-    // incorrect results for F32 weights (garbage output). F32 models should use the
-    // AprTransformer CPU path which has been validated via forward_traced().
-    // Only use GPU for quantized APR models (Q4K/Q6K) where GPU kernels are correct.
-    let has_quantized = validated.q4k_layers.is_some()
-        || validated.lm_head_weight_q4k.is_some()
-        || validated.lm_head_weight_q6k.is_some();
-    if !has_quantized {
-        return None;
-    }
-
-    let mut gpu_model = match AprF32ToGpuAdapter::to_gpu_model(&validated) {
+    // Load APR via memory-mapped model and convert to OwnedQuantizedModel.
+    // This reuses the proven GGUF CUDA pipeline for Q4K/Q6K models.
+    let mapped = match MappedAprModel::from_path(&config.model_path) {
         Ok(m) => m,
         Err(e) => {
             if config.verbose {
-                eprintln!("Backend: CPU (GPU adapter failed: {})", e);
+                eprintln!("[APR-CUDA] MappedAprModel::from_path failed: {}", e);
+            }
+            return None;
+        },
+    };
+    let model = match OwnedQuantizedModel::from_apr(&mapped) {
+        Ok(m) => m,
+        Err(e) => {
+            if config.verbose {
+                eprintln!("[APR-CUDA] OwnedQuantizedModel::from_apr failed: {}", e);
+            }
+            return None;
+        },
+    };
+
+    // Skip GPU for legacy quant types (Q4_0, Q5_0, Q8_0)
+    if model_has_legacy_quant(&model) {
+        return None;
+    }
+
+    let arch = model.config.architecture.clone();
+    let num_layers = model.config.num_layers;
+    let vocab_size = model.config.vocab_size;
+    let hidden_dim = model.config.hidden_dim;
+
+    let mut cuda_model = match OwnedQuantizedModelCuda::with_max_seq_len(model, 0, 2048) {
+        Ok(m) => m,
+        Err(e) => {
+            if config.verbose {
+                eprintln!("Backend: CPU (GPU unavailable: {})", e);
             }
             return None;
         },
@@ -997,33 +1016,38 @@ fn try_apr_cuda_inference(
     if config.verbose {
         eprintln!(
             "Architecture: {} ({} layers, vocab_size={})",
-            validated.config.architecture, validated.config.num_layers, validated.config.vocab_size
+            arch, num_layers, vocab_size
         );
         eprintln!(
-            "Config: hidden_size={}, context_length={}, quant=GPU+KVCache, threads=1 (GPU)",
-            validated.config.hidden_dim, validated.config.context_length
+            "Config: hidden_size={}, quant=CUDA+KVCache, threads=1 (GPU)",
+            hidden_dim
         );
         eprintln!("Model loaded in {:.1}ms", load_ms);
-        eprintln!("Backend: GPU (with incremental KV cache)");
+        eprintln!(
+            "Backend: GPU ({}, {} MB VRAM)",
+            cuda_model.device_name(),
+            cuda_model.vram_mb()
+        );
     }
 
-    let infer_start = Instant::now();
-    let eos_id = 151645u32; // Qwen2 EOS
-
-    // Convert input tokens to usize for GpuModel API
-    let prompt: Vec<usize> = input_tokens.iter().map(|&t| t as usize).collect();
-
-    // generate_with_cache creates its own StreamingKVCache internally
-    let gen_config = GpuGenerateConfig {
+    let gen_config = QuantizedGenerateConfig {
         max_tokens: config.max_tokens.min(128),
-        temperature: 0.0, // Greedy
-        top_k: 1,         // Greedy sampling
-        stop_tokens: vec![eos_id as usize],
+        temperature: 0.0,
+        top_k: 1,
+        stop_tokens: vec![151645], // Qwen2 EOS
         trace: false,
     };
 
-    let tokens = match gpu_model.generate_with_cache(&prompt, &gen_config) {
-        Ok(t) => t.into_iter().map(|t| t as u32).collect::<Vec<_>>(),
+    // Validate GPU output against CPU (reuses GGUF validation gate)
+    if !validate_gpu_first_token(&mut cuda_model, &gen_config) {
+        return None;
+    }
+
+    let infer_start = Instant::now();
+
+    // generate_gpu_resident creates fresh KV cache + resets GPU positions
+    let tokens = match cuda_model.generate_gpu_resident(input_tokens, &gen_config) {
+        Ok(t) => t,
         Err(e) => {
             return Some(Err(RealizarError::InferenceError(format!(
                 "GPU generation failed: {}",
