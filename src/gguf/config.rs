@@ -38,6 +38,26 @@ pub struct GGUFConfig {
     pub bos_token_id: Option<u32>,
 }
 
+/// Architecture-default BOS token IDs for weights-only GGUFs.
+///
+/// Weights-only GGUF files (e.g., from pacha) contain only 4 metadata keys
+/// and lack `tokenizer.ggml.bos_token_id`. This function provides a known-good
+/// BOS token ID based on the architecture, enabling GPU validation (F2-VALIDATION)
+/// that would otherwise be skipped.
+///
+/// Sources: `contracts/model-families/*.yaml`
+fn default_bos_for_architecture(arch: &str) -> Option<u32> {
+    match arch {
+        "qwen2" => Some(151_643),
+        "llama" => Some(128_000),
+        "mistral" => Some(1),
+        "gemma" | "gemma2" => Some(2),
+        "deepseek" | "deepseek2" => Some(0),
+        // phi/phi3: no BOS token (empty string in spec)
+        _ => None,
+    }
+}
+
 impl GGUFConfig {
     /// Extract configuration from GGUF model metadata
     ///
@@ -102,8 +122,18 @@ impl GGUFConfig {
         // LLaMA models use type 0 (adjacent pairs) per llama.cpp's LLAMA_ROPE_TYPE_NORM
         let rope_type = model.rope_type().unwrap_or(0);
 
-        // BOS token ID from GGUF metadata — None means unknown
-        let bos_token_id = model.bos_token_id();
+        // BOS token ID from GGUF metadata, with architecture-based fallback.
+        // Weights-only GGUFs (e.g., from pacha) lack tokenizer.ggml.bos_token_id.
+        // Without a BOS token, GPU validation (F2-VALIDATION) is skipped entirely.
+        let bos_token_id = model.bos_token_id().or_else(|| {
+            let fallback = default_bos_for_architecture(&architecture);
+            if fallback.is_some() {
+                eprintln!(
+                    "[BOS-FALLBACK] No tokenizer.ggml.bos_token_id in GGUF — using architecture default for '{architecture}'"
+                );
+            }
+            fallback
+        });
 
         Ok(Self {
             architecture,
@@ -438,5 +468,40 @@ mod tests {
         assert!((cloned.rope_theta - original.rope_theta).abs() < f32::EPSILON);
         assert!((cloned.eps - original.eps).abs() < f32::EPSILON);
         assert_eq!(cloned.rope_type, original.rope_type);
+    }
+
+    #[test]
+    fn test_default_bos_qwen2() {
+        assert_eq!(default_bos_for_architecture("qwen2"), Some(151_643));
+    }
+
+    #[test]
+    fn test_default_bos_llama() {
+        assert_eq!(default_bos_for_architecture("llama"), Some(128_000));
+    }
+
+    #[test]
+    fn test_default_bos_mistral() {
+        assert_eq!(default_bos_for_architecture("mistral"), Some(1));
+    }
+
+    #[test]
+    fn test_default_bos_gemma() {
+        assert_eq!(default_bos_for_architecture("gemma"), Some(2));
+        assert_eq!(default_bos_for_architecture("gemma2"), Some(2));
+    }
+
+    #[test]
+    fn test_default_bos_deepseek() {
+        assert_eq!(default_bos_for_architecture("deepseek"), Some(0));
+        assert_eq!(default_bos_for_architecture("deepseek2"), Some(0));
+    }
+
+    #[test]
+    fn test_default_bos_unknown_returns_none() {
+        assert_eq!(default_bos_for_architecture("phi"), None);
+        assert_eq!(default_bos_for_architecture("phi3"), None);
+        assert_eq!(default_bos_for_architecture("unknown_arch"), None);
+        assert_eq!(default_bos_for_architecture(""), None);
     }
 }
