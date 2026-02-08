@@ -176,6 +176,58 @@ impl CudaExecutor {
         }
     }
 
+    /// Debug: Read first N values from KV cache at position 0, layer 0
+    pub fn debug_kv_cache_values(
+        &self,
+        layer_idx: usize,
+        is_v: bool,
+        n: usize,
+    ) -> Result<Vec<f32>, GpuError> {
+        let key = if is_v {
+            format!("kv_{}_v", layer_idx)
+        } else {
+            format!("kv_{}_k", layer_idx)
+        };
+        let buf = self.kv_cache_gpu.get(&key).ok_or_else(|| {
+            GpuError::InvalidParameter(format!("KV cache not found: {}", key))
+        })?;
+        let total = buf.len();
+        let read_n = n.min(total);
+        let mut vals = vec![0.0f32; total];
+        buf.copy_to_host(&mut vals)?;
+        Ok(vals[..read_n].to_vec())
+    }
+
+    /// Debug: Dump KV cache values at a specific position for head 0
+    pub fn debug_kv_cache_at_position(
+        &self,
+        layer_idx: usize,
+        position: usize,
+        is_v: bool,
+        n: usize,
+    ) -> Result<Vec<f32>, GpuError> {
+        let key = if is_v {
+            format!("kv_{}_v", layer_idx)
+        } else {
+            format!("kv_{}_k", layer_idx)
+        };
+        let buf = self.kv_cache_gpu.get(&key).ok_or_else(|| {
+            GpuError::InvalidParameter(format!("KV cache not found: {}", key))
+        })?;
+        let total = buf.len();
+        let mut vals = vec![0.0f32; total];
+        buf.copy_to_host(&mut vals)?;
+        // KV cache layout: [num_kv_heads, max_len, head_dim]
+        // Head 0 starts at offset 0, position p starts at p * head_dim
+        let head_dim = self.kv_head_dim;
+        let max_len = self.kv_cache_max_len;
+        let offset = position * head_dim; // head 0
+        if offset + n > max_len * head_dim {
+            return Ok(vec![]);
+        }
+        Ok(vals[offset..offset + n.min(head_dim)].to_vec())
+    }
+
     /// PAR-060: Set RoPE theta (rotary position embedding base frequency)
     ///
     /// This must be called after init_kv_cache_gpu with the model's rope_theta value.

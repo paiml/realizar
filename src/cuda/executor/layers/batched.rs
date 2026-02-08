@@ -1101,96 +1101,166 @@ impl CudaExecutor {
         )?;
 
         // ========== 2. Q/K/V Projections (BATCHED GEMV - main optimization) ==========
-        // Reads weights ONCE, applies to M input vectors
-        // Only Q4K supported for now (most common for 1.5B+ models)
+        // PMAT-PREFILL-FIX: Handle each projection's quantization type independently.
+        // Q, K, V may have different quantization types (e.g., Q4K for Q/K, Q6K for V).
+
+        // Q projection — use batched Q4K if possible, else sequential with correct kernel
         if layer_weights.attn_q_qtype == WeightQuantType::Q4K {
             self.batched_q4k_gemv_into(
-                layer_weights.attn_q_ptr,
-                &hidden_buf1,
-                &q_buf,
-                m,
-                q_dim,
-                hidden_dim,
-            )?;
-            self.batched_q4k_gemv_into(
-                layer_weights.attn_k_ptr,
-                &hidden_buf1,
-                &k_buf,
-                m,
-                kv_dim,
-                hidden_dim,
-            )?;
-            self.batched_q4k_gemv_into(
-                layer_weights.attn_v_ptr,
-                &hidden_buf1,
-                &v_buf,
-                m,
-                kv_dim,
-                hidden_dim,
+                layer_weights.attn_q_ptr, &hidden_buf1, &q_buf, m, q_dim, hidden_dim,
             )?;
         } else {
-            // Fall back to sequential for non-Q4K weights
             for seq_idx in 0..m as usize {
                 let h_offset = seq_idx * hidden_dim as usize;
                 let q_offset = seq_idx * q_dim as usize;
-                let kv_offset = seq_idx * kv_dim as usize;
-
-                // SAFETY: Unsafe operation with validated invariants
                 let input_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         hidden_buf1_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
                         hidden_dim as usize,
                     )
                 };
-                // SAFETY: Unsafe operation with validated invariants
                 let q_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         q_buf_ptr + (q_offset * std::mem::size_of::<f32>()) as u64,
                         q_dim as usize,
                     )
                 };
-                // SAFETY: Unsafe operation with validated invariants
+                match layer_weights.attn_q_qtype {
+                    WeightQuantType::Q6K => self.q6k_gemv_into(layer_weights.attn_q_ptr, &input_view, &q_view, q_dim, hidden_dim)?,
+                    _ => self.q4k_gemv_into(layer_weights.attn_q_ptr, &input_view, &q_view, q_dim, hidden_dim)?,
+                }
+                std::mem::forget(input_view);
+                std::mem::forget(q_view);
+            }
+        }
+
+        // K projection — use batched Q4K if possible, else sequential with correct kernel
+        if layer_weights.attn_k_qtype == WeightQuantType::Q4K {
+            self.batched_q4k_gemv_into(
+                layer_weights.attn_k_ptr, &hidden_buf1, &k_buf, m, kv_dim, hidden_dim,
+            )?;
+        } else {
+            for seq_idx in 0..m as usize {
+                let h_offset = seq_idx * hidden_dim as usize;
+                let kv_offset = seq_idx * kv_dim as usize;
+                let input_view = unsafe {
+                    GpuBuffer::<f32>::from_raw_parts(
+                        hidden_buf1_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
+                        hidden_dim as usize,
+                    )
+                };
                 let k_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         k_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
                         kv_dim as usize,
                     )
                 };
-                // SAFETY: Unsafe operation with validated invariants
+                match layer_weights.attn_k_qtype {
+                    WeightQuantType::Q6K => self.q6k_gemv_into(layer_weights.attn_k_ptr, &input_view, &k_view, kv_dim, hidden_dim)?,
+                    _ => self.q4k_gemv_into(layer_weights.attn_k_ptr, &input_view, &k_view, kv_dim, hidden_dim)?,
+                }
+                std::mem::forget(input_view);
+                std::mem::forget(k_view);
+            }
+        }
+
+        // V projection — handle each quantization type with matching GEMV kernel
+        if layer_weights.attn_v_qtype == WeightQuantType::Q4K {
+            self.batched_q4k_gemv_into(
+                layer_weights.attn_v_ptr, &hidden_buf1, &v_buf, m, kv_dim, hidden_dim,
+            )?;
+        } else {
+            // Sequential fallback for Q6K and other types — use the correct kernel per-type
+            for seq_idx in 0..m as usize {
+                let h_offset = seq_idx * hidden_dim as usize;
+                let kv_offset = seq_idx * kv_dim as usize;
+                let input_view = unsafe {
+                    GpuBuffer::<f32>::from_raw_parts(
+                        hidden_buf1_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
+                        hidden_dim as usize,
+                    )
+                };
                 let v_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         v_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
                         kv_dim as usize,
                     )
                 };
-
-                self.q4k_gemv_into(
-                    layer_weights.attn_q_ptr,
-                    &input_view,
-                    &q_view,
-                    q_dim,
-                    hidden_dim,
-                )?;
-                self.q4k_gemv_into(
-                    layer_weights.attn_k_ptr,
-                    &input_view,
-                    &k_view,
-                    kv_dim,
-                    hidden_dim,
-                )?;
-                self.q4k_gemv_into(
-                    layer_weights.attn_v_ptr,
-                    &input_view,
-                    &v_view,
-                    kv_dim,
-                    hidden_dim,
-                )?;
-
+                match layer_weights.attn_v_qtype {
+                    WeightQuantType::Q6K => {
+                        self.q6k_gemv_into(layer_weights.attn_v_ptr, &input_view, &v_view, kv_dim, hidden_dim)?;
+                    }
+                    _ => {
+                        self.q4k_gemv_into(layer_weights.attn_v_ptr, &input_view, &v_view, kv_dim, hidden_dim)?;
+                    }
+                }
                 std::mem::forget(input_view);
-                std::mem::forget(q_view);
-                std::mem::forget(k_view);
                 std::mem::forget(v_view);
             }
+        }
+
+        // ========== 2b. QKV Bias ==========
+        // Qwen2.5 models have QKV bias that must be added after GEMV projections.
+        // The serial decode path (indexed.rs) adds bias; batched path was missing it.
+        if layer_weights.attn_q_bias_len > 0 {
+            let q_bias_buf = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    layer_weights.attn_q_bias_ptr,
+                    layer_weights.attn_q_bias_len,
+                )
+            };
+            for seq_idx in 0..m as usize {
+                let offset = seq_idx * q_dim as usize;
+                let q_view = unsafe {
+                    GpuBuffer::<f32>::from_raw_parts(
+                        q_buf_ptr + (offset * std::mem::size_of::<f32>()) as u64,
+                        q_dim as usize,
+                    )
+                };
+                self.residual_add_into(&q_view, &q_bias_buf, &q_view, q_dim)?;
+                std::mem::forget(q_view);
+            }
+            std::mem::forget(q_bias_buf);
+        }
+        if layer_weights.attn_k_bias_len > 0 {
+            let k_bias_buf = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    layer_weights.attn_k_bias_ptr,
+                    layer_weights.attn_k_bias_len,
+                )
+            };
+            for seq_idx in 0..m as usize {
+                let offset = seq_idx * kv_dim as usize;
+                let k_view = unsafe {
+                    GpuBuffer::<f32>::from_raw_parts(
+                        k_buf_ptr + (offset * std::mem::size_of::<f32>()) as u64,
+                        kv_dim as usize,
+                    )
+                };
+                self.residual_add_into(&k_view, &k_bias_buf, &k_view, kv_dim)?;
+                std::mem::forget(k_view);
+            }
+            std::mem::forget(k_bias_buf);
+        }
+        if layer_weights.attn_v_bias_len > 0 {
+            let v_bias_buf = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    layer_weights.attn_v_bias_ptr,
+                    layer_weights.attn_v_bias_len,
+                )
+            };
+            for seq_idx in 0..m as usize {
+                let offset = seq_idx * kv_dim as usize;
+                let v_view = unsafe {
+                    GpuBuffer::<f32>::from_raw_parts(
+                        v_buf_ptr + (offset * std::mem::size_of::<f32>()) as u64,
+                        kv_dim as usize,
+                    )
+                };
+                self.residual_add_into(&v_view, &v_bias_buf, &v_view, kv_dim)?;
+                std::mem::forget(v_view);
+            }
+            std::mem::forget(v_bias_buf);
         }
 
         // ========== 3. RoPE on Q/K (PAR-114: BATCHED - 2 kernel launches) ==========
@@ -1216,27 +1286,59 @@ impl CudaExecutor {
         let positions_u32: Vec<u32> = positions.to_vec();
         positions_buf.copy_from_host(&positions_u32)?;
 
-        // PAR-114: Batched RoPE for Q (all M sequences in one launch)
-        self.batched_rope_into(
-            &q_buf,
-            &q_buf, // In-place
-            &positions_buf,
-            num_heads,
-            head_dim,
-            m,
-            theta,
-        )?;
+        // PMAT-PREFILL: RoPE — must match serial decode path's rope_type
+        // rope_type == 2 → NEOX (split-halves), otherwise adjacent pairs
+        if self.rope_type == 2 {
+            // Sequential NEOX RoPE (no batched NEOX kernel yet)
+            for seq_idx in 0..m as usize {
+                let q_offset = seq_idx * q_dim as usize;
+                let kv_offset = seq_idx * kv_dim as usize;
+                let position = positions[seq_idx] as usize;
 
-        // PAR-114: Batched RoPE for K (all M sequences in one launch)
-        self.batched_rope_into(
-            &k_buf,
-            &k_buf, // In-place
-            &positions_buf,
-            num_kv_heads,
-            head_dim,
-            m,
-            theta,
-        )?;
+                // SAFETY: Pointer within bounds of q_buf allocation
+                let q_view = unsafe {
+                    GpuBuffer::<f32>::from_raw_parts(
+                        q_buf_ptr + (q_offset * std::mem::size_of::<f32>()) as u64,
+                        q_dim as usize,
+                    )
+                };
+                // SAFETY: Pointer within bounds of k_buf allocation
+                let k_view = unsafe {
+                    GpuBuffer::<f32>::from_raw_parts(
+                        k_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
+                        kv_dim as usize,
+                    )
+                };
+
+                self.rope_neox_into(&q_view, &q_view, position as u32, num_heads, head_dim, theta)?;
+                self.rope_neox_into(&k_view, &k_view, position as u32, num_kv_heads, head_dim, theta)?;
+
+                std::mem::forget(q_view);
+                std::mem::forget(k_view);
+            }
+        } else {
+            // PAR-114: Batched RoPE for Q (all M sequences in one launch)
+            self.batched_rope_into(
+                &q_buf,
+                &q_buf, // In-place
+                &positions_buf,
+                num_heads,
+                head_dim,
+                m,
+                theta,
+            )?;
+
+            // PAR-114: Batched RoPE for K (all M sequences in one launch)
+            self.batched_rope_into(
+                &k_buf,
+                &k_buf, // In-place
+                &positions_buf,
+                num_kv_heads,
+                head_dim,
+                m,
+                theta,
+            )?;
+        }
 
         std::mem::forget(positions_buf);
 
@@ -1336,39 +1438,32 @@ impl CudaExecutor {
             self.batched_q4k_gemv_into(
                 layer_weights.attn_output_ptr,
                 &attn_out_buf,
-                &hidden_buf1, // Reuse for O projection output
+                &hidden_buf1,
                 m,
                 hidden_dim,
                 q_dim,
             )?;
         } else {
-            // Fall back to sequential
+            // Sequential fallback with correct kernel per quantization type
             for seq_idx in 0..m as usize {
                 let h_offset = seq_idx * hidden_dim as usize;
                 let attn_offset = seq_idx * q_dim as usize;
-
-                // SAFETY: Unsafe operation with validated invariants
                 let attn_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         attn_out_ptr + (attn_offset * std::mem::size_of::<f32>()) as u64,
                         q_dim as usize,
                     )
                 };
-                // SAFETY: Unsafe operation with validated invariants
                 let out_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         hidden_buf1_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
                         hidden_dim as usize,
                     )
                 };
-
-                self.q4k_gemv_into(
-                    layer_weights.attn_output_ptr,
-                    &attn_view,
-                    &out_view,
-                    hidden_dim,
-                    q_dim,
-                )?;
+                match layer_weights.attn_output_qtype {
+                    WeightQuantType::Q6K => self.q6k_gemv_into(layer_weights.attn_output_ptr, &attn_view, &out_view, hidden_dim, q_dim)?,
+                    _ => self.q4k_gemv_into(layer_weights.attn_output_ptr, &attn_view, &out_view, hidden_dim, q_dim)?,
+                }
 
                 std::mem::forget(attn_view);
                 std::mem::forget(out_view);
@@ -1443,20 +1538,14 @@ impl CudaExecutor {
                     )
                 };
 
-                self.q4k_gemv_into(
-                    layer_weights.ffn_gate_ptr,
-                    &input_view,
-                    &gate_view,
-                    intermediate_dim,
-                    hidden_dim,
-                )?;
-                self.q4k_gemv_into(
-                    layer_weights.ffn_up_ptr,
-                    &input_view,
-                    &up_view,
-                    intermediate_dim,
-                    hidden_dim,
-                )?;
+                match layer_weights.ffn_gate_qtype {
+                    WeightQuantType::Q6K => self.q6k_gemv_into(layer_weights.ffn_gate_ptr, &input_view, &gate_view, intermediate_dim, hidden_dim)?,
+                    _ => self.q4k_gemv_into(layer_weights.ffn_gate_ptr, &input_view, &gate_view, intermediate_dim, hidden_dim)?,
+                }
+                match layer_weights.ffn_up_qtype {
+                    WeightQuantType::Q6K => self.q6k_gemv_into(layer_weights.ffn_up_ptr, &input_view, &up_view, intermediate_dim, hidden_dim)?,
+                    _ => self.q4k_gemv_into(layer_weights.ffn_up_ptr, &input_view, &up_view, intermediate_dim, hidden_dim)?,
+                }
 
                 std::mem::forget(input_view);
                 std::mem::forget(gate_view);
@@ -1486,7 +1575,6 @@ impl CudaExecutor {
                 intermediate_dim,
             )?;
         } else if layer_weights.ffn_down_qtype == WeightQuantType::Q6K {
-            // PAR-130: Batched Q6K GEMV - eliminates M sequential kernel launches
             self.batched_q6k_gemv_into(
                 layer_weights.ffn_down_ptr,
                 &ffn_act_buf,
