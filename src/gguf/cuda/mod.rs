@@ -390,8 +390,10 @@ fn parity_gate(cuda_model: &mut OwnedQuantizedModelCuda) -> Result<()> {
     let kv_dim = num_kv_heads * head_dim;
     let num_layers = cuda_model.model.config.num_layers;
 
-    // Use BOS token (universally valid for all models)
-    let token_id: u32 = 1;
+    // Use architecture-aware BOS token from GGUFConfig (which applies
+    // default_bos_for_architecture fallback for weights-only GGUFs).
+    // Falls back to 1 only for architectures with no known BOS.
+    let token_id: u32 = cuda_model.model.config.bos_token_id.unwrap_or(1);
     let position: usize = 0;
 
     // Independent KV caches
