@@ -1038,10 +1038,10 @@ fn test_tqa023_transfer_mode_coverage() {
 fn test_tqa023_weight_quant_type_coverage() {
     println!("\n=== T-QA-023: WeightQuantType Coverage ===\n");
 
-    // Test Default
-    let default_type: WeightQuantType = Default::default();
-    assert_eq!(default_type, WeightQuantType::Q4K);
-    println!("  Default type is Q4K");
+    // Test common type (PMAT-232: Default intentionally removed)
+    let common_type: WeightQuantType = WeightQuantType::Q4K;
+    assert_eq!(common_type, WeightQuantType::Q4K);
+    println!("  Common type is Q4K");
 
     // Test from_ggml_type
     let ggml_mappings = [
@@ -1151,12 +1151,26 @@ fn test_tqa023_weight_quant_type_coverage() {
 }
 
 #[test]
-fn test_tqa023_indexed_layer_weights_default() {
-    println!("\n=== T-QA-023: IndexedLayerWeights Default Coverage ===\n");
+fn test_tqa023_indexed_layer_weights_zeroed() {
+    println!("\n=== T-QA-023: IndexedLayerWeights Zeroed Construction Coverage ===\n");
 
     use realizar::cuda::IndexedLayerWeights;
 
-    let weights: IndexedLayerWeights = Default::default();
+    // PMAT-232: Default intentionally removed; use explicit zeroed construction
+    let weights = IndexedLayerWeights {
+        attn_q_ptr: 0, attn_q_len: 0, attn_q_qtype: WeightQuantType::Q4K,
+        attn_k_ptr: 0, attn_k_len: 0, attn_k_qtype: WeightQuantType::Q4K,
+        attn_v_ptr: 0, attn_v_len: 0, attn_v_qtype: WeightQuantType::Q4K,
+        attn_output_ptr: 0, attn_output_len: 0, attn_output_qtype: WeightQuantType::Q4K,
+        ffn_gate_ptr: 0, ffn_gate_len: 0, ffn_gate_qtype: WeightQuantType::Q4K,
+        ffn_up_ptr: 0, ffn_up_len: 0, ffn_up_qtype: WeightQuantType::Q4K,
+        ffn_down_ptr: 0, ffn_down_len: 0, ffn_down_qtype: WeightQuantType::Q4K,
+        attn_norm_ptr: 0, attn_norm_len: 0,
+        ffn_norm_ptr: 0, ffn_norm_len: 0,
+        attn_q_bias_ptr: 0, attn_q_bias_len: 0,
+        attn_k_bias_ptr: 0, attn_k_bias_len: 0,
+        attn_v_bias_ptr: 0, attn_v_bias_len: 0,
+    };
     assert_eq!(weights.attn_q_ptr, 0);
     assert_eq!(weights.attn_q_len, 0);
     assert_eq!(weights.attn_q_qtype, WeightQuantType::Q4K);
@@ -1168,7 +1182,7 @@ fn test_tqa023_indexed_layer_weights_default() {
     assert_eq!(weights.ffn_down_ptr, 0);
     assert_eq!(weights.attn_norm_ptr, 0);
     assert_eq!(weights.ffn_norm_ptr, 0);
-    println!("  IndexedLayerWeights default values verified");
+    println!("  IndexedLayerWeights zeroed construction values verified");
 }
 
 #[test]

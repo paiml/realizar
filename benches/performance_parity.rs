@@ -576,7 +576,6 @@ fn benchmark_kv_cache_attention(c: &mut Criterion) {
     let mut group = c.benchmark_group("imp_101d_kv_cache_attention");
     group.sample_size(50);
 
-    // Test different sequence lengths to show O(n) vs O(n²) scaling
     let seq_lengths = [32, 64, 128, 256];
     let hidden_dim = 256;
     let num_heads = 4;
@@ -584,10 +583,7 @@ fn benchmark_kv_cache_attention(c: &mut Criterion) {
     let num_layers = 4;
 
     for &seq_len in &seq_lengths {
-        // Setup: Pre-filled KV cache simulating seq_len-1 tokens already processed
         let mut cache = OwnedQuantizedKVCache::new(num_layers, hidden_dim, seq_len + 64);
-
-        // Pre-fill cache with seq_len-1 positions
         for pos in 0..(seq_len - 1) {
             for layer in 0..num_layers {
                 let k: Vec<f32> = (0..hidden_dim)
@@ -601,84 +597,29 @@ fn benchmark_kv_cache_attention(c: &mut Criterion) {
             cache.advance();
         }
 
-        // Current token's Q, K, V
         let q: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 * 0.003).sin()).collect();
         let current_k: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 * 0.004).cos()).collect();
         let current_v: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 * 0.005).sin()).collect();
 
-        // Benchmark: Attention with KV cache (O(n) per token)
-        // Note: This is a simplified standalone benchmark without full model
         group.throughput(Throughput::Elements(seq_len as u64));
         group.bench_with_input(
             BenchmarkId::new("kv_cache_attention", format!("seq{seq_len}")),
             &(&q, &cache, &current_k, &current_v, num_heads, head_dim),
             |b, (q, cache, cur_k, cur_v, n_heads, h_dim)| {
                 b.iter(|| {
-                    // Compute attention scores: Q * K^T / sqrt(d_k)
-                    let scale = 1.0 / (*h_dim as f32).sqrt();
-                    let k_cache = cache.get_k(0); // Use layer 0 for benchmark
+                    let k_cache = cache.get_k(0);
                     let v_cache = cache.get_v(0);
                     let cache_len = k_cache.len() / hidden_dim;
-
-                    let mut output = vec![0.0f32; hidden_dim];
-
-                    // Process each head
-                    for head in 0..*n_heads {
-                        let head_offset = head * *h_dim;
-                        let q_head = &q[head_offset..head_offset + *h_dim];
-
-                        // Compute scores against cached + current positions
-                        let mut scores = Vec::with_capacity(cache_len + 1);
-
-                        // Cached positions
-                        for pos in 0..cache_len {
-                            let k_start = pos * hidden_dim + head_offset;
-                            let k_head = &k_cache[k_start..k_start + *h_dim];
-                            let score: f32 = q_head.iter().zip(k_head).map(|(a, b)| a * b).sum();
-                            scores.push(score * scale);
-                        }
-
-                        // Current position
-                        let cur_k_head = &cur_k[head_offset..head_offset + *h_dim];
-                        let cur_score: f32 =
-                            q_head.iter().zip(cur_k_head).map(|(a, b)| a * b).sum();
-                        scores.push(cur_score * scale);
-
-                        // Softmax
-                        let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                        let mut exp_sum = 0.0f32;
-                        for s in &mut scores {
-                            *s = (*s - max_score).exp();
-                            exp_sum += *s;
-                        }
-                        for s in &mut scores {
-                            *s /= exp_sum;
-                        }
-
-                        // Weighted sum of values
-                        let out_head = &mut output[head_offset..head_offset + *h_dim];
-                        for (pos, &weight) in scores.iter().enumerate().take(cache_len) {
-                            let v_start = pos * hidden_dim + head_offset;
-                            let v_head = &v_cache[v_start..v_start + *h_dim];
-                            for (i, &val) in v_head.iter().enumerate() {
-                                out_head[i] += weight * val;
-                            }
-                        }
-                        // Current value
-                        let cur_v_head = &cur_v[head_offset..head_offset + *h_dim];
-                        let cur_weight = scores[cache_len];
-                        for (i, &val) in cur_v_head.iter().enumerate() {
-                            out_head[i] += cur_weight * val;
-                        }
-                    }
-
+                    let output = bench_cached_attention(
+                        q, k_cache, v_cache, cur_k, cur_v,
+                        *n_heads, *h_dim, hidden_dim, cache_len,
+                    );
                     black_box(output)
                 });
             },
         );
 
-        // Benchmark: Full recompute (O(n²) per token) - baseline for comparison
-        // This simulates what happens without KV cache
+        // Full recompute (O(n²) per token) - baseline comparison
         let all_k: Vec<f32> = (0..(seq_len * hidden_dim))
             .map(|i| (i as f32 * 0.001).sin())
             .collect();
@@ -694,53 +635,9 @@ fn benchmark_kv_cache_attention(c: &mut Criterion) {
             &(&all_q, &all_k, &all_v, num_heads, head_dim, seq_len),
             |b, (q, k, v, n_heads, h_dim, s_len)| {
                 b.iter(|| {
-                    let scale = 1.0 / (*h_dim as f32).sqrt();
-                    let mut output = vec![0.0f32; *s_len * hidden_dim];
-
-                    // Process each head
-                    for head in 0..*n_heads {
-                        let head_offset = head * *h_dim;
-
-                        // Process each query position
-                        for i in 0..*s_len {
-                            let q_start = i * hidden_dim + head_offset;
-                            let q_head = &q[q_start..q_start + *h_dim];
-
-                            // Compute scores against ALL positions (causal: 0..=i)
-                            let mut scores = Vec::with_capacity(i + 1);
-                            for j in 0..=i {
-                                let k_start = j * hidden_dim + head_offset;
-                                let k_head = &k[k_start..k_start + *h_dim];
-                                let score: f32 =
-                                    q_head.iter().zip(k_head).map(|(a, b)| a * b).sum();
-                                scores.push(score * scale);
-                            }
-
-                            // Softmax
-                            let max_score =
-                                scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                            let mut exp_sum = 0.0f32;
-                            for s in &mut scores {
-                                *s = (*s - max_score).exp();
-                                exp_sum += *s;
-                            }
-                            for s in &mut scores {
-                                *s /= exp_sum;
-                            }
-
-                            // Weighted sum of values
-                            let out_start = i * hidden_dim + head_offset;
-                            let out_head = &mut output[out_start..out_start + *h_dim];
-                            for (j, &weight) in scores.iter().enumerate() {
-                                let v_start = j * hidden_dim + head_offset;
-                                let v_head = &v[v_start..v_start + *h_dim];
-                                for (d, &val) in v_head.iter().enumerate() {
-                                    out_head[d] += weight * val;
-                                }
-                            }
-                        }
-                    }
-
+                    let output = bench_full_recompute_attention(
+                        q, k, v, *n_heads, *h_dim, hidden_dim, *s_len,
+                    );
                     black_box(output)
                 });
             },
@@ -748,6 +645,99 @@ fn benchmark_kv_cache_attention(c: &mut Criterion) {
     }
 
     group.finish();
+}
+
+/// Cached attention benchmark helper — single-token decode with KV cache
+fn bench_cached_attention(
+    q: &[f32], k_cache: &[f32], v_cache: &[f32],
+    cur_k: &[f32], cur_v: &[f32],
+    num_heads: usize, head_dim: usize, hidden_dim: usize, cache_len: usize,
+) -> Vec<f32> {
+    let scale = 1.0 / (head_dim as f32).sqrt();
+    let mut output = vec![0.0f32; hidden_dim];
+
+    for head in 0..num_heads {
+        let head_offset = head * head_dim;
+        let q_head = &q[head_offset..head_offset + head_dim];
+
+        let mut scores = Vec::with_capacity(cache_len + 1);
+        for pos in 0..cache_len {
+            let k_start = pos * hidden_dim + head_offset;
+            let k_head = &k_cache[k_start..k_start + head_dim];
+            let score: f32 = q_head.iter().zip(k_head).map(|(a, b)| a * b).sum();
+            scores.push(score * scale);
+        }
+        let cur_k_head = &cur_k[head_offset..head_offset + head_dim];
+        let cur_score: f32 = q_head.iter().zip(cur_k_head).map(|(a, b)| a * b).sum();
+        scores.push(cur_score * scale);
+
+        bench_softmax_inplace(&mut scores);
+
+        let out_head = &mut output[head_offset..head_offset + head_dim];
+        for (pos, &weight) in scores.iter().enumerate().take(cache_len) {
+            let v_start = pos * hidden_dim + head_offset;
+            let v_head = &v_cache[v_start..v_start + head_dim];
+            for (i, &val) in v_head.iter().enumerate() {
+                out_head[i] += weight * val;
+            }
+        }
+        let cur_v_head = &cur_v[head_offset..head_offset + head_dim];
+        let cur_weight = scores[cache_len];
+        for (i, &val) in cur_v_head.iter().enumerate() {
+            out_head[i] += cur_weight * val;
+        }
+    }
+    output
+}
+
+/// Full recompute attention benchmark helper — O(n²) without KV cache
+fn bench_full_recompute_attention(
+    q: &[f32], k: &[f32], v: &[f32],
+    num_heads: usize, head_dim: usize, hidden_dim: usize, seq_len: usize,
+) -> Vec<f32> {
+    let scale = 1.0 / (head_dim as f32).sqrt();
+    let mut output = vec![0.0f32; seq_len * hidden_dim];
+
+    for head in 0..num_heads {
+        let head_offset = head * head_dim;
+        for i in 0..seq_len {
+            let q_start = i * hidden_dim + head_offset;
+            let q_head = &q[q_start..q_start + head_dim];
+
+            let mut scores = Vec::with_capacity(i + 1);
+            for j in 0..=i {
+                let k_start = j * hidden_dim + head_offset;
+                let k_head = &k[k_start..k_start + head_dim];
+                let score: f32 = q_head.iter().zip(k_head).map(|(a, b)| a * b).sum();
+                scores.push(score * scale);
+            }
+            bench_softmax_inplace(&mut scores);
+
+            let out_start = i * hidden_dim + head_offset;
+            let out_head = &mut output[out_start..out_start + head_dim];
+            for (j, &weight) in scores.iter().enumerate() {
+                let v_start = j * hidden_dim + head_offset;
+                let v_head = &v[v_start..v_start + head_dim];
+                for (d, &val) in v_head.iter().enumerate() {
+                    out_head[d] += weight * val;
+                }
+            }
+        }
+    }
+    output
+}
+
+/// In-place softmax for benchmark attention helpers
+fn bench_softmax_inplace(scores: &mut [f32]) {
+    let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let mut exp_sum = 0.0f32;
+    for s in scores.iter_mut() {
+        *s = (*s - max_score).exp();
+        exp_sum += *s;
+    }
+    for s in scores.iter_mut() {
+        *s /= exp_sum;
+    }
 }
 
 // ============================================================================
@@ -790,6 +780,7 @@ fn benchmark_e2e_generation(c: &mut Criterion) {
         eps: 1e-5,
         rope_theta: 10000.0,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     // Create Q4_K quantized weights (144 bytes per 256 values)
@@ -1059,53 +1050,10 @@ fn benchmark_component_profiling(c: &mut Criterion) {
 
     group.bench_function("5_attention_with_cache", |b| {
         b.iter(|| {
-            let scale = 1.0 / (head_dim as f32).sqrt();
-            let mut output = vec![0.0f32; hidden_dim];
-
-            for head in 0..num_heads {
-                let head_offset = head * head_dim;
-                let q_head = &q[head_offset..head_offset + head_dim];
-
-                // Compute scores against cached positions
-                let mut scores = Vec::with_capacity(seq_len + 1);
-                for pos in 0..seq_len {
-                    let k_start = pos * hidden_dim + head_offset;
-                    let k_head = &k_cache[k_start..k_start + head_dim];
-                    let score: f32 = q_head.iter().zip(k_head).map(|(a, b)| a * b).sum();
-                    scores.push(score * scale);
-                }
-                // Current position
-                let cur_k_head = &cur_k[head_offset..head_offset + head_dim];
-                let cur_score: f32 = q_head.iter().zip(cur_k_head).map(|(a, b)| a * b).sum();
-                scores.push(cur_score * scale);
-
-                // Softmax
-                let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                let mut exp_sum = 0.0f32;
-                for s in &mut scores {
-                    *s = (*s - max_score).exp();
-                    exp_sum += *s;
-                }
-                for s in &mut scores {
-                    *s /= exp_sum;
-                }
-
-                // Weighted sum of values
-                let out_head = &mut output[head_offset..head_offset + head_dim];
-                for (pos, &weight) in scores.iter().enumerate().take(seq_len) {
-                    let v_start = pos * hidden_dim + head_offset;
-                    let v_head = &v_cache[v_start..v_start + head_dim];
-                    for (i, &val) in v_head.iter().enumerate() {
-                        out_head[i] += weight * val;
-                    }
-                }
-                // Current value
-                let cur_v_head = &cur_v[head_offset..head_offset + head_dim];
-                let cur_weight = scores[seq_len];
-                for (i, &val) in cur_v_head.iter().enumerate() {
-                    out_head[i] += cur_weight * val;
-                }
-            }
+            let output = bench_cached_attention(
+                &q, &k_cache, &v_cache, &cur_k, &cur_v,
+                num_heads, head_dim, hidden_dim, seq_len,
+            );
             black_box(output)
         });
     });
@@ -1224,44 +1172,10 @@ fn benchmark_component_profiling(c: &mut Criterion) {
                         .expect("test");
 
                 // Attention (simplified)
-                let scale = 1.0 / (head_dim as f32).sqrt();
-                let mut output = vec![0.0f32; hidden_dim];
-                for head in 0..num_heads {
-                    let head_offset = head * head_dim;
-                    let q_head = &q[head_offset..head_offset + head_dim];
-                    let mut scores = Vec::with_capacity(seq_len + 1);
-                    for pos in 0..seq_len {
-                        let k_start = pos * hidden_dim + head_offset;
-                        let k_head = &k_cache[k_start..k_start + head_dim];
-                        scores.push(
-                            q_head.iter().zip(k_head).map(|(a, b)| a * b).sum::<f32>() * scale,
-                        );
-                    }
-                    scores.push(
-                        q_head
-                            .iter()
-                            .zip(&cur_k[head_offset..head_offset + head_dim])
-                            .map(|(a, b)| a * b)
-                            .sum::<f32>()
-                            * scale,
-                    );
-                    let max_s = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                    let mut exp_sum = 0.0f32;
-                    for s in &mut scores {
-                        *s = (*s - max_s).exp();
-                        exp_sum += *s;
-                    }
-                    for s in &mut scores {
-                        *s /= exp_sum;
-                    }
-                    let out_head = &mut output[head_offset..head_offset + head_dim];
-                    for (pos, &w) in scores.iter().enumerate().take(seq_len) {
-                        let v_start = pos * hidden_dim + head_offset;
-                        for (i, &v) in v_cache[v_start..v_start + head_dim].iter().enumerate() {
-                            out_head[i] += w * v;
-                        }
-                    }
-                }
+                let _output = bench_cached_attention(
+                    &q, &k_cache, &v_cache, &cur_k, &cur_v,
+                    num_heads, head_dim, hidden_dim, seq_len,
+                );
 
                 // Output projection
                 let _out =
@@ -1444,6 +1358,7 @@ fn benchmark_batch_prefill(c: &mut Criterion) {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         // Create test model
@@ -1623,6 +1538,7 @@ fn benchmark_batched_causal_attention(c: &mut Criterion) {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let model = create_bench_model_with_config(&config);
@@ -1777,6 +1693,7 @@ fn benchmark_fused_batch_matmul(c: &mut Criterion) {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let model = create_bench_model_with_config(&config);
@@ -1911,6 +1828,7 @@ fn benchmark_parallel_multihead_attention(c: &mut Criterion) {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let model = create_bench_model_with_config(&config);
@@ -2010,6 +1928,7 @@ fn benchmark_tiled_attention(c: &mut Criterion) {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let model = create_bench_model_with_config(&config);
@@ -2123,6 +2042,7 @@ fn benchmark_scheduler_caching(c: &mut Criterion) {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_bench_model_with_config(&config);
@@ -2206,6 +2126,7 @@ fn benchmark_single_dispatch_attention(c: &mut Criterion) {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let model = create_bench_model_with_config(&config);
@@ -2304,6 +2225,7 @@ fn benchmark_flattened_batched_gemm(c: &mut Criterion) {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let model = create_bench_model_with_config(&config);
@@ -2393,6 +2315,7 @@ fn benchmark_fused_kernel_attention(c: &mut Criterion) {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let model = create_bench_model_with_config(&config);
@@ -2493,6 +2416,7 @@ fn benchmark_gpu_cpu_crossover(c: &mut Criterion) {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_bench_model_with_config(&config);
