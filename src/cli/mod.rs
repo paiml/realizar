@@ -1642,10 +1642,7 @@ mod server_commands {
             let max_seq_len = 4096; // Support long sequences
             let cuda_model =
                 OwnedQuantizedModelCuda::with_max_seq_len(quantized_model, 0, max_seq_len)
-                    .map_err(|e| crate::error::RealizarError::UnsupportedOperation {
-                        operation: "cuda_model_create".to_string(),
-                        reason: format!("CUDA model creation failed: {e}"),
-                    })?;
+                    .map_err(|e| e.error)?;
 
             println!("  CUDA model created on GPU: {}", cuda_model.device_name());
             println!("  Max sequence length: {}", max_seq_len);

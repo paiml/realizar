@@ -54,6 +54,37 @@ use super::utils::verbose;
 // IMP-800: CUDA-Accelerated Model Wrapper
 // =============================================================================
 
+/// Error from CUDA model initialization that preserves the unconsumed model.
+///
+/// When `OwnedQuantizedModelCuda::new()` fails, the model is returned inside this error
+/// so callers can fall back to CPU without an expensive 1GB clone.
+pub struct CudaInitError {
+    /// The initialization error
+    pub error: RealizarError,
+    /// The unconsumed model, returned for CPU fallback
+    model: OwnedQuantizedModel,
+}
+
+impl CudaInitError {
+    /// Extract the unconsumed model for CPU fallback
+    #[must_use]
+    pub fn into_model(self) -> OwnedQuantizedModel {
+        self.model
+    }
+}
+
+impl std::fmt::Display for CudaInitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.error)
+    }
+}
+
+impl std::fmt::Debug for CudaInitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CudaInitError({:?})", self.error)
+    }
+}
+
 /// CUDA-accelerated wrapper for `OwnedQuantizedModel` (IMP-800a)
 ///
 /// Provides GPU-accelerated forward pass using NVIDIA CUDA via trueno-gpu.
@@ -92,8 +123,10 @@ impl OwnedQuantizedModelCuda {
     /// # Errors
     ///
     /// Returns error if CUDA is not available or device doesn't exist.
+    /// Create a CUDA model wrapper. Model is consumed on failure.
+    /// Use `with_max_seq_len` for recoverable errors (returns model on failure).
     pub fn new(model: OwnedQuantizedModel, device_ordinal: i32) -> Result<Self> {
-        Self::with_max_seq_len(model, device_ordinal, 2048)
+        Self::with_max_seq_len(model, device_ordinal, 2048).map_err(|e| e.error)
     }
 
     /// Create a new CUDA-accelerated model wrapper with custom max sequence length
@@ -106,19 +139,27 @@ impl OwnedQuantizedModelCuda {
     ///
     /// # Errors
     ///
-    /// Returns error if CUDA is not available or device doesn't exist.
+    /// Returns `CudaInitError` containing both the error and the unconsumed model,
+    /// allowing callers to recover the model for CPU fallback without cloning.
     pub fn with_max_seq_len(
         model: OwnedQuantizedModel,
         device_ordinal: i32,
         max_seq_len: usize,
-    ) -> Result<Self> {
+    ) -> std::result::Result<Self, CudaInitError> {
         use crate::cuda::CudaExecutor;
 
-        let mut executor =
-            CudaExecutor::new(device_ordinal).map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "CudaExecutor::new".to_string(),
-                reason: format!("CUDA initialization failed: {e}"),
-            })?;
+        let mut executor = match CudaExecutor::new(device_ordinal) {
+            Ok(e) => e,
+            Err(e) => {
+                return Err(CudaInitError {
+                    error: RealizarError::UnsupportedOperation {
+                        operation: "CudaExecutor::new".to_string(),
+                        reason: format!("CUDA initialization failed: {e}"),
+                    },
+                    model,
+                });
+            },
+        };
 
         let device_name = executor
             .device_name()
@@ -132,12 +173,17 @@ impl OwnedQuantizedModelCuda {
         let num_kv_heads = model.config.num_kv_heads; // PAR-021 GQA support
         let head_dim = model.config.hidden_dim / num_heads;
 
-        executor
-            .init_kv_cache_gpu(num_layers, num_heads, num_kv_heads, head_dim, max_seq_len)
-            .map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "init_kv_cache_gpu".to_string(),
-                reason: format!("GPU KV cache initialization failed: {e}"),
-            })?;
+        if let Err(e) =
+            executor.init_kv_cache_gpu(num_layers, num_heads, num_kv_heads, head_dim, max_seq_len)
+        {
+            return Err(CudaInitError {
+                error: RealizarError::UnsupportedOperation {
+                    operation: "init_kv_cache_gpu".to_string(),
+                    reason: format!("GPU KV cache initialization failed: {e}"),
+                },
+                model,
+            });
+        }
 
         // PAR-060: Set RoPE theta for position embeddings
         if verbose() {
@@ -157,12 +203,28 @@ impl OwnedQuantizedModelCuda {
         }
         executor.set_rope_type(model.config.rope_type);
 
-        Ok(Self {
+        let mut cuda_model = Self {
             model,
             executor,
             device_name,
             memory_info,
-        })
+        };
+
+        // GH-199 ROOT CAUSE B: Eagerly preload weights for GPU-resident path.
+        // Makes constructor return a FULLY-READY model, so generate_gpu_resident()
+        // only contains per-generation state (fresh KV cache + position reset).
+        // Without this, preload_weights_gpu() inside generate_gpu_resident() looked like
+        // expensive one-time setup, misleading developers into creating duplicate models.
+        if cuda_model.supports_gpu_resident() {
+            if let Err(e) = cuda_model.preload_weights_gpu() {
+                return Err(CudaInitError {
+                    error: e,
+                    model: cuda_model.into_model(),
+                });
+            }
+        }
+
+        Ok(cuda_model)
     }
 
     /// Check if CUDA is available
@@ -239,6 +301,12 @@ impl OwnedQuantizedModelCuda {
     #[must_use]
     pub fn model(&self) -> &OwnedQuantizedModel {
         &self.model
+    }
+
+    /// Consume CUDA wrapper and return inner model (for CPU fallback)
+    #[must_use]
+    pub fn into_model(self) -> OwnedQuantizedModel {
+        self.model
     }
 
     /// PAR-111: Get mutable reference to CUDA executor

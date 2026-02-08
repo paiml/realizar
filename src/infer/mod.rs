@@ -771,20 +771,25 @@ fn log_cpu_backend(verbose: bool, is_legacy: bool) {
 /// Uses a single BOS token (not the full prompt) to test kernel correctness.
 /// The Q6K kernel bug is dimension-dependent, not prompt-dependent, so a
 /// single-token probe is sufficient and avoids O(n) CPU prefill overhead.
+///
+/// Uses the CUDA model's inner model reference to avoid requiring a separate model clone.
 #[cfg(feature = "cuda")]
 fn validate_gpu_first_token(
-    model: &crate::gguf::OwnedQuantizedModel,
     cuda_model: &mut crate::gguf::OwnedQuantizedModelCuda,
     gen_config: &crate::gguf::QuantizedGenerateConfig,
 ) -> bool {
     use crate::gguf::OwnedQuantizedKVCache;
 
+    let model = cuda_model.model();
+
     // Use a single BOS token — tests all kernel dimensions with O(1) cost
     let probe_token: &[u32] = &[1];
 
     let kv_dim = model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);
-    let mut cpu_cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 2);
+    let num_layers = model.config.num_layers;
 
+    // CPU forward pass for reference
+    let mut cpu_cache = OwnedQuantizedKVCache::new(num_layers, kv_dim, 2);
     let cpu_logits = match model.forward_single_with_cache(probe_token[0], &mut cpu_cache, 0) {
         Ok(logits) => logits,
         Err(_) => return true, // CPU forward failed — can't validate, assume GPU is fine
@@ -821,24 +826,25 @@ fn validate_gpu_first_token(
     }
 }
 
-/// Try GPU generation with validation. Returns `Some((tokens, true))` on success,
-/// `None` if GPU is unavailable or produces incorrect output.
+/// Try GGUF GPU generation. Takes model by value to avoid expensive clone (~1GB).
+/// Returns `Ok(result)` on GPU success, `Err(model)` to return model for CPU fallback.
 #[cfg(feature = "cuda")]
 fn try_gguf_gpu_generate(
-    model: &crate::gguf::OwnedQuantizedModel,
+    model: crate::gguf::OwnedQuantizedModel,
     input_tokens: &[u32],
     gen_config: &crate::gguf::QuantizedGenerateConfig,
     verbose: bool,
-) -> Option<Result<(Vec<u32>, bool)>> {
+) -> std::result::Result<Result<(Vec<u32>, bool)>, crate::gguf::OwnedQuantizedModel> {
     use crate::gguf::OwnedQuantizedModelCuda;
 
-    let mut cuda_model = match OwnedQuantizedModelCuda::new(model.clone(), 0) {
+    let mut cuda_model = match OwnedQuantizedModelCuda::with_max_seq_len(model, 0, 2048) {
         Ok(m) => m,
         Err(e) => {
             if verbose {
                 eprintln!("Backend: CPU (GPU unavailable: {})", e);
             }
-            return None;
+            // Model is preserved inside CudaInitError for CPU fallback
+            return Err(e.into_model());
         },
     };
 
@@ -850,21 +856,18 @@ fn try_gguf_gpu_generate(
         );
     }
 
-    if !validate_gpu_first_token(model, &mut cuda_model, gen_config) {
-        return None;
+    if !validate_gpu_first_token(&mut cuda_model, gen_config) {
+        // Validation failed — extract model back for CPU fallback
+        return Err(cuda_model.into_model());
     }
 
-    // Re-create CUDA model for actual generation (validation consumed first)
-    let mut cuda_model2 = match OwnedQuantizedModelCuda::new(model.clone(), 0) {
-        Ok(m) => m,
-        Err(_) => return None,
-    };
-
-    let result = cuda_model2
+    // Reuse existing CUDA model — generate_gpu_resident() creates fresh KV cache
+    // and resets GPU KV positions internally, so validation doesn't "consume" it.
+    let result = cuda_model
         .generate_gpu_resident(input_tokens, gen_config)
         .map(|tokens| (tokens, true))
         .map_err(|e| RealizarError::InferenceError(format!("GPU generation failed: {}", e)));
-    Some(result)
+    Ok(result)
 }
 
 /// Run GGUF generation with GPU or CPU
@@ -877,14 +880,16 @@ fn run_gguf_generate(
 ) -> Result<(Vec<u32>, bool)> {
     let has_legacy_quant = model_has_legacy_quant(&model);
 
+    // GPU path: pass model by value (zero-clone) — model is returned on failure for CPU fallback
     #[cfg(feature = "cuda")]
-    if !config.no_gpu && !has_legacy_quant {
-        if let Some(result) =
-            try_gguf_gpu_generate(&model, input_tokens, gen_config, config.verbose)
-        {
-            return result;
+    let model = if !config.no_gpu && !has_legacy_quant {
+        match try_gguf_gpu_generate(model, input_tokens, gen_config, config.verbose) {
+            Ok(result) => return result,
+            Err(returned_model) => returned_model, // GPU failed, use returned model for CPU
         }
-    }
+    } else {
+        model
+    };
 
     log_cpu_backend(config.verbose, has_legacy_quant);
     let tokens = model

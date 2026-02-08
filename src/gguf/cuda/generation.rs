@@ -9,7 +9,6 @@
 //! - `generate_batch_gpu_resident`: Batch generation for multiple prompts
 
 use super::super::model::OwnedQuantizedModel;
-use super::verbose;
 use super::{OwnedQuantizedKVCache, OwnedQuantizedModelCuda, QuantizedGenerateConfig};
 use crate::error::{RealizarError, Result};
 
@@ -246,29 +245,19 @@ impl OwnedQuantizedModelCuda {
         Ok(tokens)
     }
 
-    /// PAR-100: Speculative decoding with GPU-resident forward
+    /// GPU-resident token generation with minimal CPU↔GPU transfers.
     ///
-    /// Uses GPU-resident path for fast single-token drafting, then verifies.
+    /// # Reentrant
     ///
-    /// # Theory (Five-Whys Root Cause)
-    ///
-    /// WHY is single-token decode limited to ~430 tok/s?
-    /// → Memory bandwidth bound: each token reads ALL weights from VRAM
-    ///
-    /// NOTE: Self-speculative decoding (same model for draft and verify) doesn't
-    /// improve throughput because draft phase still requires k weight reads.
-    /// True speedup requires either:
-    /// 1. Smaller draft model (e.g., 0.5B → 1.5B)
-    /// 2. Layer-skipping during draft (skip last N/2 layers)
-    ///
-    /// This implementation uses GPU-resident path for drafting to at least match
-    /// standard generation throughput as a baseline.
+    /// This method creates fresh generation state on each call (new KV cache,
+    /// reset GPU positions). It is safe and efficient to call multiple times
+    /// on the same `OwnedQuantizedModelCuda` — weights are preloaded once
+    /// during construction and reused across calls.
     ///
     /// # Arguments
     ///
     /// * `prompt` - Initial token IDs
-    /// * `config` - Generation configuration (uses max_tokens)
-    /// * `speculation_k` - Number of tokens to draft speculatively (typically 4-8)
+    /// * `config` - Generation configuration (max_tokens, temperature, etc.)
     ///
     /// # Returns
     ///
@@ -306,15 +295,6 @@ impl OwnedQuantizedModelCuda {
                 operation: "generate_gpu_resident".to_string(),
                 reason: "Model architecture not supported for GPU-resident path (requires separate Q/K/V, SwiGLU, RMSNorm)".to_string(),
             });
-        }
-
-        // Pre-upload all weights to GPU
-        let bytes_uploaded = self.preload_weights_gpu()?;
-        if verbose() {
-            eprintln!(
-                "PAR-023: Pre-uploaded {} MB of weights to GPU",
-                bytes_uploaded / (1024 * 1024)
-            );
         }
 
         // PAR-045: Create KV cache with GQA-aware dimensions
@@ -464,9 +444,6 @@ impl OwnedQuantizedModelCuda {
             });
         }
 
-        // Pre-upload all weights to GPU
-        let _ = self.preload_weights_gpu()?;
-
         // Create KV cache with GQA-aware dimensions
         let num_kv_heads = self.model.config.num_kv_heads;
         let head_dim = self.model.config.hidden_dim / self.model.config.num_heads;
@@ -549,9 +526,6 @@ impl OwnedQuantizedModelCuda {
         let num_prompts = prompts.len();
         let max_prompt_len = prompts.iter().map(Vec::len).max().unwrap_or(0);
         let max_seq_len = max_prompt_len + config.max_tokens;
-
-        // Pre-upload all weights to GPU (once for entire batch)
-        let _ = self.preload_weights_gpu()?;
 
         // PAR-045: Create KV caches with GQA-aware dimensions
         let num_kv_heads = self.model.config.num_kv_heads;
