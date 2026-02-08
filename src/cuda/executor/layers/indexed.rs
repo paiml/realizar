@@ -92,13 +92,21 @@ impl CudaExecutor {
             self.q4k_gemv_indexed_async(layer_weights.attn_q_ptr, &normed, q_dim, hidden_dim)?;
         let k =
             self.q4k_gemv_indexed_async(layer_weights.attn_k_ptr, &normed, kv_dim, hidden_dim)?;
-        // PAR-058: Use correct kernel based on V weight quantization type
+        // PMAT-232 CONTRACT: Exhaustive dispatch — no catch-all. See tensor-layout-v1.yaml quant_dispatch.
+        // NOTE: Indexed async path only has Q4K/Q6K kernels. Other types must use workspace path.
         let v = match layer_weights.attn_v_qtype {
             WeightQuantType::Q6K => {
                 self.q6k_gemv_indexed_async(layer_weights.attn_v_ptr, &normed, kv_dim, hidden_dim)?
             },
-            _ => {
+            WeightQuantType::Q4K => {
                 self.q4k_gemv_indexed_async(layer_weights.attn_v_ptr, &normed, kv_dim, hidden_dim)?
+            },
+            WeightQuantType::Q5K | WeightQuantType::Q8_0 | WeightQuantType::Q4_0
+            | WeightQuantType::Q5_0 | WeightQuantType::Q4_1 => {
+                return Err(GpuError::InvalidParameter(format!(
+                    "PMAT-232: V qtype {:?} not supported in indexed async path (use workspace path)",
+                    layer_weights.attn_v_qtype
+                )));
             },
         };
 
@@ -1081,6 +1089,7 @@ impl CudaExecutor {
         } else {
             None
         };
+        // PMAT-232 CONTRACT: Exhaustive dispatch — no catch-all. See tensor-layout-v1.yaml quant_dispatch.
         match layer_weights.attn_output_qtype {
             WeightQuantType::Q4_0 => {
                 self.q4_0_gemv_into(
@@ -1091,7 +1100,6 @@ impl CudaExecutor {
                     q_dim,
                 )?;
             },
-            // PAR-058: Add Q5_0 support for output projection (Qwen 0.5B)
             WeightQuantType::Q5_0 => {
                 self.q5_0_gemv_into(
                     layer_weights.attn_output_ptr,
@@ -1101,8 +1109,44 @@ impl CudaExecutor {
                     q_dim,
                 )?;
             },
-            _ => {
+            WeightQuantType::Q4_1 => {
+                self.q4_1_gemv_into(
+                    layer_weights.attn_output_ptr,
+                    &attn_out_buf,
+                    &hidden_buf1,
+                    hidden_dim,
+                    q_dim,
+                )?;
+            },
+            WeightQuantType::Q4K => {
                 self.q4k_gemv_into(
+                    layer_weights.attn_output_ptr,
+                    &attn_out_buf,
+                    &hidden_buf1,
+                    hidden_dim,
+                    q_dim,
+                )?;
+            },
+            WeightQuantType::Q5K => {
+                self.q5k_gemv_into(
+                    layer_weights.attn_output_ptr,
+                    &attn_out_buf,
+                    &hidden_buf1,
+                    hidden_dim,
+                    q_dim,
+                )?;
+            },
+            WeightQuantType::Q6K => {
+                self.q6k_gemv_into(
+                    layer_weights.attn_output_ptr,
+                    &attn_out_buf,
+                    &hidden_buf1,
+                    hidden_dim,
+                    q_dim,
+                )?;
+            },
+            WeightQuantType::Q8_0 => {
+                self.q8_0_gemv_into(
                     layer_weights.attn_output_ptr,
                     &attn_out_buf,
                     &hidden_buf1,
@@ -1193,6 +1237,7 @@ impl CudaExecutor {
         } else {
             None
         };
+        // PMAT-232 CONTRACT: Exhaustive dispatch — no catch-all. See tensor-layout-v1.yaml quant_dispatch.
         match layer_weights.ffn_gate_qtype {
             WeightQuantType::Q4_0 => {
                 self.q4_0_gemv_into(
@@ -1203,7 +1248,6 @@ impl CudaExecutor {
                     hidden_dim,
                 )?;
             },
-            // PAR-058: Add Q5_0 support for FFN gate (Qwen 0.5B)
             WeightQuantType::Q5_0 => {
                 self.q5_0_gemv_into(
                     layer_weights.ffn_gate_ptr,
@@ -1213,7 +1257,16 @@ impl CudaExecutor {
                     hidden_dim,
                 )?;
             },
-            _ => {
+            WeightQuantType::Q4_1 => {
+                self.q4_1_gemv_into(
+                    layer_weights.ffn_gate_ptr,
+                    &hidden_buf1,
+                    &ffn_gate_buf,
+                    intermediate_dim,
+                    hidden_dim,
+                )?;
+            },
+            WeightQuantType::Q4K => {
                 self.q4k_gemv_into(
                     layer_weights.ffn_gate_ptr,
                     &hidden_buf1,
@@ -1222,7 +1275,35 @@ impl CudaExecutor {
                     hidden_dim,
                 )?;
             },
+            WeightQuantType::Q5K => {
+                self.q5k_gemv_into(
+                    layer_weights.ffn_gate_ptr,
+                    &hidden_buf1,
+                    &ffn_gate_buf,
+                    intermediate_dim,
+                    hidden_dim,
+                )?;
+            },
+            WeightQuantType::Q6K => {
+                self.q6k_gemv_into(
+                    layer_weights.ffn_gate_ptr,
+                    &hidden_buf1,
+                    &ffn_gate_buf,
+                    intermediate_dim,
+                    hidden_dim,
+                )?;
+            },
+            WeightQuantType::Q8_0 => {
+                self.q8_0_gemv_into(
+                    layer_weights.ffn_gate_ptr,
+                    &hidden_buf1,
+                    &ffn_gate_buf,
+                    intermediate_dim,
+                    hidden_dim,
+                )?;
+            },
         }
+        // PMAT-232 CONTRACT: Exhaustive dispatch — no catch-all. See tensor-layout-v1.yaml quant_dispatch.
         match layer_weights.ffn_up_qtype {
             WeightQuantType::Q4_0 => {
                 self.q4_0_gemv_into(
@@ -1233,7 +1314,6 @@ impl CudaExecutor {
                     hidden_dim,
                 )?;
             },
-            // PAR-058: Add Q5_0 support for FFN up (Qwen 0.5B)
             WeightQuantType::Q5_0 => {
                 self.q5_0_gemv_into(
                     layer_weights.ffn_up_ptr,
@@ -1243,8 +1323,44 @@ impl CudaExecutor {
                     hidden_dim,
                 )?;
             },
-            _ => {
+            WeightQuantType::Q4_1 => {
+                self.q4_1_gemv_into(
+                    layer_weights.ffn_up_ptr,
+                    &hidden_buf1,
+                    &ffn_up_buf,
+                    intermediate_dim,
+                    hidden_dim,
+                )?;
+            },
+            WeightQuantType::Q4K => {
                 self.q4k_gemv_into(
+                    layer_weights.ffn_up_ptr,
+                    &hidden_buf1,
+                    &ffn_up_buf,
+                    intermediate_dim,
+                    hidden_dim,
+                )?;
+            },
+            WeightQuantType::Q5K => {
+                self.q5k_gemv_into(
+                    layer_weights.ffn_up_ptr,
+                    &hidden_buf1,
+                    &ffn_up_buf,
+                    intermediate_dim,
+                    hidden_dim,
+                )?;
+            },
+            WeightQuantType::Q6K => {
+                self.q6k_gemv_into(
+                    layer_weights.ffn_up_ptr,
+                    &hidden_buf1,
+                    &ffn_up_buf,
+                    intermediate_dim,
+                    hidden_dim,
+                )?;
+            },
+            WeightQuantType::Q8_0 => {
+                self.q8_0_gemv_into(
                     layer_weights.ffn_up_ptr,
                     &hidden_buf1,
                     &ffn_up_buf,

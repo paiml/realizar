@@ -41,6 +41,8 @@ mod config;
 mod cuda;
 #[cfg(feature = "cuda")]
 mod cuda_model;
+#[cfg(feature = "cuda")]
+pub mod parity;
 mod inference;
 mod inference_types;
 mod io;
