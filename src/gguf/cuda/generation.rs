@@ -314,7 +314,6 @@ impl OwnedQuantizedModelCuda {
 
         let mut tokens = prompt.to_vec();
 
-        // PMAT-TRACE-GGUF-001: Trace config info for GPU path
         if config.trace {
             eprintln!(
                 "[TRACE-CACHE] GGUF model (GPU): {} layers, hidden_dim={}, vocab={}",
@@ -329,19 +328,80 @@ impl OwnedQuantizedModelCuda {
             );
         }
 
-        // Process prompt tokens (prefill)
+        // PMAT-PREFILL: Batched prefill — process all prompt tokens in one pass
+        // SERIAL_PREFILL=1 to use old serial path for debugging
+        let use_serial_prefill = std::env::var("SERIAL_PREFILL")
+            .map(|v| v == "1")
+            .unwrap_or(false);
         let prefill_start = std::time::Instant::now();
-        for (pos, &token_id) in prompt.iter().enumerate() {
-            if pos < prompt.len() - 1 {
-                let _ = self.forward_gpu_resident(token_id, &mut cache, pos)?;
+        let prefill_count = prompt.len() - 1; // All except last (last feeds into decode)
+        if use_serial_prefill && prefill_count > 0 {
+            for (pos, &token_id) in prompt.iter().enumerate() {
+                if pos < prompt.len() - 1 {
+                    let _ = self.forward_gpu_resident(token_id, &mut cache, pos)?;
+                }
             }
-        }
-        if config.trace {
-            eprintln!(
-                "[TRACE-CACHE] Prefill complete: {} tokens in {:?}",
-                prompt.len(),
-                prefill_start.elapsed()
-            );
+            if config.trace {
+                eprintln!(
+                    "[TRACE-PREFILL] Serial prefill: {} tokens in {:?}",
+                    prefill_count, prefill_start.elapsed()
+                );
+            }
+        } else if prefill_count > 0 {
+            let prefill_tokens = &prompt[..prefill_count];
+            let hidden_dim = self.model.config.hidden_dim;
+            let intermediate_dim = self.model.layers[0].ffn_up_weight.out_dim;
+            let num_layers = self.model.config.num_layers;
+            let eps = self.model.config.eps;
+
+            // Embed all prefill tokens at once
+            let embeddings = self.model.embed(prefill_tokens);
+            let positions: Vec<u32> = (0..prefill_count as u32).collect();
+
+            // Initialize prefill workspace for S tokens
+            self.executor.init_prefill_workspace(
+                prefill_count,
+                hidden_dim,
+                intermediate_dim,
+            ).map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "init_prefill_workspace".to_string(),
+                reason: format!("Prefill workspace init failed: {e}"),
+            })?;
+
+            // Run batched prefill through all layers
+            self.executor.prefill_all_layers_gpu(
+                &embeddings,
+                &positions,
+                num_layers,
+                hidden_dim as u32,
+                intermediate_dim as u32,
+                eps,
+            ).map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "prefill_all_layers_gpu".to_string(),
+                reason: format!("Batched prefill failed: {e}"),
+            })?;
+
+            // Restore decode workspace (M=1 for token-by-token decode)
+            self.executor.init_workspace(hidden_dim, intermediate_dim)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "init_workspace".to_string(),
+                    reason: format!("Workspace restore failed: {e}"),
+                })?;
+
+            // Clear decode graph — the graph was captured for M=1 at an old position.
+            // The next decode call will re-capture with position=prefill_count.
+            self.executor.clear_decode_graph();
+
+            if config.trace {
+                eprintln!(
+                    "[TRACE-PREFILL] Batched prefill: {} tokens in {:?} ({:.1} tok/s)",
+                    prefill_count,
+                    prefill_start.elapsed(),
+                    prefill_count as f64 / prefill_start.elapsed().as_secs_f64()
+                );
+            }
+        } else if config.trace {
+            eprintln!("[TRACE-PREFILL] Single token prompt, no prefill needed");
         }
 
         // Generate from last prompt token
@@ -361,7 +421,6 @@ impl OwnedQuantizedModelCuda {
                 OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
             };
 
-            // PMAT-TRACE-GGUF-001: Per-token timing for GPU path
             if config.trace {
                 eprintln!(
                     "[TRACE-CACHE] pos={}: {} layers took {:?}",
@@ -459,11 +518,46 @@ impl OwnedQuantizedModelCuda {
 
         let mut tokens = prompt.to_vec();
 
-        // Process prompt tokens (prefill)
-        for (pos, &token_id) in prompt.iter().enumerate() {
-            if pos < prompt.len() - 1 {
-                let _ = self.forward_gpu_resident(token_id, &mut cache, pos)?;
-            }
+        // PMAT-PREFILL: Batched prefill for streaming path
+        let prefill_count = prompt.len() - 1;
+        if prefill_count > 0 {
+            let prefill_tokens = &prompt[..prefill_count];
+            let hidden_dim = self.model.config.hidden_dim;
+            let intermediate_dim = self.model.layers[0].ffn_up_weight.out_dim;
+            let num_layers = self.model.config.num_layers;
+            let eps = self.model.config.eps;
+
+            let embeddings = self.model.embed(prefill_tokens);
+            let positions: Vec<u32> = (0..prefill_count as u32).collect();
+
+            self.executor.init_prefill_workspace(
+                prefill_count,
+                hidden_dim,
+                intermediate_dim,
+            ).map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "init_prefill_workspace".to_string(),
+                reason: format!("Prefill workspace init failed: {e}"),
+            })?;
+
+            self.executor.prefill_all_layers_gpu(
+                &embeddings,
+                &positions,
+                num_layers,
+                hidden_dim as u32,
+                intermediate_dim as u32,
+                eps,
+            ).map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "prefill_all_layers_gpu".to_string(),
+                reason: format!("Batched prefill failed: {e}"),
+            })?;
+
+            self.executor.init_workspace(hidden_dim, intermediate_dim)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "init_workspace".to_string(),
+                    reason: format!("Workspace restore failed: {e}"),
+                })?;
+
+            self.executor.clear_decode_graph();
         }
 
         // Generate from last prompt token
