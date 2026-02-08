@@ -501,18 +501,22 @@ fn test_tensor_entry_element_count_empty() {
 
 #[test]
 fn test_tensor_entry_dtypes() {
+    // GGML-compatible dtype byte IDs (see src/apr/mod.rs:316-337)
     let dtypes = [
         (0, "F32"),
         (1, "F16"),
-        (2, "BF16"),
-        (3, "I8"),
-        (4, "I16"),
-        (5, "I32"),
-        (6, "I64"),
-        (7, "U8"),
-        (8, "Q4_K"),
-        (9, "Q6_K"),
-        (10, "Q8_0"),
+        (2, "Q4_0"),
+        (3, "Q4_1"),
+        (6, "Q5_0"),
+        (7, "Q5_1"),
+        (8, "Q8_0"),
+        (9, "Q8_1"),
+        (10, "Q2_K"),
+        (11, "Q3_K"),
+        (12, "Q4_K"),
+        (13, "Q5_K"),
+        (14, "Q6_K"),
+        (30, "BF16"),
     ];
     for (dtype_byte, expected) in dtypes {
         let data = create_binary_tensor_entry("test", dtype_byte, &[1], 0, 4);
@@ -1957,44 +1961,50 @@ fn test_apr_transformer_header_size_constant() {
 
 #[test]
 fn test_tensor_entry_dtype_bf16() {
-    let data = create_binary_tensor_entry("test", 2, &[1], 0, 4);
+    // BF16 = GGML dtype byte 30
+    let data = create_binary_tensor_entry("test", 30, &[1], 0, 4);
     let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
     assert_eq!(entry.dtype, "BF16");
 }
 
 #[test]
-fn test_tensor_entry_dtype_i8() {
+fn test_tensor_entry_dtype_q4_0() {
+    // Q4_0 = GGML dtype byte 2
+    let data = create_binary_tensor_entry("test", 2, &[1], 0, 4);
+    let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
+    assert_eq!(entry.dtype, "Q4_0");
+}
+
+#[test]
+fn test_tensor_entry_dtype_q4_1() {
+    // Q4_1 = GGML dtype byte 3
     let data = create_binary_tensor_entry("test", 3, &[1], 0, 4);
     let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
-    assert_eq!(entry.dtype, "I8");
+    assert_eq!(entry.dtype, "Q4_1");
 }
 
 #[test]
-fn test_tensor_entry_dtype_i16() {
-    let data = create_binary_tensor_entry("test", 4, &[1], 0, 4);
-    let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
-    assert_eq!(entry.dtype, "I16");
-}
-
-#[test]
-fn test_tensor_entry_dtype_i32() {
-    let data = create_binary_tensor_entry("test", 5, &[1], 0, 4);
-    let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
-    assert_eq!(entry.dtype, "I32");
-}
-
-#[test]
-fn test_tensor_entry_dtype_i64() {
+fn test_tensor_entry_dtype_q5_0() {
+    // Q5_0 = GGML dtype byte 6
     let data = create_binary_tensor_entry("test", 6, &[1], 0, 4);
     let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
-    assert_eq!(entry.dtype, "I64");
+    assert_eq!(entry.dtype, "Q5_0");
 }
 
 #[test]
-fn test_tensor_entry_dtype_u8() {
+fn test_tensor_entry_dtype_q5_1() {
+    // Q5_1 = GGML dtype byte 7
     let data = create_binary_tensor_entry("test", 7, &[1], 0, 4);
     let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
-    assert_eq!(entry.dtype, "U8");
+    assert_eq!(entry.dtype, "Q5_1");
+}
+
+#[test]
+fn test_tensor_entry_dtype_q8_1() {
+    // Q8_1 = GGML dtype byte 9
+    let data = create_binary_tensor_entry("test", 9, &[1], 0, 4);
+    let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
+    assert_eq!(entry.dtype, "Q8_1");
 }
 
 #[test]
@@ -2079,8 +2089,8 @@ fn create_apr_model_with_q4k_tensor() -> Vec<u8> {
     let metadata_bytes = metadata.as_bytes();
     let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
 
-    // Q4_K tensor: dtype=8, shape [256] (one super block)
-    let tensor_entry = create_binary_tensor_entry("test.q4k", 8, &[256], 0, 144);
+    // Q4_K tensor: dtype=12 (GGML Q4_K), shape [256] (one super block)
+    let tensor_entry = create_binary_tensor_entry("test.q4k", 12, &[256], 0, 144);
     let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
     let data_offset = tensor_index_offset + tensor_entry.len() as u64;
     let data_size = 144usize; // Q4_K: 144 bytes per super block
@@ -2138,8 +2148,8 @@ fn create_apr_model_with_q6k_tensor() -> Vec<u8> {
     let metadata_bytes = metadata.as_bytes();
     let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
 
-    // Q6_K tensor: dtype=9, shape [256] (one super block)
-    let tensor_entry = create_binary_tensor_entry("test.q6k", 9, &[256], 0, 210);
+    // Q6_K tensor: dtype=14 (GGML Q6_K), shape [256] (one super block)
+    let tensor_entry = create_binary_tensor_entry("test.q6k", 14, &[256], 0, 210);
     let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
     let data_offset = tensor_index_offset + tensor_entry.len() as u64;
     let data_size = 210usize; // Q6_K: 210 bytes per super block
@@ -2187,8 +2197,8 @@ fn create_apr_model_with_q8_0_tensor() -> Vec<u8> {
     let metadata_bytes = metadata.as_bytes();
     let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
 
-    // Q8_0 tensor: dtype=10, shape [32] (one block)
-    let tensor_entry = create_binary_tensor_entry("test.q8_0", 10, &[32], 0, 34);
+    // Q8_0 tensor: dtype=8 (GGML Q8_0), shape [32] (one block)
+    let tensor_entry = create_binary_tensor_entry("test.q8_0", 8, &[32], 0, 34);
     let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
     let data_offset = tensor_index_offset + tensor_entry.len() as u64;
     let data_size = 34usize; // Q8_0: 34 bytes per block (2 + 32)
@@ -3060,7 +3070,7 @@ fn test_apr_model_q8_0_multiple_blocks() {
     let metadata_bytes = metadata.as_bytes();
     let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
 
-    let tensor_entry = create_binary_tensor_entry("test.q8_0_multi", 10, &[64], 0, 68);
+    let tensor_entry = create_binary_tensor_entry("test.q8_0_multi", 8, &[64], 0, 68);
     let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
     let data_offset = tensor_index_offset + tensor_entry.len() as u64;
     let data_size = 68usize; // 2 blocks * 34 bytes
@@ -3147,8 +3157,8 @@ fn create_apr_model_with_bf16_tensor() -> Vec<u8> {
     let metadata_bytes = metadata.as_bytes();
     let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
 
-    // BF16 tensor: dtype=2
-    let tensor_entry = create_binary_tensor_entry("test.bf16", 2, &[4], 0, 8);
+    // BF16 tensor: dtype=30 (GGML BF16)
+    let tensor_entry = create_binary_tensor_entry("test.bf16", 30, &[4], 0, 8);
     let tensor_index_offset = HEADER_SIZE as u64 + metadata_padded_size as u64;
     let data_offset = tensor_index_offset + tensor_entry.len() as u64;
     let total_size = data_offset as usize + 8;
