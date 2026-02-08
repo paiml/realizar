@@ -810,6 +810,7 @@ fn test_from_gguf_basic_fused_qkv() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let gguf_model = create_test_model_with_config(&config);
@@ -853,6 +854,7 @@ fn test_from_gguf_separate_qkv() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let q_weight = create_q4k_test_data(hidden_dim, hidden_dim);
@@ -927,6 +929,7 @@ fn test_from_gguf_gqa_config() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let gguf_model = create_test_model_with_config(&config);
@@ -960,6 +963,7 @@ fn test_from_gguf_with_ffn_gate() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let kv_dim = 4 * (hidden_dim / 4);

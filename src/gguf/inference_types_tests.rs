@@ -27,6 +27,7 @@ fn test_config() -> GGUFConfig {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     }
 }
 
@@ -83,6 +84,7 @@ fn test_inference_scratch_buffer_q8k_padding() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let buf = InferenceScratchBuffer::from_config(&config);
 

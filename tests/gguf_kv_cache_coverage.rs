@@ -27,6 +27,7 @@ fn make_test_config(num_layers: usize, hidden_dim: usize) -> GGUFConfig {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     }
 }
 

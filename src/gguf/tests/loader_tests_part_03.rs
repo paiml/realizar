@@ -38,6 +38,7 @@ fn build_minimal_owned_quantized_model() -> OwnedQuantizedModel {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     // Token embedding (F32): vocab_size * hidden_dim floats -> 4 bytes each
@@ -121,6 +122,7 @@ fn build_fused_qkv_model() -> OwnedQuantizedModel {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 2,
+        bos_token_id: None,
     };
 
     let embed_data: Vec<f32> = (0..vocab_size * hidden_dim)
@@ -204,6 +206,7 @@ fn build_q4k_model() -> OwnedQuantizedModel {
         rope_theta: 1_000_000.0,
         eps: 1e-6,
         rope_type: 2,
+        bos_token_id: None,
     };
 
     let embed_data: Vec<f32> = (0..vocab_size * hidden_dim)
@@ -694,6 +697,7 @@ fn test_to_apr_bytes_various_qtypes() {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let layer = OwnedQuantizedLayer {

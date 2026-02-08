@@ -1876,6 +1876,7 @@ fn test_cov_gguf_config_struct_fields() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     assert_eq!(config.architecture, "llama");
@@ -1906,6 +1907,7 @@ fn test_cov_gguf_config_gqa_model() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     // Verify GQA ratio
@@ -1927,6 +1929,7 @@ fn test_cov_gguf_config_mha_model() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     // Verify MHA
@@ -1947,6 +1950,7 @@ fn test_cov_gguf_config_head_dim_calculation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     // head_dim = hidden_dim / num_heads
@@ -1972,6 +1976,7 @@ fn test_cov_gguf_config_clone() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let cloned = config.clone();
@@ -1994,6 +1999,7 @@ fn test_cov_gguf_config_debug() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 2,
+        bos_token_id: None,
     };
 
     let debug_str = format!("{config:?}");
@@ -2066,6 +2072,7 @@ fn test_cov_kv_cache_from_config() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let cache = OwnedQuantizedKVCache::from_config(&config, 64);
@@ -2309,6 +2316,7 @@ fn test_cov_contiguous_cache_from_config() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let cache = ContiguousKVCache::from_config(&config, 32);
@@ -2757,6 +2765,7 @@ fn test_cov_scratch_buffer_from_config() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let scratch = OwnedInferenceScratchBuffer::from_config(&config);
@@ -2783,6 +2792,7 @@ fn test_cov_scratch_buffer_reset() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let mut scratch = OwnedInferenceScratchBuffer::from_config(&config);
@@ -2807,6 +2817,7 @@ fn test_cov_scratch_buffer_debug() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let scratch = OwnedInferenceScratchBuffer::from_config(&config);

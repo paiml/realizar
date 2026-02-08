@@ -26,6 +26,7 @@ fn test_imp_115a_fused_single_head_attention_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -87,6 +88,7 @@ fn test_imp_115b_fused_multihead_attention_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -146,6 +148,7 @@ fn test_imp_115c_fused_attention_no_intermediate_allocation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -198,6 +201,7 @@ fn test_imp_115d_fused_causal_mask_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -385,6 +389,7 @@ fn test_imp_117f_generate_with_token_buffer() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -439,6 +444,7 @@ fn test_imp_118a_true_batched_gemm_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -518,6 +524,7 @@ fn test_imp_118b_true_batched_gemm_matches_flattened() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -577,6 +584,7 @@ fn test_imp_118c_true_batched_gemm_large_batch() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -633,6 +641,7 @@ fn test_imp_118d_true_batched_attention() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -701,6 +710,7 @@ fn test_imp_119a_gpu_fused_attention_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -763,6 +773,7 @@ fn test_imp_119b_gpu_fused_matches_cpu_fused() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -822,6 +833,7 @@ fn test_imp_119c_gpu_fused_multihead_long_sequence() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -882,6 +894,7 @@ fn test_imp_119d_adaptive_cpu_gpu_dispatch() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

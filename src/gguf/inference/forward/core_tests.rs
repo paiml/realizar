@@ -61,6 +61,7 @@ fn create_llama_style_model(
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let head_dim = hidden_dim / num_heads;
@@ -129,6 +130,7 @@ fn create_phi2_style_model(
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let qkv_out_dim = 3 * hidden_dim; // MHA: Q=K=V=hidden_dim
@@ -536,6 +538,7 @@ fn test_forward_with_separate_qkv() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     // Create separate Q, K, V weights
@@ -670,6 +673,7 @@ fn test_forward_cached_separate_qkv() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let layer = OwnedQuantizedLayer {

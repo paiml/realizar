@@ -40,6 +40,7 @@ async fn test_quantized_model_chat_completions_routing() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -98,6 +99,7 @@ async fn test_quantized_model_streaming_path() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -149,6 +151,7 @@ async fn test_quantized_model_with_trace_headers() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -207,6 +210,7 @@ async fn test_cached_model_chat_completions_routing() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -264,6 +268,7 @@ async fn test_cached_model_streaming_path() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -472,6 +477,7 @@ async fn test_quantized_model_empty_messages_error() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -529,6 +535,7 @@ async fn test_quantized_model_temperature_zero() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -579,6 +586,7 @@ async fn test_quantized_model_max_tokens() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -742,6 +750,7 @@ async fn test_empty_prompt_after_tokenization() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -799,6 +808,7 @@ async fn test_finish_reason_length() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -855,6 +865,7 @@ async fn test_quantized_multi_turn_conversation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);

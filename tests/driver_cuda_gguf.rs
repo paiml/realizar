@@ -138,6 +138,7 @@ fn test_driver_cuda_model_creation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model(&config);
@@ -174,6 +175,7 @@ fn test_driver_cuda_model_with_max_seq_len() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model(&config);
@@ -211,6 +213,7 @@ fn test_driver_cuda_forward_basic() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model(&config);
@@ -251,6 +254,7 @@ fn test_driver_cuda_forward_multi_token() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model(&config);
@@ -284,6 +288,7 @@ fn test_driver_cuda_generate() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model(&config);
@@ -322,6 +327,7 @@ fn test_driver_cuda_generate_greedy() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model(&config);
@@ -359,6 +365,7 @@ fn test_driver_cuda_generate_with_stop_token() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model(&config);
@@ -399,6 +406,7 @@ fn test_driver_cuda_gqa_forward() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model(&config);
@@ -450,6 +458,7 @@ fn test_driver_cuda_multi_layer() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model(&config);

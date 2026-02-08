@@ -377,6 +377,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let transformer = GGUFTransformer {
@@ -435,6 +436,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let model = OwnedQuantizedModel {
@@ -492,6 +494,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let model = OwnedQuantizedModel {
@@ -535,6 +538,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let transformer = GGUFTransformer {
@@ -566,6 +570,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let layer1 = GGUFTransformerLayer {
@@ -686,6 +691,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let model = OwnedQuantizedModel {
@@ -731,6 +737,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-6,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let model = OwnedQuantizedModel {
@@ -782,6 +789,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            bos_token_id: None,
         };
 
         let model = OwnedQuantizedModel {
@@ -832,6 +840,7 @@ mod tests {
             rope_theta: 1000000.0,
             eps: 1e-5,
             rope_type: 1,
+            bos_token_id: None,
         };
 
         assert_eq!(config.architecture, "mistral");

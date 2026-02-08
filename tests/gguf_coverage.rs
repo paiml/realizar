@@ -203,6 +203,7 @@ fn create_test_config() -> GGUFConfig {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     }
 }
 
@@ -1500,6 +1501,7 @@ fn create_inference_test_model() -> OwnedQuantizedModel {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     // Q4_0 block size: 18 bytes for 32 elements
@@ -1960,6 +1962,7 @@ fn test_cov_config_with_gqa() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     assert_eq!(config.num_heads / config.num_kv_heads, 4);
@@ -1980,6 +1983,7 @@ fn test_cov_config_with_mqa() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     assert_eq!(config.num_kv_heads, 1);
@@ -2007,6 +2011,7 @@ fn test_cov_config_large_context() {
         rope_theta: 500000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     assert_eq!(config.context_length, 131072);
@@ -2346,6 +2351,7 @@ fn test_cov_config_head_dim_calculation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let head_dim = config.hidden_dim / config.num_heads;
@@ -2370,6 +2376,7 @@ fn test_cov_config_intermediate_ratio() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let ratio = config.intermediate_dim as f32 / config.hidden_dim as f32;

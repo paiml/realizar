@@ -1958,6 +1958,7 @@ fn test_imp_116a_appstate_cached_model_storage() {
         eps: 1e-5,
 
         rope_type: 0,
+        bos_token_id: None,
     };
 
     // Create test model
@@ -1994,6 +1995,7 @@ async fn test_imp_116b_cached_model_thread_safety() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -2036,6 +2038,7 @@ async fn test_imp_116c_completions_uses_cached_model() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);

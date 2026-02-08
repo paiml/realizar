@@ -340,6 +340,7 @@ fn test_loader_part02_owned_model_new_for_test() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let token_embedding = vec![0.1f32; 50 * 32];
@@ -418,6 +419,7 @@ fn test_loader_part02_owned_model_with_biases() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 2,
+        bos_token_id: None,
     };
 
     let token_embedding = vec![0.1f32; 50 * 32];
@@ -497,6 +499,7 @@ fn test_loader_part02_owned_qkv_separate() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let kv_dim = 16; // num_kv_heads * head_dim
@@ -843,6 +846,7 @@ fn test_loader_part02_config_clone() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let cloned = config.clone();
@@ -874,6 +878,7 @@ fn test_loader_part02_config_debug() {
         rope_theta: 10000.0,
         eps: 1e-6,
         rope_type: 2,
+        bos_token_id: None,
     };
 
     let debug_str = format!("{:?}", config);

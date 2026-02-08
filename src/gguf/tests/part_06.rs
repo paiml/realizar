@@ -31,6 +31,7 @@ fn test_imp_121a_cached_sync_has_adaptive_attention() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -78,6 +79,7 @@ fn test_imp_121b_cached_sync_adaptive_multihead() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -124,6 +126,7 @@ fn test_imp_121c_generate_with_adaptive_attention() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -168,6 +171,7 @@ fn test_imp_121d_thread_safe_adaptive_attention() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -235,6 +239,7 @@ fn test_imp_122a_adaptive_attention_with_cache() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -289,6 +294,7 @@ fn test_imp_122b_adaptive_matches_standard() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -344,6 +350,7 @@ fn test_imp_122c_long_sequence_uses_gpu() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -620,6 +627,7 @@ fn test_imp_124a_forward_single_with_cache_adaptive() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
     let mut cache = OwnedQuantizedKVCache::new(
@@ -667,6 +675,7 @@ fn test_imp_124b_adaptive_matches_standard() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
     let mut cache1 = OwnedQuantizedKVCache::new(config.num_layers, config.hidden_dim, 128);
@@ -713,6 +722,7 @@ fn test_imp_124c_tracks_metrics_per_layer() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
     let mut cache = OwnedQuantizedKVCache::new(config.num_layers, config.hidden_dim, 128);
@@ -764,6 +774,7 @@ fn test_imp_124d_long_cache_uses_gpu() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
     let mut cache = OwnedQuantizedKVCache::new(
@@ -814,6 +825,7 @@ fn test_imp_125a_generate_with_cache_adaptive() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
     let metrics = std::sync::Arc::new(DispatchMetrics::new());
@@ -859,6 +871,7 @@ fn test_imp_125b_adaptive_matches_standard() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
     let metrics = std::sync::Arc::new(DispatchMetrics::new());
@@ -904,6 +917,7 @@ fn test_imp_125c_tracks_metrics_during_generation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
     let metrics = std::sync::Arc::new(DispatchMetrics::new());
@@ -949,6 +963,7 @@ fn test_imp_125d_long_generation_uses_gpu() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
     let metrics = std::sync::Arc::new(DispatchMetrics::new());
@@ -1000,6 +1015,7 @@ fn test_parity002a_forward_batch_with_cache_exists() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -1039,6 +1055,7 @@ fn test_parity002b_batched_prefill_populates_cache() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -1079,6 +1096,7 @@ fn test_parity002c_batched_prefill_triggers_gpu() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -1121,6 +1139,7 @@ fn test_parity002d_batched_matches_sequential() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -1179,6 +1198,7 @@ fn test_parity002e_generate_with_batched_prefill() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

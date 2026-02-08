@@ -66,6 +66,7 @@ fn test_imp_101a_rope_preserves_norm() {
         eps: 1e-5,
         rope_type: 0,
         rope_theta: 10000.0,
+        bos_token_id: None,
     };
 
     let model = OwnedQuantizedModel {
@@ -122,6 +123,7 @@ fn test_imp_101a_rope_position_dependent() {
         eps: 1e-5,
         rope_type: 0,
         rope_theta: 10000.0,
+        bos_token_id: None,
     };
 
     let model = OwnedQuantizedModel {
@@ -193,6 +195,7 @@ fn test_imp_101b_causal_attention_mask() {
         eps: 1e-5,
         rope_type: 0,
         rope_theta: 10000.0,
+        bos_token_id: None,
     };
 
     let model = OwnedQuantizedModel {
@@ -262,6 +265,7 @@ fn test_imp_101b_causal_attention_softmax_normalized() {
         eps: 1e-5,
         rope_type: 0,
         rope_theta: 10000.0,
+        bos_token_id: None,
     };
 
     let model = OwnedQuantizedModel {
@@ -340,6 +344,7 @@ fn test_imp_101c_kv_cache_from_config() {
         eps: 1e-5,
         rope_type: 0,
         rope_theta: 10000.0,
+        bos_token_id: None,
     };
 
     let cache = OwnedQuantizedKVCache::from_config(&config, 1024);
@@ -426,6 +431,7 @@ fn test_imp_101c_attention_with_cache_softmax_normalized() {
         eps: 1e-5,
         rope_type: 0,
         rope_theta: 10000.0,
+        bos_token_id: None,
     };
 
     let model = OwnedQuantizedModel {
@@ -530,6 +536,7 @@ fn test_imp_105_gqa_attention_multiple_q_per_kv() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     // Create model with dummy weights
@@ -586,6 +593,7 @@ fn test_imp_105_gqa_kv_head_sharing() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let hidden_dim = config.hidden_dim;

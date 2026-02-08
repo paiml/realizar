@@ -782,8 +782,16 @@ fn validate_gpu_first_token(
 
     let model = cuda_model.model();
 
-    // Use a single BOS token — tests all kernel dimensions with O(1) cost
-    let probe_token: &[u32] = &[1];
+    // BOS token flows from GGUF metadata → GGUFConfig → here.
+    // No hardcoded fallback: if BOS is unknown, skip validation entirely.
+    let bos_id = match model.config.bos_token_id {
+        Some(id) => id,
+        None => {
+            eprintln!("[F2-VALIDATION] BOS token unknown — skipping GPU validation");
+            return true;
+        }
+    };
+    let probe_token: &[u32] = &[bos_id];
 
     let kv_dim = model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);
     let num_layers = model.config.num_layers;

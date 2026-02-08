@@ -35,6 +35,7 @@ fn test_imp_112a_cached_scheduler_initialization() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -96,6 +97,7 @@ fn test_imp_112b_cached_matches_uncached() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -151,6 +153,7 @@ fn test_parity_114_cuda_gemm_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -196,6 +199,7 @@ fn test_imp_112c_multiple_operations_same_scheduler() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -243,6 +247,7 @@ fn test_imp_112d_cached_attention_matches_uncached() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -305,6 +310,7 @@ fn test_imp_111a_online_softmax_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -363,6 +369,7 @@ fn test_imp_111b_tiled_attention_matches_standard() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -423,6 +430,7 @@ fn test_imp_111c_tiled_causal_attention() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -503,6 +511,7 @@ fn test_imp_111d_tiled_attention_various_tile_sizes() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -569,6 +578,7 @@ fn test_imp_113a_batched_gemm_single_dispatch() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -648,6 +658,7 @@ fn test_imp_113b_single_dispatch_attention_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -709,6 +720,7 @@ fn test_imp_113c_single_dispatch_dispatch_count() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -764,6 +776,7 @@ fn test_imp_113d_batched_softmax_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -834,6 +847,7 @@ fn test_imp_114a_flattened_batched_gemm_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -909,6 +923,7 @@ fn test_imp_114b_flattened_matches_loop() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -966,6 +981,7 @@ fn test_imp_114c_flattened_attention_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -1024,6 +1040,7 @@ fn test_imp_114d_large_batch_flattened() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+        bos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
