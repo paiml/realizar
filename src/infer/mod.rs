@@ -783,7 +783,8 @@ fn validate_gpu_first_token(
     let model = cuda_model.model();
 
     // BOS token flows from GGUF metadata → GGUFConfig → here.
-    // No hardcoded fallback: if BOS is unknown, skip validation entirely.
+    // GGUFConfig::from_gguf() applies architecture-default fallback for weights-only GGUFs.
+    // If BOS is STILL unknown (e.g., phi architecture), skip validation.
     let bos_id = match model.config.bos_token_id {
         Some(id) => id,
         None => {
