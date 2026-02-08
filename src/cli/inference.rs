@@ -446,10 +446,7 @@ pub fn run_gguf_inference_gpu(
     // initialized the executor but forward_cached still used CPU code paths.
     let max_seq_len = 256 + max_tokens; // Allow for prompt + generation
     let mut cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(quantized_model, 0, max_seq_len)
-        .map_err(|e| crate::error::RealizarError::UnsupportedOperation {
-            operation: "OwnedQuantizedModelCuda::new".to_string(),
-            reason: format!("CUDA initialization failed: {e}"),
-        })?;
+        .map_err(|e| e.error)?;
     if verbose {
         println!("  CUDA enabled on GPU: {}", cuda_model.device_name());
     }
