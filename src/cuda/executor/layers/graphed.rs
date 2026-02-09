@@ -1035,9 +1035,18 @@ impl CudaExecutor {
         position: u32,
         vocab_size: u32,
     ) -> Result<u32, GpuError> {
-        // PAR-068: Use GPU argmax to eliminate 600KB D2H transfer bottleneck
-        // Root cause fix: Removed .with_shared_mem() from argmax kernel launch configs
-        // (PTX declares static shared memory, mixing with dynamic causes CUDA_ERROR_UNKNOWN)
+        // PAR-083: Sub-phase timing for Five-Whys decode gap diagnosis
+        static DECODE_TIMING: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let timing = *DECODE_TIMING.get_or_init(|| {
+            std::env::var("DECODE_TIMING")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+        let t_start = if timing {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
 
         // PAR-072: Use ASYNC H2D copies to eliminate blocking overhead
         // Root cause: cuMemcpyHtoD has ~10-30µs overhead per call
@@ -1060,20 +1069,21 @@ impl CudaExecutor {
             }
         }
 
-        // Update input buffer (async - largest copy, ~14KB for Qwen 0.5B)
+        // Update input buffer (async - largest copy, ~14KB for Qwen 7B)
         if let Some(ref mut input_buf) = self.graph_input_buf {
             // SAFETY: input slice is valid for the duration of this function
             // and we synchronize in gpu_argmax before returning
-            // SAFETY: Memory safety ensured by bounds checking and alignment
             unsafe {
                 input_buf.copy_from_host_async(input, &self.stream)?;
             }
         }
+        let t_h2d = t_start.map(|_| std::time::Instant::now());
 
         // Launch captured graph (all H2D copies are ordered before this on same stream)
         if let Some(ref graph_exec) = self.decode_graph {
             self.stream.launch_graph(graph_exec)?;
         }
+        let t_graph = t_start.map(|_| std::time::Instant::now());
 
         self.decode_token_count += 1;
 
@@ -1142,10 +1152,27 @@ impl CudaExecutor {
             eprintln!("[CORRECTNESS-004] GPU top10 logits: {:?}", top5);
         }
 
+        let t_pre_argmax = t_start.map(|_| std::time::Instant::now());
         let gpu_result = self.gpu_argmax(logits_ptr, vocab_size)?;
+        let t_done = t_start.map(|_| std::time::Instant::now());
 
         if debug_enabled {
             eprintln!("[CORRECTNESS-004] GPU argmax result: {}", gpu_result);
+        }
+
+        // PAR-083: Sub-phase timing output
+        if let (Some(ts), Some(th), Some(tg), Some(ta), Some(td)) =
+            (t_start, t_h2d, t_graph, t_pre_argmax, t_done)
+        {
+            let h2d_us = th.duration_since(ts).as_micros();
+            let graph_us = tg.duration_since(th).as_micros();
+            let wait_us = ta.duration_since(tg).as_micros();
+            let argmax_us = td.duration_since(ta).as_micros();
+            let total_us = td.duration_since(ts).as_micros();
+            eprintln!(
+                "[GRAPH-TIMING] h2d={}µs launch={}µs wait={}µs argmax+sync={}µs total={}µs",
+                h2d_us, graph_us, wait_us, argmax_us, total_us
+            );
         }
 
         Ok(gpu_result)

@@ -1348,12 +1348,9 @@ impl OwnedQuantizedModelCuda {
         let vocab_size = self.model.lm_head_weight.out_dim;
         let eps = self.model.config.eps;
 
-        // 1. Token embedding lookup (CPU - fast, single lookup)
-        let embedding = self.model.embed(&[token_id]);
-
-        // PAR-060-DEBUG: Disabled for performance measurement
-        // let embed_sum: f32 = embedding.iter().sum();
-        // eprintln!("[PAR-060-DEBUG] Embedding sum: {:.6}", embed_sum);
+        // 1. Token embedding lookup (CPU - fast, single lookup, zero-alloc)
+        // PAR-083: Use pre-allocated embed_buf to eliminate per-token heap allocation.
+        self.model.embed_into(token_id, &mut self.embed_buf);
 
         // 2. Fully GPU-resident forward: layers + output norm + LM head
         // PAR-054: Use CUDA graph-captured path for decode (reduces 280 launches to 1)
@@ -1361,7 +1358,7 @@ impl OwnedQuantizedModelCuda {
         let mut logits = vec![0.0f32; vocab_size];
         self.executor
             .forward_all_layers_gpu_to_logits_graphed(
-                &embedding,
+                &self.embed_buf,
                 &mut logits,
                 position as u32,
                 num_layers,
@@ -1437,14 +1434,30 @@ impl OwnedQuantizedModelCuda {
                 .map_or(0, |(idx, _)| idx as u32));
         }
 
+        // PAR-083: Per-phase decode timing for Five-Whys diagnosis
+        static DECODE_TIMING: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let timing = *DECODE_TIMING.get_or_init(|| {
+            std::env::var("DECODE_TIMING")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+
         let hidden_dim = self.model.config.hidden_dim;
         let intermediate_dim = self.model.layers[0].ffn_up_weight.out_dim;
         let num_layers = self.model.layers.len();
         let vocab_size = self.model.lm_head_weight.out_dim;
         let eps = self.model.config.eps;
 
-        // 1. Token embedding lookup (CPU - fast, single lookup)
-        let embedding = self.model.embed(&[token_id]);
+        // 1. Token embedding lookup (CPU - fast, single lookup, zero-alloc)
+        // PAR-083: Use pre-allocated embed_buf to eliminate per-token heap allocation.
+        // Five-Whys: embed() allocated Vec<f32> per token → 14KB malloc/free overhead.
+        let t0 = if timing {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+        self.model.embed_into(token_id, &mut self.embed_buf);
+        let t1 = t0.map(|_| std::time::Instant::now());
 
         // 2. Check if CUDA graph is captured; if not, use regular path first
         // The graphed path needs to be initialized via forward_all_layers_gpu_to_logits_graphed
@@ -1453,7 +1466,7 @@ impl OwnedQuantizedModelCuda {
             let mut logits = vec![0.0f32; vocab_size];
             self.executor
                 .forward_all_layers_gpu_to_logits_graphed(
-                    &embedding,
+                    &self.embed_buf,
                     &mut logits,
                     position as u32,
                     num_layers,
@@ -1478,11 +1491,31 @@ impl OwnedQuantizedModelCuda {
         // 3. Use GPU argmax path - graph is captured, use optimized replay
         let next_token = self
             .executor
-            .forward_graphed_replay_to_token_id(&embedding, position as u32, vocab_size as u32)
+            .forward_graphed_replay_to_token_id(&self.embed_buf, position as u32, vocab_size as u32)
             .map_err(|e| RealizarError::UnsupportedOperation {
                 operation: "forward_gpu_resident_to_token_id".to_string(),
                 reason: format!("forward_graphed_replay_to_token_id failed: {}", e),
             })?;
+        let t2 = t0.map(|_| std::time::Instant::now());
+
+        // PAR-083: Per-phase decode timing output
+        if let (Some(t0v), Some(t1v), Some(t2v)) = (t0, t1, t2) {
+            let embed_us = t1v.duration_since(t0v).as_micros();
+            let gpu_us = t2v.duration_since(t1v).as_micros();
+            let total_us = t2v.duration_since(t0v).as_micros();
+            eprintln!(
+                "[DECODE-TIMING] pos={}: embed={}µs gpu={}µs total={}µs ({:.0} tok/s)",
+                position,
+                embed_us,
+                gpu_us,
+                total_us,
+                if total_us > 0 {
+                    1_000_000.0 / total_us as f64
+                } else {
+                    0.0
+                }
+            );
+        }
 
         cache.advance();
         Ok(next_token)
