@@ -315,6 +315,11 @@ pub mod paged_kv;
 /// - Data Parallelism (DP): Replicate model, split batches
 /// - ZeRO-Inference: Memory offload to CPU
 pub mod parallel;
+/// PTX Parity Validation — GH-219
+///
+/// Validates that batched GPU kernels maintain structural parity with their
+/// single-vector reference implementations. Exposed as `apr qa` Gate 6.
+pub mod ptx_parity;
 pub mod quantize;
 #[cfg(feature = "server")]
 pub mod registry;
@@ -385,6 +390,7 @@ pub use safetensors::SafetensorsConfig;
 #[cfg(not(target_arch = "wasm32"))]
 pub use safetensors::ShardedSafeTensorsModel;
 pub use safetensors::ValidatedAprTransformer;
+pub use ptx_parity::{KernelDimensions, PtxParityReport};
 pub use tensor::Tensor;
 
 /// Library version
