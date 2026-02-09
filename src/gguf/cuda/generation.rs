@@ -312,6 +312,13 @@ impl OwnedQuantizedModelCuda {
         // Without this, cache positions accumulate across generate calls causing degradation
         self.executor.reset_kv_cache_gpu();
 
+        // PMAT-PREFILL-FIX: Clear stale graph state (position_buf, seq_len_buf) from previous
+        // generation. validate_gpu_first_token() captures a graph that sets position_buf=Some(0).
+        // If batched prefill runs with stale position_buf, the KV scatter uses INDIRECT mode
+        // which reads position from the device buffer (always 0), so ALL tokens scatter to
+        // position 0 instead of their correct positions.
+        self.executor.clear_decode_graph();
+
         let mut tokens = prompt.to_vec();
 
         if config.trace {
@@ -513,8 +520,10 @@ impl OwnedQuantizedModelCuda {
             prompt.len() + config.max_tokens,
         );
 
-        // Reset GPU KV cache positions
+        // Reset GPU KV cache positions and clear stale graph state
+        // PMAT-PREFILL-FIX: Must clear position_buf to avoid indirect scatter using stale position
         self.executor.reset_kv_cache_gpu();
+        self.executor.clear_decode_graph();
 
         let mut tokens = prompt.to_vec();
 
