@@ -22,6 +22,7 @@ use trueno_gpu::kernels::{
     RmsNormKernel, RopeIndirectKernel, RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel,
     SiluKernel, SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel,
     TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel, VectorizedRmsNormKernel,
+    WideQ4KGemvKernel,
 };
 
 /// CUDA kernel types supported by realizar
@@ -249,6 +250,16 @@ pub enum KernelType {
     /// Lane 0 loads scales as 3 x u32, broadcasts via shuffle
     /// Reduces 384 redundant byte loads to 3 loads + 3 broadcasts per super-block
     CoalescedQ4KGemv {
+        /// Input dimension (K, must be multiple of 256)
+        k: u32,
+        /// Output dimension (N)
+        n: u32,
+    },
+    /// PAR-132: Wide Q4_K GEMV with 256 threads (8 warps) per output
+    /// Root cause fix for 3x Ollama gap: 32 threads = 33% SM occupancy
+    /// 8 warps = 67-100% occupancy, enables memory latency hiding
+    /// Cross-warp reduction via shared memory (32 bytes)
+    WideQ4KGemv {
         /// Input dimension (K, must be multiple of 256)
         k: u32,
         /// Output dimension (N)
@@ -878,6 +889,8 @@ impl CudaKernels {
                 .emit_ptx(),
             // PAR-062: Coalesced Q4K GEMV with bandwidth optimization
             KernelType::CoalescedQ4KGemv { k, n } => CoalescedQ4KGemvKernel::new(*k, *n).emit_ptx(),
+            // PAR-132: Wide Q4K GEMV with 256 threads (8 warps) for SM occupancy
+            KernelType::WideQ4KGemv { k, n } => WideQ4KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-069: Vectorized Q4K GEMV with coalesced u32 loads
             KernelType::VectorizedQ4KGemv { k, n } => {
                 VectorizedQ4KGemvKernel::new(*k, *n).emit_ptx()
@@ -1156,6 +1169,8 @@ impl CudaKernels {
             KernelType::ChunkedTiledQ4KGemv { .. } => "chunked_tiled_q4k_gemv",
             // PAR-062: Coalesced Q4K GEMV (bandwidth optimized)
             KernelType::CoalescedQ4KGemv { .. } => "coalesced_q4k_gemv",
+            // PAR-132: Wide Q4K GEMV (8 warps, high occupancy)
+            KernelType::WideQ4KGemv { .. } => "wide_q4k_gemv",
             // PAR-069: Vectorized Q4K GEMV (coalesced u32 loads)
             KernelType::VectorizedQ4KGemv { .. } => "vectorized_q4k_gemv",
             // PAR-063: DP4A Q4K GEMV (instruction optimized)

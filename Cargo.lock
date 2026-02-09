@@ -176,7 +176,7 @@ dependencies = [
  "rmp-serde",
  "serde",
  "serde_json",
- "trueno 0.14.3",
+ "trueno 0.14.5",
  "trueno-quant",
 ]
 
