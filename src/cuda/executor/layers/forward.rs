@@ -471,6 +471,13 @@ impl CudaExecutor {
         }
 
         // 5. Output RMSNorm on GPU (no sync)
+        // PAR-PROFILE: Brick timer for output norm
+        let profiling = self.profiler.is_enabled();
+        let timer_output_norm = if profiling {
+            self.start_brick_timer("OutputNorm")
+        } else {
+            None
+        };
         // PAR-044 FIX: Use workspace hidden_buf2 directly if workspace was used
         let output_norm_gamma = self.rmsnorm_cache.get("output_norm.gamma").ok_or_else(|| {
             GpuError::InvalidLaunchConfig(
@@ -534,6 +541,16 @@ impl CudaExecutor {
                 (sum_sq / normed_host.len() as f32).sqrt()
             );
         }
+
+        // PAR-PROFILE: Stop output norm timer, start LM head timer
+        if profiling {
+            self.stop_brick_timer(timer_output_norm, 1);
+        }
+        let timer_lm_head = if profiling {
+            self.start_brick_timer("LmHead")
+        } else {
+            None
+        };
 
         // 6. LM head projection on GPU (no sync)
         // PAR-056: Tiled kernel selection based on K dimension
@@ -850,6 +867,11 @@ impl CudaExecutor {
                     hidden_dim,
                 )?;
             },
+        }
+
+        // PAR-PROFILE: Stop LM head timer
+        if profiling {
+            self.stop_brick_timer(timer_lm_head, 1);
         }
 
         // 7. Final sync and download - sync point #2 (only required sync)
