@@ -920,7 +920,7 @@ impl GGUFModel {
             let is_gpt2_style = self
                 .metadata
                 .get("tokenizer.ggml.model")
-                .is_some_and(|v| matches!(v, GGUFValue::String(s) if s == "gpt2"));
+                .is_some_and(|v| matches!(v, GGUFValue::String(s) if s == "gpt2" || s == "bpe"));
 
             // Collect raw tokens and convert byte tokens to actual bytes
             let mut bytes: Vec<u8> = Vec::new();
@@ -1003,7 +1003,7 @@ impl GGUFModel {
         let is_gpt2_style = self
             .metadata
             .get("tokenizer.ggml.model")
-            .is_some_and(|v| matches!(v, GGUFValue::String(s) if s == "gpt2"));
+            .is_some_and(|v| matches!(v, GGUFValue::String(s) if s == "gpt2" || s == "bpe"));
 
         let space_char = if is_gpt2_style { '\u{0120}' } else { '▁' };
 
