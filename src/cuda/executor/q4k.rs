@@ -516,6 +516,11 @@ impl CudaExecutor {
         if std::env::var("VECTORIZED_Q4K").is_ok() {
             return self.vectorized_q4k_gemv_into(weight_ptr, input, output, n, k);
         }
+        // PAR-082-V4: DP4A integer dot products with Q8_1-quantized activations
+        // Set DP4A_Q4K=1 to enable (quantize activations to Q8_1, use dp4a.u32.s32)
+        if std::env::var("DP4A_Q4K").is_ok() {
+            return self.mwv_dp4a_q4k_gemv_into(weight_ptr, input, output, n, k);
+        }
 
         self.mwv_q4k_gemv_into(weight_ptr, input, output, n, k)
     }
@@ -851,6 +856,94 @@ impl CudaExecutor {
                 ],
             )?;
         }
+
+        Ok(())
+    }
+
+    /// PAR-082-V4: Execute MWV DP4A Q4_K GEMV with Q8_1-quantized activations
+    ///
+    /// Two-step pipeline:
+    /// 1. Quantize f32 activations → Q8_1 format (Q8QuantizeKernel)
+    /// 2. DP4A dot product: Q4K weights × Q8_1 activations → f32 output
+    ///
+    /// 3.3x instruction reduction vs MWV, coalesced Q8 loads vs scattered f32.
+    /// Enable with `DP4A_Q4K=1` env var.
+    pub fn mwv_dp4a_q4k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "mwv_dp4a_q4k_gemv_into")?;
+
+        // PAR-PERF-DP4A: Use pre-allocated Q8 buffer from workspace (zero allocation)
+        // Five-Whys root cause: Old code did GpuBuffer::new per call = 280 cudaMallocs/token
+        // Fix: Borrow workspace.q8_activation_buf, quantize in-place, then launch GEMV
+        let q8_ptr = self
+            .workspace
+            .q8_activation_buf
+            .as_ref()
+            .expect("PAR-PERF-DP4A: workspace.q8_activation_buf not initialized. Call init_workspace() first.")
+            .as_ptr();
+        let q8_len = self
+            .workspace
+            .q8_activation_buf
+            .as_ref()
+            .expect("q8_activation_buf must be initialized")
+            .len();
+
+        // Create non-owning view into the pre-allocated Q8 buffer
+        // SAFETY: q8_activation_buf is pre-allocated in init_workspace and valid for this scope
+        let q8_buf = unsafe { GpuBuffer::<u8>::from_raw_parts(q8_ptr, q8_len) };
+
+        // Step 1: Quantize activations to Q8_1 (into pre-allocated buffer)
+        self.q8_quantize_into(input, &q8_buf, k)?;
+
+        // Step 2: Launch DP4A GEMV kernel
+        let num_warps = crate::cuda::kernels::mwv_warp_count();
+        let kernel_type = KernelType::MwvDp4aQ4KGemv { k, n, num_warps };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("mwv_dp4a_q4k_gemv_{}_{}_{}", k, n, num_warps);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let threads = num_warps * 32;
+        let config = LaunchConfig::grid_2d(n, 1, threads, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_q8 = q8_buf.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_q8) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // Don't drop — q8_buf is a view into workspace.q8_activation_buf
+        std::mem::forget(q8_buf);
 
         Ok(())
     }

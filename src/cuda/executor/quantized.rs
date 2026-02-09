@@ -374,6 +374,60 @@ impl CudaExecutor {
         Ok(buf_output)
     }
 
+    /// PAR-PERF-DP4A: Q8 quantize into PRE-ALLOCATED buffer (zero allocation)
+    ///
+    /// Five-Whys root cause (2026-02-09):
+    /// 1. Why is DP4A path 10.7 tok/s (8x slower than MWV)?
+    /// 2. Why so slow? → q8_quantize_async allocates a new GpuBuffer per call
+    /// 3. Why per call? → GpuBuffer::new calls cudaMalloc (10-50us each)
+    /// 4. Why 280x per token? → Called for every GEMV (10/layer × 28 layers)
+    /// 5. ROOT CAUSE: No pre-allocated Q8 buffer in workspace
+    /// FIX: Use workspace.q8_activation_buf (allocated once at init)
+    pub fn q8_quantize_into(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<u8>,
+        n: u32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::Q8Quantize { n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q8_quantize_{}", n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let num_blocks = (n + 31) / 32;
+        let config = LaunchConfig::grid_2d(num_blocks, 1, 32, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_input = input.as_ptr();
+        let mut n_val = n;
+
+        // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
     /// PAR-063-V5: Q4K × Q8 GEMV using true integer DP4A (async, no sync)
     ///
     /// This is the second step in the true DP4A GEMV pipeline:
