@@ -84,6 +84,8 @@ pub enum TraceStep {
     Sample,
     /// Token decoding (token ID -> text)
     Decode,
+    /// GPU kernel launch (PTX-level tracing, GH-219)
+    KernelLaunch,
 }
 
 impl TraceStep {
@@ -100,6 +102,7 @@ impl TraceStep {
             "lmhead" | "lm_head" | "head" => Some(Self::LmHead),
             "sample" | "sampling" => Some(Self::Sample),
             "decode" | "detokenize" => Some(Self::Decode),
+            "kernel" | "kernel_launch" | "ptx" | "cuda" => Some(Self::KernelLaunch),
             _ => None,
         }
     }
@@ -117,6 +120,7 @@ impl TraceStep {
             Self::LmHead => "LM_HEAD",
             Self::Sample => "SAMPLE",
             Self::Decode => "DECODE",
+            Self::KernelLaunch => "KERNEL_LAUNCH",
         }
     }
 
@@ -134,10 +138,11 @@ impl TraceStep {
             Self::LmHead => "LM_HEAD",
             Self::Sample => "SAMPLE",
             Self::Decode => "DECODE",
+            Self::KernelLaunch => "KERNEL_LAUNCH",
         }
     }
 
-    /// Get step number for 7-step pipeline
+    /// Get step number for 8-step pipeline (7 = kernel-level)
     #[must_use]
     pub fn step_number(&self) -> usize {
         match self {
@@ -147,6 +152,7 @@ impl TraceStep {
             Self::LmHead => 4,
             Self::Sample => 5,
             Self::Decode => 6,
+            Self::KernelLaunch => 7,
         }
     }
 }
@@ -389,6 +395,18 @@ pub struct TraceDetails {
     pub temperature: Option<f32>,
     /// Top-k parameter used (for sample step)
     pub top_k: Option<usize>,
+    /// Kernel name (for kernel_launch step, GH-219)
+    pub kernel_name: Option<String>,
+    /// Grid dimensions [x, y, z] (for kernel_launch step)
+    pub grid_dims: Option<[u32; 3]>,
+    /// Block dimensions [x, y, z] (for kernel_launch step)
+    pub block_dims: Option<[u32; 3]>,
+    /// Shared memory bytes (for kernel_launch step)
+    pub shared_mem_bytes: Option<u32>,
+    /// Layer index within the transformer (for kernel_launch context)
+    pub kernel_layer: Option<usize>,
+    /// Dispatch strategy: "grid_y" or "register_unroll" (for kernel_launch step)
+    pub dispatch_strategy: Option<String>,
 }
 
 /// Inference tracer
@@ -809,6 +827,53 @@ impl InferenceTracer {
         self.step_start = None;
     }
 
+    /// Trace GPU kernel launch (GH-219: PTX-level tracing)
+    ///
+    /// Records a CUDA kernel launch event with grid/block configuration,
+    /// shared memory usage, and dispatch strategy. This connects the
+    /// logical layer trace to the physical PTX execution.
+    pub fn trace_kernel_launch(
+        &mut self,
+        kernel_name: &str,
+        layer_idx: Option<usize>,
+        grid_dims: [u32; 3],
+        block_dims: [u32; 3],
+        shared_mem_bytes: u32,
+        dispatch_strategy: Option<&str>,
+        duration_us: u64,
+    ) {
+        if !self.config.should_trace(TraceStep::KernelLaunch) {
+            return;
+        }
+
+        let event = TraceEvent {
+            id: self.next_id(),
+            timestamp: Self::timestamp(),
+            event_type: AwsEventType::TaskStateExited,
+            previous_event_id: None, // Kernel launches are leaf events
+            step: TraceStep::KernelLaunch,
+            iteration: 0,
+            layer: layer_idx,
+            input_shape: vec![],
+            output_shape: vec![],
+            stats: TensorStats::default(),
+            duration_us,
+            error: None,
+            cause: None,
+            details: TraceDetails {
+                kernel_name: Some(kernel_name.to_string()),
+                grid_dims: Some(grid_dims),
+                block_dims: Some(block_dims),
+                shared_mem_bytes: Some(shared_mem_bytes),
+                kernel_layer: layer_idx,
+                dispatch_strategy: dispatch_strategy.map(String::from),
+                ..Default::default()
+            },
+        };
+
+        self.events.push(event);
+    }
+
     /// Get all collected events
     #[must_use]
     pub fn events(&self) -> &[TraceEvent] {
@@ -991,6 +1056,33 @@ impl InferenceTracer {
                     if let Some(ref text) = event.details.decoded_text {
                         output.push_str(&format!("  Decoded:   {:?}\n", text));
                     }
+                },
+                TraceStep::KernelLaunch => {
+                    if let Some(ref name) = event.details.kernel_name {
+                        output.push_str(&format!("  Kernel:   {}\n", name));
+                    }
+                    if let Some(grid) = event.details.grid_dims {
+                        output.push_str(&format!(
+                            "  Grid:     ({}, {}, {})\n",
+                            grid[0], grid[1], grid[2]
+                        ));
+                    }
+                    if let Some(block) = event.details.block_dims {
+                        output.push_str(&format!(
+                            "  Block:    ({}, {}, {})\n",
+                            block[0], block[1], block[2]
+                        ));
+                    }
+                    if let Some(smem) = event.details.shared_mem_bytes {
+                        output.push_str(&format!("  SharedMem: {} bytes\n", smem));
+                    }
+                    if let Some(ref strategy) = event.details.dispatch_strategy {
+                        output.push_str(&format!("  Dispatch: {}\n", strategy));
+                    }
+                    if let Some(layer) = event.details.kernel_layer {
+                        output.push_str(&format!("  Layer:    {}\n", layer));
+                    }
+                    output.push_str(&format!("  Duration: {}us\n", event.duration_us));
                 },
                 _ => {},
             }

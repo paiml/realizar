@@ -161,6 +161,31 @@ impl CudaExecutor {
         self.seq_len_buf = None;
     }
 
+    /// GH-219: Validate PTX parity for all batched kernels at startup
+    ///
+    /// Uses the executor's current model dimensions (from KV cache init) to
+    /// construct all 6 batched kernels and validate structural parity with
+    /// their single-vector references.
+    ///
+    /// Returns the parity report. Callers decide whether to warn or error.
+    /// Toyota Way: Poka-Yoke — catch PTX generation bugs at init, not runtime.
+    pub fn validate_kernel_parity(
+        &self,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        epsilon: f32,
+    ) -> crate::ptx_parity::PtxParityReport {
+        let dims = crate::ptx_parity::KernelDimensions {
+            hidden_dim,
+            intermediate_dim,
+            num_heads: self.kv_num_heads as u32,
+            head_dim: self.kv_head_dim as u32,
+            rope_theta: self.rope_theta,
+            epsilon,
+        };
+        crate::ptx_parity::validate_all_kernel_pairs(&dims)
+    }
+
     // ========================================================================
     // PAR-007: GEMV Buffer Pool (avoid per-call allocation)
     // ========================================================================
