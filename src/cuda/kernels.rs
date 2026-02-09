@@ -3,6 +3,20 @@
 //! This module contains the `KernelType` enum for all supported GPU kernels
 //! and the `CudaKernels` struct for generating PTX assembly.
 
+/// PAR-082-V3: Get configured MWV warp count (default: 3)
+/// Shared by q4k.rs dispatch and graphed.rs preload to ensure consistent kernel selection.
+/// Set `MWV_WARPS=N` to override (2, 3, 4, 6, 8).
+/// Empirical sweet spot: 3 warps = 110.7 tok/s on RTX 4090 for 7B Q4K.
+pub fn mwv_warp_count() -> u32 {
+    static MWV_WARPS: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *MWV_WARPS.get_or_init(|| {
+        std::env::var("MWV_WARPS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(3)
+    })
+}
+
 // All kernel types are imported for exhaustive KernelType enum coverage
 #[allow(unused_imports)]
 use trueno_gpu::kernels::{
@@ -275,12 +289,14 @@ pub enum KernelType {
         n: u32,
     },
     /// PAR-082-V2: Multi-warp Vectorized Q4_K GEMV
-    /// 4 warps (128 threads) with u32 coalesced loads — best of both worlds
+    /// Configurable warps (default 4 = 128 threads) with u32 coalesced loads
     MwvQ4KGemv {
         /// Input dimension (K, must be multiple of 256)
         k: u32,
         /// Output dimension (N)
         n: u32,
+        /// Number of warps per block (default: 4)
+        num_warps: u32,
     },
     /// PAR-063: DP4A-based Q4_K GEMV with 4x instruction reduction
     /// Uses DP4A SIMD instruction to compute 4 multiply-adds in one cycle
@@ -903,9 +919,11 @@ impl CudaKernels {
             KernelType::VectorizedQ4KGemv { k, n } => {
                 VectorizedQ4KGemvKernel::new(*k, *n).emit_ptx()
             },
-            // PAR-082-V2: Multi-warp Vectorized Q4K GEMV (4 warps + u32 loads)
-            KernelType::MwvQ4KGemv { k, n } => {
-                MultiWarpVectorizedQ4KGemvKernel::new(*k, *n).emit_ptx()
+            // PAR-082-V2: Multi-warp Vectorized Q4K GEMV (configurable warps + u32 loads)
+            KernelType::MwvQ4KGemv { k, n, num_warps } => {
+                let mut kernel = MultiWarpVectorizedQ4KGemvKernel::new(*k, *n);
+                kernel.num_warps = *num_warps;
+                kernel.emit_ptx()
             },
             // PAR-063: DP4A Q4K GEMV with 4x instruction reduction
             KernelType::Dp4aQ4KGemv { k, n } => Dp4aQ4KGemvKernel::new(*k, *n).emit_ptx(),
