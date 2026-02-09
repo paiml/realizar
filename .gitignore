@@ -59,3 +59,5 @@ benches/comparative/results/
 .pmat/context.idx/
 .pmat/workspace.idx/
 .pmat/deps-cache.json
+.pmat/workspace.db
+.pmat/context.db

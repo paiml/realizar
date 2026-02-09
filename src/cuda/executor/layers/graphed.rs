@@ -299,11 +299,33 @@ impl CudaExecutor {
         }
 
         // 2. Q/K/V GEMV kernels - pre-load all quant types that might be used
-        // PAR-065: Use Coalesced Q4K kernels for better bandwidth (vectorized loads)
+        // PAR-132: Use WideQ4KGemv (256 threads, 8 warps) for high SM occupancy
+        // Root cause fix: 32 threads/block → 12% BW utilization → 39 tok/s
+        // 256 threads/block → target 50%+ BW → 100+ tok/s
+        let wide_q4k_q_key = format!("wide_q4k_gemv_{}_{}", hidden_dim, q_dim);
+        if !self.modules.contains_key(&wide_q4k_q_key) {
+            let kernel_type = KernelType::WideQ4KGemv {
+                k: hidden_dim,
+                n: q_dim,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(wide_q4k_q_key, module);
+        }
 
-        // PAR-065: Coalesced Q4K GEMV for Q (hidden_dim -> q_dim)
-        // Five-Whys root cause: TiledQ4KGemv uses single-byte loads (6% bandwidth)
-        // CoalescedQ4KGemv uses vectorized u32 loads + warp shuffles (27% speedup)
+        // PAR-132: WideQ4K for K/V (hidden_dim -> kv_dim)
+        let wide_q4k_kv_key = format!("wide_q4k_gemv_{}_{}", hidden_dim, kv_dim);
+        if !self.modules.contains_key(&wide_q4k_kv_key) {
+            let kernel_type = KernelType::WideQ4KGemv {
+                k: hidden_dim,
+                n: kv_dim,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(wide_q4k_kv_key, module);
+        }
+
+        // Keep legacy Coalesced Q4K for WIDE_Q4K_DISABLE fallback
         let q4k_q_key = format!("coalesced_q4k_gemv_{}_{}", hidden_dim, q_dim);
         if !self.modules.contains_key(&q4k_q_key) {
             let kernel_type = KernelType::CoalescedQ4KGemv {
@@ -314,8 +336,6 @@ impl CudaExecutor {
             let module = self.compile_ptx(&ptx)?;
             self.modules.insert(q4k_q_key, module);
         }
-
-        // PAR-065: Coalesced Q4K GEMV for K/V (hidden_dim -> kv_dim)
         let q4k_kv_key = format!("coalesced_q4k_gemv_{}_{}", hidden_dim, kv_dim);
         if !self.modules.contains_key(&q4k_kv_key) {
             let kernel_type = KernelType::CoalescedQ4KGemv {
@@ -421,52 +441,40 @@ impl CudaExecutor {
             self.modules.insert(q8_0_kv_key, module);
         }
 
-        // 3. Output projection (q_dim -> hidden_dim) - PAR-065: Coalesced Q4K
-        let q4k_o_key = format!("coalesced_q4k_gemv_{}_{}", q_dim, hidden_dim);
-        if !self.modules.contains_key(&q4k_o_key) {
-            let kernel_type = KernelType::CoalescedQ4KGemv {
+        // 3. Output projection (q_dim -> hidden_dim) - PAR-132: Wide Q4K
+        let wide_q4k_o_key = format!("wide_q4k_gemv_{}_{}", q_dim, hidden_dim);
+        if !self.modules.contains_key(&wide_q4k_o_key) {
+            let kernel_type = KernelType::WideQ4KGemv {
                 k: q_dim,
                 n: hidden_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(q4k_o_key, module);
+            self.modules.insert(wide_q4k_o_key, module);
         }
 
         // 4. FFN GEMV kernels (gate/up: hidden->intermediate, down: intermediate->hidden)
-        // PAR-065: Coalesced Q4K for FFN gate/up
-        let q4k_up_key = format!("coalesced_q4k_gemv_{}_{}", hidden_dim, intermediate_dim);
-        if !self.modules.contains_key(&q4k_up_key) {
-            let kernel_type = KernelType::CoalescedQ4KGemv {
+        // PAR-132: Wide Q4K for FFN gate/up
+        let wide_q4k_up_key = format!("wide_q4k_gemv_{}_{}", hidden_dim, intermediate_dim);
+        if !self.modules.contains_key(&wide_q4k_up_key) {
+            let kernel_type = KernelType::WideQ4KGemv {
                 k: hidden_dim,
                 n: intermediate_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(q4k_up_key, module);
+            self.modules.insert(wide_q4k_up_key, module);
         }
-        // PAR-065: Coalesced Q4K for FFN down (K=intermediate_dim)
-        // CoalescedQ4KGemv doesn't have the shared memory limitation of TiledQ4KGemv
-        let q4k_down_key = format!("coalesced_q4k_gemv_{}_{}", intermediate_dim, hidden_dim);
-        if !self.modules.contains_key(&q4k_down_key) {
-            let kernel_type = KernelType::CoalescedQ4KGemv {
+        // PAR-132: Wide Q4K for FFN down (K=intermediate_dim)
+        let wide_q4k_down_key = format!("wide_q4k_gemv_{}_{}", intermediate_dim, hidden_dim);
+        if !self.modules.contains_key(&wide_q4k_down_key) {
+            let kernel_type = KernelType::WideQ4KGemv {
                 k: intermediate_dim,
                 n: hidden_dim,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(q4k_down_key, module);
-        }
-        // Pre-load basic Q4K as fallback for non-256-aligned dimensions
-        let q4k_down_fallback_key = format!("q4k_gemv_{}_{}", intermediate_dim, hidden_dim);
-        if !self.modules.contains_key(&q4k_down_fallback_key) {
-            let kernel_type = KernelType::Q4KGemv {
-                k: intermediate_dim,
-                n: hidden_dim,
-            };
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(q4k_down_fallback_key, module);
+            self.modules.insert(wide_q4k_down_key, module);
         }
 
         // Q6K FFN down (some models use Q6K for FFN down)
@@ -496,17 +504,16 @@ impl CudaExecutor {
         }
 
         // 5. LM head (hidden_dim -> vocab_size) - pre-load both Q4K and Q6K
-        // PAR-058: Qwen 1.5B uses Q6K for LM head, not Q4K
-        // PAR-065: Coalesced Q4K for LM head
-        let lm_head_q4k_key = format!("coalesced_q4k_gemv_{}_{}", hidden_dim, vocab_size);
-        if !self.modules.contains_key(&lm_head_q4k_key) {
-            let kernel_type = KernelType::CoalescedQ4KGemv {
+        // PAR-132: Wide Q4K for LM head
+        let wide_lm_head_q4k_key = format!("wide_q4k_gemv_{}_{}", hidden_dim, vocab_size);
+        if !self.modules.contains_key(&wide_lm_head_q4k_key) {
+            let kernel_type = KernelType::WideQ4KGemv {
                 k: hidden_dim,
                 n: vocab_size,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(lm_head_q4k_key, module);
+            self.modules.insert(wide_lm_head_q4k_key, module);
         }
         // Q6K LM head (Qwen 1.5B uses this)
         let lm_head_q6k_key = format!("q6k_gemv_{}_{}", hidden_dim, vocab_size);

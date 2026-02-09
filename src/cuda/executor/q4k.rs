@@ -340,48 +340,85 @@ impl CudaExecutor {
                 "null weight pointer in q4k_gemv_indexed_async".to_string(),
             ));
         }
-        // PAR-043: Direct pointer access - no HashMap lookup
-        // Load kernel module (still needs format for dimensions, but cached after first call)
-        let kernel_type = KernelType::Q4KGemv { k, n };
-        let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("q4k_gemv_{}_{}", k, n);
-
-        if !self.modules.contains_key(&cache_key) {
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(cache_key.clone(), module);
-        }
-
-        let module = self
-            .modules
-            .get_mut(&cache_key)
-            .expect("module just inserted");
 
         // Allocate output buffer
         let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
 
-        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+        // PAR-132: Use WideQ4KGemv (256 threads, 8 warps) for high occupancy
+        if std::env::var("WIDE_Q4K_DISABLE").is_ok() {
+            let kernel_type = KernelType::Q4KGemv { k, n };
+            let kernel_name = self.kernels.kernel_name(&kernel_type);
+            let cache_key = format!("q4k_gemv_{}_{}", k, n);
 
-        let mut ptr_output = buf_output.as_ptr();
-        let mut ptr_weights = weight_ptr;
-        let mut ptr_input = input.as_ptr();
-        let mut k_val = k;
-        let mut n_val = n;
+            if !self.modules.contains_key(&cache_key) {
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(cache_key.clone(), module);
+            }
 
-        // SAFETY: Memory safety ensured by bounds checking and alignment
-        unsafe {
-            self.stream.launch_kernel(
-                module,
-                kernel_name,
-                &config,
-                &mut [
-                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
-                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
-                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
-                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
-                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
-                ],
-            )?;
+            let module = self
+                .modules
+                .get_mut(&cache_key)
+                .expect("module just inserted");
+
+            let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+            let mut ptr_output = buf_output.as_ptr();
+            let mut ptr_weights = weight_ptr;
+            let mut ptr_input = input.as_ptr();
+            let mut k_val = k;
+            let mut n_val = n;
+
+            unsafe {
+                self.stream.launch_kernel(
+                    module,
+                    kernel_name,
+                    &config,
+                    &mut [
+                        std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        } else {
+            let kernel_type = KernelType::WideQ4KGemv { k, n };
+            let kernel_name = self.kernels.kernel_name(&kernel_type);
+            let cache_key = format!("wide_q4k_gemv_{}_{}", k, n);
+
+            if !self.modules.contains_key(&cache_key) {
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(cache_key.clone(), module);
+            }
+
+            let module = self
+                .modules
+                .get_mut(&cache_key)
+                .expect("module just inserted");
+
+            let config = LaunchConfig::grid_2d(n, 1, 256, 1);
+            let mut ptr_output = buf_output.as_ptr();
+            let mut ptr_weights = weight_ptr;
+            let mut ptr_input = input.as_ptr();
+            let mut k_val = k;
+            let mut n_val = n;
+
+            unsafe {
+                self.stream.launch_kernel(
+                    module,
+                    kernel_name,
+                    &config,
+                    &mut [
+                        std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
         }
 
         Ok(buf_output)
@@ -480,31 +517,45 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        validate_device_ptr(weight_ptr, "q4k_gemv_into")?;
-        // PAR-065: Use DP4A kernel for 4x instruction reduction
+        // PAR-132: Use WideQ4KGemv (256 threads, 8 warps) for all Q4K GEMV
+        //
         // Five-Whys root cause chain:
-        // 1. TiledQ4KGemv uses single-byte loads (ld_global_u8) - 6% bandwidth
-        // 2. CoalescedQ4KGemv improved memory access - 27% speedup (99→126 tok/s)
-        // 3. DP4A kernel uses SIMD dp4a instruction for 4x arithmetic throughput
+        // 1. Why 39 tok/s vs Ollama's 128 tok/s? → 12% BW utilization
+        // 2. Why 12% BW? → SM occupancy too low to hide memory latency
+        // 3. Why low occupancy? → 32 threads/block = 1 warp = 33% max occupancy
+        // 4. Why 32 threads? → Original kernel: 1 warp per output element
+        // 5. Why not more warps? → No cross-warp reduction was implemented
         //
-        // DP4A (Dot Product of 4 Bytes with Accumulate):
-        // - Computes 4 int8 multiply-adds in single instruction
-        // - 4x compute throughput vs scalar FMA
-        // - Better ALU utilization
+        // Fix: WideQ4KGemvKernel uses 8 warps (256 threads) per output,
+        // with cross-warp reduction via shared memory (32 bytes).
+        // llama.cpp also uses 256 threads for Q4_K decode.
         //
-        // Requirements: k must be multiple of 256 (super-block boundary)
+        // Fallback: Set WIDE_Q4K_DISABLE=1 to use previous tiled dispatch
+        if std::env::var("WIDE_Q4K_DISABLE").is_ok() {
+            return self.q4k_gemv_into_legacy(weight_ptr, input, output, n, k);
+        }
 
-        // CORRECTNESS-008: Use TiledQ4KGemv for aligned K to match q4k_gemv_cached behavior
-        // The basic Q4KGemv kernel produces slightly different results due to different
-        // accumulation order. Using the same kernel as the verified working cached path.
+        self.wide_q4k_gemv_into(weight_ptr, input, output, n, k)
+    }
+
+    /// Legacy Q4K GEMV dispatch (pre-PAR-132)
+    /// Uses tiled/chunked kernels with 128 threads or basic with 32 threads
+    fn q4k_gemv_into_legacy(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "q4k_gemv_into_legacy")?;
         // PAR-502: sm_89 has 100KB shared memory limit, K * 4 bytes must fit
-        const MAX_TILED_K: u32 = 12_288; // 48KB / 4 bytes = 12,288 floats (default static shared memory limit)
+        const MAX_TILED_K: u32 = 12_288;
         let use_tiled = k.is_multiple_of(256) && k <= MAX_TILED_K;
         let use_chunked = k.is_multiple_of(256) && k > MAX_TILED_K;
         let outputs_per_block = 4u32;
 
         let (kernel_type, cache_key, config) = if use_chunked {
-            // PAR-502: Use chunked kernel for large K dimensions (7B+ models)
             let kt = KernelType::ChunkedTiledQ4KGemv {
                 k,
                 n,
@@ -609,6 +660,67 @@ impl CudaExecutor {
 
         // One warp (32 threads) per output element
         let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-132: Wide Q4_K GEMV with 256 threads (8 warps) per output
+    ///
+    /// Root cause fix for 3x Ollama performance gap:
+    /// - Previous: 32 threads/block = 33% SM occupancy, can't hide memory latency
+    /// - New: 256 threads/block = 67-100% occupancy, 8 warps hide latency
+    ///
+    /// Cross-warp reduction via 32 bytes shared memory per block.
+    /// Target: 100+ tok/s decode (from 39 tok/s), reaching Ollama parity.
+    #[inline]
+    pub fn wide_q4k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "wide_q4k_gemv_into")?;
+        let kernel_type = KernelType::WideQ4KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("wide_q4k_gemv_{}_{}", k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // 8 warps (256 threads) per output element — key change from 32 threads
+        let config = LaunchConfig::grid_2d(n, 1, 256, 1);
 
         let mut ptr_output = output.as_ptr();
         let mut ptr_weights = weight_ptr;
