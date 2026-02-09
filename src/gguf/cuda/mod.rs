@@ -110,6 +110,10 @@ pub struct OwnedQuantizedModelCuda {
     device_name: String,
     /// GPU memory (free, total) in bytes
     memory_info: (usize, usize),
+    /// PAR-083: Pre-allocated embedding buffer to eliminate per-token heap allocation.
+    /// Five-Whys root cause: embed() allocates Vec<f32> per token (~14KB for 7B).
+    /// Fix: Reuse this buffer with embed_into().
+    embed_buf: Vec<f32>,
 }
 
 impl OwnedQuantizedModelCuda {
@@ -203,11 +207,16 @@ impl OwnedQuantizedModelCuda {
         }
         executor.set_rope_type(model.config.rope_type);
 
+        // PAR-083: Pre-allocate embedding buffer (hidden_dim f32s) to avoid per-token malloc.
+        // Five-Whys: embed() heap alloc per token → eliminated by reusing this buffer.
+        let embed_buf = vec![0.0f32; model.config.hidden_dim];
+
         let mut cuda_model = Self {
             model,
             executor,
             device_name,
             memory_info,
+            embed_buf,
         };
 
         // GH-199 ROOT CAUSE B: Eagerly preload weights for GPU-resident path.
