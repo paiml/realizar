@@ -46,6 +46,14 @@ impl CudaExecutor {
         self.workspace.ffn_up_buf = Some(GpuBuffer::new(&self.context, intermediate_dim)?);
         self.workspace.ffn_act_buf = Some(GpuBuffer::new(&self.context, intermediate_dim)?);
 
+        // PAR-PERF-DP4A: Pre-allocate Q8_1 activation buffer for DP4A GEMV
+        // Size = max(hidden_dim, intermediate_dim, q_dim) to handle all GEMV inputs
+        // Q8_1 format: 36 bytes per 32 values
+        let max_input_dim = hidden_dim.max(intermediate_dim).max(q_dim);
+        let q8_num_blocks = (max_input_dim + 31) / 32;
+        let q8_bytes = q8_num_blocks * 36;
+        self.workspace.q8_activation_buf = Some(GpuBuffer::new(&self.context, q8_bytes)?);
+
         self.workspace.hidden_dim = hidden_dim;
         self.workspace.q_dim = q_dim;
         self.workspace.kv_dim = kv_dim;

@@ -439,6 +439,10 @@ pub struct TransformerWorkspace {
     pub batch_size: usize,
     /// PAR-114: Positions buffer for batched RoPE (M positions)
     pub positions_buf: Option<GpuBuffer<u32>>,
+    /// PAR-PERF-DP4A: Pre-allocated Q8_1 activation buffer for DP4A GEMV
+    /// Eliminates per-GEMV cudaMalloc (was 280 mallocs/token → 0)
+    /// Size: ceil(hidden_dim / 32) × 36 bytes (Q8_1 format)
+    pub q8_activation_buf: Option<GpuBuffer<u8>>,
 }
 
 // ============================================================================
