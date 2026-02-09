@@ -1100,11 +1100,13 @@ impl CudaExecutor {
             epsilon,
         )?;
 
+
+
         // ========== 2. Q/K/V Projections (BATCHED GEMV - main optimization) ==========
         // PMAT-PREFILL-FIX: Handle each projection's quantization type independently.
         // Q, K, V may have different quantization types (e.g., Q4K for Q/K, Q6K for V).
 
-        // Q projection — use batched Q4K if possible, else sequential with correct kernel
+        // Q projection
         if layer_weights.attn_q_qtype == WeightQuantType::Q4K {
             self.batched_q4k_gemv_into(
                 layer_weights.attn_q_ptr, &hidden_buf1, &q_buf, m, q_dim, hidden_dim,
@@ -1134,7 +1136,7 @@ impl CudaExecutor {
             }
         }
 
-        // K projection — use batched Q4K if possible, else sequential with correct kernel
+        // K projection
         if layer_weights.attn_k_qtype == WeightQuantType::Q4K {
             self.batched_q4k_gemv_into(
                 layer_weights.attn_k_ptr, &hidden_buf1, &k_buf, m, kv_dim, hidden_dim,
@@ -1164,7 +1166,7 @@ impl CudaExecutor {
             }
         }
 
-        // V projection — handle each quantization type with matching GEMV kernel
+        // V projection
         if layer_weights.attn_v_qtype == WeightQuantType::Q4K {
             self.batched_q4k_gemv_into(
                 layer_weights.attn_v_ptr, &hidden_buf1, &v_buf, m, kv_dim, hidden_dim,
