@@ -344,10 +344,11 @@ impl CudaExecutor {
         // Allocate output buffer
         let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
 
-        // PAR-082-V2: Use MwvQ4KGemv (4 warps + u32 coalesced loads)
-        let kernel_type = KernelType::MwvQ4KGemv { k, n };
+        // PAR-082-V2: Use MwvQ4KGemv with configurable warp count
+        let num_warps = crate::cuda::kernels::mwv_warp_count();
+        let kernel_type = KernelType::MwvQ4KGemv { k, n, num_warps };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("mwv_q4k_gemv_{}_{}", k, n);
+        let cache_key = format!("mwv_q4k_gemv_{}_{}_{}", k, n, num_warps);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -360,8 +361,9 @@ impl CudaExecutor {
             .get_mut(&cache_key)
             .expect("module just inserted");
 
-        // 4 warps (128 threads) per output element
-        let config = LaunchConfig::grid_2d(n, 1, 128, 1);
+        // num_warps * 32 threads per output element
+        let threads = num_warps * 32;
+        let config = LaunchConfig::grid_2d(n, 1, threads, 1);
         let mut ptr_output = buf_output.as_ptr();
         let mut ptr_weights = weight_ptr;
         let mut ptr_input = input.as_ptr();
@@ -808,9 +810,11 @@ impl CudaExecutor {
         k: u32,
     ) -> Result<(), GpuError> {
         validate_device_ptr(weight_ptr, "mwv_q4k_gemv_into")?;
-        let kernel_type = KernelType::MwvQ4KGemv { k, n };
+        // PAR-082-V3: Configurable warp count via MWV_WARPS env var (default: 2)
+        let num_warps = crate::cuda::kernels::mwv_warp_count();
+        let kernel_type = KernelType::MwvQ4KGemv { k, n, num_warps };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("mwv_q4k_gemv_{}_{}", k, n);
+        let cache_key = format!("mwv_q4k_gemv_{}_{}_{}", k, n, num_warps);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -823,8 +827,9 @@ impl CudaExecutor {
             .get_mut(&cache_key)
             .expect("module just inserted");
 
-        // 4 warps (128 threads) per output element, one block per output
-        let config = LaunchConfig::grid_2d(n, 1, 128, 1);
+        // num_warps * 32 threads per output element, one block per output
+        let threads = num_warps * 32;
+        let config = LaunchConfig::grid_2d(n, 1, threads, 1);
 
         let mut ptr_output = output.as_ptr();
         let mut ptr_weights = weight_ptr;

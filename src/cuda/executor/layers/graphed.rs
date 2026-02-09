@@ -299,22 +299,25 @@ impl CudaExecutor {
         }
 
         // 2. Q/K/V GEMV kernels - pre-load all quant types that might be used
-        // PAR-082-V2: MwvQ4KGemv (4 warps + u32 coalesced loads)
-        let mwv_q4k_q_key = format!("mwv_q4k_gemv_{}_{}", hidden_dim, q_dim);
+        // PAR-082-V3: MwvQ4KGemv with configurable warp count
+        let nw = crate::cuda::kernels::mwv_warp_count();
+        let mwv_q4k_q_key = format!("mwv_q4k_gemv_{}_{}_{}", hidden_dim, q_dim, nw);
         if !self.modules.contains_key(&mwv_q4k_q_key) {
             let kernel_type = KernelType::MwvQ4KGemv {
                 k: hidden_dim,
                 n: q_dim,
+                num_warps: nw,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = self.compile_ptx(&ptx)?;
             self.modules.insert(mwv_q4k_q_key, module);
         }
-        let mwv_q4k_kv_key = format!("mwv_q4k_gemv_{}_{}", hidden_dim, kv_dim);
+        let mwv_q4k_kv_key = format!("mwv_q4k_gemv_{}_{}_{}", hidden_dim, kv_dim, nw);
         if !self.modules.contains_key(&mwv_q4k_kv_key) {
             let kernel_type = KernelType::MwvQ4KGemv {
                 k: hidden_dim,
                 n: kv_dim,
+                num_warps: nw,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = self.compile_ptx(&ptx)?;
@@ -415,12 +418,13 @@ impl CudaExecutor {
             self.modules.insert(q8_0_kv_key, module);
         }
 
-        // 3. Output projection (q_dim -> hidden_dim) - PAR-082-V2: MWV Q4K
-        let mwv_q4k_o_key = format!("mwv_q4k_gemv_{}_{}", q_dim, hidden_dim);
+        // 3. Output projection (q_dim -> hidden_dim) - PAR-082-V3: MWV Q4K
+        let mwv_q4k_o_key = format!("mwv_q4k_gemv_{}_{}_{}", q_dim, hidden_dim, nw);
         if !self.modules.contains_key(&mwv_q4k_o_key) {
             let kernel_type = KernelType::MwvQ4KGemv {
                 k: q_dim,
                 n: hidden_dim,
+                num_warps: nw,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = self.compile_ptx(&ptx)?;
@@ -428,21 +432,23 @@ impl CudaExecutor {
         }
 
         // 4. FFN GEMV kernels (gate/up: hidden->intermediate, down: intermediate->hidden)
-        let mwv_q4k_up_key = format!("mwv_q4k_gemv_{}_{}", hidden_dim, intermediate_dim);
+        let mwv_q4k_up_key = format!("mwv_q4k_gemv_{}_{}_{}", hidden_dim, intermediate_dim, nw);
         if !self.modules.contains_key(&mwv_q4k_up_key) {
             let kernel_type = KernelType::MwvQ4KGemv {
                 k: hidden_dim,
                 n: intermediate_dim,
+                num_warps: nw,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = self.compile_ptx(&ptx)?;
             self.modules.insert(mwv_q4k_up_key, module);
         }
-        let mwv_q4k_down_key = format!("mwv_q4k_gemv_{}_{}", intermediate_dim, hidden_dim);
+        let mwv_q4k_down_key = format!("mwv_q4k_gemv_{}_{}_{}", intermediate_dim, hidden_dim, nw);
         if !self.modules.contains_key(&mwv_q4k_down_key) {
             let kernel_type = KernelType::MwvQ4KGemv {
                 k: intermediate_dim,
                 n: hidden_dim,
+                num_warps: nw,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = self.compile_ptx(&ptx)?;
@@ -476,11 +482,12 @@ impl CudaExecutor {
         }
 
         // 5. LM head (hidden_dim -> vocab_size) - pre-load both Q4K and Q6K
-        let mwv_lm_head_q4k_key = format!("mwv_q4k_gemv_{}_{}", hidden_dim, vocab_size);
+        let mwv_lm_head_q4k_key = format!("mwv_q4k_gemv_{}_{}_{}", hidden_dim, vocab_size, nw);
         if !self.modules.contains_key(&mwv_lm_head_q4k_key) {
             let kernel_type = KernelType::MwvQ4KGemv {
                 k: hidden_dim,
                 n: vocab_size,
+                num_warps: nw,
             };
             let ptx = self.kernels.generate_ptx(&kernel_type);
             let module = self.compile_ptx(&ptx)?;
