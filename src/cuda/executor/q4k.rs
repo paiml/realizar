@@ -344,10 +344,10 @@ impl CudaExecutor {
         // Allocate output buffer
         let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
 
-        // PAR-132: Use VectorizedQ4KGemv (u32 coalesced loads, 79 tok/s)
-        let kernel_type = KernelType::VectorizedQ4KGemv { k, n };
+        // PAR-082-V2: Use MwvQ4KGemv (4 warps + u32 coalesced loads)
+        let kernel_type = KernelType::MwvQ4KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("vectorized_q4k_gemv_{}_{}", k, n);
+        let cache_key = format!("mwv_q4k_gemv_{}_{}", k, n);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -360,7 +360,8 @@ impl CudaExecutor {
             .get_mut(&cache_key)
             .expect("module just inserted");
 
-        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+        // 4 warps (128 threads) per output element
+        let config = LaunchConfig::grid_2d(n, 1, 128, 1);
         let mut ptr_output = buf_output.as_ptr();
         let mut ptr_weights = weight_ptr;
         let mut ptr_input = input.as_ptr();
@@ -492,29 +493,29 @@ impl CudaExecutor {
         // with cross-warp reduction via shared memory (32 bytes).
         // llama.cpp also uses 256 threads for Q4_K decode.
         //
-        // PAR-132: Use VectorizedQ4KGemv (coalesced u32 loads) as default
+        // PAR-082-V2: Use MwvQ4KGemv (4 warps + u32 loads) as default
         //
         // Empirical results on RTX 4090, 7B Q4K:
         // - Legacy tiled (128 threads): 41 tok/s (WIDE_Q4K_DISABLE=1)
         // - Wide 8-warp (256 threads):  67 tok/s (WIDE_Q4K=1)
-        // - Vectorized u32 (32 threads): 79 tok/s (default)
-        //
-        // u32 coalesced loads > multi-warp occupancy for bandwidth-bound GEMV:
-        // - 32 threads × 4 bytes = 128 bytes/transaction (fully coalesced)
-        // - Each thread processes 8 nibbles per u32 load
-        // - No cross-warp reduction overhead
+        // - Vectorized u32 (32 threads): 79 tok/s (VECTORIZED_Q4K=1)
+        // - MWV 4-warp + u32 loads:     ??? tok/s (default)
         //
         // Env vars for A/B testing:
         // WIDE_Q4K_DISABLE=1 → legacy tiled/chunked
-        // WIDE_Q4K=1 → multi-warp 256 threads
+        // WIDE_Q4K=1 → multi-warp 256 threads (byte loads)
+        // VECTORIZED_Q4K=1 → single-warp u32 loads
         if std::env::var("WIDE_Q4K_DISABLE").is_ok() {
             return self.q4k_gemv_into_legacy(weight_ptr, input, output, n, k);
         }
         if std::env::var("WIDE_Q4K").is_ok() {
             return self.wide_q4k_gemv_into(weight_ptr, input, output, n, k);
         }
+        if std::env::var("VECTORIZED_Q4K").is_ok() {
+            return self.vectorized_q4k_gemv_into(weight_ptr, input, output, n, k);
+        }
 
-        self.vectorized_q4k_gemv_into(weight_ptr, input, output, n, k)
+        self.mwv_q4k_gemv_into(weight_ptr, input, output, n, k)
     }
 
     /// Legacy Q4K GEMV dispatch (pre-PAR-132)
@@ -776,6 +777,61 @@ impl CudaExecutor {
         let mut n_val = n;
 
         // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-082-V2: Multi-warp Vectorized Q4K GEMV (4 warps + u32 coalesced loads)
+    ///
+    /// Combines VectorizedQ4K's coalesced u32 loads with multi-warp parallelism.
+    /// 128 threads (4 warps) per block, matching llama.cpp's mul_mat_vec_q.
+    pub fn mwv_q4k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "mwv_q4k_gemv_into")?;
+        let kernel_type = KernelType::MwvQ4KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("mwv_q4k_gemv_{}_{}", k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // 4 warps (128 threads) per output element, one block per output
+        let config = LaunchConfig::grid_2d(n, 1, 128, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
         unsafe {
             self.stream.launch_kernel(
                 module,
