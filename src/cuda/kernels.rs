@@ -21,8 +21,8 @@ use trueno_gpu::kernels::{
     Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel,
     RmsNormKernel, RopeIndirectKernel, RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel,
     SiluKernel, SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel,
-    TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel, VectorizedRmsNormKernel,
-    WideQ4KGemvKernel,
+    MultiWarpVectorizedQ4KGemvKernel, TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel,
+    VectorizedRmsNormKernel, WideQ4KGemvKernel,
 };
 
 /// CUDA kernel types supported by realizar
@@ -269,6 +269,14 @@ pub enum KernelType {
     /// Uses ld_global_u32 for 32-thread coalesced loads (128 bytes/transaction)
     /// Target: 80%+ memory bandwidth vs 6% with byte loads
     VectorizedQ4KGemv {
+        /// Input dimension (K, must be multiple of 256)
+        k: u32,
+        /// Output dimension (N)
+        n: u32,
+    },
+    /// PAR-082-V2: Multi-warp Vectorized Q4_K GEMV
+    /// 4 warps (128 threads) with u32 coalesced loads — best of both worlds
+    MwvQ4KGemv {
         /// Input dimension (K, must be multiple of 256)
         k: u32,
         /// Output dimension (N)
@@ -895,6 +903,10 @@ impl CudaKernels {
             KernelType::VectorizedQ4KGemv { k, n } => {
                 VectorizedQ4KGemvKernel::new(*k, *n).emit_ptx()
             },
+            // PAR-082-V2: Multi-warp Vectorized Q4K GEMV (4 warps + u32 loads)
+            KernelType::MwvQ4KGemv { k, n } => {
+                MultiWarpVectorizedQ4KGemvKernel::new(*k, *n).emit_ptx()
+            },
             // PAR-063: DP4A Q4K GEMV with 4x instruction reduction
             KernelType::Dp4aQ4KGemv { k, n } => Dp4aQ4KGemvKernel::new(*k, *n).emit_ptx(),
             // PAR-063-V2: DP4A SIMD Q4K GEMV - deprecated, fallback to Dp4aQ4KGemv
@@ -1173,6 +1185,8 @@ impl CudaKernels {
             KernelType::WideQ4KGemv { .. } => "wide_q4k_gemv",
             // PAR-069: Vectorized Q4K GEMV (coalesced u32 loads)
             KernelType::VectorizedQ4KGemv { .. } => "vectorized_q4k_gemv",
+            // PAR-082-V2: Multi-warp Vectorized Q4K GEMV
+            KernelType::MwvQ4KGemv { .. } => "mwv_q4k_gemv",
             // PAR-063: DP4A Q4K GEMV (instruction optimized)
             KernelType::Dp4aQ4KGemv { .. } => "dp4a_q4k_gemv",
             // PAR-063-V2: DP4A SIMD Q4K GEMV (integer accumulation)
