@@ -1282,10 +1282,7 @@ fn test_q4_0_avx2_dot_parity_with_scalar() {
 
     let diff = (scalar - avx2).abs();
     let tol = scalar.abs().max(1.0) * 0.02;
-    assert!(
-        diff < tol,
-        "scalar={scalar} vs avx2={avx2}, diff={diff}"
-    );
+    assert!(diff < tol, "scalar={scalar} vs avx2={avx2}, diff={diff}");
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -1353,8 +1350,7 @@ fn test_q4_0_avx2_4block_dot_parity_with_scalar() {
     let q8_quants = vec![4i8; 256];
 
     let scalar = fused_q4_0_q8_0_dot_scalar(&q4_data, &q8_scales, &q8_quants, 256);
-    let avx2_4b =
-        unsafe { fused_q4_0_q8_0_dot_avx2_4block(&q4_data, &q8_scales, &q8_quants, 256) };
+    let avx2_4b = unsafe { fused_q4_0_q8_0_dot_avx2_4block(&q4_data, &q8_scales, &q8_quants, 256) };
 
     let diff = (scalar - avx2_4b).abs();
     let tol = scalar.abs().max(1.0) * 0.02;
@@ -1381,8 +1377,7 @@ fn test_q4_0_avx2_4block_dot_large_dim() {
     let q8_quants = vec![1i8; 512];
 
     let scalar = fused_q4_0_q8_0_dot_scalar(&q4_data, &q8_scales, &q8_quants, 512);
-    let avx2_4b =
-        unsafe { fused_q4_0_q8_0_dot_avx2_4block(&q4_data, &q8_scales, &q8_quants, 512) };
+    let avx2_4b = unsafe { fused_q4_0_q8_0_dot_avx2_4block(&q4_data, &q8_scales, &q8_quants, 512) };
 
     let diff = (scalar - avx2_4b).abs();
     let tol = scalar.abs().max(1.0) * 0.02;
@@ -1405,12 +1400,13 @@ fn test_q4_0_avx2_4block_dot_varying_scales() {
     for _ in 0..12 {
         q4_data.extend_from_slice(&block);
     }
-    let q8_scales: Vec<f32> = (0..12).map(|i| if i % 2 == 0 { 1.0 } else { -0.5 }).collect();
+    let q8_scales: Vec<f32> = (0..12)
+        .map(|i| if i % 2 == 0 { 1.0 } else { -0.5 })
+        .collect();
     let q8_quants = vec![5i8; 384];
 
     let scalar = fused_q4_0_q8_0_dot_scalar(&q4_data, &q8_scales, &q8_quants, 384);
-    let avx2_4b =
-        unsafe { fused_q4_0_q8_0_dot_avx2_4block(&q4_data, &q8_scales, &q8_quants, 384) };
+    let avx2_4b = unsafe { fused_q4_0_q8_0_dot_avx2_4block(&q4_data, &q8_scales, &q8_quants, 384) };
 
     let diff = (scalar - avx2_4b).abs();
     let tol = scalar.abs().max(1.0) * 0.02;

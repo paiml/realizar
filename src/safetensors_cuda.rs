@@ -259,27 +259,24 @@ impl SafeTensorsCudaModel {
             max_seq_len,
         };
 
-        let streaming_mode = match crate::cuda::check_vram_sufficient(
-            free_vram,
-            total_vram,
-            &streaming_config,
-        ) {
-            Ok(crate::cuda::StreamingMode::FullCache) => false,
-            Ok(crate::cuda::StreamingMode::LayerStreaming) => {
-                eprintln!(
-                    "[GH-201] Using layer streaming mode (VRAM: {} MB free of {} MB)",
-                    free_vram / (1024 * 1024),
-                    total_vram / (1024 * 1024)
-                );
-                true
-            }
-            Err(msg) => {
-                return Err(RealizarError::UnsupportedOperation {
-                    operation: "safetensors_cuda_load".to_string(),
-                    reason: msg,
-                });
-            }
-        };
+        let streaming_mode =
+            match crate::cuda::check_vram_sufficient(free_vram, total_vram, &streaming_config) {
+                Ok(crate::cuda::StreamingMode::FullCache) => false,
+                Ok(crate::cuda::StreamingMode::LayerStreaming) => {
+                    eprintln!(
+                        "[GH-201] Using layer streaming mode (VRAM: {} MB free of {} MB)",
+                        free_vram / (1024 * 1024),
+                        total_vram / (1024 * 1024)
+                    );
+                    true
+                },
+                Err(msg) => {
+                    return Err(RealizarError::UnsupportedOperation {
+                        operation: "safetensors_cuda_load".to_string(),
+                        reason: msg,
+                    });
+                },
+            };
 
         // 5. Initialize GPU KV cache (F-PERF-085)
         let head_dim = config.hidden_dim / config.num_heads;
@@ -858,12 +855,13 @@ impl SafeTensorsCudaModel {
             return Ok(()); // Weights already pre-cached
         }
 
-        let model_path = self.model_path.as_ref().ok_or_else(|| {
-            RealizarError::UnsupportedOperation {
-                operation: "ensure_layer_weights_loaded".to_string(),
-                reason: "Streaming mode enabled but model_path not set".to_string(),
-            }
-        })?;
+        let model_path =
+            self.model_path
+                .as_ref()
+                .ok_or_else(|| RealizarError::UnsupportedOperation {
+                    operation: "ensure_layer_weights_loaded".to_string(),
+                    reason: "Streaming mode enabled but model_path not set".to_string(),
+                })?;
 
         // Reload SafeTensors (mmap is cheap, it just maps the file)
         let st_model = MappedSafeTensorsModel::load(model_path)?;

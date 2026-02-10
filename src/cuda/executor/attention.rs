@@ -490,6 +490,34 @@ impl CudaExecutor {
             }
         }
 
+        // PAR-118: Flash Decoding for split-K attention parallelism.
+        // Five-Whys: Multi-warp uses only 28 blocks (one per head) = 22% SM occupancy on
+        // RTX 4090. Flash Decoding splits KV scan across max_chunks blocks per head,
+        // giving 28 × max_chunks = 224 blocks (8 chunks) = 175% more SM utilization.
+        //
+        // Set FLASH_DECODE=0 to disable (for debugging / A-B testing)
+        let use_graph_mode = self.seq_len_buf.is_some();
+
+        static FLASH_DECODE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let flash_enabled = *FLASH_DECODE_ENABLED.get_or_init(|| {
+            !std::env::var("FLASH_DECODE")
+                .map(|v| v == "0")
+                .unwrap_or(false)
+        });
+
+        if flash_enabled
+            && !self.is_capturing
+            && self.flash_decode_enabled
+            && self.flash_decode_k_ptrs.contains_key(&layer_idx)
+        {
+            // PAR-118: Flash Decoding for non-capture path.
+            // Skipped during graph capture because flash_decoding_graphed calls
+            // stream.synchronize() which is forbidden during capture (error 901).
+            return self
+                .flash_decoding_graphed(layer_idx, q_gpu, out_gpu, use_graph_mode, new_len as u32)
+                .map(|()| new_len);
+        }
+
         // PAR-074: Adaptive attention kernel selection based on sequence length
         // - Short sequences (< 128): Use single-warp kernel (less overhead, ~1-2µs/token)
         // - Long sequences (>= 128): Use multi-warp kernel (parallel processing)
@@ -500,7 +528,6 @@ impl CudaExecutor {
         // CORRECTNESS-009: Single-warp kernel only handles head_dim <= 64 (2 elements/thread)
         // For head_dim > 64 (e.g., Qwen 2.5 with head_dim=128), must use multi-warp kernel
         // which handles 4 elements per thread (q0, q1, q2, q3 at offsets 0, 32, 64, 96)
-        let use_graph_mode = self.seq_len_buf.is_some();
         let use_single_warp = new_len < 128 && head_dim <= 64;
 
         if layer_idx == 0 && new_len == 1 && verbose() {
@@ -939,7 +966,263 @@ impl CudaExecutor {
         // Allocate partials buffer
         self.flash_decode_partials = Some(GpuBuffer::new(&self.context, total_partials)?);
         self.flash_decode_max_seq_len = max_seq_len;
+        self.flash_decode_max_chunks = max_chunks;
         self.flash_decode_enabled = true;
+
+        // PAR-118: Persistent seq_lens buffer — remains valid for the lifetime of async kernels,
+        // ensuring the device pointer is not invalidated before kernel completion.
+        self.flash_decode_seq_lens_buf = Some(GpuBuffer::from_host(&self.context, &[0u32])?);
+
+        // PAR-118: Populate per-layer K/V pointer buffers for graph-compatible Flash Decoding.
+        // These contain the GPU base address of each layer's KV cache, enabling the
+        // FlashDecodingChunkKernel to read k_ptrs[0] / v_ptrs[0] indirectly.
+        // Addresses are stable because KV cache buffers are allocated once in init_kv_cache_gpu.
+        let num_layers = self.kv_cache_lengths.len().max(
+            self.kv_cache_gpu
+                .keys()
+                .filter_map(|k| {
+                    k.strip_prefix("kv_")
+                        .and_then(|s| s.strip_suffix("_k"))
+                        .and_then(|s| s.parse::<usize>().ok())
+                })
+                .max()
+                .map_or(0, |m| m + 1),
+        );
+
+        for layer_idx in 0..num_layers {
+            let k_key = format!("kv_{layer_idx}_k");
+            let v_key = format!("kv_{layer_idx}_v");
+
+            if let (Some(k_cache), Some(v_cache)) =
+                (self.kv_cache_gpu.get(&k_key), self.kv_cache_gpu.get(&v_key))
+            {
+                let k_ptr_buf = GpuBuffer::from_host(&self.context, &[k_cache.as_ptr()])?;
+                let v_ptr_buf = GpuBuffer::from_host(&self.context, &[v_cache.as_ptr()])?;
+                self.flash_decode_k_ptrs.insert(layer_idx, k_ptr_buf);
+                self.flash_decode_v_ptrs.insert(layer_idx, v_ptr_buf);
+            }
+        }
+
+        // PAR-118: Pre-compile Flash Decoding PTX modules to avoid compilation during
+        // CUDA graph capture (which causes CUDA_ERROR_UNKNOWN/901).
+        // Must happen BEFORE any graph capture attempt.
+        {
+            use trueno_gpu::kernels::{
+                FlashDecodingChunkKernel, FlashDecodingReduceKernel, Kernel,
+            };
+
+            let num_kv_heads = self.kv_num_kv_heads;
+            let max_len = self.kv_cache_max_len;
+
+            let chunk_kernel = FlashDecodingChunkKernel::new(
+                max_len as u32,
+                head_dim as u32,
+                num_heads as u32,
+                num_kv_heads as u32,
+                1, // M=1 for single-sequence decode
+            );
+            let chunk_module_key = format!(
+                "flash_decode_chunk_{}_{}_{}_{}",
+                max_len, head_dim, num_heads, num_kv_heads
+            );
+            if !self.modules.contains_key(&chunk_module_key) {
+                let chunk_ptx = chunk_kernel.emit_ptx();
+                let module = self.compile_ptx(&chunk_ptx)?;
+                self.modules.insert(chunk_module_key, module);
+            }
+
+            let reduce_kernel = FlashDecodingReduceKernel::new(
+                head_dim as u32,
+                num_heads as u32,
+                1, // M=1
+            );
+            let reduce_module_key = format!("flash_decode_reduce_{}_{}", head_dim, num_heads);
+            if !self.modules.contains_key(&reduce_module_key) {
+                let reduce_ptx = reduce_kernel.emit_ptx();
+                let module = self.compile_ptx(&reduce_ptx)?;
+                self.modules.insert(reduce_module_key, module);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// PAR-118: Graph-compatible Flash Decoding for single-sequence decode (M=1).
+    ///
+    /// Uses pre-allocated per-layer K/V pointer buffers and static max_chunks grid
+    /// dimensions for CUDA graph compatibility. seq_len is read from either
+    /// `seq_len_buf` (graph mode) or passed directly.
+    ///
+    /// Five-Whys: attention uses only 28 blocks (one per head) on RTX 4090 (128 SMs),
+    /// leaving 78% of SMs idle. Flash Decoding splits KV scan into max_chunks blocks
+    /// per head, giving 28 × max_chunks = 224 blocks for 8 chunks. This 8x increase
+    /// in block count directly improves SM occupancy and memory-level parallelism.
+    #[allow(clippy::too_many_arguments)]
+    pub fn flash_decoding_graphed(
+        &mut self,
+        layer_idx: usize,
+        q_gpu: &GpuBuffer<f32>,
+        out_gpu: &GpuBuffer<f32>,
+        _use_graph_mode: bool,
+        seq_len: u32,
+    ) -> Result<(), GpuError> {
+        use trueno_gpu::kernels::{FlashDecodingChunkKernel, FlashDecodingReduceKernel, Kernel};
+
+        let num_heads = self.kv_num_heads;
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let max_len = self.kv_cache_max_len;
+        let max_chunks = self.flash_decode_max_chunks;
+
+        // Get pre-allocated per-layer K/V pointer buffers
+        let k_ptrs_buf = self.flash_decode_k_ptrs.get(&layer_idx).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!(
+                "PAR-118: Flash Decoding K pointer buffer not found for layer {layer_idx}"
+            ))
+        })?;
+        let v_ptrs_buf = self.flash_decode_v_ptrs.get(&layer_idx).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!(
+                "PAR-118: Flash Decoding V pointer buffer not found for layer {layer_idx}"
+            ))
+        })?;
+        let partials_buf = self.flash_decode_partials.as_ref().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(
+                "PAR-118: Flash Decoding partials buffer not allocated".to_string(),
+            )
+        })?;
+
+        // Compile chunk kernel
+        let chunk_kernel = FlashDecodingChunkKernel::new(
+            max_len as u32,
+            head_dim as u32,
+            num_heads as u32,
+            num_kv_heads as u32,
+            1, // M=1 for single-sequence decode
+        );
+        let chunk_kernel_name = chunk_kernel.name();
+        let chunk_module_key = format!(
+            "flash_decode_chunk_{}_{}_{}_{}",
+            max_len, head_dim, num_heads, num_kv_heads
+        );
+
+        if !self.modules.contains_key(&chunk_module_key) {
+            let chunk_ptx = chunk_kernel.emit_ptx();
+            let module = self.compile_ptx(&chunk_ptx)?;
+            self.modules.insert(chunk_module_key.clone(), module);
+        }
+
+        // PAR-118: Static grid dimensions for CUDA graph compatibility.
+        // max_chunks is fixed based on max_seq_len, not actual seq_len.
+        // The chunk kernel checks actual seq_len and early-exits for empty chunks
+        // (stores sentinel max=-inf, sum=0 which the reduce kernel skips).
+        let chunk_config = LaunchConfig {
+            grid: (num_heads as u32, 1, max_chunks as u32),
+            block: (32, 1, 1),
+            shared_mem: 0,
+        };
+
+        let mut q_ptr = q_gpu.as_ptr();
+        let mut k_ptrs_ptr = k_ptrs_buf.as_ptr();
+        let mut v_ptrs_ptr = v_ptrs_buf.as_ptr();
+        let mut partials_ptr = partials_buf.as_ptr();
+        let mut max_chunks_val = max_chunks as u32;
+
+        // PAR-118: ALWAYS use flash_decode_seq_lens_buf (persistent buffer) for seq_len.
+        // CRITICAL: Do NOT use seq_len_buf here. When CUDA graph capture fails (error 901),
+        // the system falls back to non-graphed path, but seq_len_buf still exists with stale
+        // values. Using seq_len_buf in that case reads wrong seq_len → garbage output.
+        // flash_decode_seq_lens_buf is explicitly updated with the correct seq_len on every call.
+        // For future graph compatibility: add flash_decode_seq_lens_buf update to graph replay.
+        let mut seq_lens_ptr = {
+            let buf = self.flash_decode_seq_lens_buf.as_mut().ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(
+                    "PAR-118: flash_decode_seq_lens_buf not initialized".to_string(),
+                )
+            })?;
+            buf.copy_from_host(&[seq_len])?;
+            buf.as_ptr()
+        };
+
+        {
+            let chunk_module = self
+                .modules
+                .get_mut(&chunk_module_key)
+                .expect("module just compiled");
+
+            // SAFETY: All pointers from pre-allocated GPU buffers with stable addresses.
+            // seq_lens_ptr points to a long-lived buffer that outlives the kernel execution.
+            unsafe {
+                self.stream.launch_kernel(
+                    chunk_module,
+                    chunk_kernel_name,
+                    &chunk_config,
+                    &mut [
+                        std::ptr::from_mut(&mut q_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut k_ptrs_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut v_ptrs_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut partials_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut seq_lens_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut max_chunks_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        }
+
+        // PAR-118: Sync between chunk and reduce kernels.
+        // Required: chunk kernel writes partials that reduce kernel reads.
+        // Even though both are on self.stream, the CUDA driver needs an explicit
+        // barrier to ensure all chunk blocks complete before reduce starts reading.
+        // Without this sync, reduce reads stale/partial data → garbage output.
+        self.stream.synchronize()?;
+
+        // Reduce kernel: one block per head, reduces across chunks
+        let reduce_kernel = FlashDecodingReduceKernel::new(
+            head_dim as u32,
+            num_heads as u32,
+            1, // M=1
+        );
+        let reduce_kernel_name = reduce_kernel.name();
+        let reduce_module_key = format!("flash_decode_reduce_{}_{}", head_dim, num_heads);
+
+        if !self.modules.contains_key(&reduce_module_key) {
+            let reduce_ptx = reduce_kernel.emit_ptx();
+            let module = self.compile_ptx(&reduce_ptx)?;
+            self.modules.insert(reduce_module_key.clone(), module);
+        }
+
+        let reduce_config = LaunchConfig {
+            grid: (num_heads as u32, 1, 1),
+            block: (32, 1, 1),
+            shared_mem: 0,
+        };
+
+        let mut out_ptr = out_gpu.as_ptr();
+        let mut partials_ptr2 = partials_buf.as_ptr();
+        let mut max_chunks_val2 = max_chunks as u32;
+
+        // Reuse same seq_lens_ptr from chunk kernel (already set above, persistent buffer)
+        {
+            let reduce_module = self
+                .modules
+                .get_mut(&reduce_module_key)
+                .expect("module just compiled");
+
+            // SAFETY: All pointers from pre-allocated GPU buffers with stable addresses.
+            // seq_lens_ptr uses the same long-lived buffer as the chunk kernel.
+            unsafe {
+                self.stream.launch_kernel(
+                    reduce_module,
+                    reduce_kernel_name,
+                    &reduce_config,
+                    &mut [
+                        std::ptr::from_mut(&mut partials_ptr2) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut out_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut seq_lens_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut max_chunks_val2) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        }
 
         Ok(())
     }

@@ -97,10 +97,17 @@ impl CudaExecutor {
             argmax_block_idxs: None,
             argmax_result: None,
             argmax_num_blocks: 0,
+            // PAR-118: Graph capture failure tracking
+            graph_capture_failed: false,
+            is_capturing: false,
             // PAR-118: Flash Decoding (disabled by default, enable via init_flash_decoding)
             flash_decode_partials: None,
             flash_decode_max_seq_len: 0,
             flash_decode_enabled: false,
+            flash_decode_k_ptrs: HashMap::new(),
+            flash_decode_v_ptrs: HashMap::new(),
+            flash_decode_max_chunks: 0,
+            flash_decode_seq_lens_buf: None,
             // QWEN-007: Q8 KV cache (disabled by default, enable via init_kv_cache_q8_gpu)
             kv_cache_q8_enabled: false,
             kv_cache_q8_k: HashMap::new(),

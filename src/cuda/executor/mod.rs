@@ -414,6 +414,13 @@ pub struct CudaExecutor {
     argmax_result: Option<GpuBuffer<u32>>,
     // Number of blocks (based on vocab_size)
     argmax_num_blocks: u32,
+    // PAR-118: Graph capture failure flag — prevents futile retry that crashes CUDA
+    // Root cause: flash_decoding_graphed calls stream.synchronize() which is
+    // forbidden during graph capture (error 901). After first failure, skip capture.
+    graph_capture_failed: bool,
+    // PAR-118: True while inside try_graph_capture — Flash Decoding dispatch is
+    // suppressed (uses multi-warp instead) to avoid forbidden synchronize() calls.
+    is_capturing: bool,
     // PAR-118: Flash Decoding buffers for split-K attention
     // Partials buffer: [M, num_heads, max_chunks, head_dim + 2]
     flash_decode_partials: Option<GpuBuffer<f32>>,
@@ -421,6 +428,15 @@ pub struct CudaExecutor {
     flash_decode_max_seq_len: usize,
     // Whether Flash Decoding is enabled (for sequences > threshold)
     flash_decode_enabled: bool,
+    // PAR-118: Per-layer K/V cache pointer buffers for graph-compatible Flash Decoding
+    // Each buffer contains one u64 pointer to the layer's K/V cache base address
+    flash_decode_k_ptrs: HashMap<usize, GpuBuffer<u64>>,
+    flash_decode_v_ptrs: HashMap<usize, GpuBuffer<u64>>,
+    // PAR-118: Fixed max_chunks for static CUDA graph grid dimensions
+    flash_decode_max_chunks: usize,
+    // PAR-118: Persistent seq_lens buffer for non-graph Flash Decoding.
+    // Outlives async kernel execution, ensuring the buffer remains valid until completion.
+    flash_decode_seq_lens_buf: Option<GpuBuffer<u32>>,
     // QWEN-007: Q8 quantized KV cache for 4x memory reduction
     // When enabled, K/V are stored as INT8 with per-block FP32 scales
     // Block size = 32 (matches GGML Q8_0 format)

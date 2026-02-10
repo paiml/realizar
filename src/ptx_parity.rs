@@ -106,7 +106,11 @@ pub fn validate_all_kernel_pairs(dims: &KernelDimensions) -> PtxParityReport {
         let parity = kernel.validate_batch_dispatch();
         let ptx = kernel.emit_ptx();
         let u64_violation = check_u64_shared_mem(&ptx);
-        let mut violations: Vec<String> = parity.violations.iter().map(|v| v.message.clone()).collect();
+        let mut violations: Vec<String> = parity
+            .violations
+            .iter()
+            .map(|v| v.message.clone())
+            .collect();
         if let Some(v) = u64_violation {
             violations.push(v);
         }
@@ -124,7 +128,11 @@ pub fn validate_all_kernel_pairs(dims: &KernelDimensions) -> PtxParityReport {
         let parity = kernel.validate_batch_dispatch();
         let ptx = kernel.emit_ptx();
         let u64_violation = check_u64_shared_mem(&ptx);
-        let mut violations: Vec<String> = parity.violations.iter().map(|v| v.message.clone()).collect();
+        let mut violations: Vec<String> = parity
+            .violations
+            .iter()
+            .map(|v| v.message.clone())
+            .collect();
         if let Some(v) = u64_violation {
             violations.push(v);
         }
@@ -142,7 +150,11 @@ pub fn validate_all_kernel_pairs(dims: &KernelDimensions) -> PtxParityReport {
         let parity = kernel.validate_batch_dispatch();
         let ptx = kernel.emit_ptx();
         let u64_violation = check_u64_shared_mem(&ptx);
-        let mut violations: Vec<String> = parity.violations.iter().map(|v| v.message.clone()).collect();
+        let mut violations: Vec<String> = parity
+            .violations
+            .iter()
+            .map(|v| v.message.clone())
+            .collect();
         if let Some(v) = u64_violation {
             violations.push(v);
         }
@@ -158,7 +170,11 @@ pub fn validate_all_kernel_pairs(dims: &KernelDimensions) -> PtxParityReport {
     {
         let kernel = BatchedResidualAddKernel::new(dims.hidden_dim, 1);
         let parity = kernel.validate_batch_dispatch();
-        let violations: Vec<String> = parity.violations.iter().map(|v| v.message.clone()).collect();
+        let violations: Vec<String> = parity
+            .violations
+            .iter()
+            .map(|v| v.message.clone())
+            .collect();
         results.push(KernelParityResult {
             name: "BatchedResidualAdd \u{2194} ResidualAdd".to_string(),
             passed: parity.is_compatible,
@@ -169,10 +185,13 @@ pub fn validate_all_kernel_pairs(dims: &KernelDimensions) -> PtxParityReport {
 
     // 5. RoPE: grid_y dispatch
     {
-        let kernel =
-            BatchedRopeKernel::new(dims.num_heads, dims.head_dim, 1, dims.rope_theta);
+        let kernel = BatchedRopeKernel::new(dims.num_heads, dims.head_dim, 1, dims.rope_theta);
         let parity = kernel.validate_batch_dispatch();
-        let violations: Vec<String> = parity.violations.iter().map(|v| v.message.clone()).collect();
+        let violations: Vec<String> = parity
+            .violations
+            .iter()
+            .map(|v| v.message.clone())
+            .collect();
         results.push(KernelParityResult {
             name: "BatchedRoPE \u{2194} RoPE".to_string(),
             passed: parity.is_compatible,
@@ -185,7 +204,11 @@ pub fn validate_all_kernel_pairs(dims: &KernelDimensions) -> PtxParityReport {
     {
         let kernel = BatchedSwigluKernel::new(dims.intermediate_dim, 1);
         let parity = kernel.validate_batch_dispatch();
-        let violations: Vec<String> = parity.violations.iter().map(|v| v.message.clone()).collect();
+        let violations: Vec<String> = parity
+            .violations
+            .iter()
+            .map(|v| v.message.clone())
+            .collect();
         results.push(KernelParityResult {
             name: "BatchedSwiGLU \u{2194} SwiGLU".to_string(),
             passed: parity.is_compatible,

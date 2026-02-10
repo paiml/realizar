@@ -730,27 +730,37 @@ fn test_forward_cached_separate_qkv() {
 
 #[test]
 fn test_forward_with_cpu_debug_layers_llama() {
-    unsafe { std::env::set_var("CPU_DEBUG_LAYERS", "1"); }
+    unsafe {
+        std::env::set_var("CPU_DEBUG_LAYERS", "1");
+    }
     let model = create_llama_style_model(100, 64, 128, 4, 4, 1);
 
     let result = model.forward(&[5, 10, 15]);
     assert!(result.is_ok(), "debug forward: {}", result.unwrap_err());
-    unsafe { std::env::remove_var("CPU_DEBUG_LAYERS"); }
+    unsafe {
+        std::env::remove_var("CPU_DEBUG_LAYERS");
+    }
 }
 
 #[test]
 fn test_forward_with_cpu_debug_layers_phi() {
-    unsafe { std::env::set_var("CPU_DEBUG_LAYERS", "1"); }
+    unsafe {
+        std::env::set_var("CPU_DEBUG_LAYERS", "1");
+    }
     let model = create_phi2_style_model(100, 64, 128, 4, 1);
 
     let result = model.forward(&[5, 10]);
     assert!(result.is_ok(), "debug phi forward: {}", result.unwrap_err());
-    unsafe { std::env::remove_var("CPU_DEBUG_LAYERS"); }
+    unsafe {
+        std::env::remove_var("CPU_DEBUG_LAYERS");
+    }
 }
 
 #[test]
 fn test_forward_cached_with_cpu_debug() {
-    unsafe { std::env::set_var("CPU_DEBUG", "1"); }
+    unsafe {
+        std::env::set_var("CPU_DEBUG", "1");
+    }
     let model = create_llama_style_model(100, 64, 128, 4, 4, 1);
     let mut cache = OwnedQuantizedKVCache::from_config(&model.config, 128);
 
@@ -758,12 +768,16 @@ fn test_forward_cached_with_cpu_debug() {
         let r = model.forward_cached(5, &mut cache, i);
         assert!(r.is_ok(), "debug cached pos {}: {}", i, r.unwrap_err());
     }
-    unsafe { std::env::remove_var("CPU_DEBUG"); }
+    unsafe {
+        std::env::remove_var("CPU_DEBUG");
+    }
 }
 
 #[test]
 fn test_forward_cached_with_cpu_debug_phi() {
-    unsafe { std::env::set_var("CPU_DEBUG", "1"); }
+    unsafe {
+        std::env::set_var("CPU_DEBUG", "1");
+    }
     let model = create_phi2_style_model(100, 64, 128, 4, 1);
     let mut cache = OwnedQuantizedKVCache::from_config(&model.config, 128);
 
@@ -771,5 +785,7 @@ fn test_forward_cached_with_cpu_debug_phi() {
         let r = model.forward_cached(10, &mut cache, i);
         assert!(r.is_ok(), "debug cached phi pos {}: {}", i, r.unwrap_err());
     }
-    unsafe { std::env::remove_var("CPU_DEBUG"); }
+    unsafe {
+        std::env::remove_var("CPU_DEBUG");
+    }
 }

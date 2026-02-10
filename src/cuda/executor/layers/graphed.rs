@@ -75,6 +75,22 @@ impl CudaExecutor {
             return self.forward_graphed_replay(input, logits, position);
         }
 
+        // PAR-118: Skip graph capture if a previous attempt failed.
+        // Flash Decoding's stream.synchronize() is forbidden during capture (error 901).
+        // Retrying on every token corrupts CUDA state → CUDA_ERROR_INVALID_VALUE crash.
+        if self.graph_capture_failed {
+            return self.forward_all_layers_gpu_to_logits(
+                input,
+                logits,
+                position,
+                num_layers,
+                hidden_dim,
+                intermediate_dim,
+                vocab_size,
+                epsilon,
+            );
+        }
+
         // First token or no graph yet: try to capture
         // We need workspace path for stable addresses
         let use_workspace = self.has_workspace()
@@ -191,6 +207,9 @@ impl CudaExecutor {
 
         // PAR-054: Try CUDA graph capture, fall back to non-graphed path if fails
         // Some operations (memory allocation, synchronization) aren't graph-compatible
+        // PAR-118: Set is_capturing flag so incremental_attention_into_inner skips
+        // Flash Decoding (which calls stream.synchronize(), forbidden during capture)
+        self.is_capturing = true;
         let capture_result = self.try_graph_capture(
             num_layers,
             hidden_dim,
@@ -198,6 +217,7 @@ impl CudaExecutor {
             vocab_size,
             epsilon,
         );
+        self.is_capturing = false;
 
         match capture_result {
             Ok(()) => {
@@ -214,10 +234,11 @@ impl CudaExecutor {
                 Ok(())
             },
             Err(e) => {
-                // Graph capture failed, fall back to non-graphed path
-                // This is expected for complex operations with allocations
+                // Graph capture failed, fall back to non-graphed path.
+                // PAR-118: Set flag to prevent futile retries that corrupt CUDA state.
+                self.graph_capture_failed = true;
                 eprintln!(
-                    "[PAR-054] Graph capture failed: {:?}, using non-graphed path",
+                    "[PAR-054] Graph capture failed: {:?}, using non-graphed path (no retry)",
                     e
                 );
                 // PAR-070: Pass position for correct RoPE and KV cache behavior

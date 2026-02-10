@@ -3,8 +3,10 @@
 //! Covers uncovered Q4K/Q6K fused kernel dispatch in forward_with_cache and
 //! forward (batch), plus APR_FORCE_F32 paths and from_apr_bytes error edges.
 
-use crate::apr_transformer::{AprKVCache, AprTransformer, AprTransformerConfig, AprTransformerLayer};
 use crate::apr_transformer::config::Q4KLayerWeights;
+use crate::apr_transformer::{
+    AprKVCache, AprTransformer, AprTransformerConfig, AprTransformerLayer,
+};
 
 // Q4K: each row = ceil(in_dim/256) blocks × 144 bytes/block, total = out_dim rows
 fn q4k_bytes(out_dim: usize, in_dim: usize) -> Vec<u8> {
@@ -122,7 +124,7 @@ fn build_apr_with_q6k_variants(hidden: usize, intermediate: usize, vocab: usize)
         attn_v_weight_q6k: Some(q6k_bytes(kv_size, hidden)),
         attn_output_weight: Some(q4k_bytes(hidden, hidden)),
         ffn_gate_weight: Some(q4k_bytes(intermediate, hidden)),
-        ffn_up_weight: None, // No Q4K up — forces Q6K fallback
+        ffn_up_weight: None,   // No Q4K up — forces Q6K fallback
         ffn_down_weight: None, // No Q4K down — forces Q6K fallback
         ffn_down_weight_q6k: Some(q6k_bytes(hidden, intermediate)),
         ffn_up_weight_q6k: Some(q6k_bytes(intermediate, hidden)),
@@ -163,7 +165,11 @@ fn test_fwc_q4k_fused_first_token() {
     let mut cache = AprKVCache::new(&apr.config);
 
     let result = apr.forward_with_cache(1, &mut cache, 0);
-    assert!(result.is_ok(), "Q4K fused first token: {}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "Q4K fused first token: {}",
+        result.unwrap_err()
+    );
     let logits = result.unwrap();
     assert_eq!(logits.len(), 16);
     assert!(logits.iter().all(|x| x.is_finite()));
@@ -176,7 +182,11 @@ fn test_fwc_q4k_fused_multi_token() {
 
     let _ = apr.forward_with_cache(1, &mut cache, 0).unwrap();
     let result = apr.forward_with_cache(2, &mut cache, 1);
-    assert!(result.is_ok(), "Q4K fused second token: {}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "Q4K fused second token: {}",
+        result.unwrap_err()
+    );
     assert_eq!(result.unwrap().len(), 16);
 }
 
@@ -188,7 +198,11 @@ fn test_fwc_q4k_fused_three_tokens() {
     let _ = apr.forward_with_cache(0, &mut cache, 0).unwrap();
     let _ = apr.forward_with_cache(1, &mut cache, 1).unwrap();
     let result = apr.forward_with_cache(2, &mut cache, 2);
-    assert!(result.is_ok(), "Q4K fused third token: {}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "Q4K fused third token: {}",
+        result.unwrap_err()
+    );
     assert_eq!(result.unwrap().len(), 16);
 }
 
@@ -199,10 +213,18 @@ fn test_fwc_q4k_fused_gqa() {
     let mut cache = AprKVCache::new(&apr.config);
 
     let result = apr.forward_with_cache(1, &mut cache, 0);
-    assert!(result.is_ok(), "Q4K fused GQA first token: {}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "Q4K fused GQA first token: {}",
+        result.unwrap_err()
+    );
 
     let result2 = apr.forward_with_cache(2, &mut cache, 1);
-    assert!(result2.is_ok(), "Q4K fused GQA second token: {}", result2.unwrap_err());
+    assert!(
+        result2.is_ok(),
+        "Q4K fused GQA second token: {}",
+        result2.unwrap_err()
+    );
 }
 
 // ============================================================================
@@ -226,7 +248,11 @@ fn test_fwc_q6k_variants_multi_token() {
 
     let _ = apr.forward_with_cache(1, &mut cache, 0).unwrap();
     let result = apr.forward_with_cache(2, &mut cache, 1);
-    assert!(result.is_ok(), "Q6K variants multi: {}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "Q6K variants multi: {}",
+        result.unwrap_err()
+    );
 }
 
 // ============================================================================
@@ -466,7 +492,10 @@ fn test_from_apr_bytes_no_lm_head_no_embed_for_tying_fatal() {
 
     let data = build_apr_v2(&meta, &tensors);
     let result = AprTransformer::from_apr_bytes(&data);
-    assert!(result.is_err(), "Expected error for no lm_head + no embed for tying");
+    assert!(
+        result.is_err(),
+        "Expected error for no lm_head + no embed for tying"
+    );
     let err_msg = format!("{}", result.unwrap_err());
     assert!(
         err_msg.contains("FATAL") || err_msg.contains("lm_head"),
@@ -558,13 +587,34 @@ fn test_from_apr_bytes_separate_q4k_tensors_populates_q4k_layers() {
     // Verify q4k_layers is populated
     assert!(apr.q4k_layers.is_some(), "q4k_layers should be Some");
     let q4k = &apr.q4k_layers.as_ref().unwrap()[0];
-    assert!(q4k.attn_q_weight.is_some(), "attn_q_weight should be populated");
-    assert!(q4k.attn_k_weight.is_some(), "attn_k_weight should be populated");
-    assert!(q4k.attn_v_weight.is_some(), "attn_v_weight should be populated");
-    assert!(q4k.attn_output_weight.is_some(), "attn_output_weight should be populated");
-    assert!(q4k.ffn_gate_weight.is_some(), "ffn_gate_weight should be populated");
-    assert!(q4k.ffn_up_weight.is_some(), "ffn_up_weight should be populated");
-    assert!(q4k.ffn_down_weight.is_some(), "ffn_down_weight should be populated");
+    assert!(
+        q4k.attn_q_weight.is_some(),
+        "attn_q_weight should be populated"
+    );
+    assert!(
+        q4k.attn_k_weight.is_some(),
+        "attn_k_weight should be populated"
+    );
+    assert!(
+        q4k.attn_v_weight.is_some(),
+        "attn_v_weight should be populated"
+    );
+    assert!(
+        q4k.attn_output_weight.is_some(),
+        "attn_output_weight should be populated"
+    );
+    assert!(
+        q4k.ffn_gate_weight.is_some(),
+        "ffn_gate_weight should be populated"
+    );
+    assert!(
+        q4k.ffn_up_weight.is_some(),
+        "ffn_up_weight should be populated"
+    );
+    assert!(
+        q4k.ffn_down_weight.is_some(),
+        "ffn_down_weight should be populated"
+    );
 }
 
 #[test]
@@ -633,8 +683,7 @@ fn test_from_apr_bytes_separate_q4k_then_forward_with_cache() {
         });
     }
 
-    let apr = AprTransformer::from_apr_bytes(&build_apr_v2(&meta, &tensors))
-        .expect("Parse failed");
+    let apr = AprTransformer::from_apr_bytes(&build_apr_v2(&meta, &tensors)).expect("Parse failed");
     assert!(apr.q4k_layers.is_some());
 
     let mut cache = AprKVCache::new(&apr.config);
@@ -910,7 +959,9 @@ fn test_forward_batch_q4k_gelu() {
 fn test_fwc_with_realize_trace() {
     // REALIZE_TRACE enables eprintln trace blocks in forward_with_cache
     // Safe in parallel: only affects stderr output, not computation
-    unsafe { std::env::set_var("REALIZE_TRACE", "1"); }
+    unsafe {
+        std::env::set_var("REALIZE_TRACE", "1");
+    }
     let apr = build_apr_with_q4k_fused(32, 64, 4, 4, 16);
     let mut cache = AprKVCache::new(&apr.config);
 
@@ -919,19 +970,25 @@ fn test_fwc_with_realize_trace() {
 
     let r2 = apr.forward_with_cache(2, &mut cache, 1);
     assert!(r2.is_ok(), "Trace fwc second: {}", r2.unwrap_err());
-    unsafe { std::env::remove_var("REALIZE_TRACE"); }
+    unsafe {
+        std::env::remove_var("REALIZE_TRACE");
+    }
 }
 
 #[test]
 fn test_fwc_force_f32_with_q4k_layers() {
     // APR_FORCE_F32 forces F32 fallback even when Q4K layers exist
-    unsafe { std::env::set_var("APR_FORCE_F32", "1"); }
+    unsafe {
+        std::env::set_var("APR_FORCE_F32", "1");
+    }
     let apr = build_apr_with_q4k_fused(32, 64, 4, 4, 16);
     let mut cache = AprKVCache::new(&apr.config);
 
     let result = apr.forward_with_cache(1, &mut cache, 0);
     assert!(result.is_ok(), "Force F32 fwc: {}", result.unwrap_err());
-    unsafe { std::env::remove_var("APR_FORCE_F32"); }
+    unsafe {
+        std::env::remove_var("APR_FORCE_F32");
+    }
 }
 
 #[test]
@@ -958,17 +1015,23 @@ fn test_fwc_force_f32_with_trace() {
 #[test]
 fn test_forward_batch_with_realize_trace() {
     // REALIZE_TRACE for batch forward path
-    unsafe { std::env::set_var("REALIZE_TRACE", "1"); }
+    unsafe {
+        std::env::set_var("REALIZE_TRACE", "1");
+    }
     let apr = build_apr_with_q4k_fused(32, 64, 4, 4, 16);
     let result = apr.forward(&[1, 2, 3]);
     assert!(result.is_ok(), "Trace batch: {}", result.unwrap_err());
-    unsafe { std::env::remove_var("REALIZE_TRACE"); }
+    unsafe {
+        std::env::remove_var("REALIZE_TRACE");
+    }
 }
 
 #[test]
 fn test_from_apr_bytes_with_realize_debug() {
     // REALIZE_DEBUG enables debug eprintln blocks in from_apr_bytes
-    unsafe { std::env::set_var("REALIZE_DEBUG", "1"); }
+    unsafe {
+        std::env::set_var("REALIZE_DEBUG", "1");
+    }
 
     let hidden = 32;
     let intermediate = 64;
@@ -1032,7 +1095,9 @@ fn test_from_apr_bytes_with_realize_debug() {
 
     let apr = AprTransformer::from_apr_bytes(&build_apr_v2(&meta, &tensors));
     assert!(apr.is_ok(), "Debug from_apr_bytes: {}", apr.unwrap_err());
-    unsafe { std::env::remove_var("REALIZE_DEBUG"); }
+    unsafe {
+        std::env::remove_var("REALIZE_DEBUG");
+    }
 }
 
 // ============================================================================
@@ -1193,14 +1258,22 @@ fn test_forward_batch_gelu_f32_no_q4k() {
 
 #[test]
 fn test_fwc_q6k_lm_head_with_trace() {
-    unsafe { std::env::set_var("REALIZE_TRACE", "1"); }
+    unsafe {
+        std::env::set_var("REALIZE_TRACE", "1");
+    }
     let mut apr = build_apr_with_q4k_fused(32, 64, 4, 4, 16);
     apr.lm_head_weight_q6k = Some(q6k_bytes(16, 32));
     let mut cache = AprKVCache::new(&apr.config);
 
     let result = apr.forward_with_cache(1, &mut cache, 0);
-    assert!(result.is_ok(), "Q6K lm_head + trace: {}", result.unwrap_err());
-    unsafe { std::env::remove_var("REALIZE_TRACE"); }
+    assert!(
+        result.is_ok(),
+        "Q6K lm_head + trace: {}",
+        result.unwrap_err()
+    );
+    unsafe {
+        std::env::remove_var("REALIZE_TRACE");
+    }
 }
 
 // ============================================================================
@@ -1209,14 +1282,22 @@ fn test_fwc_q6k_lm_head_with_trace() {
 
 #[test]
 fn test_fwc_q4k_lm_head_with_trace() {
-    unsafe { std::env::set_var("REALIZE_TRACE", "1"); }
+    unsafe {
+        std::env::set_var("REALIZE_TRACE", "1");
+    }
     let mut apr = build_apr_with_q4k_fused(32, 64, 4, 4, 16);
     apr.lm_head_weight_q4k = Some(q4k_bytes(16, 32));
     let mut cache = AprKVCache::new(&apr.config);
 
     let result = apr.forward_with_cache(1, &mut cache, 0);
-    assert!(result.is_ok(), "Q4K lm_head + trace: {}", result.unwrap_err());
-    unsafe { std::env::remove_var("REALIZE_TRACE"); }
+    assert!(
+        result.is_ok(),
+        "Q4K lm_head + trace: {}",
+        result.unwrap_err()
+    );
+    unsafe {
+        std::env::remove_var("REALIZE_TRACE");
+    }
 }
 
 // ============================================================================
@@ -1225,13 +1306,17 @@ fn test_fwc_q4k_lm_head_with_trace() {
 
 #[test]
 fn test_fwc_q6k_variants_with_trace() {
-    unsafe { std::env::set_var("REALIZE_TRACE", "1"); }
+    unsafe {
+        std::env::set_var("REALIZE_TRACE", "1");
+    }
     let apr = build_apr_with_q6k_variants(32, 64, 16);
     let mut cache = AprKVCache::new(&apr.config);
 
     let r1 = apr.forward_with_cache(1, &mut cache, 0);
     assert!(r1.is_ok(), "Q6K variants + trace: {}", r1.unwrap_err());
-    unsafe { std::env::remove_var("REALIZE_TRACE"); }
+    unsafe {
+        std::env::remove_var("REALIZE_TRACE");
+    }
 }
 
 // ============================================================================
@@ -1242,7 +1327,9 @@ fn test_fwc_q6k_variants_with_trace() {
 
 #[test]
 fn test_fwc_partial_q4k_f32_fallback_with_trace() {
-    unsafe { std::env::set_var("REALIZE_TRACE", "1"); }
+    unsafe {
+        std::env::set_var("REALIZE_TRACE", "1");
+    }
 
     let hidden = 32;
     let intermediate = 64;
@@ -1275,12 +1362,12 @@ fn test_fwc_partial_q4k_f32_fallback_with_trace() {
         qkv_weight: None,
         attn_q_weight: Some(q4k_bytes(hidden, hidden)),
         attn_k_weight: Some(q4k_bytes(kv_size, hidden)),
-        attn_v_weight: None,         // F32 fallback
-        attn_v_weight_q6k: None,     // no Q6K either
-        attn_output_weight: None,    // F32 fallback
-        ffn_gate_weight: None,       // F32 fallback
-        ffn_up_weight: None,         // F32 fallback
-        ffn_down_weight: None,       // F32 fallback
+        attn_v_weight: None,      // F32 fallback
+        attn_v_weight_q6k: None,  // no Q6K either
+        attn_output_weight: None, // F32 fallback
+        ffn_gate_weight: None,    // F32 fallback
+        ffn_up_weight: None,      // F32 fallback
+        ffn_down_weight: None,    // F32 fallback
         ffn_down_weight_q6k: None,
         ffn_up_weight_q6k: None,
     };
@@ -1312,7 +1399,9 @@ fn test_fwc_partial_q4k_f32_fallback_with_trace() {
     let mut cache = AprKVCache::new(&apr.config);
     let r1 = apr.forward_with_cache(1, &mut cache, 0);
     assert!(r1.is_ok(), "Partial Q4K + trace: {}", r1.unwrap_err());
-    unsafe { std::env::remove_var("REALIZE_TRACE"); }
+    unsafe {
+        std::env::remove_var("REALIZE_TRACE");
+    }
 }
 
 // ============================================================================
@@ -1321,12 +1410,16 @@ fn test_fwc_partial_q4k_f32_fallback_with_trace() {
 
 #[test]
 fn test_forward_batch_oov_token_with_debug() {
-    unsafe { std::env::set_var("REALIZE_DEBUG", "1"); }
+    unsafe {
+        std::env::set_var("REALIZE_DEBUG", "1");
+    }
     let apr = build_apr_with_q4k_fused(32, 64, 4, 4, 16);
     // Token 999 is way out of vocab (vocab=16)
     let result = apr.forward(&[999]);
     assert!(result.is_ok(), "OOV batch: {}", result.unwrap_err());
-    unsafe { std::env::remove_var("REALIZE_DEBUG"); }
+    unsafe {
+        std::env::remove_var("REALIZE_DEBUG");
+    }
 }
 
 // ============================================================================
@@ -1336,7 +1429,9 @@ fn test_forward_batch_oov_token_with_debug() {
 
 #[test]
 fn test_fwc_gelu_f32_no_q4k_with_trace() {
-    unsafe { std::env::set_var("REALIZE_TRACE", "1"); }
+    unsafe {
+        std::env::set_var("REALIZE_TRACE", "1");
+    }
 
     let hidden = 32;
     let intermediate = 64;
@@ -1386,7 +1481,9 @@ fn test_fwc_gelu_f32_no_q4k_with_trace() {
     let mut cache = AprKVCache::new(&apr.config);
     let result = apr.forward_with_cache(1, &mut cache, 0);
     assert!(result.is_ok(), "GELU F32 + trace: {}", result.unwrap_err());
-    unsafe { std::env::remove_var("REALIZE_TRACE"); }
+    unsafe {
+        std::env::remove_var("REALIZE_TRACE");
+    }
 }
 
 // ============================================================================
@@ -1395,7 +1492,9 @@ fn test_fwc_gelu_f32_no_q4k_with_trace() {
 
 #[test]
 fn test_forward_batch_gelu_with_trace() {
-    unsafe { std::env::set_var("REALIZE_TRACE", "1"); }
+    unsafe {
+        std::env::set_var("REALIZE_TRACE", "1");
+    }
 
     let hidden = 32;
     let intermediate = 64;
@@ -1443,8 +1542,14 @@ fn test_forward_batch_gelu_with_trace() {
     };
 
     let result = apr.forward(&[1, 2]);
-    assert!(result.is_ok(), "GELU batch + trace: {}", result.unwrap_err());
-    unsafe { std::env::remove_var("REALIZE_TRACE"); }
+    assert!(
+        result.is_ok(),
+        "GELU batch + trace: {}",
+        result.unwrap_err()
+    );
+    unsafe {
+        std::env::remove_var("REALIZE_TRACE");
+    }
 }
 
 // ============================================================================
@@ -1453,7 +1558,9 @@ fn test_forward_batch_gelu_with_trace() {
 
 #[test]
 fn test_forward_batch_partial_q4k_with_trace() {
-    unsafe { std::env::set_var("REALIZE_TRACE", "1"); }
+    unsafe {
+        std::env::set_var("REALIZE_TRACE", "1");
+    }
 
     let hidden = 32;
     let intermediate = 64;
@@ -1520,6 +1627,12 @@ fn test_forward_batch_partial_q4k_with_trace() {
     };
 
     let result = apr.forward(&[1, 2, 3]);
-    assert!(result.is_ok(), "Partial Q4K batch + trace: {}", result.unwrap_err());
-    unsafe { std::env::remove_var("REALIZE_TRACE"); }
+    assert!(
+        result.is_ok(),
+        "Partial Q4K batch + trace: {}",
+        result.unwrap_err()
+    );
+    unsafe {
+        std::env::remove_var("REALIZE_TRACE");
+    }
 }

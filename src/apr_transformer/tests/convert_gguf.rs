@@ -23,7 +23,11 @@ fn make_gguf_config(hidden: usize, layers: usize, heads: usize, kv_heads: usize)
     }
 }
 
-fn make_gguf_layer_swiglu(hidden: usize, intermediate: usize, kv_heads: usize) -> GGUFTransformerLayer {
+fn make_gguf_layer_swiglu(
+    hidden: usize,
+    intermediate: usize,
+    kv_heads: usize,
+) -> GGUFTransformerLayer {
     let head_dim = hidden / 4; // assume 4 heads
     let kv_dim = kv_heads * head_dim;
     let qkv_dim = hidden + 2 * kv_dim;
@@ -45,7 +49,11 @@ fn make_gguf_layer_swiglu(hidden: usize, intermediate: usize, kv_heads: usize) -
     }
 }
 
-fn make_gguf_layer_gelu(hidden: usize, intermediate: usize, kv_heads: usize) -> GGUFTransformerLayer {
+fn make_gguf_layer_gelu(
+    hidden: usize,
+    intermediate: usize,
+    kv_heads: usize,
+) -> GGUFTransformerLayer {
     let head_dim = hidden / 4;
     let kv_dim = kv_heads * head_dim;
     let qkv_dim = hidden + 2 * kv_dim;

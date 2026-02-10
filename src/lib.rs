@@ -384,13 +384,13 @@ pub mod uri;
 pub use error::{RealizarError, Result};
 pub use infer::{run_inference, InferenceConfig, InferenceResult, PreparedTokens};
 pub use inference_trace::{InferenceTracer, ModelInfo, TraceConfig, TraceStep};
+pub use ptx_parity::{KernelDimensions, PtxParityReport};
 #[cfg(not(target_arch = "wasm32"))]
 pub use safetensors::MappedSafeTensorsModel;
 pub use safetensors::SafetensorsConfig;
 #[cfg(not(target_arch = "wasm32"))]
 pub use safetensors::ShardedSafeTensorsModel;
 pub use safetensors::ValidatedAprTransformer;
-pub use ptx_parity::{KernelDimensions, PtxParityReport};
 pub use tensor::Tensor;
 
 /// Library version

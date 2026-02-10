@@ -188,9 +188,10 @@ impl CudaExecutor {
         } else {
             format!("kv_{}_k", layer_idx)
         };
-        let buf = self.kv_cache_gpu.get(&key).ok_or_else(|| {
-            GpuError::InvalidParameter(format!("KV cache not found: {}", key))
-        })?;
+        let buf = self
+            .kv_cache_gpu
+            .get(&key)
+            .ok_or_else(|| GpuError::InvalidParameter(format!("KV cache not found: {}", key)))?;
         let total = buf.len();
         let read_n = n.min(total);
         let mut vals = vec![0.0f32; total];
@@ -211,9 +212,10 @@ impl CudaExecutor {
         } else {
             format!("kv_{}_k", layer_idx)
         };
-        let buf = self.kv_cache_gpu.get(&key).ok_or_else(|| {
-            GpuError::InvalidParameter(format!("KV cache not found: {}", key))
-        })?;
+        let buf = self
+            .kv_cache_gpu
+            .get(&key)
+            .ok_or_else(|| GpuError::InvalidParameter(format!("KV cache not found: {}", key)))?;
         let total = buf.len();
         let mut vals = vec![0.0f32; total];
         buf.copy_to_host(&mut vals)?;
@@ -872,12 +874,15 @@ impl CudaExecutor {
         let k_buf = self.kv_cache_q8_k.get_mut(&k_key).ok_or_else(|| {
             GpuError::InvalidLaunchConfig(format!("Q8 K cache for layer {} not found", layer_idx))
         })?;
-        let k_scales_buf = self.kv_cache_q8_k_scales.get_mut(&k_scales_key).ok_or_else(|| {
-            GpuError::InvalidLaunchConfig(format!(
-                "Q8 K scales for layer {} not found",
-                layer_idx
-            ))
-        })?;
+        let k_scales_buf = self
+            .kv_cache_q8_k_scales
+            .get_mut(&k_scales_key)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "Q8 K scales for layer {} not found",
+                    layer_idx
+                ))
+            })?;
 
         // Upload K quants and scales for each head at the correct position
         for head in 0..num_kv_heads {
@@ -900,12 +905,15 @@ impl CudaExecutor {
         let v_buf = self.kv_cache_q8_v.get_mut(&v_key).ok_or_else(|| {
             GpuError::InvalidLaunchConfig(format!("Q8 V cache for layer {} not found", layer_idx))
         })?;
-        let v_scales_buf = self.kv_cache_q8_v_scales.get_mut(&v_scales_key).ok_or_else(|| {
-            GpuError::InvalidLaunchConfig(format!(
-                "Q8 V scales for layer {} not found",
-                layer_idx
-            ))
-        })?;
+        let v_scales_buf = self
+            .kv_cache_q8_v_scales
+            .get_mut(&v_scales_key)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "Q8 V scales for layer {} not found",
+                    layer_idx
+                ))
+            })?;
 
         for head in 0..num_kv_heads {
             let src_q_offset = head * head_dim;
@@ -980,21 +988,27 @@ impl CudaExecutor {
         let k_buf = self.kv_cache_q8_k.get(&k_key).ok_or_else(|| {
             GpuError::InvalidLaunchConfig(format!("Q8 K cache for layer {} not found", layer_idx))
         })?;
-        let k_scales_buf = self.kv_cache_q8_k_scales.get(&k_scales_key).ok_or_else(|| {
-            GpuError::InvalidLaunchConfig(format!(
-                "Q8 K scales for layer {} not found",
-                layer_idx
-            ))
-        })?;
+        let k_scales_buf = self
+            .kv_cache_q8_k_scales
+            .get(&k_scales_key)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "Q8 K scales for layer {} not found",
+                    layer_idx
+                ))
+            })?;
         let v_buf = self.kv_cache_q8_v.get(&v_key).ok_or_else(|| {
             GpuError::InvalidLaunchConfig(format!("Q8 V cache for layer {} not found", layer_idx))
         })?;
-        let v_scales_buf = self.kv_cache_q8_v_scales.get(&v_scales_key).ok_or_else(|| {
-            GpuError::InvalidLaunchConfig(format!(
-                "Q8 V scales for layer {} not found",
-                layer_idx
-            ))
-        })?;
+        let v_scales_buf = self
+            .kv_cache_q8_v_scales
+            .get(&v_scales_key)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "Q8 V scales for layer {} not found",
+                    layer_idx
+                ))
+            })?;
 
         // Download quantized data for each position
         let mut k_out = Vec::with_capacity(seq_len * num_kv_heads * head_dim);
@@ -1099,21 +1113,27 @@ impl CudaExecutor {
         let k_q8_buf = self.kv_cache_q8_k.get(&k_key).ok_or_else(|| {
             GpuError::InvalidLaunchConfig(format!("Q8 K cache for layer {} not found", layer_idx))
         })?;
-        let k_scales_buf = self.kv_cache_q8_k_scales.get(&k_scales_key).ok_or_else(|| {
-            GpuError::InvalidLaunchConfig(format!(
-                "Q8 K scales for layer {} not found",
-                layer_idx
-            ))
-        })?;
+        let k_scales_buf = self
+            .kv_cache_q8_k_scales
+            .get(&k_scales_key)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "Q8 K scales for layer {} not found",
+                    layer_idx
+                ))
+            })?;
         let v_q8_buf = self.kv_cache_q8_v.get(&v_key).ok_or_else(|| {
             GpuError::InvalidLaunchConfig(format!("Q8 V cache for layer {} not found", layer_idx))
         })?;
-        let v_scales_buf = self.kv_cache_q8_v_scales.get(&v_scales_key).ok_or_else(|| {
-            GpuError::InvalidLaunchConfig(format!(
-                "Q8 V scales for layer {} not found",
-                layer_idx
-            ))
-        })?;
+        let v_scales_buf = self
+            .kv_cache_q8_v_scales
+            .get(&v_scales_key)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "Q8 V scales for layer {} not found",
+                    layer_idx
+                ))
+            })?;
 
         // Allocate output FP32 buffers
         let k_fp32_buf = GpuBuffer::<f32>::new(&self.context, total_elements)?;
@@ -1671,8 +1691,16 @@ mod tests {
 
         // Q8 should be ~4x smaller (actually 4x / (1 + 1/8) ≈ 3.56x due to scales)
         let reduction = fp32_bytes as f64 / q8_bytes as f64;
-        assert!(reduction > 3.5, "Expected >3.5x reduction, got {:.2}x", reduction);
-        assert!(reduction < 4.0, "Expected <4x reduction, got {:.2}x", reduction);
+        assert!(
+            reduction > 3.5,
+            "Expected >3.5x reduction, got {:.2}x",
+            reduction
+        );
+        assert!(
+            reduction < 4.0,
+            "Expected <4x reduction, got {:.2}x",
+            reduction
+        );
     }
 
     #[test]
@@ -1691,7 +1719,11 @@ mod tests {
         assert!(fp32_equiv > q8_mem, "FP32 equivalent should be > Q8 memory");
 
         let reduction = fp32_equiv as f64 / q8_mem as f64;
-        assert!(reduction > 3.5, "Expected >3.5x reduction, got {:.2}x", reduction);
+        assert!(
+            reduction > 3.5,
+            "Expected >3.5x reduction, got {:.2}x",
+            reduction
+        );
     }
 
     #[test]
@@ -1838,7 +1870,8 @@ mod tests {
         exec.write_kv_q8(0, 0, &k, &v).unwrap();
 
         // Dequantize on GPU
-        let (k_fp32, v_fp32) = exec.dequantize_kv_q8_gpu(0, 1)
+        let (k_fp32, v_fp32) = exec
+            .dequantize_kv_q8_gpu(0, 1)
             .expect("GPU dequantization failed");
 
         // Download and verify
@@ -1856,12 +1889,20 @@ mod tests {
             assert!(
                 k_err < k_tol,
                 "K[{}]: expected {}, got {}, err {} > tol {}",
-                i, k[i], k_out[i], k_err, k_tol
+                i,
+                k[i],
+                k_out[i],
+                k_err,
+                k_tol
             );
             assert!(
                 v_err < v_tol,
                 "V[{}]: expected {}, got {}, err {} > tol {}",
-                i, v[i], v_out[i], v_err, v_tol
+                i,
+                v[i],
+                v_out[i],
+                v_err,
+                v_tol
             );
         }
     }
@@ -1890,7 +1931,8 @@ mod tests {
         }
 
         // Dequantize all positions on GPU
-        let (k_fp32, v_fp32) = exec.dequantize_kv_q8_gpu(0, seq_len)
+        let (k_fp32, v_fp32) = exec
+            .dequantize_kv_q8_gpu(0, seq_len)
             .expect("GPU dequantization failed");
 
         // Verify buffer sizes
@@ -1922,8 +1964,12 @@ mod tests {
 
         // Write test data
         for pos in 0..seq_len {
-            let k: Vec<f32> = (0..size).map(|i| ((pos * size + i) as f32) * 0.01).collect();
-            let v: Vec<f32> = (0..size).map(|i| -((pos * size + i) as f32) * 0.01).collect();
+            let k: Vec<f32> = (0..size)
+                .map(|i| ((pos * size + i) as f32) * 0.01)
+                .collect();
+            let v: Vec<f32> = (0..size)
+                .map(|i| -((pos * size + i) as f32) * 0.01)
+                .collect();
             exec.write_kv_q8(0, pos, &k, &v).unwrap();
         }
 
@@ -1953,12 +1999,22 @@ mod tests {
                     assert!(
                         k_diff < 1e-6,
                         "K[pos={}, head={}, d={}] CPU={} GPU={} diff={}",
-                        pos, head, d, k_cpu[cpu_idx], k_gpu[gpu_idx], k_diff
+                        pos,
+                        head,
+                        d,
+                        k_cpu[cpu_idx],
+                        k_gpu[gpu_idx],
+                        k_diff
                     );
                     assert!(
                         v_diff < 1e-6,
                         "V[pos={}, head={}, d={}] CPU={} GPU={} diff={}",
-                        pos, head, d, v_cpu[cpu_idx], v_gpu[gpu_idx], v_diff
+                        pos,
+                        head,
+                        d,
+                        v_cpu[cpu_idx],
+                        v_gpu[gpu_idx],
+                        v_diff
                     );
                 }
             }
@@ -2059,9 +2115,15 @@ mod tests {
 
         // Process multiple tokens
         for token_idx in 0..4 {
-            let q: Vec<f32> = (0..q_dim).map(|i| ((token_idx + i) as f32) * 0.01).collect();
-            let k: Vec<f32> = (0..kv_dim).map(|i| ((token_idx + i) as f32) * 0.01).collect();
-            let v: Vec<f32> = (0..kv_dim).map(|i| ((token_idx + i) as f32) * 0.01).collect();
+            let q: Vec<f32> = (0..q_dim)
+                .map(|i| ((token_idx + i) as f32) * 0.01)
+                .collect();
+            let k: Vec<f32> = (0..kv_dim)
+                .map(|i| ((token_idx + i) as f32) * 0.01)
+                .collect();
+            let v: Vec<f32> = (0..kv_dim)
+                .map(|i| ((token_idx + i) as f32) * 0.01)
+                .collect();
             let mut output = vec![0.0f32; q_dim];
 
             let result = exec.incremental_attention_q8_gpu(0, &q, &k, &v, &mut output);
@@ -2108,7 +2170,10 @@ mod tests {
 
         let result = exec.incremental_attention_q8_gpu(0, &q_wrong, &k, &v, &mut output);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("dimension mismatch"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("dimension mismatch"));
     }
 
     #[test]

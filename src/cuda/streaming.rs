@@ -357,7 +357,9 @@ mod tests {
 
     #[test]
     fn test_streaming_mode_description() {
-        assert!(StreamingMode::FullCache.description().contains("pre-cached"));
+        assert!(StreamingMode::FullCache
+            .description()
+            .contains("pre-cached"));
         assert!(StreamingMode::LayerStreaming
             .description()
             .contains("per-layer"));

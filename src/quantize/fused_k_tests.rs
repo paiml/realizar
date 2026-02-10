@@ -1167,8 +1167,7 @@ fn test_avx2_q4k_q8k_dot_zero_quants() {
     let q8k_scales = vec![1.0f32];
     let q8k_quants = vec![0i8; 256];
 
-    let result =
-        unsafe { fused_q4k_q8k_dot_avx2(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
+    let result = unsafe { fused_q4k_q8k_dot_avx2(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
     assert!(
         result.abs() < 1e-6,
         "zero × zero should produce ~0, got {result}"
@@ -1558,7 +1557,10 @@ fn test_avx512vnni_q4k_dot_exercises_code_path() {
     // so results may differ from the AVX2 public path. Just verify it runs
     // and produces a finite value.
     let result = unsafe { fused_q4k_dot_avx512_vnni(&q4k_data, &activations) }.unwrap();
-    assert!(result.is_finite(), "should produce finite result, got {result}");
+    assert!(
+        result.is_finite(),
+        "should produce finite result, got {result}"
+    );
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -1608,5 +1610,8 @@ fn test_avx512vnni_q4k_dot_multi_superblock() {
 
     // Exercises multi-block AVX512 VNNI path with varied activations
     let result = unsafe { fused_q4k_dot_avx512_vnni(&q4k_data, &activations) }.unwrap();
-    assert!(result.is_finite(), "should produce finite result, got {result}");
+    assert!(
+        result.is_finite(),
+        "should produce finite result, got {result}"
+    );
 }

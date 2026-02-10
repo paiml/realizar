@@ -212,7 +212,7 @@ impl WeightQuantType {
 //   match layer_weights.attn_q_qtype {
 //       Q4K => q4k_gemv_into(...),
 //       Q6K => q6k_gemv_into(...),
-//       _ => q4k_gemv_into(...),  // BUG: catch-all uses wrong kernel
+//       _ => q4k_gemv_into(...),  // catch-all silently selects the wrong kernel
 //   }
 //
 // After (0 match sites per forward call):
@@ -352,29 +352,53 @@ impl BoundLayerWeights {
     ) -> Self {
         Self {
             q_proj: BoundWeight::bind(
-                src.attn_q_ptr, src.attn_q_len, src.attn_q_qtype, q_dim, hidden_dim,
+                src.attn_q_ptr,
+                src.attn_q_len,
+                src.attn_q_qtype,
+                q_dim,
+                hidden_dim,
             ),
             k_proj: BoundWeight::bind(
-                src.attn_k_ptr, src.attn_k_len, src.attn_k_qtype, kv_dim, hidden_dim,
+                src.attn_k_ptr,
+                src.attn_k_len,
+                src.attn_k_qtype,
+                kv_dim,
+                hidden_dim,
             ),
             v_proj: BoundWeight::bind(
-                src.attn_v_ptr, src.attn_v_len, src.attn_v_qtype, kv_dim, hidden_dim,
+                src.attn_v_ptr,
+                src.attn_v_len,
+                src.attn_v_qtype,
+                kv_dim,
+                hidden_dim,
             ),
             o_proj: BoundWeight::bind(
-                src.attn_output_ptr, src.attn_output_len, src.attn_output_qtype,
-                hidden_dim, q_dim,
+                src.attn_output_ptr,
+                src.attn_output_len,
+                src.attn_output_qtype,
+                hidden_dim,
+                q_dim,
             ),
             ffn_gate: BoundWeight::bind(
-                src.ffn_gate_ptr, src.ffn_gate_len, src.ffn_gate_qtype,
-                intermediate_dim, hidden_dim,
+                src.ffn_gate_ptr,
+                src.ffn_gate_len,
+                src.ffn_gate_qtype,
+                intermediate_dim,
+                hidden_dim,
             ),
             ffn_up: BoundWeight::bind(
-                src.ffn_up_ptr, src.ffn_up_len, src.ffn_up_qtype,
-                intermediate_dim, hidden_dim,
+                src.ffn_up_ptr,
+                src.ffn_up_len,
+                src.ffn_up_qtype,
+                intermediate_dim,
+                hidden_dim,
             ),
             ffn_down: BoundWeight::bind(
-                src.ffn_down_ptr, src.ffn_down_len, src.ffn_down_qtype,
-                hidden_dim, intermediate_dim,
+                src.ffn_down_ptr,
+                src.ffn_down_len,
+                src.ffn_down_qtype,
+                hidden_dim,
+                intermediate_dim,
             ),
             attn_norm_ptr: src.attn_norm_ptr,
             attn_norm_len: src.attn_norm_len,
@@ -458,18 +482,37 @@ mod tests {
     /// construction from GGUF metadata in production code.
     fn test_zeroed_layer_weights() -> IndexedLayerWeights {
         IndexedLayerWeights {
-            attn_q_ptr: 0, attn_q_len: 0, attn_q_qtype: WeightQuantType::Q4K,
-            attn_k_ptr: 0, attn_k_len: 0, attn_k_qtype: WeightQuantType::Q4K,
-            attn_v_ptr: 0, attn_v_len: 0, attn_v_qtype: WeightQuantType::Q4K,
-            attn_output_ptr: 0, attn_output_len: 0, attn_output_qtype: WeightQuantType::Q4K,
-            ffn_gate_ptr: 0, ffn_gate_len: 0, ffn_gate_qtype: WeightQuantType::Q4K,
-            ffn_up_ptr: 0, ffn_up_len: 0, ffn_up_qtype: WeightQuantType::Q4K,
-            ffn_down_ptr: 0, ffn_down_len: 0, ffn_down_qtype: WeightQuantType::Q4K,
-            attn_norm_ptr: 0, attn_norm_len: 0,
-            ffn_norm_ptr: 0, ffn_norm_len: 0,
-            attn_q_bias_ptr: 0, attn_q_bias_len: 0,
-            attn_k_bias_ptr: 0, attn_k_bias_len: 0,
-            attn_v_bias_ptr: 0, attn_v_bias_len: 0,
+            attn_q_ptr: 0,
+            attn_q_len: 0,
+            attn_q_qtype: WeightQuantType::Q4K,
+            attn_k_ptr: 0,
+            attn_k_len: 0,
+            attn_k_qtype: WeightQuantType::Q4K,
+            attn_v_ptr: 0,
+            attn_v_len: 0,
+            attn_v_qtype: WeightQuantType::Q4K,
+            attn_output_ptr: 0,
+            attn_output_len: 0,
+            attn_output_qtype: WeightQuantType::Q4K,
+            ffn_gate_ptr: 0,
+            ffn_gate_len: 0,
+            ffn_gate_qtype: WeightQuantType::Q4K,
+            ffn_up_ptr: 0,
+            ffn_up_len: 0,
+            ffn_up_qtype: WeightQuantType::Q4K,
+            ffn_down_ptr: 0,
+            ffn_down_len: 0,
+            ffn_down_qtype: WeightQuantType::Q4K,
+            attn_norm_ptr: 0,
+            attn_norm_len: 0,
+            ffn_norm_ptr: 0,
+            ffn_norm_len: 0,
+            attn_q_bias_ptr: 0,
+            attn_q_bias_len: 0,
+            attn_k_bias_ptr: 0,
+            attn_k_bias_len: 0,
+            attn_v_bias_ptr: 0,
+            attn_v_bias_len: 0,
         }
     }
 

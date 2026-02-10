@@ -58,16 +58,48 @@ impl std::fmt::Display for ParityResult {
             "FAIL (mismatch)"
         };
 
-        writeln!(f, "Parity check for token {} at position {}:", self.token_id, self.position)?;
+        writeln!(
+            f,
+            "Parity check for token {} at position {}:",
+            self.token_id, self.position
+        )?;
         writeln!(f, "  Status: {}", status)?;
-        writeln!(f, "  CPU argmax: {} (logit={:.4})", self.cpu_argmax,
-            self.cpu_logits.get(self.cpu_argmax as usize).unwrap_or(&f32::NAN))?;
-        writeln!(f, "  GPU argmax: {} (logit={:.4})", self.gpu_argmax,
-            self.gpu_logits.get(self.gpu_argmax as usize).unwrap_or(&f32::NAN))?;
-        writeln!(f, "  Max diff: {:.6} at index {}", self.max_abs_diff, self.max_diff_idx)?;
-        writeln!(f, "  CPU NaN: {}, GPU NaN: {}", self.cpu_nan_count, self.gpu_nan_count)?;
-        writeln!(f, "  CPU logits[0..10]: {:?}", &self.cpu_logits[..10.min(self.cpu_logits.len())])?;
-        writeln!(f, "  GPU logits[0..10]: {:?}", &self.gpu_logits[..10.min(self.gpu_logits.len())])?;
+        writeln!(
+            f,
+            "  CPU argmax: {} (logit={:.4})",
+            self.cpu_argmax,
+            self.cpu_logits
+                .get(self.cpu_argmax as usize)
+                .unwrap_or(&f32::NAN)
+        )?;
+        writeln!(
+            f,
+            "  GPU argmax: {} (logit={:.4})",
+            self.gpu_argmax,
+            self.gpu_logits
+                .get(self.gpu_argmax as usize)
+                .unwrap_or(&f32::NAN)
+        )?;
+        writeln!(
+            f,
+            "  Max diff: {:.6} at index {}",
+            self.max_abs_diff, self.max_diff_idx
+        )?;
+        writeln!(
+            f,
+            "  CPU NaN: {}, GPU NaN: {}",
+            self.cpu_nan_count, self.gpu_nan_count
+        )?;
+        writeln!(
+            f,
+            "  CPU logits[0..10]: {:?}",
+            &self.cpu_logits[..10.min(self.cpu_logits.len())]
+        )?;
+        writeln!(
+            f,
+            "  GPU logits[0..10]: {:?}",
+            &self.gpu_logits[..10.min(self.gpu_logits.len())]
+        )?;
         Ok(())
     }
 }
@@ -112,18 +144,19 @@ pub fn check_parity(
 
     for (pos, &token_id) in tokens.iter().enumerate() {
         // CPU forward — uses the CPU model reference
-        let cpu_logits = cuda_model.model()
+        let cpu_logits = cuda_model
+            .model()
             .forward_single_with_cache(token_id, &mut cpu_cache, pos)
-            .map_err(|e| RealizarError::InferenceError(
-                format!("CPU forward failed at pos {pos}: {e}"),
-            ))?;
+            .map_err(|e| {
+                RealizarError::InferenceError(format!("CPU forward failed at pos {pos}: {e}"))
+            })?;
 
         // GPU forward — same token, same position, independent KV cache
         let gpu_logits = cuda_model
             .forward_gpu_resident(token_id, &mut gpu_cache, pos)
-            .map_err(|e| RealizarError::InferenceError(
-                format!("GPU forward failed at pos {pos}: {e}"),
-            ))?;
+            .map_err(|e| {
+                RealizarError::InferenceError(format!("GPU forward failed at pos {pos}: {e}"))
+            })?;
 
         // Compare
         let cpu_nan_count = cpu_logits.iter().filter(|x| x.is_nan()).count();
@@ -159,7 +192,11 @@ pub fn print_parity_summary(results: &[ParityResult]) {
             "OK"
         } else {
             all_ok = false;
-            if !r.is_clean() { "FAIL(NaN)" } else { "FAIL(mismatch)" }
+            if !r.is_clean() {
+                "FAIL(NaN)"
+            } else {
+                "FAIL(mismatch)"
+            }
         };
         eprintln!(
             "  pos={:>3} token={:>6}  cpu_argmax={:>6} gpu_argmax={:>6}  max_diff={:.6}  {}",
@@ -170,10 +207,15 @@ pub fn print_parity_summary(results: &[ParityResult]) {
     if all_ok {
         eprintln!("\nPARITY: ALL {} positions OK", results.len());
     } else {
-        let failures: Vec<_> = results.iter()
+        let failures: Vec<_> = results
+            .iter()
             .filter(|r| !r.argmax_matches() || !r.is_clean())
             .collect();
-        eprintln!("\nPARITY: {} FAILURES out of {} positions", failures.len(), results.len());
+        eprintln!(
+            "\nPARITY: {} FAILURES out of {} positions",
+            failures.len(),
+            results.len()
+        );
 
         // Show first divergence in detail
         if let Some(first) = failures.first() {

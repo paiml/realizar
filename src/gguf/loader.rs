@@ -1510,11 +1510,11 @@ impl OwnedQuantizedModel {
                 reason: "APR: embedding tensor not found".to_string(),
             })?;
 
-        let embed_tensor = apr.find_tensor(embed_name).ok_or_else(|| {
-            RealizarError::FormatError {
-                reason: "APR: embedding tensor not found".to_string(),
-            }
-        })?;
+        let embed_tensor =
+            apr.find_tensor(embed_name)
+                .ok_or_else(|| RealizarError::FormatError {
+                    reason: "APR: embedding tensor not found".to_string(),
+                })?;
         let embed_start = data_offset + embed_tensor.offset as usize;
         let embed_end = embed_start + embed_tensor.size as usize;
         if embed_end > data.len() {
@@ -1561,8 +1561,7 @@ impl OwnedQuantizedModel {
             let hf_up = format!("model.layers.{layer_idx}.mlp.up_proj.weight");
             let hf_down = format!("model.layers.{layer_idx}.mlp.down_proj.weight");
             let hf_attn_norm = format!("model.layers.{layer_idx}.input_layernorm.weight");
-            let hf_ffn_norm =
-                format!("model.layers.{layer_idx}.post_attention_layernorm.weight");
+            let hf_ffn_norm = format!("model.layers.{layer_idx}.post_attention_layernorm.weight");
 
             // GGUF names (fallback, from GGUF→APR path)
             let gguf_q = format!("blk.{layer_idx}.attn_q.weight");
@@ -1576,12 +1575,9 @@ impl OwnedQuantizedModel {
             let gguf_ffn_norm = format!("blk.{layer_idx}.ffn_norm.weight");
 
             // Q/K/V weights (try HF first, then GGUF)
-            let q_weight =
-                make_tensor(&[&hf_q, &gguf_q], hidden_dim, hidden_dim)?;
-            let k_weight =
-                make_tensor(&[&hf_k, &gguf_k], hidden_dim, kv_dim)?;
-            let v_weight =
-                make_tensor(&[&hf_v, &gguf_v], hidden_dim, kv_dim)?;
+            let q_weight = make_tensor(&[&hf_q, &gguf_q], hidden_dim, hidden_dim)?;
+            let k_weight = make_tensor(&[&hf_k, &gguf_k], hidden_dim, kv_dim)?;
+            let v_weight = make_tensor(&[&hf_v, &gguf_v], hidden_dim, kv_dim)?;
 
             let qkv_weight = OwnedQKVWeights::Separate {
                 q: q_weight,
@@ -1604,22 +1600,18 @@ impl OwnedQuantizedModel {
             });
 
             // O projection
-            let o_weight =
-                make_tensor(&[&hf_o, &gguf_o], hidden_dim, hidden_dim)?;
+            let o_weight = make_tensor(&[&hf_o, &gguf_o], hidden_dim, hidden_dim)?;
 
             // FFN weights
             let ffn_gate_weight =
                 make_tensor(&[&hf_gate, &gguf_gate], hidden_dim, intermediate_dim)?;
-            let ffn_up_weight =
-                make_tensor(&[&hf_up, &gguf_up], hidden_dim, intermediate_dim)?;
+            let ffn_up_weight = make_tensor(&[&hf_up, &gguf_up], hidden_dim, intermediate_dim)?;
             let ffn_down_weight =
                 make_tensor(&[&hf_down, &gguf_down], intermediate_dim, hidden_dim)?;
 
             // Norm weights (F32)
-            let attn_norm_weight =
-                get_f32_tensor(&[&hf_attn_norm, &gguf_attn_norm])?;
-            let ffn_norm_weight =
-                get_f32_tensor(&[&hf_ffn_norm, &gguf_ffn_norm])?;
+            let attn_norm_weight = get_f32_tensor(&[&hf_attn_norm, &gguf_attn_norm])?;
+            let ffn_norm_weight = get_f32_tensor(&[&hf_ffn_norm, &gguf_ffn_norm])?;
 
             layers.push(OwnedQuantizedLayer {
                 attn_norm_weight,
@@ -1640,10 +1632,7 @@ impl OwnedQuantizedModel {
         }
 
         // Output norm
-        let output_norm_weight = get_f32_tensor(&[
-            "model.norm.weight",
-            "output_norm.weight",
-        ])?;
+        let output_norm_weight = get_f32_tensor(&["model.norm.weight", "output_norm.weight"])?;
 
         // LM head (try HF name first, then GGUF)
         let lm_head_weight =
@@ -3462,7 +3451,10 @@ mod tests {
     #[test]
     fn test_from_apr_loads_lm_head() {
         let (model, _) = build_model_via_gguf_roundtrip();
-        assert!(!model.lm_head_weight.data.is_empty(), "lm head should have data");
+        assert!(
+            !model.lm_head_weight.data.is_empty(),
+            "lm head should have data"
+        );
     }
 
     #[test]
@@ -3480,7 +3472,10 @@ mod tests {
         let apr_bytes = model.to_apr_bytes().expect("to_apr_bytes");
         let tensor_count = u32::from_le_bytes(apr_bytes[8..12].try_into().unwrap());
         // 1 embed + (2 norms + 7 weights) per layer + output norm + lm head
-        assert!(tensor_count >= 10, "should have at least 10 tensors, got {tensor_count}");
+        assert!(
+            tensor_count >= 10,
+            "should have at least 10 tensors, got {tensor_count}"
+        );
     }
 
     #[test]
@@ -3520,7 +3515,10 @@ mod tests {
         assert_eq!(model2.config.num_layers, model.config.num_layers);
         assert_eq!(model2.layers.len(), model.layers.len());
         assert_eq!(model2.token_embedding.len(), model.token_embedding.len());
-        assert_eq!(model2.output_norm_weight.len(), model.output_norm_weight.len());
+        assert_eq!(
+            model2.output_norm_weight.len(),
+            model.output_norm_weight.len()
+        );
     }
 
     #[test]
@@ -3528,8 +3526,7 @@ mod tests {
         let (model, _) = build_model_via_gguf_roundtrip();
         let apr_bytes = model.to_apr_bytes().expect("to_apr_bytes");
 
-        let tensor_index_offset =
-            u64::from_le_bytes(apr_bytes[24..32].try_into().unwrap());
+        let tensor_index_offset = u64::from_le_bytes(apr_bytes[24..32].try_into().unwrap());
         let data_offset = u64::from_le_bytes(apr_bytes[32..40].try_into().unwrap());
         assert!(
             data_offset > tensor_index_offset,

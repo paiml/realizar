@@ -463,7 +463,7 @@ mod tests {
         let mut data = vec![0u8; 34];
         data[0] = 0x00; // f16 1.0 low byte
         data[1] = 0x3C; // f16 1.0 high byte
-        // Set quants: all i8 = 1 (unsigned byte 1)
+                        // Set quants: all i8 = 1 (unsigned byte 1)
         for i in 2..34 {
             data[i] = 1;
         }
@@ -480,7 +480,7 @@ mod tests {
         let mut data = vec![0u8; 34];
         data[0] = 0x00;
         data[1] = 0x3C; // scale = 1.0
-        // Set quants: all i8 = -1 (0xFF as u8)
+                        // Set quants: all i8 = -1 (0xFF as u8)
         for i in 2..34 {
             data[i] = 0xFF;
         }

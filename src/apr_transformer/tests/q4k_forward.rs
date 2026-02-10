@@ -278,7 +278,10 @@ fn test_forward_q4k_swiglu_differs_from_f32() {
         .map(|(a, b)| (a - b).abs())
         .fold(0.0f32, f32::max);
     // At least some difference expected
-    assert!(max_diff > 1e-6, "Q4K and F32 should produce different logits");
+    assert!(
+        max_diff > 1e-6,
+        "Q4K and F32 should produce different logits"
+    );
 }
 
 #[test]
@@ -316,7 +319,9 @@ fn test_forward_q4k_gelu_multi_token() {
 fn test_forward_q4k_gelu_with_biases() {
     // This model has all biases (qkv, attn_output, ffn_up, ffn_down, output_norm, lm_head)
     let model = make_pygmy_model_with_q4k_gelu();
-    let logits = model.forward(&[7]).expect("Q4K GELU with biases should succeed");
+    let logits = model
+        .forward(&[7])
+        .expect("Q4K GELU with biases should succeed");
     assert_eq!(logits.len(), model.config.vocab_size);
     assert!(logits.iter().all(|v| v.is_finite()));
 }
@@ -394,8 +399,8 @@ fn test_forward_q6k_ffn_down_swiglu() {
     let mut model = make_pygmy_model_with_q4k_swiglu();
     if let Some(ref mut layers) = model.q4k_layers {
         layers[0].ffn_down_weight = None; // Remove Q4K down
-        layers[0].ffn_down_weight_q6k =
-            Some(build_q6k_weight(hidden_dim, intermediate_dim)); // Add Q6K down
+        layers[0].ffn_down_weight_q6k = Some(build_q6k_weight(hidden_dim, intermediate_dim));
+        // Add Q6K down
     }
     let logits = model
         .forward(&[6])
@@ -474,7 +479,8 @@ fn test_forward_with_cache_q6k_v_weight() {
         layers[0].attn_q_weight = Some(build_q4k_weight(hidden_dim, hidden_dim));
         layers[0].attn_k_weight = Some(build_q4k_weight(kv_size, hidden_dim));
         layers[0].attn_v_weight = None; // No Q4K V
-        layers[0].attn_v_weight_q6k = Some(build_q6k_weight(kv_size, hidden_dim)); // Q6K V
+        layers[0].attn_v_weight_q6k = Some(build_q6k_weight(kv_size, hidden_dim));
+        // Q6K V
     }
 
     let mut cache = AprKVCache::new(&model.config);

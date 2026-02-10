@@ -611,8 +611,7 @@ fn benchmark_kv_cache_attention(c: &mut Criterion) {
                     let v_cache = cache.get_v(0);
                     let cache_len = k_cache.len() / hidden_dim;
                     let output = bench_cached_attention(
-                        q, k_cache, v_cache, cur_k, cur_v,
-                        *n_heads, *h_dim, hidden_dim, cache_len,
+                        q, k_cache, v_cache, cur_k, cur_v, *n_heads, *h_dim, hidden_dim, cache_len,
                     );
                     black_box(output)
                 });
@@ -649,9 +648,15 @@ fn benchmark_kv_cache_attention(c: &mut Criterion) {
 
 /// Cached attention benchmark helper — single-token decode with KV cache
 fn bench_cached_attention(
-    q: &[f32], k_cache: &[f32], v_cache: &[f32],
-    cur_k: &[f32], cur_v: &[f32],
-    num_heads: usize, head_dim: usize, hidden_dim: usize, cache_len: usize,
+    q: &[f32],
+    k_cache: &[f32],
+    v_cache: &[f32],
+    cur_k: &[f32],
+    cur_v: &[f32],
+    num_heads: usize,
+    head_dim: usize,
+    hidden_dim: usize,
+    cache_len: usize,
 ) -> Vec<f32> {
     let scale = 1.0 / (head_dim as f32).sqrt();
     let mut output = vec![0.0f32; hidden_dim];
@@ -692,8 +697,13 @@ fn bench_cached_attention(
 
 /// Full recompute attention benchmark helper — O(n²) without KV cache
 fn bench_full_recompute_attention(
-    q: &[f32], k: &[f32], v: &[f32],
-    num_heads: usize, head_dim: usize, hidden_dim: usize, seq_len: usize,
+    q: &[f32],
+    k: &[f32],
+    v: &[f32],
+    num_heads: usize,
+    head_dim: usize,
+    hidden_dim: usize,
+    seq_len: usize,
 ) -> Vec<f32> {
     let scale = 1.0 / (head_dim as f32).sqrt();
     let mut output = vec![0.0f32; seq_len * hidden_dim];
@@ -1051,8 +1061,7 @@ fn benchmark_component_profiling(c: &mut Criterion) {
     group.bench_function("5_attention_with_cache", |b| {
         b.iter(|| {
             let output = bench_cached_attention(
-                &q, &k_cache, &v_cache, &cur_k, &cur_v,
-                num_heads, head_dim, hidden_dim, seq_len,
+                &q, &k_cache, &v_cache, &cur_k, &cur_v, num_heads, head_dim, hidden_dim, seq_len,
             );
             black_box(output)
         });
@@ -1173,8 +1182,8 @@ fn benchmark_component_profiling(c: &mut Criterion) {
 
                 // Attention (simplified)
                 let _output = bench_cached_attention(
-                    &q, &k_cache, &v_cache, &cur_k, &cur_v,
-                    num_heads, head_dim, hidden_dim, seq_len,
+                    &q, &k_cache, &v_cache, &cur_k, &cur_v, num_heads, head_dim, hidden_dim,
+                    seq_len,
                 );
 
                 // Output projection

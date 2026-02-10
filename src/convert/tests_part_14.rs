@@ -80,18 +80,17 @@ fn test_q4k_convert_output_header_offsets_valid() {
     let data_offset = u64::from_le_bytes(apr_data[32..40].try_into().unwrap());
 
     assert!(tensor_count > 0, "should have tensors in header");
-    assert_eq!(metadata_offset, HEADER_SIZE as u64, "metadata starts after header");
+    assert_eq!(
+        metadata_offset, HEADER_SIZE as u64,
+        "metadata starts after header"
+    );
     assert!(metadata_len > 0, "metadata should not be empty");
     assert!(
         tensor_index_offset > metadata_offset,
         "tensor index after metadata"
     );
     assert!(data_offset > tensor_index_offset, "data after tensor index");
-    assert_eq!(
-        data_offset % 64,
-        0,
-        "data offset must be 64-byte aligned"
-    );
+    assert_eq!(data_offset % 64, 0, "data offset must be 64-byte aligned");
     assert!(
         (apr_data.len() as u64) >= data_offset,
         "file must be at least as large as data offset"

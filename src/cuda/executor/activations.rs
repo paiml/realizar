@@ -2071,8 +2071,8 @@ mod tests {
         // Test that the kernel type generates valid PTX
         let kernels = CudaKernels::new();
         let kernel_type = KernelType::FusedRmsNormGateUpSwigluQ4K {
-            k: 2048,    // hidden_size
-            n: 5632,    // intermediate_size (Qwen2.5 0.5B)
+            k: 2048, // hidden_size
+            n: 5632, // intermediate_size (Qwen2.5 0.5B)
             epsilon: 1e-6,
         };
 
@@ -2111,7 +2111,8 @@ mod tests {
         // Total = 512 * 144 = 73728 bytes per weight matrix
         let num_super_blocks_per_row = (hidden_size as usize + 255) / 256;
         let bytes_per_super_block = 144;
-        let weight_bytes = intermediate_size as usize * num_super_blocks_per_row * bytes_per_super_block;
+        let weight_bytes =
+            intermediate_size as usize * num_super_blocks_per_row * bytes_per_super_block;
 
         // Create dummy Q4K weights (zeros will dequantize to near-zero values)
         let w_gate_data = vec![0u8; weight_bytes];
@@ -2147,11 +2148,7 @@ mod tests {
         // Note: Results may vary based on kernel implementation
         for (i, &v) in output.iter().take(4).enumerate() {
             // Just verify output is finite (correctness depends on kernel implementation)
-            assert!(
-                v.is_finite(),
-                "output[{}] = {} should be finite",
-                i, v
-            );
+            assert!(v.is_finite(), "output[{}] = {} should be finite", i, v);
         }
     }
 
@@ -2163,22 +2160,23 @@ mod tests {
 
         // Test different dimension combinations
         let test_cases = [
-            (896, 4864, 1e-6),   // Qwen2.5 0.5B-like
-            (1024, 2816, 1e-5),  // Small model
-            (2048, 5632, 1e-6),  // Medium model
+            (896, 4864, 1e-6),  // Qwen2.5 0.5B-like
+            (1024, 2816, 1e-5), // Small model
+            (2048, 5632, 1e-6), // Medium model
         ];
 
         for (k, n, epsilon) in test_cases {
-            let kernel_type = KernelType::FusedRmsNormGateUpSwigluQ4K {
-                k,
-                n,
-                epsilon,
-            };
+            let kernel_type = KernelType::FusedRmsNormGateUpSwigluQ4K { k, n, epsilon };
 
             let ptx = kernels.generate_ptx(&kernel_type);
             let name = kernels.kernel_name(&kernel_type);
 
-            assert!(!ptx.is_empty(), "PTX for k={}, n={} should not be empty", k, n);
+            assert!(
+                !ptx.is_empty(),
+                "PTX for k={}, n={} should not be empty",
+                k,
+                n
+            );
             assert_eq!(name, "fused_rmsnorm_gate_up_swiglu_q4k");
         }
     }
