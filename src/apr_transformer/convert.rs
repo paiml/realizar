@@ -2,11 +2,11 @@
 //!
 //! Extracted from mod.rs for file health compliance.
 
-use super::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
-
 /// Convert from `GGUFTransformer` to APR format
 ///
 /// This dequantizes all GGUF weights to F32 for WASM compatibility.
+#[cfg(feature = "default")]
+use super::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
 #[cfg(feature = "default")]
 impl From<&crate::gguf::GGUFTransformer> for AprTransformer {
     fn from(gguf: &crate::gguf::GGUFTransformer) -> Self {
