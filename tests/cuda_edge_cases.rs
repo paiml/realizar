@@ -15,15 +15,19 @@
 
 use trueno_cuda_edge::{
     falsification::{all_claims, ClaimStatus, FalsificationReport, Framework},
-    lifecycle_chaos::{ChaosScenario, ContextLeakDetector, DestructionOrdering, LifecycleChaosConfig},
+    lifecycle_chaos::{
+        ChaosScenario, ContextLeakDetector, DestructionOrdering, LifecycleChaosConfig,
+    },
     null_fuzzer::{InjectionStrategy, NonNullDevicePtr, NullFuzzerConfig, NullSentinelFuzzer},
     ptx_poison::{default_mutators, PtxMutator, PtxVerifier, MINIMAL_VALID_PTX},
-    quant_oracle::{BoundaryValueGenerator, ParityConfig, QuantFormat, check_values_parity},
+    quant_oracle::{check_values_parity, BoundaryValueGenerator, ParityConfig, QuantFormat},
     shmem_prober::{
         check_allocation, compute_sentinel_offsets, shared_memory_limit, AccessPattern,
         BankConflictInjector, ComputeCapability, SharedMemoryRegion,
     },
-    supervisor::{GpuHealthMonitor, HealthAction, HeartbeatStatus, SupervisionStrategy, SupervisionTree},
+    supervisor::{
+        GpuHealthMonitor, HealthAction, HeartbeatStatus, SupervisionStrategy, SupervisionTree,
+    },
 };
 
 // ============================================================================
@@ -398,7 +402,7 @@ mod supervisor_integration {
         match action {
             trueno_cuda_edge::supervisor::SupervisorAction::Restart(indices) => {
                 assert_eq!(indices, vec![1]);
-            }
+            },
             _ => panic!("Expected Restart action"),
         }
     }

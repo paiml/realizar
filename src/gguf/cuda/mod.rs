@@ -189,6 +189,22 @@ impl OwnedQuantizedModelCuda {
             });
         }
 
+        // PAR-118: Initialize Flash Decoding for split-K attention acceleration.
+        // Five-Whys: batched_incremental_attention uses Grid=(num_heads,M,1) Block=(32,1,1)
+        // = only 896 threads on RTX 4090 for 7B (28 heads). Flash Decoding splits KV cache
+        // into chunks processed in parallel, achieving 1.5-2x decode speedup.
+        // NOTE: flash_decode_enabled is used by BOTH the graphed decode path
+        // (flash_decoding_graphed in attention.rs) and the batched path (batched.rs).
+        // The batched path uses threshold 1024 to avoid triggering during normal prefill.
+        if let Err(e) = executor.init_flash_decoding(num_heads, head_dim, max_seq_len, 1) {
+            if verbose() {
+                eprintln!(
+                    "[PAR-118] Flash Decoding init failed: {e}, falling back to sequential attention"
+                );
+            }
+            // Non-fatal: sequential attention still works, just slower
+        }
+
         // PAR-060: Set RoPE theta for position embeddings
         if verbose() {
             eprintln!(
@@ -395,7 +411,11 @@ fn parity_gate(cuda_model: &mut OwnedQuantizedModelCuda) -> Result<()> {
     let hidden_dim = cuda_model.model.config.hidden_dim;
     let num_heads = cuda_model.model.config.num_heads;
     let num_kv_heads = cuda_model.model.config.num_kv_heads;
-    let head_dim = if num_heads > 0 { hidden_dim / num_heads } else { 0 };
+    let head_dim = if num_heads > 0 {
+        hidden_dim / num_heads
+    } else {
+        0
+    };
     let kv_dim = num_kv_heads * head_dim;
     let num_layers = cuda_model.model.config.num_layers;
 
@@ -414,16 +434,16 @@ fn parity_gate(cuda_model: &mut OwnedQuantizedModelCuda) -> Result<()> {
     let cpu_logits = cuda_model
         .model
         .forward_single_with_cache(token_id, &mut cpu_cache, position)
-        .map_err(|e| RealizarError::InferenceError(
-            format!("PARITY-GATE: CPU forward failed: {e}"),
-        ))?;
+        .map_err(|e| {
+            RealizarError::InferenceError(format!("PARITY-GATE: CPU forward failed: {e}"))
+        })?;
 
     // GPU forward
     let gpu_logits = cuda_model
         .forward_gpu_resident(token_id, &mut gpu_cache, position)
-        .map_err(|e| RealizarError::InferenceError(
-            format!("PARITY-GATE: GPU forward failed: {e}"),
-        ))?;
+        .map_err(|e| {
+            RealizarError::InferenceError(format!("PARITY-GATE: GPU forward failed: {e}"))
+        })?;
 
     // Cosine similarity — the single metric that catches completely wrong computation
     let cosine = cosine_similarity(&cpu_logits, &gpu_logits);

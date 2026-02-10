@@ -122,10 +122,7 @@ impl AprV2ModelCuda {
         let num_kv_heads = model.metadata.num_kv_heads.unwrap_or(num_heads);
         let hidden_dim = model.metadata.hidden_size.unwrap_or(0);
         let vocab_size = model.metadata.vocab_size.unwrap_or(0);
-        let intermediate_dim = model
-            .metadata
-            .intermediate_size
-            .unwrap_or(hidden_dim * 4);
+        let intermediate_dim = model.metadata.intermediate_size.unwrap_or(hidden_dim * 4);
         let head_dim = if num_heads > 0 {
             hidden_dim / num_heads
         } else {
@@ -151,20 +148,20 @@ impl AprV2ModelCuda {
                     free_vram / (1024 * 1024)
                 );
                 false
-            }
+            },
             Ok(StreamingMode::LayerStreaming) => {
                 eprintln!(
                     "[AprV2ModelCuda] GH-201: Limited VRAM ({} MB free), using layer streaming mode",
                     free_vram / (1024 * 1024)
                 );
                 true
-            }
+            },
             Err(e) => {
                 return Err(RealizarError::UnsupportedOperation {
                     operation: "VRAM check".to_string(),
                     reason: e,
                 });
-            }
+            },
         };
 
         if num_layers > 0 && head_dim > 0 {
@@ -195,7 +192,11 @@ impl AprV2ModelCuda {
                 || arch_lower.contains("gptneox")
                 || arch_lower.contains("bert")
                 || arch_lower.contains("stablelm");
-            if is_neox { 2 } else { 0 }
+            if is_neox {
+                2
+            } else {
+                0
+            }
         });
         let rms_norm_eps = model.metadata.rms_norm_eps.unwrap_or(1e-6);
 
@@ -226,10 +227,10 @@ impl AprV2ModelCuda {
             weight_cache: std::collections::HashMap::new(),
             embedding_cache: None, // Lazy-loaded on first forward
             hidden_dim,
-            kv_position: 0,          // Start at position 0
-            fallback_kv_used: false, // PMAT-110: No fallback KV yet
-            test_executor: None,     // Phase 45: No test executor by default
-            streaming_mode,          // GH-201: Set based on VRAM check
+            kv_position: 0,               // Start at position 0
+            fallback_kv_used: false,      // PMAT-110: No fallback KV yet
+            test_executor: None,          // Phase 45: No test executor by default
+            streaming_mode,               // GH-201: Set based on VRAM check
             cached_streaming_layer: None, // GH-201: No layer cached yet
         };
 
@@ -927,11 +928,10 @@ impl AprV2ModelCuda {
                             w.len() * std::mem::size_of::<f32>(),
                         )
                     };
-                    if let Ok(size) = self.executor.load_quantized_weights_with_type(
-                        "output.weight",
-                        w_bytes,
-                        0,
-                    ) {
+                    if let Ok(size) =
+                        self.executor
+                            .load_quantized_weights_with_type("output.weight", w_bytes, 0)
+                    {
                         total_bytes += size;
                     }
                 }
@@ -973,7 +973,11 @@ impl AprV2ModelCuda {
             .metadata
             .intermediate_size
             .unwrap_or(hidden_dim * 4);
-        let head_dim = if num_heads > 0 { hidden_dim / num_heads } else { 0 };
+        let head_dim = if num_heads > 0 {
+            hidden_dim / num_heads
+        } else {
+            0
+        };
         let kv_dim = num_kv_heads * head_dim;
 
         let prefix = format!("blk.{layer_idx}");
@@ -1013,7 +1017,9 @@ impl AprV2ModelCuda {
                     } else {
                         weights
                     };
-                    executor.load_weights(cache_name, &final_weights).unwrap_or(0)
+                    executor
+                        .load_weights(cache_name, &final_weights)
+                        .unwrap_or(0)
                 } else {
                     0
                 }
@@ -1079,7 +1085,8 @@ impl AprV2ModelCuda {
             let patterns_ref: Vec<&str> = patterns.iter().map(String::as_str).collect();
             if let Ok(src_name) = self.model.find_tensor_name(&patterns_ref) {
                 let cache_name = format!("{prefix}.{suffix}");
-                total_bytes += upload_weight(&mut self.executor, &self.model, &src_name, &cache_name);
+                total_bytes +=
+                    upload_weight(&mut self.executor, &self.model, &src_name, &cache_name);
             }
         }
 
@@ -1109,9 +1116,18 @@ impl AprV2ModelCuda {
                     let k_cache_name = format!("blk.{layer_idx}.attn_k.weight");
                     let v_cache_name = format!("blk.{layer_idx}.attn_v.weight");
 
-                    total_bytes += self.executor.load_weights(&q_cache_name, &q_weight_t).unwrap_or(0);
-                    total_bytes += self.executor.load_weights(&k_cache_name, &k_weight_t).unwrap_or(0);
-                    total_bytes += self.executor.load_weights(&v_cache_name, &v_weight_t).unwrap_or(0);
+                    total_bytes += self
+                        .executor
+                        .load_weights(&q_cache_name, &q_weight_t)
+                        .unwrap_or(0);
+                    total_bytes += self
+                        .executor
+                        .load_weights(&k_cache_name, &k_weight_t)
+                        .unwrap_or(0);
+                    total_bytes += self
+                        .executor
+                        .load_weights(&v_cache_name, &v_weight_t)
+                        .unwrap_or(0);
                 }
             }
         }
@@ -1139,7 +1155,10 @@ impl AprV2ModelCuda {
             if let Ok(src_name) = self.model.find_tensor_name(&patterns_ref) {
                 if let Ok(gamma) = self.model.get_tensor_f32(&src_name) {
                     let cache_name = format!("{prefix}.{suffix}");
-                    total_bytes += self.executor.cache_rmsnorm_gamma(&cache_name, &gamma).unwrap_or(0);
+                    total_bytes += self
+                        .executor
+                        .cache_rmsnorm_gamma(&cache_name, &gamma)
+                        .unwrap_or(0);
                 }
             }
         }
@@ -1238,7 +1257,10 @@ impl AprV2ModelCuda {
         // Use indexed Q4K path with GPU argmax (no 600KB logits transfer)
         // Phase 45: Skip fast path when test_executor is present
         // GH-201: Skip fast path in streaming mode (layer weights not pre-cached)
-        if self.test_executor.is_none() && self.executor.has_indexed_weights() && !self.streaming_mode {
+        if self.test_executor.is_none()
+            && self.executor.has_indexed_weights()
+            && !self.streaming_mode
+        {
             let position = self.kv_position;
 
             // Embedding lookup from cache
@@ -1828,7 +1850,14 @@ impl AprV2ModelCuda {
                 } else {
                     // NORM style: adjacent pairs (2*i, 2*i+1) - standard RoPE
                     apply_rope_norm(&mut q_pos, num_heads, head_dim, abs_position, rope_theta, 0);
-                    apply_rope_norm(&mut k_pos, num_kv_heads, head_dim, abs_position, rope_theta, 0);
+                    apply_rope_norm(
+                        &mut k_pos,
+                        num_kv_heads,
+                        head_dim,
+                        abs_position,
+                        rope_theta,
+                        0,
+                    );
                 }
 
                 // Use incremental_attention_gpu to append K/V to cache and compute attention

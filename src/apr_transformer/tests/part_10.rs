@@ -271,11 +271,24 @@ fn test_from_apr_bytes_f16_embedding_and_lm_head() {
     let intermediate = 32;
     let vocab = 16;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let tensors = make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F16, DTYPE_F32, DTYPE_F16);
+    let tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F16,
+        DTYPE_F32,
+        DTYPE_F16,
+    );
     let data = build_apr_v2(&meta, &tensors);
 
     let result = AprTransformer::from_apr_bytes(&data);
-    assert!(result.is_ok(), "F16 embedding+lm_head: {}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "F16 embedding+lm_head: {}",
+        result.unwrap_err()
+    );
 
     let apr = result.unwrap();
     assert_eq!(apr.token_embedding.len(), vocab * hidden);
@@ -294,7 +307,16 @@ fn test_from_apr_bytes_q8_0_weights() {
     let intermediate = 64;
     let vocab = 16;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let tensors = make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_Q8_0, DTYPE_F32);
+    let tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_Q8_0,
+        DTYPE_F32,
+    );
     let data = build_apr_v2(&meta, &tensors);
 
     let result = AprTransformer::from_apr_bytes(&data);
@@ -316,7 +338,16 @@ fn test_from_apr_bytes_q4k_flat_weights() {
     let intermediate = 256;
     let vocab = 4;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let tensors = make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_Q4_K, DTYPE_Q4_K);
+    let tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_Q4_K,
+        DTYPE_Q4_K,
+    );
     let data = build_apr_v2(&meta, &tensors);
 
     let result = AprTransformer::from_apr_bytes(&data);
@@ -324,7 +355,10 @@ fn test_from_apr_bytes_q4k_flat_weights() {
 
     let apr = result.unwrap();
     // Q4K weights loaded — also check q4k_layers populated
-    assert!(apr.q4k_layers.is_some(), "Q4K raw bytes should be extracted");
+    assert!(
+        apr.q4k_layers.is_some(),
+        "Q4K raw bytes should be extracted"
+    );
     let q4k = apr.q4k_layers.as_ref().unwrap();
     assert_eq!(q4k.len(), 1);
     assert!(q4k[0].attn_q_weight.is_some());
@@ -341,7 +375,16 @@ fn test_from_apr_bytes_q5k_flat_weights() {
     let intermediate = 256;
     let vocab = 4;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let tensors = make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_Q5_K, DTYPE_F32);
+    let tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_Q5_K,
+        DTYPE_F32,
+    );
     let data = build_apr_v2(&meta, &tensors);
 
     let result = AprTransformer::from_apr_bytes(&data);
@@ -364,12 +407,19 @@ fn test_from_apr_bytes_q6k_flat_weights() {
     let vocab = 4;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
     // Use Q6_K for down_proj specifically (tests q6k_ffn_down path)
-    let mut tensors =
-        make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_F32);
+    let mut tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_F32,
+    );
     // Override specific tensors to Q6_K
     for t in &mut tensors {
-        if t.name.contains("down_proj") || t.name.contains("up_proj") || t.name.contains("v_proj")
-        {
+        if t.name.contains("down_proj") || t.name.contains("up_proj") || t.name.contains("v_proj") {
             let num_elements: usize = t.dims.iter().map(|d| *d as usize).product();
             t.dtype = DTYPE_Q6_K;
             t.data = make_q6k_data(num_elements);
@@ -400,7 +450,16 @@ fn test_from_apr_bytes_q4k_perrow_path() {
     let intermediate = 128;
     let vocab = 4;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let tensors = make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_Q4_K, DTYPE_F32);
+    let tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_Q4_K,
+        DTYPE_F32,
+    );
     let data = build_apr_v2(&meta, &tensors);
 
     let result = AprTransformer::from_apr_bytes(&data);
@@ -409,7 +468,10 @@ fn test_from_apr_bytes_q4k_perrow_path() {
     let apr = result.unwrap();
     assert_eq!(apr.layers.len(), 1);
     // 2D weights with dims[1]=128 hit perrow dequant path
-    assert_eq!(apr.layers[0].qkv_weight.len(), hidden * (hidden + 2 * hidden));
+    assert_eq!(
+        apr.layers[0].qkv_weight.len(),
+        hidden * (hidden + 2 * hidden)
+    );
 }
 
 // ============================================================================
@@ -422,8 +484,16 @@ fn test_from_apr_bytes_q6k_perrow_path() {
     let intermediate = 128;
     let vocab = 4;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let mut tensors =
-        make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_F32);
+    let mut tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_F32,
+    );
     // Override down_proj to Q6_K with 2D dims where cols % 256 != 0
     for t in &mut tensors {
         if t.name.contains("down_proj") {
@@ -448,7 +518,16 @@ fn test_from_apr_bytes_q5k_perrow_path() {
     let intermediate = 128;
     let vocab = 4;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let tensors = make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_Q5_K, DTYPE_F32);
+    let tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_Q5_K,
+        DTYPE_F32,
+    );
     let data = build_apr_v2(&meta, &tensors);
 
     let result = AprTransformer::from_apr_bytes(&data);
@@ -465,8 +544,16 @@ fn test_from_apr_bytes_weight_tying_via_embed() {
     let intermediate = 32;
     let vocab = 16;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let mut tensors =
-        make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_F32);
+    let mut tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_F32,
+    );
     // Remove lm_head.weight to trigger weight tying
     tensors.retain(|t| t.name != "lm_head.weight");
     let data = build_apr_v2(&meta, &tensors);
@@ -571,11 +658,7 @@ fn test_from_apr_bytes_gguf_naming() {
     let data = build_apr_v2(&meta, &tensors);
 
     let result = AprTransformer::from_apr_bytes(&data);
-    assert!(
-        result.is_ok(),
-        "GGUF naming: {}",
-        result.unwrap_err()
-    );
+    assert!(result.is_ok(), "GGUF naming: {}", result.unwrap_err());
 
     let apr = result.unwrap();
     assert_eq!(apr.layers.len(), 1);
@@ -604,8 +687,16 @@ fn test_from_apr_bytes_metadata_aliases() {
         "rms_norm_eps": 1e-6,
         "max_seq_len": 1024
     }"#;
-    let tensors =
-        make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_F32);
+    let tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_F32,
+    );
     let data = build_apr_v2(meta, &tensors);
 
     let result = AprTransformer::from_apr_bytes(&data);
@@ -718,7 +809,16 @@ fn test_from_apr_bytes_q4k_lm_head() {
     let intermediate = 256;
     let vocab = 256; // multiple of 256 for flat Q4K
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let tensors = make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_Q4_K);
+    let tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_Q4_K,
+    );
     let data = build_apr_v2(&meta, &tensors);
 
     let result = AprTransformer::from_apr_bytes(&data);
@@ -734,8 +834,16 @@ fn test_from_apr_bytes_q6k_lm_head() {
     let intermediate = 256;
     let vocab = 256;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let mut tensors =
-        make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_F32);
+    let mut tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_F32,
+    );
     // Set lm_head to Q6_K
     for t in &mut tensors {
         if t.name == "lm_head.weight" {
@@ -763,8 +871,16 @@ fn test_from_apr_bytes_fused_qkv_bias() {
     let intermediate = 32;
     let vocab = 16;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let mut tensors =
-        make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_F32);
+    let mut tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_F32,
+    );
     // Add a fused QKV bias tensor
     let qkv_out = hidden + 2 * hidden; // heads=4, kv_heads=4 => kv_dim=hidden
     tensors.push(TensorDef {
@@ -794,8 +910,16 @@ fn test_from_apr_bytes_separate_qkv_biases() {
     let vocab = 16;
     let kv_dim = hidden; // kv_heads=4, head_dim=2
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let mut tensors =
-        make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_F32);
+    let mut tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_F32,
+    );
     // Add separate Q/K/V biases
     tensors.push(TensorDef {
         name: "model.layers.0.self_attn.q_proj.bias".into(),
@@ -818,7 +942,11 @@ fn test_from_apr_bytes_separate_qkv_biases() {
     let data = build_apr_v2(&meta, &tensors);
 
     let result = AprTransformer::from_apr_bytes(&data);
-    assert!(result.is_ok(), "Separate QKV biases: {}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "Separate QKV biases: {}",
+        result.unwrap_err()
+    );
 
     let apr = result.unwrap();
     let bias = apr.layers[0].qkv_bias.as_ref().unwrap();
@@ -843,8 +971,16 @@ fn test_from_apr_bytes_fused_qkv_weight() {
     let kv_dim = hidden; // kv_heads=4
     let qkv_out = hidden + 2 * kv_dim;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let mut tensors =
-        make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_F32);
+    let mut tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_F32,
+    );
     // Remove separate Q/K/V and add fused QKV
     tensors.retain(|t| {
         !t.name.contains("q_proj.weight")
@@ -980,14 +1116,12 @@ fn test_from_apr_bytes_multi_layer() {
     let num_layers = 3;
     let meta = minimal_metadata(hidden, num_layers, 4, 4, vocab, intermediate);
 
-    let mut tensors = vec![
-        TensorDef {
-            name: "model.embed_tokens.weight".into(),
-            dtype: DTYPE_F32,
-            dims: vec![vocab as u64, hidden as u64],
-            data: make_f32_data(vocab * hidden, 0.1),
-        },
-    ];
+    let mut tensors = vec![TensorDef {
+        name: "model.embed_tokens.weight".into(),
+        dtype: DTYPE_F32,
+        dims: vec![vocab as u64, hidden as u64],
+        data: make_f32_data(vocab * hidden, 0.1),
+    }];
 
     for i in 0..num_layers {
         let prefix = format!("model.layers.{i}");
@@ -1079,7 +1213,16 @@ fn test_from_apr_bytes_gqa_model() {
     let head_dim = hidden / heads; // 4
     let kv_dim = kv_heads * head_dim; // 8
     let meta = minimal_metadata(hidden, 1, heads, kv_heads, vocab, intermediate);
-    let tensors = make_hf_tensors(hidden, intermediate, heads, kv_heads, vocab, DTYPE_F32, DTYPE_F32, DTYPE_F32);
+    let tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        heads,
+        kv_heads,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_F32,
+    );
     let data = build_apr_v2(&meta, &tensors);
 
     let result = AprTransformer::from_apr_bytes(&data);
@@ -1088,7 +1231,10 @@ fn test_from_apr_bytes_gqa_model() {
     let apr = result.unwrap();
     assert_eq!(apr.config.num_kv_heads, kv_heads);
     // QKV weight should be hidden + 2*kv_dim = 16 + 2*8 = 32 rows * hidden=16 cols = 512
-    assert_eq!(apr.layers[0].qkv_weight.len(), (hidden + 2 * kv_dim) * hidden);
+    assert_eq!(
+        apr.layers[0].qkv_weight.len(),
+        (hidden + 2 * kv_dim) * hidden
+    );
 }
 
 // ============================================================================
@@ -1098,7 +1244,16 @@ fn test_from_apr_bytes_gqa_model() {
 /// Build a minimal executable F32 AprTransformer via from_apr_bytes
 fn build_f32_apr(hidden: usize, intermediate: usize, vocab: usize) -> AprTransformer {
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let tensors = make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_F32);
+    let tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_F32,
+    );
     let data = build_apr_v2(&meta, &tensors);
     AprTransformer::from_apr_bytes(&data).expect("F32 APR build failed")
 }
@@ -1106,7 +1261,16 @@ fn build_f32_apr(hidden: usize, intermediate: usize, vocab: usize) -> AprTransfo
 /// Build a minimal executable Q4K AprTransformer (with q4k_layers)
 fn build_q4k_apr(hidden: usize, intermediate: usize, vocab: usize) -> AprTransformer {
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let tensors = make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_Q4_K, DTYPE_Q4_K);
+    let tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_Q4_K,
+        DTYPE_Q4_K,
+    );
     let data = build_apr_v2(&meta, &tensors);
     AprTransformer::from_apr_bytes(&data).expect("Q4K APR build failed")
 }
@@ -1120,7 +1284,11 @@ fn test_forward_with_cache_f32_first_token() {
 
     // First token — exercises cache_len == 0 path (V used directly)
     let result = apr.forward_with_cache(1, &mut cache, 0);
-    assert!(result.is_ok(), "F32 cache first token: {}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "F32 cache first token: {}",
+        result.unwrap_err()
+    );
     let logits = result.unwrap();
     assert_eq!(logits.len(), 16); // vocab_size
     assert!(logits.iter().all(|x| x.is_finite()));
@@ -1136,7 +1304,11 @@ fn test_forward_with_cache_f32_multi_token() {
 
     // Second token — exercises cache_len > 0 path (full attention with cache)
     let result = apr.forward_with_cache(2, &mut cache, 1);
-    assert!(result.is_ok(), "F32 cache second token: {}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "F32 cache second token: {}",
+        result.unwrap_err()
+    );
     let logits = result.unwrap();
     assert_eq!(logits.len(), 16);
     assert!(logits.iter().all(|x| x.is_finite()));
@@ -1165,7 +1337,11 @@ fn test_forward_with_cache_q4k_first_token() {
     let mut cache = AprKVCache::new(&apr.config);
 
     let result = apr.forward_with_cache(1, &mut cache, 0);
-    assert!(result.is_ok(), "Q4K cache first token: {}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "Q4K cache first token: {}",
+        result.unwrap_err()
+    );
     let logits = result.unwrap();
     assert_eq!(logits.len(), 4);
 }
@@ -1178,7 +1354,11 @@ fn test_forward_with_cache_q4k_multi_token() {
     // Exercise both cache_len == 0 and cache_len > 0 paths with Q4K
     let _ = apr.forward_with_cache(1, &mut cache, 0).unwrap();
     let result = apr.forward_with_cache(2, &mut cache, 1);
-    assert!(result.is_ok(), "Q4K cache second token: {}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "Q4K cache second token: {}",
+        result.unwrap_err()
+    );
 }
 
 #[test]
@@ -1188,12 +1368,19 @@ fn test_forward_with_cache_q6k_weights() {
     let intermediate = 256;
     let vocab = 4;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let mut tensors =
-        make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_Q4_K, DTYPE_F32);
+    let mut tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_Q4_K,
+        DTYPE_F32,
+    );
     // Override specific tensors to Q6_K
     for t in &mut tensors {
-        if t.name.contains("v_proj") || t.name.contains("down_proj") || t.name.contains("up_proj")
-        {
+        if t.name.contains("v_proj") || t.name.contains("down_proj") || t.name.contains("up_proj") {
             let num_elements: usize = t.dims.iter().map(|d| *d as usize).product();
             t.dtype = DTYPE_Q6_K;
             t.data = make_q6k_data(num_elements);
@@ -1205,7 +1392,11 @@ fn test_forward_with_cache_q6k_weights() {
 
     // First token exercises Q6K V projection and Q6K FFN paths
     let result = apr.forward_with_cache(1, &mut cache, 0);
-    assert!(result.is_ok(), "Q6K cache first token: {}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "Q6K cache first token: {}",
+        result.unwrap_err()
+    );
 }
 
 #[test]
@@ -1216,8 +1407,16 @@ fn test_forward_with_cache_with_qkv_bias() {
     let vocab = 16;
     let kv_dim = hidden; // kv_heads=4, head_dim=2
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let mut tensors =
-        make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_F32);
+    let mut tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_F32,
+    );
     // Add fused QKV bias
     let qkv_out = hidden + 2 * kv_dim;
     tensors.push(TensorDef {
@@ -1310,8 +1509,16 @@ fn test_apr_transformer_num_parameters() {
 /// Build a model WITHOUT ffn_gate_weight (GELU/standard MLP path, like phi-2)
 fn build_gelu_apr(hidden: usize, intermediate: usize, vocab: usize) -> AprTransformer {
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let mut tensors =
-        make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_F32);
+    let mut tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_F32,
+    );
     // Remove gate_proj to make the model use standard MLP (GELU) instead of SwiGLU
     tensors.retain(|t| !t.name.contains("gate_proj"));
     let data = build_apr_v2(&meta, &tensors);
@@ -1353,8 +1560,16 @@ fn test_forward_with_cache_no_ffn_norm() {
     let intermediate = 32;
     let vocab = 16;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let mut tensors =
-        make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_F32);
+    let mut tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_F32,
+    );
     // Remove post_attention_layernorm to exercise no-ffn-norm path
     tensors.retain(|t| !t.name.contains("post_attention_layernorm"));
     let data = build_apr_v2(&meta, &tensors);
@@ -1378,7 +1593,16 @@ fn test_forward_with_cache_q4k_with_bias() {
     let kv_dim = hidden; // kv_heads=4
     let qkv_out = hidden + 2 * kv_dim;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let mut tensors = make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_Q4_K, DTYPE_F32);
+    let mut tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_Q4_K,
+        DTYPE_F32,
+    );
     // Add QKV bias (exercises the bias-split path when q4k_layer.is_some())
     tensors.push(TensorDef {
         name: "model.layers.0.self_attn.qkv_proj.bias".into(),
@@ -1406,7 +1630,16 @@ fn test_forward_with_cache_q4k_lm_head() {
     let intermediate = 256;
     let vocab = 256;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let tensors = make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_Q4_K);
+    let tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_Q4_K,
+    );
     let data = build_apr_v2(&meta, &tensors);
     let apr = AprTransformer::from_apr_bytes(&data).expect("Q4K lm_head APR build failed");
     assert!(apr.lm_head_weight_q4k.is_some());
@@ -1422,8 +1655,16 @@ fn test_forward_with_cache_q6k_lm_head() {
     let intermediate = 256;
     let vocab = 256;
     let meta = minimal_metadata(hidden, 1, 4, 4, vocab, intermediate);
-    let mut tensors =
-        make_hf_tensors(hidden, intermediate, 4, 4, vocab, DTYPE_F32, DTYPE_F32, DTYPE_F32);
+    let mut tensors = make_hf_tensors(
+        hidden,
+        intermediate,
+        4,
+        4,
+        vocab,
+        DTYPE_F32,
+        DTYPE_F32,
+        DTYPE_F32,
+    );
     // Set lm_head to Q6_K
     for t in &mut tensors {
         if t.name == "lm_head.weight" {

@@ -1056,8 +1056,8 @@ impl GpuModel {
             },
         };
 
-        // PMAT-216 FIX: Validate that lm_head_weight_t is actually transposed
-        // The bug was passing arguments in wrong order. This check catches it at runtime.
+        // Validate that lm_head_weight_t is actually transposed.
+        // Ensures the original and transposed weights have consistent argument order at runtime.
         // lm_head_weight: [vocab_size, hidden_dim] - row i is vocab token i's projection
         // lm_head_weight_t: [hidden_dim, vocab_size] - column i is vocab token i's projection
         //
@@ -1990,8 +1990,20 @@ impl GpuModel {
         // FFN
         let ffn_output: Vec<f32> = if let Some(gate_weight) = ffn_gate_weight {
             // SwiGLU
-            let up_out = self.do_matmul(&ffn_normed, &ffn_fc1_weight, seq_len, hidden_dim, intermediate_dim)?;
-            let gate_out = self.do_matmul(&ffn_normed, &gate_weight, seq_len, hidden_dim, intermediate_dim)?;
+            let up_out = self.do_matmul(
+                &ffn_normed,
+                &ffn_fc1_weight,
+                seq_len,
+                hidden_dim,
+                intermediate_dim,
+            )?;
+            let gate_out = self.do_matmul(
+                &ffn_normed,
+                &gate_weight,
+                seq_len,
+                hidden_dim,
+                intermediate_dim,
+            )?;
 
             let activated: Vec<f32> = gate_out
                 .iter()
@@ -2002,24 +2014,43 @@ impl GpuModel {
                 })
                 .collect();
 
-            let down = self.do_matmul(&activated, &ffn_fc2_weight, seq_len, intermediate_dim, hidden_dim)?;
+            let down = self.do_matmul(
+                &activated,
+                &ffn_fc2_weight,
+                seq_len,
+                intermediate_dim,
+                hidden_dim,
+            )?;
             down.iter()
                 .enumerate()
                 .map(|(i, &d)| d + ffn_fc2_bias[i % hidden_dim])
                 .collect()
         } else {
             // Standard GELU MLP
-            let up_out = self.do_matmul(&ffn_normed, &ffn_fc1_weight, seq_len, hidden_dim, intermediate_dim)?;
+            let up_out = self.do_matmul(
+                &ffn_normed,
+                &ffn_fc1_weight,
+                seq_len,
+                hidden_dim,
+                intermediate_dim,
+            )?;
             let activated: Vec<f32> = up_out
                 .iter()
                 .enumerate()
                 .map(|(i, &x)| {
                     let biased = x + ffn_fc1_bias[i % intermediate_dim];
-                    0.5 * biased * (1.0 + (0.797_884_6 * (biased + 0.044_715 * biased.powi(3))).tanh())
+                    0.5 * biased
+                        * (1.0 + (0.797_884_6 * (biased + 0.044_715 * biased.powi(3))).tanh())
                 })
                 .collect();
 
-            let down = self.do_matmul(&activated, &ffn_fc2_weight, seq_len, intermediate_dim, hidden_dim)?;
+            let down = self.do_matmul(
+                &activated,
+                &ffn_fc2_weight,
+                seq_len,
+                intermediate_dim,
+                hidden_dim,
+            )?;
             down.iter()
                 .enumerate()
                 .map(|(i, &d)| d + ffn_fc2_bias[i % hidden_dim])

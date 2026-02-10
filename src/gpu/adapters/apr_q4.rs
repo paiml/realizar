@@ -296,7 +296,13 @@ impl GpuModelQ4 {
             })?;
 
         let normed_gpu = executor
-            .rmsnorm_gpu_ptr(&hidden_gpu, output_gamma_ptr, output_gamma_len, hidden_dim as u32, self.config.eps)
+            .rmsnorm_gpu_ptr(
+                &hidden_gpu,
+                output_gamma_ptr,
+                output_gamma_len,
+                hidden_dim as u32,
+                self.config.eps,
+            )
             .map_err(|e| RealizarError::GpuError {
                 reason: format!("Output RMSNorm failed: {e}"),
             })?;
@@ -364,7 +370,13 @@ impl GpuModelQ4 {
             })?;
 
         let normed_gpu = executor
-            .rmsnorm_gpu_ptr(input, attn_gamma_ptr, attn_gamma_len, hidden_dim as u32, self.config.eps)
+            .rmsnorm_gpu_ptr(
+                input,
+                attn_gamma_ptr,
+                attn_gamma_len,
+                hidden_dim as u32,
+                self.config.eps,
+            )
             .map_err(|e| RealizarError::GpuError {
                 reason: format!("Attention RMSNorm failed: {e}"),
             })?;
@@ -462,7 +474,13 @@ impl GpuModelQ4 {
             })?;
 
         let ffn_input_gpu = executor
-            .rmsnorm_gpu_ptr(&residual1, ffn_gamma_ptr, ffn_gamma_len, hidden_dim as u32, self.config.eps)
+            .rmsnorm_gpu_ptr(
+                &residual1,
+                ffn_gamma_ptr,
+                ffn_gamma_len,
+                hidden_dim as u32,
+                self.config.eps,
+            )
             .map_err(|e| RealizarError::GpuError {
                 reason: format!("FFN RMSNorm failed: {e}"),
             })?;

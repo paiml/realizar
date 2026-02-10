@@ -1100,8 +1100,6 @@ impl CudaExecutor {
             epsilon,
         )?;
 
-
-
         // ========== 2. Q/K/V Projections (BATCHED GEMV - main optimization) ==========
         // PMAT-PREFILL-FIX: Handle each projection's quantization type independently.
         // Q, K, V may have different quantization types (e.g., Q4K for Q/K, Q6K for V).
@@ -1109,7 +1107,12 @@ impl CudaExecutor {
         // Q projection
         if layer_weights.attn_q_qtype == WeightQuantType::Q4K {
             self.batched_q4k_gemv_into(
-                layer_weights.attn_q_ptr, &hidden_buf1, &q_buf, m, q_dim, hidden_dim,
+                layer_weights.attn_q_ptr,
+                &hidden_buf1,
+                &q_buf,
+                m,
+                q_dim,
+                hidden_dim,
             )?;
         } else {
             for seq_idx in 0..m as usize {
@@ -1128,8 +1131,20 @@ impl CudaExecutor {
                     )
                 };
                 match layer_weights.attn_q_qtype {
-                    WeightQuantType::Q6K => self.q6k_gemv_into(layer_weights.attn_q_ptr, &input_view, &q_view, q_dim, hidden_dim)?,
-                    _ => self.q4k_gemv_into(layer_weights.attn_q_ptr, &input_view, &q_view, q_dim, hidden_dim)?,
+                    WeightQuantType::Q6K => self.q6k_gemv_into(
+                        layer_weights.attn_q_ptr,
+                        &input_view,
+                        &q_view,
+                        q_dim,
+                        hidden_dim,
+                    )?,
+                    _ => self.q4k_gemv_into(
+                        layer_weights.attn_q_ptr,
+                        &input_view,
+                        &q_view,
+                        q_dim,
+                        hidden_dim,
+                    )?,
                 }
                 std::mem::forget(input_view);
                 std::mem::forget(q_view);
@@ -1139,7 +1154,12 @@ impl CudaExecutor {
         // K projection
         if layer_weights.attn_k_qtype == WeightQuantType::Q4K {
             self.batched_q4k_gemv_into(
-                layer_weights.attn_k_ptr, &hidden_buf1, &k_buf, m, kv_dim, hidden_dim,
+                layer_weights.attn_k_ptr,
+                &hidden_buf1,
+                &k_buf,
+                m,
+                kv_dim,
+                hidden_dim,
             )?;
         } else {
             for seq_idx in 0..m as usize {
@@ -1158,8 +1178,20 @@ impl CudaExecutor {
                     )
                 };
                 match layer_weights.attn_k_qtype {
-                    WeightQuantType::Q6K => self.q6k_gemv_into(layer_weights.attn_k_ptr, &input_view, &k_view, kv_dim, hidden_dim)?,
-                    _ => self.q4k_gemv_into(layer_weights.attn_k_ptr, &input_view, &k_view, kv_dim, hidden_dim)?,
+                    WeightQuantType::Q6K => self.q6k_gemv_into(
+                        layer_weights.attn_k_ptr,
+                        &input_view,
+                        &k_view,
+                        kv_dim,
+                        hidden_dim,
+                    )?,
+                    _ => self.q4k_gemv_into(
+                        layer_weights.attn_k_ptr,
+                        &input_view,
+                        &k_view,
+                        kv_dim,
+                        hidden_dim,
+                    )?,
                 }
                 std::mem::forget(input_view);
                 std::mem::forget(k_view);
@@ -1169,7 +1201,12 @@ impl CudaExecutor {
         // V projection
         if layer_weights.attn_v_qtype == WeightQuantType::Q4K {
             self.batched_q4k_gemv_into(
-                layer_weights.attn_v_ptr, &hidden_buf1, &v_buf, m, kv_dim, hidden_dim,
+                layer_weights.attn_v_ptr,
+                &hidden_buf1,
+                &v_buf,
+                m,
+                kv_dim,
+                hidden_dim,
             )?;
         } else {
             // Sequential fallback for Q6K and other types — use the correct kernel per-type
@@ -1190,11 +1227,23 @@ impl CudaExecutor {
                 };
                 match layer_weights.attn_v_qtype {
                     WeightQuantType::Q6K => {
-                        self.q6k_gemv_into(layer_weights.attn_v_ptr, &input_view, &v_view, kv_dim, hidden_dim)?;
-                    }
+                        self.q6k_gemv_into(
+                            layer_weights.attn_v_ptr,
+                            &input_view,
+                            &v_view,
+                            kv_dim,
+                            hidden_dim,
+                        )?;
+                    },
                     _ => {
-                        self.q4k_gemv_into(layer_weights.attn_v_ptr, &input_view, &v_view, kv_dim, hidden_dim)?;
-                    }
+                        self.q4k_gemv_into(
+                            layer_weights.attn_v_ptr,
+                            &input_view,
+                            &v_view,
+                            kv_dim,
+                            hidden_dim,
+                        )?;
+                    },
                 }
                 std::mem::forget(input_view);
                 std::mem::forget(v_view);
@@ -1312,8 +1361,22 @@ impl CudaExecutor {
                     )
                 };
 
-                self.rope_neox_into(&q_view, &q_view, position as u32, num_heads, head_dim, theta)?;
-                self.rope_neox_into(&k_view, &k_view, position as u32, num_kv_heads, head_dim, theta)?;
+                self.rope_neox_into(
+                    &q_view,
+                    &q_view,
+                    position as u32,
+                    num_heads,
+                    head_dim,
+                    theta,
+                )?;
+                self.rope_neox_into(
+                    &k_view,
+                    &k_view,
+                    position as u32,
+                    num_kv_heads,
+                    head_dim,
+                    theta,
+                )?;
 
                 std::mem::forget(q_view);
                 std::mem::forget(k_view);
@@ -1357,8 +1420,11 @@ impl CudaExecutor {
                 .max()
                 .unwrap_or(0);
 
-            // PAR-118: Flash Decoding for very long sequences (>1024 positions)
-            // Threshold raised from 128 to 1024 - overhead exceeds benefit for shorter sequences
+            // PAR-118: Flash Decoding for batched multi-sequence path.
+            // NOTE: This batched Flash Decoding path is SEPARATE from the graph-compatible
+            // flash_decoding_graphed() in attention.rs which handles M=1 decode.
+            // Threshold 1024: the batched FD path needs further validation before lower thresholds.
+            // The graphed path (incremental_attention_into_inner) handles the critical decode case.
             if self.flash_decode_enabled && max_seq_len > 1024 {
                 self.flash_decoding_attention_into(
                     layer_idx,
@@ -1463,8 +1529,20 @@ impl CudaExecutor {
                     )
                 };
                 match layer_weights.attn_output_qtype {
-                    WeightQuantType::Q6K => self.q6k_gemv_into(layer_weights.attn_output_ptr, &attn_view, &out_view, hidden_dim, q_dim)?,
-                    _ => self.q4k_gemv_into(layer_weights.attn_output_ptr, &attn_view, &out_view, hidden_dim, q_dim)?,
+                    WeightQuantType::Q6K => self.q6k_gemv_into(
+                        layer_weights.attn_output_ptr,
+                        &attn_view,
+                        &out_view,
+                        hidden_dim,
+                        q_dim,
+                    )?,
+                    _ => self.q4k_gemv_into(
+                        layer_weights.attn_output_ptr,
+                        &attn_view,
+                        &out_view,
+                        hidden_dim,
+                        q_dim,
+                    )?,
                 }
 
                 std::mem::forget(attn_view);
@@ -1541,12 +1619,36 @@ impl CudaExecutor {
                 };
 
                 match layer_weights.ffn_gate_qtype {
-                    WeightQuantType::Q6K => self.q6k_gemv_into(layer_weights.ffn_gate_ptr, &input_view, &gate_view, intermediate_dim, hidden_dim)?,
-                    _ => self.q4k_gemv_into(layer_weights.ffn_gate_ptr, &input_view, &gate_view, intermediate_dim, hidden_dim)?,
+                    WeightQuantType::Q6K => self.q6k_gemv_into(
+                        layer_weights.ffn_gate_ptr,
+                        &input_view,
+                        &gate_view,
+                        intermediate_dim,
+                        hidden_dim,
+                    )?,
+                    _ => self.q4k_gemv_into(
+                        layer_weights.ffn_gate_ptr,
+                        &input_view,
+                        &gate_view,
+                        intermediate_dim,
+                        hidden_dim,
+                    )?,
                 }
                 match layer_weights.ffn_up_qtype {
-                    WeightQuantType::Q6K => self.q6k_gemv_into(layer_weights.ffn_up_ptr, &input_view, &up_view, intermediate_dim, hidden_dim)?,
-                    _ => self.q4k_gemv_into(layer_weights.ffn_up_ptr, &input_view, &up_view, intermediate_dim, hidden_dim)?,
+                    WeightQuantType::Q6K => self.q6k_gemv_into(
+                        layer_weights.ffn_up_ptr,
+                        &input_view,
+                        &up_view,
+                        intermediate_dim,
+                        hidden_dim,
+                    )?,
+                    _ => self.q4k_gemv_into(
+                        layer_weights.ffn_up_ptr,
+                        &input_view,
+                        &up_view,
+                        intermediate_dim,
+                        hidden_dim,
+                    )?,
                 }
 
                 std::mem::forget(input_view);

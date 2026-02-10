@@ -133,9 +133,7 @@ impl CudaExecutor {
             .hidden_buf2
             .as_ref()
             .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(
-                    "PMAT-PREFILL: hidden_buf2 missing".to_string(),
-                )
+                GpuError::InvalidLaunchConfig("PMAT-PREFILL: hidden_buf2 missing".to_string())
             })?
             .as_ptr();
         let hidden_buf2_len = self
@@ -143,9 +141,7 @@ impl CudaExecutor {
             .hidden_buf2
             .as_ref()
             .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(
-                    "PMAT-PREFILL: hidden_buf2 missing".to_string(),
-                )
+                GpuError::InvalidLaunchConfig("PMAT-PREFILL: hidden_buf2 missing".to_string())
             })?
             .len();
 
@@ -165,9 +161,7 @@ impl CudaExecutor {
                 None // Use input_buf directly
             } else {
                 // SAFETY: Pointer valid from allocation, length verified, used within scope
-                Some(unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len)
-                })
+                Some(unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) })
             };
 
             let layer_input = match &layer_input_buf {

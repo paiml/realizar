@@ -832,9 +832,7 @@ fn test_from_gguf_basic_fused_qkv() {
 #[test]
 fn test_from_gguf_separate_qkv() {
     use crate::gguf::test_helpers::create_q4k_test_data;
-    use crate::gguf::{
-        GGUFConfig, OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedModel,
-    };
+    use crate::gguf::{GGUFConfig, OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedModel};
 
     let hidden_dim = 64;
     let num_heads = 4;
@@ -907,7 +905,10 @@ fn test_from_gguf_separate_qkv() {
     let q_data_len = create_q4k_test_data(hidden_dim, hidden_dim).data.len();
     let k_data_len = create_q4k_test_data(hidden_dim, kv_dim).data.len();
     let v_data_len = create_q4k_test_data(hidden_dim, kv_dim).data.len();
-    assert_eq!(layer.qkv_weight.data.len(), q_data_len + k_data_len + v_data_len);
+    assert_eq!(
+        layer.qkv_weight.data.len(),
+        q_data_len + k_data_len + v_data_len
+    );
     assert_eq!(layer.qkv_weight.in_dim, hidden_dim);
     assert_eq!(layer.qkv_weight.out_dim, hidden_dim + kv_dim + kv_dim);
 }
@@ -946,9 +947,7 @@ fn test_from_gguf_gqa_config() {
 #[test]
 fn test_from_gguf_with_ffn_gate() {
     use crate::gguf::test_helpers::create_q4k_test_data;
-    use crate::gguf::{
-        GGUFConfig, OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedModel,
-    };
+    use crate::gguf::{GGUFConfig, OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedModel};
 
     let hidden_dim = 64;
     let config = GGUFConfig {

@@ -45,10 +45,10 @@ pub struct BlockWeights {
 }
 
 // =============================================================================
-// PMAT-216 FIX: Type-safe weight wrappers to prevent argument swaps
+// Type-safe weight wrappers to prevent argument swaps
 // =============================================================================
-// The LM head bug was caused by swapping lm_head_weight and lm_head_weight_t
-// in from_apr_weights(). These newtypes make such swaps a compile-time error.
+// Newtypes for lm_head_weight and lm_head_weight_t ensure that swapping them
+// in from_apr_weights() is a compile-time error rather than a silent misuse.
 
 /// LM head weight in original layout [vocab_size, hidden_dim]
 /// Used for reference/debugging, NOT for GPU matmul

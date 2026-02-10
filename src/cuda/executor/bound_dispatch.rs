@@ -98,18 +98,37 @@ mod tests {
         use crate::cuda::types::{BoundLayerWeights, IndexedLayerWeights};
 
         let indexed = IndexedLayerWeights {
-            attn_q_ptr: 0x1000, attn_q_len: 1024, attn_q_qtype: WeightQuantType::Q4K,
-            attn_k_ptr: 0x2000, attn_k_len: 512, attn_k_qtype: WeightQuantType::Q4K,
-            attn_v_ptr: 0x3000, attn_v_len: 768, attn_v_qtype: WeightQuantType::Q6K,
-            attn_output_ptr: 0x4000, attn_output_len: 1024, attn_output_qtype: WeightQuantType::Q4K,
-            ffn_gate_ptr: 0x5000, ffn_gate_len: 2048, ffn_gate_qtype: WeightQuantType::Q4K,
-            ffn_up_ptr: 0x6000, ffn_up_len: 2048, ffn_up_qtype: WeightQuantType::Q4K,
-            ffn_down_ptr: 0x7000, ffn_down_len: 1536, ffn_down_qtype: WeightQuantType::Q6K,
-            attn_norm_ptr: 0x8000, attn_norm_len: 256,
-            ffn_norm_ptr: 0x9000, ffn_norm_len: 256,
-            attn_q_bias_ptr: 0xA000, attn_q_bias_len: 128,
-            attn_k_bias_ptr: 0xB000, attn_k_bias_len: 64,
-            attn_v_bias_ptr: 0xC000, attn_v_bias_len: 64,
+            attn_q_ptr: 0x1000,
+            attn_q_len: 1024,
+            attn_q_qtype: WeightQuantType::Q4K,
+            attn_k_ptr: 0x2000,
+            attn_k_len: 512,
+            attn_k_qtype: WeightQuantType::Q4K,
+            attn_v_ptr: 0x3000,
+            attn_v_len: 768,
+            attn_v_qtype: WeightQuantType::Q6K,
+            attn_output_ptr: 0x4000,
+            attn_output_len: 1024,
+            attn_output_qtype: WeightQuantType::Q4K,
+            ffn_gate_ptr: 0x5000,
+            ffn_gate_len: 2048,
+            ffn_gate_qtype: WeightQuantType::Q4K,
+            ffn_up_ptr: 0x6000,
+            ffn_up_len: 2048,
+            ffn_up_qtype: WeightQuantType::Q4K,
+            ffn_down_ptr: 0x7000,
+            ffn_down_len: 1536,
+            ffn_down_qtype: WeightQuantType::Q6K,
+            attn_norm_ptr: 0x8000,
+            attn_norm_len: 256,
+            ffn_norm_ptr: 0x9000,
+            ffn_norm_len: 256,
+            attn_q_bias_ptr: 0xA000,
+            attn_q_bias_len: 128,
+            attn_k_bias_ptr: 0xB000,
+            attn_k_bias_len: 64,
+            attn_v_bias_ptr: 0xC000,
+            attn_v_bias_len: 64,
         };
 
         let bound = BoundLayerWeights::bind(&indexed, 256, 256, 64, 512);
@@ -117,19 +136,19 @@ mod tests {
         // Verify kernels were bound correctly based on qtypes
         assert_eq!(bound.q_proj.kernel(), GemvKernel::Q4K);
         assert_eq!(bound.k_proj.kernel(), GemvKernel::Q4K);
-        assert_eq!(bound.v_proj.kernel(), GemvKernel::Q6K);  // V uses Q6K
+        assert_eq!(bound.v_proj.kernel(), GemvKernel::Q6K); // V uses Q6K
         assert_eq!(bound.o_proj.kernel(), GemvKernel::Q4K);
         assert_eq!(bound.ffn_gate.kernel(), GemvKernel::Q4K);
         assert_eq!(bound.ffn_up.kernel(), GemvKernel::Q4K);
         assert_eq!(bound.ffn_down.kernel(), GemvKernel::Q6K); // down uses Q6K
 
         // Verify dimensions
-        assert_eq!(bound.q_proj.out_dim, 256);  // q_dim
-        assert_eq!(bound.q_proj.in_dim, 256);   // hidden_dim
-        assert_eq!(bound.v_proj.out_dim, 64);   // kv_dim
+        assert_eq!(bound.q_proj.out_dim, 256); // q_dim
+        assert_eq!(bound.q_proj.in_dim, 256); // hidden_dim
+        assert_eq!(bound.v_proj.out_dim, 64); // kv_dim
         assert_eq!(bound.ffn_gate.out_dim, 512); // intermediate_dim
         assert_eq!(bound.ffn_down.out_dim, 256); // hidden_dim
-        assert_eq!(bound.ffn_down.in_dim, 512);  // intermediate_dim
+        assert_eq!(bound.ffn_down.in_dim, 512); // intermediate_dim
 
         // Verify passthrough fields
         assert_eq!(bound.attn_norm_ptr, 0x8000);

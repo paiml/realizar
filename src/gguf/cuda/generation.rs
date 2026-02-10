@@ -351,7 +351,8 @@ impl OwnedQuantizedModelCuda {
             if config.trace {
                 eprintln!(
                     "[TRACE-PREFILL] Serial prefill: {} tokens in {:?}",
-                    prefill_count, prefill_start.elapsed()
+                    prefill_count,
+                    prefill_start.elapsed()
                 );
             }
         } else if prefill_count > 0 {
@@ -366,30 +367,31 @@ impl OwnedQuantizedModelCuda {
             let positions: Vec<u32> = (0..prefill_count as u32).collect();
 
             // Initialize prefill workspace for S tokens
-            self.executor.init_prefill_workspace(
-                prefill_count,
-                hidden_dim,
-                intermediate_dim,
-            ).map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "init_prefill_workspace".to_string(),
-                reason: format!("Prefill workspace init failed: {e}"),
-            })?;
+            self.executor
+                .init_prefill_workspace(prefill_count, hidden_dim, intermediate_dim)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "init_prefill_workspace".to_string(),
+                    reason: format!("Prefill workspace init failed: {e}"),
+                })?;
 
             // Run batched prefill through all layers
-            self.executor.prefill_all_layers_gpu(
-                &embeddings,
-                &positions,
-                num_layers,
-                hidden_dim as u32,
-                intermediate_dim as u32,
-                eps,
-            ).map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "prefill_all_layers_gpu".to_string(),
-                reason: format!("Batched prefill failed: {e}"),
-            })?;
+            self.executor
+                .prefill_all_layers_gpu(
+                    &embeddings,
+                    &positions,
+                    num_layers,
+                    hidden_dim as u32,
+                    intermediate_dim as u32,
+                    eps,
+                )
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "prefill_all_layers_gpu".to_string(),
+                    reason: format!("Batched prefill failed: {e}"),
+                })?;
 
             // Restore decode workspace (M=1 for token-by-token decode)
-            self.executor.init_workspace(hidden_dim, intermediate_dim)
+            self.executor
+                .init_workspace(hidden_dim, intermediate_dim)
                 .map_err(|e| RealizarError::UnsupportedOperation {
                     operation: "init_workspace".to_string(),
                     reason: format!("Workspace restore failed: {e}"),
@@ -539,28 +541,29 @@ impl OwnedQuantizedModelCuda {
             let embeddings = self.model.embed(prefill_tokens);
             let positions: Vec<u32> = (0..prefill_count as u32).collect();
 
-            self.executor.init_prefill_workspace(
-                prefill_count,
-                hidden_dim,
-                intermediate_dim,
-            ).map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "init_prefill_workspace".to_string(),
-                reason: format!("Prefill workspace init failed: {e}"),
-            })?;
+            self.executor
+                .init_prefill_workspace(prefill_count, hidden_dim, intermediate_dim)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "init_prefill_workspace".to_string(),
+                    reason: format!("Prefill workspace init failed: {e}"),
+                })?;
 
-            self.executor.prefill_all_layers_gpu(
-                &embeddings,
-                &positions,
-                num_layers,
-                hidden_dim as u32,
-                intermediate_dim as u32,
-                eps,
-            ).map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "prefill_all_layers_gpu".to_string(),
-                reason: format!("Batched prefill failed: {e}"),
-            })?;
+            self.executor
+                .prefill_all_layers_gpu(
+                    &embeddings,
+                    &positions,
+                    num_layers,
+                    hidden_dim as u32,
+                    intermediate_dim as u32,
+                    eps,
+                )
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "prefill_all_layers_gpu".to_string(),
+                    reason: format!("Batched prefill failed: {e}"),
+                })?;
 
-            self.executor.init_workspace(hidden_dim, intermediate_dim)
+            self.executor
+                .init_workspace(hidden_dim, intermediate_dim)
                 .map_err(|e| RealizarError::UnsupportedOperation {
                     operation: "init_workspace".to_string(),
                     reason: format!("Workspace restore failed: {e}"),

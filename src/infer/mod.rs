@@ -790,7 +790,7 @@ fn validate_gpu_first_token(
         None => {
             eprintln!("[F2-VALIDATION] BOS token unknown — skipping GPU validation");
             return true;
-        }
+        },
     };
     let probe_token: &[u32] = &[bos_id];
 

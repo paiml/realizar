@@ -9,6 +9,7 @@
 //! - part_02: Additional coverage for forward pass, attention, KV cache edge cases
 
 mod apr_transformer;
+mod convert_gguf;
 mod coverage;
 mod part_02;
 mod part_03;
@@ -18,8 +19,7 @@ mod part_06; // T-COV-95 Synthetic Falsification (AprTransformer via Pygmy Model
 mod part_07; // T-COV-95 Phase 50: ActivationStats, dequant_perrow, block dequant, ForwardTrace
 mod part_08; // T-COV-95 Phase 51: AprTransformer new/embed/forward/traced/generate/from_apr_bytes
 mod part_09; // T-COV-95 Phase 52: dequant blocks, perrow edge cases, ActivationStats, from_apr_bytes errors
-mod q4_simd;
-mod q4k_forward;
-mod convert_gguf;
 mod part_10; // T-COV-95 Phase 53: from_apr_bytes dtype dispatch (Q4K, Q5K, Q6K, Q8_0, F16)
-mod part_11; // T-COV-95 Phase 54: Q4K fused kernel dispatch, Q6K variants, force-F32
+mod part_11;
+mod q4_simd;
+mod q4k_forward; // T-COV-95 Phase 54: Q4K fused kernel dispatch, Q6K variants, force-F32

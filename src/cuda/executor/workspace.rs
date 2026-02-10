@@ -167,6 +167,8 @@ impl CudaExecutor {
         self.graph_input_buf = None;
         self.position_buf = None;
         self.seq_len_buf = None;
+        // PAR-118: Reset capture failure flag so next generation can attempt capture
+        self.graph_capture_failed = false;
     }
 
     /// GH-219: Validate PTX parity for all batched kernels at startup

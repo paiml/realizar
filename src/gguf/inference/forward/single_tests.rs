@@ -768,7 +768,10 @@ fn test_forward_single_with_scratch_llama_basic() {
 
     let r1 = model.forward_single_with_scratch(5, &mut cache, 0, &mut scratch);
     assert!(r1.is_ok(), "Scratch llama first: {}", r1.unwrap_err());
-    assert!(scratch.logits.iter().any(|x| *x != 0.0), "logits should be non-zero");
+    assert!(
+        scratch.logits.iter().any(|x| *x != 0.0),
+        "logits should be non-zero"
+    );
 
     let r2 = model.forward_single_with_scratch(10, &mut cache, 1, &mut scratch);
     assert!(r2.is_ok(), "Scratch llama second: {}", r2.unwrap_err());
@@ -783,7 +786,10 @@ fn test_forward_single_with_scratch_phi_basic() {
 
     let r1 = model.forward_single_with_scratch(5, &mut cache, 0, &mut scratch);
     assert!(r1.is_ok(), "Scratch phi first: {}", r1.unwrap_err());
-    assert!(scratch.logits.iter().any(|x| *x != 0.0), "phi logits should be non-zero");
+    assert!(
+        scratch.logits.iter().any(|x| *x != 0.0),
+        "phi logits should be non-zero"
+    );
 }
 
 #[test]
@@ -978,8 +984,8 @@ fn create_llama_256_gqa_model() -> crate::gguf::OwnedQuantizedModel {
         architecture: "llama".to_string(),
         hidden_dim: 256,
         intermediate_dim: 512,
-        num_heads: 8,     // 8 query heads
-        num_kv_heads: 2,  // 2 KV heads => GQA group_size=4
+        num_heads: 8,    // 8 query heads
+        num_kv_heads: 2, // 2 KV heads => GQA group_size=4
         num_layers: 1,
         vocab_size: 100,
         context_length: 512,

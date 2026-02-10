@@ -160,7 +160,7 @@ pub fn validate_embedding(
         ));
     }
 
-    // Gate 2: Density validation (CRITICAL - catches the SafeTensors bug!)
+    // Gate 2: Density validation (CRITICAL - detects incorrect data offsets)
     let zero_pct = stats.zero_pct();
     if zero_pct > 50.0 {
         failures.push(format!(
