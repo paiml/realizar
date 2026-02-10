@@ -291,10 +291,19 @@ fn prepare_tokens_gguf(config: &InferenceConfig, prompt: &str) -> Result<Prepare
         prompt.to_string()
     };
 
+    if config.verbose {
+        eprintln!("[DEBUG] template_hint={}", apr_arch_to_template_hint(gguf_arch, model_name));
+        eprintln!("[DEBUG] formatted_prompt={:?}", &formatted_prompt[..formatted_prompt.len().min(200)]);
+    }
+
     let tokens = mapped
         .model
         .encode(&formatted_prompt)
         .unwrap_or_else(|| vec![1u32]);
+
+    if config.verbose {
+        eprintln!("[DEBUG] encoded {} tokens: {:?}", tokens.len(), &tokens[..tokens.len().min(30)]);
+    }
 
     Ok(PreparedTokens {
         input_count: tokens.len(),
@@ -622,7 +631,13 @@ fn run_gguf_inference(
     let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
 
     let generated_tokens = &tokens[input_token_count..];
-    let text = clean_model_output(&mapped.model.decode(generated_tokens));
+    let raw_text = mapped.model.decode(generated_tokens);
+    if config.verbose {
+        eprintln!("[DEBUG] input_count={}, total_tokens={}, generated_count={}", input_token_count, tokens.len(), generated_tokens.len());
+        eprintln!("[DEBUG] generated token ids: {:?}", &generated_tokens[..generated_tokens.len().min(20)]);
+        eprintln!("[DEBUG] raw decoded: {:?}", &raw_text[..raw_text.len().min(200)]);
+    }
+    let text = clean_model_output(&raw_text);
     let generated_token_count = generated_tokens.len();
     let tps = tok_per_sec(generated_token_count, inference_ms);
 
@@ -1333,13 +1348,6 @@ fn run_safetensors_cpu_inference(
     let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
     let generated_tokens = &all_tokens[input_token_count..];
 
-    // DEBUG: Show generated token IDs
-    eprintln!(
-        "[DEBUG] Input tokens: {:?}",
-        &all_tokens[..input_token_count]
-    );
-    eprintln!("[DEBUG] Generated tokens: {:?}", generated_tokens);
-
     let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
         clean_model_output(&tokenizer.decode(generated_tokens))
     } else {
@@ -1457,12 +1465,6 @@ fn run_sharded_safetensors_inference(
 
     let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
     let generated_tokens = &all_tokens[input_token_count..];
-
-    eprintln!(
-        "[DEBUG] Input tokens: {:?}",
-        &all_tokens[..input_token_count]
-    );
-    eprintln!("[DEBUG] Generated tokens: {:?}", generated_tokens);
 
     let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
         clean_model_output(&tokenizer.decode(generated_tokens))
