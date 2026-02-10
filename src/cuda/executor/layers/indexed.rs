@@ -101,8 +101,11 @@ impl CudaExecutor {
             WeightQuantType::Q4K => {
                 self.q4k_gemv_indexed_async(layer_weights.attn_v_ptr, &normed, kv_dim, hidden_dim)?
             },
-            WeightQuantType::Q5K | WeightQuantType::Q8_0 | WeightQuantType::Q4_0
-            | WeightQuantType::Q5_0 | WeightQuantType::Q4_1 => {
+            WeightQuantType::Q5K
+            | WeightQuantType::Q8_0
+            | WeightQuantType::Q4_0
+            | WeightQuantType::Q5_0
+            | WeightQuantType::Q4_1 => {
                 return Err(GpuError::InvalidParameter(format!(
                     "PMAT-232: V qtype {:?} not supported in indexed async path (use workspace path)",
                     layer_weights.attn_v_qtype
@@ -455,7 +458,7 @@ impl CudaExecutor {
 
         // 1. Pre-attention RMSNorm: input -> hidden_buf1 (normed)
         let timer_rmsnorm1 = if profiling {
-            self.start_brick_timer("RmsNorm1")
+            self.start_brick_id(trueno::BrickId::RmsNorm)
         } else {
             None
         };
@@ -468,7 +471,7 @@ impl CudaExecutor {
             epsilon,
         )?;
         if profiling {
-            self.stop_brick_timer(timer_rmsnorm1, 1);
+            self.stop_brick_id(timer_rmsnorm1, 1);
         }
 
         // PAR-058-DEBUG: Check after RMSNorm (skip during graph capture)
@@ -495,7 +498,7 @@ impl CudaExecutor {
         // PAR-058: Use correct kernel based on weight quantization type
         // Qwen 0.5B uses Q5_0 for Q/K weights, not Q4K
         let timer_qkv = if profiling {
-            self.start_brick_timer("QKV")
+            self.start_brick_id(trueno::BrickId::QkvProjection)
         } else {
             None
         };
@@ -731,7 +734,7 @@ impl CudaExecutor {
             },
         }
         if profiling {
-            self.stop_brick_timer(timer_qkv, 1);
+            self.stop_brick_id(timer_qkv, 1);
         }
 
         // BIAS-FIX: Add QKV bias after GEMV (Qwen2.5 models have QKV bias)
@@ -907,7 +910,7 @@ impl CudaExecutor {
         // This eliminates 28 GPU syncs + D2H/H2D copies per token
         // PAR-070: Use explicit position parameter instead of deriving from cache length
         let timer_rope = if profiling {
-            self.start_brick_timer("RoPE")
+            self.start_brick_id(trueno::BrickId::RopeEmbedding)
         } else {
             None
         };
@@ -1001,14 +1004,14 @@ impl CudaExecutor {
             }
         }
         if profiling {
-            self.stop_brick_timer(timer_rope, 1);
+            self.stop_brick_id(timer_rope, 1);
         }
 
         // 3. PAR-051: Incremental attention into pre-allocated workspace buffer
         // Eliminates 28 GPU allocations per token
         // PAR-054-FIX: Use capture-safe version during graph capture to skip debug sync
         let timer_attn = if profiling {
-            self.start_brick_timer("Attention")
+            self.start_brick_id(trueno::BrickId::AttentionScore)
         } else {
             None
         };
@@ -1024,7 +1027,7 @@ impl CudaExecutor {
             self.incremental_attention_into(layer_idx, &q_buf, &k_buf, &v_buf, &attn_out_buf)?
         };
         if profiling {
-            self.stop_brick_timer(timer_attn, 1);
+            self.stop_brick_id(timer_attn, 1);
         }
 
         // PAR-058-DEBUG: Check attention output (skip during graph capture)
@@ -1085,7 +1088,7 @@ impl CudaExecutor {
         // 4. Output projection: attn_out_buf -> hidden_buf1 (reuse, normed no longer needed)
         // PAR-058: Use correct kernel based on output projection quantization type
         let timer_oproj = if profiling {
-            self.start_brick_timer("OProj")
+            self.start_brick_id(trueno::BrickId::OutputProjection)
         } else {
             None
         };
@@ -1156,7 +1159,7 @@ impl CudaExecutor {
             },
         }
         if profiling {
-            self.stop_brick_timer(timer_oproj, 1);
+            self.stop_brick_id(timer_oproj, 1);
         }
 
         // PAR-058-DEBUG: Check output projection (skip during graph capture)
@@ -1212,7 +1215,7 @@ impl CudaExecutor {
 
         // 6. Pre-FFN RMSNorm: residual1 (input_staging) -> hidden_buf1 (ffn_normed)
         let timer_rmsnorm2 = if profiling {
-            self.start_brick_timer("RmsNorm2")
+            self.start_brick_id(trueno::BrickId::RmsNorm)
         } else {
             None
         };
@@ -1225,7 +1228,7 @@ impl CudaExecutor {
             epsilon,
         )?;
         if profiling {
-            self.stop_brick_timer(timer_rmsnorm2, 1);
+            self.stop_brick_id(timer_rmsnorm2, 1);
         }
 
         // 7. FFN gate/up projections -> workspace buffers
@@ -1233,7 +1236,7 @@ impl CudaExecutor {
         // Root cause: Input is 6KB, weights are 15MB - weights dominate by 2500x
         // L2 cache naturally serves input reuse between gate/up kernels
         let timer_ffn_gate_up = if profiling {
-            self.start_brick_timer("FFNGateUp")
+            self.start_brick_id(trueno::BrickId::GateProjection)
         } else {
             None
         };
@@ -1370,7 +1373,7 @@ impl CudaExecutor {
             },
         }
         if profiling {
-            self.stop_brick_timer(timer_ffn_gate_up, 1);
+            self.stop_brick_id(timer_ffn_gate_up, 1);
         }
 
         // PAR-058-DEBUG: Check FFN gate/up outputs (skip during graph capture)
@@ -1404,13 +1407,13 @@ impl CudaExecutor {
 
         // 8. SwiGLU activation: gate * silu(up) -> ffn_act_buf
         let timer_swiglu = if profiling {
-            self.start_brick_timer("SwiGLU")
+            self.start_brick_id(trueno::BrickId::Activation)
         } else {
             None
         };
         self.fused_swiglu_into(&ffn_gate_buf, &ffn_up_buf, &ffn_act_buf, intermediate_dim)?;
         if profiling {
-            self.stop_brick_timer(timer_swiglu, 1);
+            self.stop_brick_id(timer_swiglu, 1);
         }
 
         // PAR-058-DEBUG: Check SwiGLU output (skip during graph capture)
@@ -1494,7 +1497,7 @@ impl CudaExecutor {
         }
 
         let timer_ffn_down = if profiling {
-            self.start_brick_timer("FFNDown")
+            self.start_brick_id(trueno::BrickId::DownProjection)
         } else {
             None
         };
@@ -1592,7 +1595,7 @@ impl CudaExecutor {
             },
         }
         if profiling {
-            self.stop_brick_timer(timer_ffn_down, 1);
+            self.stop_brick_id(timer_ffn_down, 1);
         }
 
         // PAR-058-DEBUG: Check FFN down output (skip during graph capture)
