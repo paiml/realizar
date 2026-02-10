@@ -13,6 +13,10 @@ readme = "README.md"
 keywords = ["machine-learning", "inference", "model-serving", "gguf", "transformer"]
 categories = ["science", "web-programming::http-server"]
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--generate-link-to-definition"]
+
 [lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
 # unreachable_pub disabled - too noisy for test code in #[cfg(test)] modules
