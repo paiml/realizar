@@ -474,7 +474,7 @@ impl CudaExecutor {
         // PAR-PROFILE: Brick timer for output norm
         let profiling = self.profiler.is_enabled();
         let timer_output_norm = if profiling {
-            self.start_brick_timer("OutputNorm")
+            self.start_brick_id(trueno::BrickId::RmsNorm)
         } else {
             None
         };
@@ -544,10 +544,10 @@ impl CudaExecutor {
 
         // PAR-PROFILE: Stop output norm timer, start LM head timer
         if profiling {
-            self.stop_brick_timer(timer_output_norm, 1);
+            self.stop_brick_id(timer_output_norm, 1);
         }
         let timer_lm_head = if profiling {
-            self.start_brick_timer("LmHead")
+            self.start_brick_id(trueno::BrickId::LmHead)
         } else {
             None
         };
@@ -871,7 +871,7 @@ impl CudaExecutor {
 
         // PAR-PROFILE: Stop LM head timer
         if profiling {
-            self.stop_brick_timer(timer_lm_head, 1);
+            self.stop_brick_id(timer_lm_head, 1);
         }
 
         // 7. Final sync and download - sync point #2 (only required sync)

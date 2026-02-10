@@ -86,6 +86,8 @@ pub enum TraceStep {
     Decode,
     /// GPU kernel launch (PTX-level tracing, GH-219)
     KernelLaunch,
+    /// Compute brick profiling breakdown (trueno BrickProfiler)
+    BrickProfile,
 }
 
 impl TraceStep {
@@ -103,6 +105,7 @@ impl TraceStep {
             "sample" | "sampling" => Some(Self::Sample),
             "decode" | "detokenize" => Some(Self::Decode),
             "kernel" | "kernel_launch" | "ptx" | "cuda" => Some(Self::KernelLaunch),
+            "brick" | "brick_profile" | "profiler" | "bricks" => Some(Self::BrickProfile),
             _ => None,
         }
     }
@@ -121,6 +124,7 @@ impl TraceStep {
             Self::Sample => "SAMPLE",
             Self::Decode => "DECODE",
             Self::KernelLaunch => "KERNEL_LAUNCH",
+            Self::BrickProfile => "BRICK_PROFILE",
         }
     }
 
@@ -139,6 +143,7 @@ impl TraceStep {
             Self::Sample => "SAMPLE",
             Self::Decode => "DECODE",
             Self::KernelLaunch => "KERNEL_LAUNCH",
+            Self::BrickProfile => "BRICK_PROFILE",
         }
     }
 
@@ -153,6 +158,7 @@ impl TraceStep {
             Self::Sample => 5,
             Self::Decode => 6,
             Self::KernelLaunch => 7,
+            Self::BrickProfile => 8,
         }
     }
 }
@@ -407,6 +413,12 @@ pub struct TraceDetails {
     pub kernel_layer: Option<usize>,
     /// Dispatch strategy: "grid_y" or "register_unroll" (for kernel_launch step)
     pub dispatch_strategy: Option<String>,
+    /// Brick category breakdown (for brick_profile step)
+    /// Maps category name ("Norm", "Attention", "FFN", "Other") to nanoseconds
+    pub brick_categories: Option<Vec<(String, u64)>>,
+    /// Per-brick timing (for brick_profile step)
+    /// Maps brick name ("RmsNorm", "QkvProjection", etc.) to (total_ns, count)
+    pub brick_timings: Option<Vec<(String, u64, u64)>>,
 }
 
 /// Inference tracer
@@ -951,7 +963,7 @@ impl InferenceTracer {
                 layer_count = 0;
 
                 output.push_str(&format!(
-                    "[{}/7] {}\n",
+                    "[{}/8] {}\n",
                     event.step.step_number(),
                     event.step.name()
                 ));
@@ -1061,17 +1073,11 @@ impl InferenceTracer {
                     if let Some(ref name) = event.details.kernel_name {
                         output.push_str(&format!("  Kernel:   {}\n", name));
                     }
-                    if let Some(grid) = event.details.grid_dims {
-                        output.push_str(&format!(
-                            "  Grid:     ({}, {}, {})\n",
-                            grid[0], grid[1], grid[2]
-                        ));
+                    if let Some([gx, gy, gz]) = event.details.grid_dims {
+                        output.push_str(&format!("  Grid:     ({}, {}, {})\n", gx, gy, gz));
                     }
-                    if let Some(block) = event.details.block_dims {
-                        output.push_str(&format!(
-                            "  Block:    ({}, {}, {})\n",
-                            block[0], block[1], block[2]
-                        ));
+                    if let Some([bx, by, bz]) = event.details.block_dims {
+                        output.push_str(&format!("  Block:    ({}, {}, {})\n", bx, by, bz));
                     }
                     if let Some(smem) = event.details.shared_mem_bytes {
                         output.push_str(&format!("  SharedMem: {} bytes\n", smem));
@@ -1081,6 +1087,30 @@ impl InferenceTracer {
                     }
                     if let Some(layer) = event.details.kernel_layer {
                         output.push_str(&format!("  Layer:    {}\n", layer));
+                    }
+                    output.push_str(&format!("  Duration: {}us\n", event.duration_us));
+                },
+                TraceStep::BrickProfile => {
+                    if let Some(ref categories) = event.details.brick_categories {
+                        output.push_str("  Categories:\n");
+                        for (name, ns) in categories {
+                            output.push_str(&format!(
+                                "    {:<12} {:.3}ms\n",
+                                name,
+                                *ns as f64 / 1_000_000.0
+                            ));
+                        }
+                    }
+                    if let Some(ref timings) = event.details.brick_timings {
+                        output.push_str("  Bricks:\n");
+                        for (name, total_ns, count) in timings {
+                            output.push_str(&format!(
+                                "    {:<20} {:.3}ms (x{})\n",
+                                name,
+                                *total_ns as f64 / 1_000_000.0,
+                                count
+                            ));
+                        }
                     }
                     output.push_str(&format!("  Duration: {}us\n", event.duration_us));
                 },

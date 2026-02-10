@@ -152,6 +152,193 @@ impl GGUFConfig {
     }
 }
 
+// ---------------------------------------------------------------------------
+// ValidatedModelConfig — newtype Poka-Yoke wrapper (PMAT-235)
+// ---------------------------------------------------------------------------
+
+/// A validated model configuration that guarantees structural invariants.
+///
+/// Wraps `GGUFConfig` and enforces:
+/// - `hidden_dim > 0`, `num_layers > 0`, `vocab_size > 0`
+/// - `num_heads > 0`, `num_kv_heads > 0`
+/// - `hidden_dim % num_heads == 0` (head_dim must divide evenly)
+/// - `num_heads % num_kv_heads == 0` (GQA ratio must be an integer)
+///
+/// The inner `GGUFConfig` is private — access fields via getters or `Deref`.
+#[derive(Debug, Clone)]
+pub struct ValidatedModelConfig {
+    inner: GGUFConfig,
+}
+
+impl ValidatedModelConfig {
+    /// Validate a `GGUFConfig` and return a `ValidatedModelConfig`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RealizarError::InvalidShape` if any structural invariant is violated.
+    pub fn validate(config: GGUFConfig) -> Result<Self> {
+        if config.hidden_dim == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "hidden_dim must be > 0".to_string(),
+            });
+        }
+        if config.num_layers == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "num_layers must be > 0".to_string(),
+            });
+        }
+        if config.vocab_size == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "vocab_size must be > 0".to_string(),
+            });
+        }
+        if config.num_heads == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "num_heads must be > 0".to_string(),
+            });
+        }
+        if config.num_kv_heads == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "num_kv_heads must be > 0".to_string(),
+            });
+        }
+        if !config.hidden_dim.is_multiple_of(config.num_heads) {
+            return Err(RealizarError::InvalidShape {
+                reason: format!(
+                    "hidden_dim ({}) must be divisible by num_heads ({}) for head_dim consistency",
+                    config.hidden_dim, config.num_heads
+                ),
+            });
+        }
+        if !config.num_heads.is_multiple_of(config.num_kv_heads) {
+            return Err(RealizarError::InvalidShape {
+                reason: format!(
+                    "num_heads ({}) must be divisible by num_kv_heads ({}) — GQA ratio must be an integer",
+                    config.num_heads, config.num_kv_heads
+                ),
+            });
+        }
+
+        Ok(Self { inner: config })
+    }
+
+    /// Load and validate directly from a GGUF model.
+    ///
+    /// Calls `GGUFConfig::from_gguf()` then validates the result.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if metadata extraction or validation fails.
+    pub fn from_gguf(model: &GGUFModel) -> Result<Self> {
+        let config = GGUFConfig::from_gguf(model)?;
+        Self::validate(config)
+    }
+
+    // -- Getters for all fields --
+
+    /// Model architecture (e.g., "llama", "qwen2")
+    #[must_use]
+    pub fn architecture(&self) -> &str {
+        &self.inner.architecture
+    }
+
+    /// Embedding dimension (hidden size)
+    #[must_use]
+    pub fn hidden_dim(&self) -> usize {
+        self.inner.hidden_dim
+    }
+
+    /// Number of transformer layers
+    #[must_use]
+    pub fn num_layers(&self) -> usize {
+        self.inner.num_layers
+    }
+
+    /// Number of attention heads
+    #[must_use]
+    pub fn num_heads(&self) -> usize {
+        self.inner.num_heads
+    }
+
+    /// Number of key-value heads (for GQA)
+    #[must_use]
+    pub fn num_kv_heads(&self) -> usize {
+        self.inner.num_kv_heads
+    }
+
+    /// Vocabulary size
+    #[must_use]
+    pub fn vocab_size(&self) -> usize {
+        self.inner.vocab_size
+    }
+
+    /// FFN intermediate dimension
+    #[must_use]
+    pub fn intermediate_dim(&self) -> usize {
+        self.inner.intermediate_dim
+    }
+
+    /// Context length
+    #[must_use]
+    pub fn context_length(&self) -> usize {
+        self.inner.context_length
+    }
+
+    /// RoPE theta (position encoding base)
+    #[must_use]
+    pub fn rope_theta(&self) -> f32 {
+        self.inner.rope_theta
+    }
+
+    /// Layer norm epsilon
+    #[must_use]
+    pub fn eps(&self) -> f32 {
+        self.inner.eps
+    }
+
+    /// RoPE type: 0 = NORM (adjacent pairs), 2 = NEOX (split halves)
+    #[must_use]
+    pub fn rope_type(&self) -> u32 {
+        self.inner.rope_type
+    }
+
+    /// BOS token ID (None if unknown)
+    #[must_use]
+    pub fn bos_token_id(&self) -> Option<u32> {
+        self.inner.bos_token_id
+    }
+
+    // -- Derived getters --
+
+    /// Dimension per attention head (`hidden_dim / num_heads`).
+    ///
+    /// Safe because validation guarantees `hidden_dim % num_heads == 0`.
+    #[must_use]
+    pub fn head_dim(&self) -> usize {
+        self.inner.hidden_dim / self.inner.num_heads
+    }
+
+    /// Total KV dimension (`num_kv_heads * head_dim`).
+    #[must_use]
+    pub fn kv_dim(&self) -> usize {
+        self.inner.num_kv_heads * self.head_dim()
+    }
+
+    /// Borrow the inner `GGUFConfig` (backward compatibility escape hatch).
+    #[must_use]
+    pub fn config(&self) -> &GGUFConfig {
+        &self.inner
+    }
+}
+
+impl std::ops::Deref for ValidatedModelConfig {
+    type Target = GGUFConfig;
+
+    fn deref(&self) -> &GGUFConfig {
+        &self.inner
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,5 +690,198 @@ mod tests {
         assert_eq!(default_bos_for_architecture("phi3"), None);
         assert_eq!(default_bos_for_architecture("unknown_arch"), None);
         assert_eq!(default_bos_for_architecture(""), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // ValidatedModelConfig tests
+    // -----------------------------------------------------------------------
+
+    /// Helper: build a valid LLaMA-style GGUFConfig for testing.
+    fn valid_llama_config() -> GGUFConfig {
+        GGUFConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 4096,
+            num_layers: 32,
+            num_heads: 32,
+            num_kv_heads: 8,
+            vocab_size: 32000,
+            intermediate_dim: 11008,
+            context_length: 4096,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+            rope_type: 0,
+            bos_token_id: Some(128_000),
+        }
+    }
+
+    #[test]
+    fn test_validated_config_accepts_valid() {
+        let validated = ValidatedModelConfig::validate(valid_llama_config());
+        assert!(validated.is_ok());
+    }
+
+    #[test]
+    fn test_validated_config_getters() {
+        let v =
+            ValidatedModelConfig::validate(valid_llama_config()).expect("valid config should pass");
+
+        assert_eq!(v.architecture(), "llama");
+        assert_eq!(v.hidden_dim(), 4096);
+        assert_eq!(v.num_layers(), 32);
+        assert_eq!(v.num_heads(), 32);
+        assert_eq!(v.num_kv_heads(), 8);
+        assert_eq!(v.vocab_size(), 32000);
+        assert_eq!(v.intermediate_dim(), 11008);
+        assert_eq!(v.context_length(), 4096);
+        assert!((v.rope_theta() - 10000.0).abs() < f32::EPSILON);
+        assert!((v.eps() - 1e-5).abs() < f32::EPSILON);
+        assert_eq!(v.rope_type(), 0);
+        assert_eq!(v.bos_token_id(), Some(128_000));
+    }
+
+    #[test]
+    fn test_validated_config_head_dim() {
+        let v =
+            ValidatedModelConfig::validate(valid_llama_config()).expect("valid config should pass");
+        // 4096 / 32 = 128
+        assert_eq!(v.head_dim(), 128);
+    }
+
+    #[test]
+    fn test_validated_config_kv_dim() {
+        let v =
+            ValidatedModelConfig::validate(valid_llama_config()).expect("valid config should pass");
+        // 8 * 128 = 1024
+        assert_eq!(v.kv_dim(), 1024);
+    }
+
+    #[test]
+    fn test_validated_config_deref() {
+        let v =
+            ValidatedModelConfig::validate(valid_llama_config()).expect("valid config should pass");
+        // Access via Deref — should reach GGUFConfig fields directly
+        assert_eq!(v.hidden_dim, 4096);
+        assert_eq!(v.num_heads, 32);
+    }
+
+    #[test]
+    fn test_validated_config_inner_ref() {
+        let v =
+            ValidatedModelConfig::validate(valid_llama_config()).expect("valid config should pass");
+        let inner: &GGUFConfig = v.config();
+        assert_eq!(inner.architecture, "llama");
+        assert_eq!(inner.hidden_dim, 4096);
+    }
+
+    #[test]
+    fn test_validated_config_clone() {
+        let v =
+            ValidatedModelConfig::validate(valid_llama_config()).expect("valid config should pass");
+        let cloned = v.clone();
+        assert_eq!(cloned.hidden_dim(), v.hidden_dim());
+        assert_eq!(cloned.architecture(), v.architecture());
+    }
+
+    #[test]
+    fn test_validated_config_debug() {
+        let v =
+            ValidatedModelConfig::validate(valid_llama_config()).expect("valid config should pass");
+        let debug = format!("{v:?}");
+        assert!(debug.contains("ValidatedModelConfig"));
+        assert!(debug.contains("llama"));
+    }
+
+    // -- Validation failure tests --
+
+    #[test]
+    fn test_validated_config_rejects_zero_hidden_dim() {
+        let mut cfg = valid_llama_config();
+        cfg.hidden_dim = 0;
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("hidden_dim"));
+    }
+
+    #[test]
+    fn test_validated_config_rejects_zero_num_layers() {
+        let mut cfg = valid_llama_config();
+        cfg.num_layers = 0;
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("num_layers"));
+    }
+
+    #[test]
+    fn test_validated_config_rejects_zero_vocab_size() {
+        let mut cfg = valid_llama_config();
+        cfg.vocab_size = 0;
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("vocab_size"));
+    }
+
+    #[test]
+    fn test_validated_config_rejects_zero_num_heads() {
+        let mut cfg = valid_llama_config();
+        cfg.num_heads = 0;
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("num_heads"));
+    }
+
+    #[test]
+    fn test_validated_config_rejects_zero_num_kv_heads() {
+        let mut cfg = valid_llama_config();
+        cfg.num_kv_heads = 0;
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("num_kv_heads"));
+    }
+
+    #[test]
+    fn test_validated_config_rejects_bad_head_dim() {
+        let mut cfg = valid_llama_config();
+        // 4096 % 33 != 0
+        cfg.num_heads = 33;
+        cfg.num_kv_heads = 33;
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("divisible by num_heads"));
+    }
+
+    #[test]
+    fn test_validated_config_rejects_bad_gqa_ratio() {
+        let mut cfg = valid_llama_config();
+        // 32 % 5 != 0
+        cfg.num_kv_heads = 5;
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("GQA ratio"));
+    }
+
+    #[test]
+    fn test_validated_config_mha() {
+        // MHA: num_heads == num_kv_heads
+        let mut cfg = valid_llama_config();
+        cfg.num_kv_heads = 32;
+        let v = ValidatedModelConfig::validate(cfg).expect("MHA should be valid");
+        assert_eq!(v.num_heads(), v.num_kv_heads());
+        assert_eq!(v.head_dim(), 128);
+        assert_eq!(v.kv_dim(), 4096); // 32 * 128
+    }
+
+    #[test]
+    fn test_validated_config_qwen_style() {
+        // Qwen 1.5B: hidden=1536, heads=12, kv_heads=2
+        let cfg = GGUFConfig {
+            architecture: "qwen2".to_string(),
+            hidden_dim: 1536,
+            num_layers: 28,
+            num_heads: 12,
+            num_kv_heads: 2,
+            vocab_size: 151936,
+            intermediate_dim: 8960,
+            context_length: 32768,
+            rope_theta: 1_000_000.0,
+            eps: 1e-6,
+            rope_type: 2,
+            bos_token_id: Some(151_643),
+        };
+        let v = ValidatedModelConfig::validate(cfg).expect("Qwen config should be valid");
+        assert_eq!(v.head_dim(), 128); // 1536 / 12
+        assert_eq!(v.kv_dim(), 256); // 2 * 128
     }
 }
