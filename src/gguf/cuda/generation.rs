@@ -335,9 +335,10 @@ impl OwnedQuantizedModelCuda {
             );
         }
 
-        // PMAT-PREFILL: Batched prefill — process all prompt tokens in one pass
-        // SERIAL_PREFILL=1 to use old serial path for debugging
-        let use_serial_prefill = std::env::var("SERIAL_PREFILL")
+        // PMAT-PREFILL: Batched prefill is currently broken (produces degenerate output).
+        // Root cause: BatchedQ4KGemvKernel dequant diverges from MwvQ4KGemv after PAR-082-V2.
+        // Default to serial prefill. Set BATCHED_PREFILL=1 to re-enable for debugging.
+        let use_serial_prefill = !std::env::var("BATCHED_PREFILL")
             .map(|v| v == "1")
             .unwrap_or(false);
         let prefill_start = std::time::Instant::now();
@@ -529,9 +530,20 @@ impl OwnedQuantizedModelCuda {
 
         let mut tokens = prompt.to_vec();
 
-        // PMAT-PREFILL: Batched prefill for streaming path
+        // PMAT-PREFILL: Batched prefill is currently broken — default to serial.
+        // Set BATCHED_PREFILL=1 to re-enable for debugging.
+        let use_batched_prefill = std::env::var("BATCHED_PREFILL")
+            .map(|v| v == "1")
+            .unwrap_or(false);
         let prefill_count = prompt.len() - 1;
-        if prefill_count > 0 {
+        if prefill_count > 0 && !use_batched_prefill {
+            // Serial prefill: process tokens one at a time (correct output)
+            for (pos, &token_id) in prompt.iter().enumerate() {
+                if pos < prompt.len() - 1 {
+                    let _ = self.forward_gpu_resident(token_id, &mut cache, pos)?;
+                }
+            }
+        } else if prefill_count > 0 {
             let prefill_tokens = &prompt[..prefill_count];
             let hidden_dim = self.model.config.hidden_dim;
             let intermediate_dim = self.model.layers[0].ffn_up_weight.out_dim;
