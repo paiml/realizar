@@ -352,8 +352,8 @@ unsafe fn fused_q4k_dot_avx512_vnni(q4k_data: &[u8], activations: &[f32]) -> Res
 /// equivalent to the scalar `fused_q4k_dot` (within ULP tolerance).
 ///
 /// # Optimizations (PARITY-003)
-/// - SIMD loads: `_mm256_loadu_si256` for 32-byte bulk loads (vs scalar byte loads)
-/// - SIMD nibble extraction: `_mm256_and_si256` with 0x0F mask (vs scalar & 0x0F)
+/// - SIMD loads: AVX2 256-bit unaligned load for 32-byte bulk loads (vs scalar byte loads)
+/// - SIMD nibble extraction: AVX2 bitwise AND with 0x0F mask (vs scalar & 0x0F)
 /// - 4 independent accumulators to hide FMA latency
 /// - Software prefetching for next super-block
 /// - Matches llama.cpp ggml_vec_dot_q4_K_q8_K pattern
