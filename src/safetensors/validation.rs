@@ -1301,6 +1301,93 @@ mod tests {
         let inner = validated.into_inner();
         assert_eq!(inner.config.hidden_dim, 16);
     }
+
+    // =========================================================================
+    // GH-46 FALSIFICATION: Rosetta strict validation boundaries
+    // =========================================================================
+
+    /// GH-46: Embedding density gate must reject >50% zeros.
+    /// Before the fix, validation was too lenient and passed all-zero embeddings.
+    #[test]
+    fn test_falsify_gh46_embedding_density_threshold_50pct() {
+        let vocab = 32_usize;
+        let hidden = 16_usize;
+        let total = vocab * hidden;
+        // 51% zeros — must FAIL
+        let zero_count = (total as f64 * 0.51).ceil() as usize;
+        let mut data = vec![1.0_f32; total];
+        for v in data.iter_mut().take(zero_count) {
+            *v = 0.0;
+        }
+        let result = validate_embedding("test_embed", &data, vocab, hidden);
+        assert!(
+            !result.passed,
+            "GH-46: >50% zero embedding must be rejected, failures: {:?}",
+            result.failures
+        );
+    }
+
+    /// GH-46: Weight density gate must reject >80% zeros.
+    /// Before the fix, weights with mostly zeros passed validation silently.
+    #[test]
+    fn test_falsify_gh46_weight_density_threshold_80pct() {
+        let rows = 32_usize;
+        let cols = 16_usize;
+        let total = rows * cols;
+        // 81% zeros — must FAIL
+        let zero_count = (total as f64 * 0.81).ceil() as usize;
+        let mut data = vec![1.0_f32; total];
+        for v in data.iter_mut().take(zero_count) {
+            *v = 0.0;
+        }
+        let result = validate_weight("test_weight", &data, rows, cols);
+        assert!(
+            !result.passed,
+            "GH-46: >80% zero weight must be rejected, failures: {:?}",
+            result.failures
+        );
+    }
+
+    /// GH-46: L2 norm gate must reject flat (constant) tensors.
+    /// A constant tensor has zero variance — signals import corruption.
+    #[test]
+    fn test_falsify_gh46_rejects_flat_tensor() {
+        let vocab = 32_usize;
+        let hidden = 16_usize;
+        // All identical non-zero values — L2 norm > 0 but max-min == 0
+        let data = vec![0.5_f32; vocab * hidden];
+        let result = validate_embedding("test_flat", &data, vocab, hidden);
+        assert!(
+            !result.passed,
+            "GH-46: Flat (constant) embedding must be rejected, failures: {:?}",
+            result.failures
+        );
+    }
+
+    /// GH-46: NaN gate must catch even a single NaN in embeddings.
+    /// Before strict validation, NaN could propagate through inference.
+    #[test]
+    fn test_falsify_gh46_single_nan_detected() {
+        let vocab = 32_usize;
+        let hidden = 16_usize;
+        let mut data: Vec<f32> = (0..vocab * hidden)
+            .map(|i| ((i as f32) * 0.01).sin())
+            .collect();
+        // Inject single NaN at arbitrary position
+        data[vocab * hidden / 2] = f32::NAN;
+        let result = validate_embedding("test_nan", &data, vocab, hidden);
+        assert!(
+            !result.passed,
+            "GH-46: Single NaN must be caught by validation"
+        );
+        assert!(
+            result
+                .failures
+                .iter()
+                .any(|f| f.to_lowercase().contains("nan")),
+            "GH-46: Failure message must mention NaN"
+        );
+    }
 }
 
 // T-COV-95 Coverage Bridge (Part 02 - Accessors, error paths, optional biases)

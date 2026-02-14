@@ -861,4 +861,101 @@ mod tests {
         let result = MappedGGUFModel::from_path("/nonexistent/path/model.gguf");
         assert!(result.is_err());
     }
+
+    // =========================================================================
+    // GH-40 FALSIFICATION: OwnedQuantizedModel API contract stability
+    // =========================================================================
+
+    /// GH-40: OwnedQuantizedModel must expose all public fields required by
+    /// the inference pipeline. If a field is renamed, removed, or made private,
+    /// this test fails — catching API breakage at compile time.
+    #[test]
+    fn test_falsify_gh40_api_contract_all_fields_accessible() {
+        use super::super::quantized::OwnedQuantizedTensor;
+        use super::super::types::GGUF_TYPE_Q4_K;
+
+        let config = GGUFConfig {
+            architecture: "gh40_test".to_string(),
+            hidden_dim: 64,
+            num_layers: 1,
+            num_heads: 2,
+            num_kv_heads: 2,
+            vocab_size: 100,
+            intermediate_dim: 128,
+            context_length: 256,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+            rope_type: 0,
+            bos_token_id: None,
+        };
+
+        let model = OwnedQuantizedModel {
+            config,
+            token_embedding: vec![0.1; 6400],
+            layers: vec![],
+            output_norm_weight: vec![1.0; 64],
+            output_norm_bias: None,
+            lm_head_weight: OwnedQuantizedTensor {
+                data: vec![0u8; 128],
+                in_dim: 64,
+                out_dim: 100,
+                qtype: GGUF_TYPE_Q4_K,
+            },
+            lm_head_bias: None,
+            #[cfg(feature = "cuda")]
+            cuda_executor: None,
+            #[cfg(feature = "cuda")]
+            cuda_kernel_count: std::sync::atomic::AtomicU64::new(0),
+            #[cfg(feature = "cuda")]
+            cached_weight_names: std::sync::Mutex::new(std::collections::HashSet::new()),
+        };
+
+        // GH-40 contract: every field below must be pub and have the expected type.
+        // If ANY of these lines fails to compile, the API contract is broken.
+        let _arch: &str = &model.config.architecture;
+        let _hidden: usize = model.config.hidden_dim;
+        let _embed: &[f32] = &model.token_embedding;
+        let _layers: &[super::super::quantized::OwnedQuantizedLayer] = &model.layers;
+        let _norm: &[f32] = &model.output_norm_weight;
+        let _norm_bias: &Option<Vec<f32>> = &model.output_norm_bias;
+        let _lm_data: &[u8] = &model.lm_head_weight.data;
+        let _lm_in: usize = model.lm_head_weight.in_dim;
+        let _lm_out: usize = model.lm_head_weight.out_dim;
+        let _lm_qt: u32 = model.lm_head_weight.qtype;
+        let _lm_bias: &Option<Vec<f32>> = &model.lm_head_bias;
+
+        // GH-40 contract: config fields required by inference
+        assert_eq!(model.config.hidden_dim, 64);
+        assert_eq!(model.config.num_heads, 2);
+        assert_eq!(model.config.num_kv_heads, 2);
+        assert_eq!(model.config.vocab_size, 100);
+        assert_eq!(model.config.intermediate_dim, 128);
+        assert!(model.config.rope_theta > 0.0);
+        assert!(model.config.eps > 0.0);
+    }
+
+    /// GH-40: GGUFConfig must have bos_token_id field (added in the fix).
+    /// Without this field, tokenizer initialization fails silently.
+    #[test]
+    fn test_falsify_gh40_config_has_bos_token_id() {
+        let config = GGUFConfig {
+            architecture: "test".to_string(),
+            hidden_dim: 64,
+            num_layers: 1,
+            num_heads: 1,
+            num_kv_heads: 1,
+            vocab_size: 100,
+            intermediate_dim: 128,
+            context_length: 256,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+            rope_type: 0,
+            bos_token_id: Some(1),
+        };
+        assert_eq!(
+            config.bos_token_id,
+            Some(1),
+            "GH-40: bos_token_id must be accessible"
+        );
+    }
 }
