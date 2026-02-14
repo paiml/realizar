@@ -87,7 +87,7 @@ pub struct QuantizedAprLayerQ4 {
 /// SIMD-accelerated Quantized APR Transformer
 ///
 /// Stores weights in Q4_0 format and uses integer SIMD matmul
-/// (`_mm256_maddubs_epi16`) for near-GGUF performance.
+/// (AVX2 maddubs) for near-GGUF performance.
 ///
 /// # Performance
 ///
