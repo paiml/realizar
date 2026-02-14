@@ -252,6 +252,74 @@ pub(crate) fn dequantize_q8_0_apr(data: &[u8], num_elements: usize) -> Vec<f32> 
     result
 }
 
+/// Dequantize APR-native Q8 format (dtype=9) — GH-239
+///
+/// APR Q8 layout (per `AprV2Writer::add_q8_tensor`):
+/// - scale: 4 bytes (f32, little-endian) — `max_abs / 127.0`
+/// - quants: N bytes (i8 values, one per element)
+///   Total: 4 + N bytes
+///
+/// Dequantization: `value = scale * (byte as i8) as f32`
+///
+/// This is distinct from GGML Q8_0 which uses f16 scale + 32-element blocks.
+pub(crate) fn dequantize_apr_q8_native(data: &[u8], num_elements: usize) -> Vec<f32> {
+    if data.len() < 4 {
+        return vec![0.0; num_elements];
+    }
+    let scale = f32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let mut result = Vec::with_capacity(num_elements);
+    #[allow(clippy::cast_possible_wrap)]
+    for i in 0..num_elements {
+        if 4 + i < data.len() {
+            result.push(scale * (data[4 + i] as i8) as f32);
+        } else {
+            result.push(0.0);
+        }
+    }
+    result
+}
+
+/// Dequantize APR-native Q4 format (dtype=8) — GH-239
+///
+/// APR Q4 layout (per `AprV2Writer::add_q4_tensor`):
+/// - Blocks of 32 elements: [f16 scale (2 bytes)] + [16 packed nibble bytes] = 18 bytes/block
+/// - Scale computed as `max_abs / 7.0`
+/// - Nibble packing: even index → low nibble (byte & 0x0F), odd index → high nibble (byte >> 4)
+/// - Dequant: `value = scale * ((nibble as i8) - 8)` (unsigned 0-15 → signed -8..+7)
+///
+/// This is distinct from GGML Q8_0 (dtype=8 in old APR files) which uses 34 bytes/block.
+/// Disambiguation: check `data.len()` against expected byte counts for each format.
+pub(crate) fn dequantize_apr_q4_native(data: &[u8], num_elements: usize) -> Vec<f32> {
+    const BLOCK_SIZE: usize = 32;
+
+    let mut result = Vec::with_capacity(num_elements);
+    let mut pos = 0;
+    let mut remaining = num_elements;
+
+    while remaining > 0 && pos + 2 <= data.len() {
+        let scale = f16_to_f32(u16::from_le_bytes([data[pos], data[pos + 1]]));
+        pos += 2;
+        let count = remaining.min(BLOCK_SIZE);
+        #[allow(clippy::cast_possible_wrap)]
+        for i in 0..count {
+            let byte_idx = pos + i / 2;
+            if byte_idx >= data.len() {
+                result.push(0.0);
+                continue;
+            }
+            let byte = data[byte_idx];
+            let nibble = if i % 2 == 0 { byte & 0x0F } else { byte >> 4 };
+            let q = (nibble as i8) - 8;
+            result.push(scale * (q as f32));
+        }
+        pos += 16; // Always 16 nibble bytes per block
+        remaining -= count;
+    }
+    // Pad if data ran out
+    result.resize(num_elements, 0.0);
+    result
+}
+
 // ============================================================================
 // Tests for Dequantization Helpers (PMAT-802: T-COV-95)
 // ============================================================================
@@ -515,5 +583,182 @@ mod tests {
         assert_eq!(result.len(), 32);
         // Should return zeros when data is insufficient
         assert!(result.iter().all(|&x| x == 0.0));
+    }
+
+    // -------------------------------------------------------------------------
+    // dequantize_apr_q8_native Tests (GH-239)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_dequantize_apr_q8_native_zeros() {
+        // 4 bytes scale (0.0) + 32 bytes quants
+        let data = vec![0u8; 36];
+        let result = dequantize_apr_q8_native(&data, 32);
+        assert_eq!(result.len(), 32);
+        assert!(result.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn test_dequantize_apr_q8_native_unit_scale() {
+        // scale = 1.0 as f32 LE + 32 quants all = 1 (i8)
+        let mut data = Vec::with_capacity(36);
+        data.extend_from_slice(&1.0f32.to_le_bytes()); // scale = 1.0
+        for _ in 0..32 {
+            data.push(1); // i8 = 1
+        }
+        let result = dequantize_apr_q8_native(&data, 32);
+        assert_eq!(result.len(), 32);
+        for &v in &result {
+            assert!((v - 1.0).abs() < 0.001, "expected ~1.0, got {v}");
+        }
+    }
+
+    #[test]
+    fn test_dequantize_apr_q8_native_negative_quants() {
+        // scale = 2.0, quants = -1 (0xFF as u8 → -1 as i8)
+        let mut data = Vec::with_capacity(36);
+        data.extend_from_slice(&2.0f32.to_le_bytes());
+        for _ in 0..32 {
+            data.push(0xFF); // i8 = -1
+        }
+        let result = dequantize_apr_q8_native(&data, 32);
+        assert_eq!(result.len(), 32);
+        for &v in &result {
+            assert!((v - (-2.0)).abs() < 0.001, "expected ~-2.0, got {v}");
+        }
+    }
+
+    #[test]
+    fn test_dequantize_apr_q8_native_insufficient_data() {
+        // Less than 4 bytes
+        let data = vec![0u8; 2];
+        let result = dequantize_apr_q8_native(&data, 32);
+        assert_eq!(result.len(), 32);
+        assert!(result.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn test_dequantize_apr_q8_native_partial_data() {
+        // scale + only 10 quants, but request 32 elements
+        let mut data = Vec::with_capacity(14);
+        data.extend_from_slice(&1.0f32.to_le_bytes());
+        for i in 0..10 {
+            data.push(i + 1); // i8 values 1..10
+        }
+        let result = dequantize_apr_q8_native(&data, 32);
+        assert_eq!(result.len(), 32);
+        // First 10 should be 1.0..10.0
+        for i in 0..10 {
+            let expected = (i + 1) as f32;
+            assert!(
+                (result[i] - expected).abs() < 0.001,
+                "result[{i}] = {}, expected {expected}",
+                result[i]
+            );
+        }
+        // Remaining 22 should be 0.0 (padding)
+        for i in 10..32 {
+            assert!(
+                result[i] == 0.0,
+                "result[{i}] = {}, expected 0.0",
+                result[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_dequantize_apr_q8_native_roundtrip() {
+        // Simulate what add_q8_tensor produces: scale = max_abs / 127.0
+        let original: Vec<f32> = vec![0.5, -0.3, 1.0, -1.0, 0.0];
+        let max_abs = original.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
+        let scale = max_abs / 127.0;
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&scale.to_le_bytes());
+        for &v in &original {
+            let q = (v / scale).round().clamp(-127.0, 127.0) as i8;
+            data.push(q as u8);
+        }
+
+        let result = dequantize_apr_q8_native(&data, 5);
+        assert_eq!(result.len(), 5);
+        for (i, (&orig, &deq)) in original.iter().zip(result.iter()).enumerate() {
+            assert!(
+                (orig - deq).abs() < 0.02,
+                "element {i}: orig={orig}, deq={deq}"
+            );
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // dequantize_apr_q4_native Tests (GH-239)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_dequantize_apr_q4_native_zeros() {
+        // 18 bytes of zeros (1 block): f16 scale=0.0 + 16 nibble bytes
+        let data = vec![0u8; 18];
+        let result = dequantize_apr_q4_native(&data, 32);
+        assert_eq!(result.len(), 32);
+        // scale=0.0, so all values = 0.0 * (nibble - 8) = 0.0
+        // Note: even nibble=0 → (0-8)*0.0 = 0.0
+        assert!(result.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn test_dequantize_apr_q4_native_unit_scale_nibble_8() {
+        // scale = 1.0 in f16, all nibble bytes = 0x88 (nibble 8 → q=(8-8)=0)
+        let mut data = vec![0u8; 18];
+        data[0] = 0x00;
+        data[1] = 0x3C; // f16 1.0
+        for i in 2..18 {
+            data[i] = 0x88; // low=8, high=8 → both q=0
+        }
+        let result = dequantize_apr_q4_native(&data, 32);
+        assert_eq!(result.len(), 32);
+        for &v in &result {
+            assert!((v - 0.0).abs() < 0.001, "expected ~0.0, got {v}");
+        }
+    }
+
+    #[test]
+    fn test_dequantize_apr_q4_native_known_values() {
+        // scale = 1.0 in f16 (0x3C00), nibble byte 0x0F → low=15, high=0
+        // low: (15-8)=7 → 1.0*7=7.0
+        // high: (0-8)=-8 → 1.0*(-8)=-8.0
+        let mut data = vec![0u8; 18];
+        data[0] = 0x00;
+        data[1] = 0x3C; // f16 1.0
+        data[2] = 0x0F; // first nibble byte
+        // rest are zeros
+        let result = dequantize_apr_q4_native(&data, 2);
+        assert_eq!(result.len(), 2);
+        assert!((result[0] - 7.0).abs() < 0.01, "expected 7.0, got {}", result[0]);
+        assert!((result[1] - (-8.0)).abs() < 0.01, "expected -8.0, got {}", result[1]);
+    }
+
+    #[test]
+    fn test_dequantize_apr_q4_native_insufficient_data() {
+        // Empty data
+        let data: Vec<u8> = vec![];
+        let result = dequantize_apr_q4_native(&data, 32);
+        assert_eq!(result.len(), 32);
+        assert!(result.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn test_dequantize_apr_q4_native_multiple_blocks() {
+        // 2 blocks = 36 bytes, 64 elements
+        let data = vec![0u8; 36];
+        let result = dequantize_apr_q4_native(&data, 64);
+        assert_eq!(result.len(), 64);
+    }
+
+    #[test]
+    fn test_dequantize_apr_q4_native_truncation() {
+        // Request fewer elements than block size
+        let data = vec![0u8; 18];
+        let result = dequantize_apr_q4_native(&data, 10);
+        assert_eq!(result.len(), 10);
     }
 }

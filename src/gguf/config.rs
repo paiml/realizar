@@ -884,4 +884,29 @@ mod tests {
         assert_eq!(v.head_dim(), 128); // 1536 / 12
         assert_eq!(v.kv_dim(), 256); // 2 * 128
     }
+
+    /// GH-39: Qwen2.5-0.5B has unusual 7:1 GQA ratio and head_dim=64
+    #[test]
+    fn test_validated_config_qwen2_0_5b_dimensions() {
+        let cfg = GGUFConfig {
+            architecture: "qwen2".to_string(),
+            hidden_dim: 896,
+            num_layers: 24,
+            num_heads: 14,
+            num_kv_heads: 2,
+            vocab_size: 151936,
+            intermediate_dim: 4864,
+            context_length: 32768,
+            rope_theta: 1_000_000.0,
+            eps: 1e-6,
+            rope_type: 2,
+            bos_token_id: Some(151_643),
+        };
+        let v = ValidatedModelConfig::validate(cfg)
+            .expect("GH-39: Qwen2.5-0.5B config should be valid");
+        assert_eq!(v.head_dim(), 64, "GH-39: 0.5B has head_dim=64");
+        assert_eq!(v.kv_dim(), 128, "GH-39: kv_dim = 2 * 64");
+        assert_eq!(v.num_heads() / v.num_kv_heads(), 7, "GH-39: 7:1 GQA ratio");
+        assert_eq!(v.rope_type(), 2, "GH-39: NEOX RoPE required");
+    }
 }

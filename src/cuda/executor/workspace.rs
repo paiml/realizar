@@ -33,18 +33,24 @@ impl CudaExecutor {
         let q_dim = self.kv_num_heads * self.kv_head_dim;
         let kv_dim = self.kv_num_kv_heads * self.kv_head_dim;
 
+        // GH-215 FIX: Pad workspace buffers to Q4K super-block boundary (256 elements).
+        // Q4K GEMV kernels read activations at sb_idx*256+val_idx, which can exceed the
+        // logical dimension for non-256-aligned models (e.g., hidden_dim=896 reads up to 1024).
+        // Without padding, this causes out-of-bounds GPU memory reads → garbage output.
+        let pad256 = |dim: usize| ((dim + 255) / 256) * 256;
+
         // Allocate all workspace buffers (10 buffers total for zero-allocation forward)
         // PAR-051: Added attn_out_buf to eliminate 28 allocations per token
-        self.workspace.hidden_buf1 = Some(GpuBuffer::new(&self.context, hidden_dim)?);
-        self.workspace.hidden_buf2 = Some(GpuBuffer::new(&self.context, hidden_dim)?);
-        self.workspace.input_staging = Some(GpuBuffer::new(&self.context, hidden_dim)?);
-        self.workspace.q_buf = Some(GpuBuffer::new(&self.context, q_dim)?);
-        self.workspace.k_buf = Some(GpuBuffer::new(&self.context, kv_dim)?);
-        self.workspace.v_buf = Some(GpuBuffer::new(&self.context, kv_dim)?);
-        self.workspace.attn_out_buf = Some(GpuBuffer::new(&self.context, q_dim)?); // PAR-051
-        self.workspace.ffn_gate_buf = Some(GpuBuffer::new(&self.context, intermediate_dim)?);
-        self.workspace.ffn_up_buf = Some(GpuBuffer::new(&self.context, intermediate_dim)?);
-        self.workspace.ffn_act_buf = Some(GpuBuffer::new(&self.context, intermediate_dim)?);
+        self.workspace.hidden_buf1 = Some(GpuBuffer::new(&self.context, pad256(hidden_dim))?);
+        self.workspace.hidden_buf2 = Some(GpuBuffer::new(&self.context, pad256(hidden_dim))?);
+        self.workspace.input_staging = Some(GpuBuffer::new(&self.context, pad256(hidden_dim))?);
+        self.workspace.q_buf = Some(GpuBuffer::new(&self.context, pad256(q_dim))?);
+        self.workspace.k_buf = Some(GpuBuffer::new(&self.context, pad256(kv_dim))?);
+        self.workspace.v_buf = Some(GpuBuffer::new(&self.context, pad256(kv_dim))?);
+        self.workspace.attn_out_buf = Some(GpuBuffer::new(&self.context, pad256(q_dim))?); // PAR-051
+        self.workspace.ffn_gate_buf = Some(GpuBuffer::new(&self.context, pad256(intermediate_dim))?);
+        self.workspace.ffn_up_buf = Some(GpuBuffer::new(&self.context, pad256(intermediate_dim))?);
+        self.workspace.ffn_act_buf = Some(GpuBuffer::new(&self.context, pad256(intermediate_dim))?);
 
         // PAR-PERF-DP4A: Pre-allocate Q8_1 activation buffer for DP4A GEMV
         // Size = max(hidden_dim, intermediate_dim, q_dim) to handle all GEMV inputs
