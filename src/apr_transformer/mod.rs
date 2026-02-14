@@ -811,11 +811,13 @@ impl AprTransformer {
         for name in &embed_names {
             if let Some((_offset, _size, dims, _dtype)) = tensors.get(*name) {
                 embed_dims = Some(dims.clone());
-                // ALWAYS log embedding info - this is critical for debugging
-                eprintln!(
-                    "[APR-LOAD] Embedding tensor '{}': dims={:?}, expected [vocab={}, hidden={}]",
-                    name, dims, vocab_size, hidden_dim
-                );
+                // GH-253: Only log in debug mode (was causing selftest parity failures)
+                if debug_enabled {
+                    eprintln!(
+                        "[APR-LOAD] Embedding tensor '{}': dims={:?}, expected [vocab={}, hidden={}]",
+                        name, dims, vocab_size, hidden_dim
+                    );
+                }
                 break;
             }
         }
@@ -838,11 +840,13 @@ impl AprTransformer {
         // The GH-187 transpose was WRONG - it corrupted embeddings (correlation 0.001 instead of 1.0)
         // See: contracts/tensor-layout-v1.yaml, compare_embed example
         let token_embedding = token_embedding_raw;
-        if let Some(ref dims) = embed_dims {
-            eprintln!(
-                "[APR-LOAD] Embedding dims={:?}, using raw data (no transpose needed)",
-                dims
-            );
+        if debug_enabled {
+            if let Some(ref dims) = embed_dims {
+                eprintln!(
+                    "[APR-LOAD] Embedding dims={:?}, using raw data (no transpose needed)",
+                    dims
+                );
+            }
         }
 
         // GH-187: Sanity check - verify embedding produces non-garbage for token 0
@@ -861,37 +865,43 @@ impl AprTransformer {
                     "[APR-LOAD] ERROR: Token 0 embedding contains NaN/Inf - data corruption!"
                 );
             }
-            eprintln!(
-                "[APR-LOAD] Token 0 embedding sample: [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
-                first_embed[0],
-                first_embed.get(1).unwrap_or(&0.0),
-                first_embed.get(2).unwrap_or(&0.0),
-                first_embed.get(3).unwrap_or(&0.0),
-                first_embed.get(4).unwrap_or(&0.0)
-            );
+            if debug_enabled {
+                eprintln!(
+                    "[APR-LOAD] Token 0 embedding sample: [{:.4}, {:.4}, {:.4}, {:.4}, {:.4}]",
+                    first_embed[0],
+                    first_embed.get(1).unwrap_or(&0.0),
+                    first_embed.get(2).unwrap_or(&0.0),
+                    first_embed.get(3).unwrap_or(&0.0),
+                    first_embed.get(4).unwrap_or(&0.0)
+                );
+            }
         }
 
-        // Log total embedding size (always, for diagnostics)
-        eprintln!(
-            "[APR-LOAD] Embedding loaded: {} elements (vocab={} x hidden={})",
-            token_embedding.len(),
-            vocab_size,
-            hidden_dim
-        );
+        // GH-253: Only log embedding size in debug mode
+        if debug_enabled {
+            eprintln!(
+                "[APR-LOAD] Embedding loaded: {} elements (vocab={} x hidden={})",
+                token_embedding.len(),
+                vocab_size,
+                hidden_dim
+            );
+        }
 
         // Load output norm
         let output_norm_weight = get_f32_tensor("model.norm.weight")
             .or_else(|| get_f32_tensor("output_norm.weight"))
             .unwrap_or_else(|| vec![1.0; hidden_dim]);
 
-        // GH-187: Enhanced logging for lm_head tensor
-        for name in &["lm_head.weight", "output.weight"] {
-            if let Some((_offset, _size, dims, dtype)) = tensors.get(*name) {
-                eprintln!(
-                    "[APR-LOAD] LM head tensor '{}': dims={:?}, dtype={}, expected [vocab={}, hidden={}]",
-                    name, dims, dtype, vocab_size, hidden_dim
-                );
-                break;
+        // GH-187/GH-253: Log lm_head tensor info only in debug mode
+        if debug_enabled {
+            for name in &["lm_head.weight", "output.weight"] {
+                if let Some((_offset, _size, dims, dtype)) = tensors.get(*name) {
+                    eprintln!(
+                        "[APR-LOAD] LM head tensor '{}': dims={:?}, dtype={}, expected [vocab={}, hidden={}]",
+                        name, dims, dtype, vocab_size, hidden_dim
+                    );
+                    break;
+                }
             }
         }
 
@@ -903,7 +913,9 @@ impl AprTransformer {
             (lm_head, false)
         } else {
             // Weight tying: use embedding weights for lm_head
-            eprintln!("[APR-LOAD] No lm_head found, trying tied embedding weights");
+            if debug_enabled {
+                eprintln!("[APR-LOAD] No lm_head found, trying tied embedding weights");
+            }
             let tied = get_f32_tensor("model.embed_tokens.weight")
                 .or_else(|| get_f32_tensor("token_embd.weight"));
             if let Some(t) = tied {
@@ -917,7 +929,7 @@ impl AprTransformer {
                 });
             }
         };
-        if used_tied_weights {
+        if used_tied_weights && debug_enabled {
             eprintln!("[APR-LOAD] Using tied weights: embedding -> lm_head");
         }
 
@@ -926,31 +938,35 @@ impl AprTransformer {
         // This matches fused_q4k_parallel_matvec(weights, x, in_dim=hidden, out_dim=vocab)
         // NO transposition needed for lm_head (unlike embedding)
         let lm_head_weight = lm_head_raw;
-        eprintln!(
-            "[APR-LOAD] LM head loaded: {} elements (hidden={} x vocab={})",
-            lm_head_weight.len(),
-            hidden_dim,
-            vocab_size
-        );
+        if debug_enabled {
+            eprintln!(
+                "[APR-LOAD] LM head loaded: {} elements (hidden={} x vocab={})",
+                lm_head_weight.len(),
+                hidden_dim,
+                vocab_size
+            );
+        }
 
         // PMAT-103: Load lm_head Q4K/Q6K raw bytes for fused kernel inference
         let lm_head_weight_q4k =
             get_q4k_raw_bytes("lm_head.weight").or_else(|| get_q4k_raw_bytes("output.weight"));
         let lm_head_weight_q6k =
             get_q6k_raw_bytes("lm_head.weight").or_else(|| get_q6k_raw_bytes("output.weight"));
-        // GH-187: Always log quantization path for lm_head
-        if let Some(ref bytes) = lm_head_weight_q4k {
-            eprintln!(
-                "[APR-LOAD] LM head using Q4K fused kernel ({} bytes)",
-                bytes.len()
-            );
-        } else if let Some(ref bytes) = lm_head_weight_q6k {
-            eprintln!(
-                "[APR-LOAD] LM head using Q6K fused kernel ({} bytes)",
-                bytes.len()
-            );
-        } else {
-            eprintln!("[APR-LOAD] LM head using F32 matmul (no Q4K/Q6K found)");
+        // GH-187/GH-253: Log quantization path only in debug mode
+        if debug_enabled {
+            if let Some(ref bytes) = lm_head_weight_q4k {
+                eprintln!(
+                    "[APR-LOAD] LM head using Q4K fused kernel ({} bytes)",
+                    bytes.len()
+                );
+            } else if let Some(ref bytes) = lm_head_weight_q6k {
+                eprintln!(
+                    "[APR-LOAD] LM head using Q6K fused kernel ({} bytes)",
+                    bytes.len()
+                );
+            } else {
+                eprintln!("[APR-LOAD] LM head using F32 matmul (no Q4K/Q6K found)");
+            }
         }
 
         // Compute KV dimension from config
