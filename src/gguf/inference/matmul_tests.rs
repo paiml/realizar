@@ -16,7 +16,9 @@ use crate::error::RealizarError;
 use crate::gguf::config::GGUFConfig;
 use crate::gguf::model::OwnedQuantizedModel;
 use crate::gguf::quantized::{OwnedQKVWeights, OwnedQuantizedTensor};
-use crate::gguf::types::{GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_K, GGUF_TYPE_Q8_0};
+use crate::gguf::types::{
+    GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_K, GGUF_TYPE_Q8_0,
+};
 
 // ============================================================================
 // Test Helpers
@@ -329,12 +331,12 @@ fn test_fused_matmul_q4k_multi_token() {
 #[test]
 fn test_fused_matmul_unsupported_type() {
     let model = create_test_model(64, 100);
-    // Create tensor with unsupported type (F32 = 0)
+    // Create tensor with unsupported type (99 = invalid/unknown)
     let weight = OwnedQuantizedTensor {
-        data: vec![0u8; 64 * 32 * 4], // Fake F32 data
+        data: vec![0u8; 64 * 32 * 4],
         in_dim: 64,
         out_dim: 32,
-        qtype: 0, // GGUF_TYPE_F32 - not supported for fused matmul
+        qtype: 99, // Unknown type - not supported
     };
     let input = vec![1.0f32; 64];
 
@@ -653,6 +655,150 @@ fn test_qkv_matmul_q8k_into_fused() {
 // ============================================================================
 // Edge Case Tests
 // ============================================================================
+
+// ============================================================================
+// GH-242: F32 / F16 fused_matmul tests (type 0 / type 1)
+// ============================================================================
+
+/// Create F32 weight tensor — raw little-endian f32 bytes
+fn create_f32_test_data(in_dim: usize, out_dim: usize) -> OwnedQuantizedTensor {
+    let mut data = Vec::with_capacity(out_dim * in_dim * 4);
+    for row in 0..out_dim {
+        for col in 0..in_dim {
+            // Identity-like: 0.1 on diagonal, 0.0 elsewhere
+            let val = if row == col { 0.1f32 } else { 0.0f32 };
+            data.extend_from_slice(&val.to_le_bytes());
+        }
+    }
+    OwnedQuantizedTensor {
+        data,
+        in_dim,
+        out_dim,
+        qtype: GGUF_TYPE_F32,
+    }
+}
+
+/// Create F16 weight tensor — raw little-endian f16 bytes
+fn create_f16_test_data(in_dim: usize, out_dim: usize) -> OwnedQuantizedTensor {
+    let mut data = Vec::with_capacity(out_dim * in_dim * 2);
+    for row in 0..out_dim {
+        for col in 0..in_dim {
+            let val = if row == col { 0.1f32 } else { 0.0f32 };
+            let bits = half::f16::from_f32(val).to_bits();
+            data.extend_from_slice(&bits.to_le_bytes());
+        }
+    }
+    OwnedQuantizedTensor {
+        data,
+        in_dim,
+        out_dim,
+        qtype: GGUF_TYPE_F16,
+    }
+}
+
+/// Create a model with F32 weights (GH-242 regression test)
+fn create_f32_test_model(hidden_dim: usize, vocab_size: usize) -> OwnedQuantizedModel {
+    let config = test_config(hidden_dim, vocab_size);
+    let intermediate_dim = config.intermediate_dim;
+
+    let qkv_weight = create_f32_test_data(hidden_dim, 3 * hidden_dim);
+    let attn_output_weight = create_f32_test_data(hidden_dim, hidden_dim);
+    let ffn_up_weight = create_f32_test_data(hidden_dim, intermediate_dim);
+    let ffn_down_weight = create_f32_test_data(intermediate_dim, hidden_dim);
+
+    let layer = crate::gguf::OwnedQuantizedLayer {
+        attn_norm_weight: vec![1.0f32; hidden_dim],
+        attn_norm_bias: None,
+        qkv_weight: OwnedQKVWeights::Fused(qkv_weight),
+        qkv_bias: None,
+        attn_output_weight,
+        attn_output_bias: None,
+        ffn_up_weight,
+        ffn_up_bias: None,
+        ffn_down_weight,
+        ffn_down_bias: None,
+        ffn_gate_weight: None,
+        ffn_gate_bias: None,
+        ffn_norm_weight: Some(vec![1.0f32; hidden_dim]),
+        ffn_norm_bias: None,
+    };
+
+    let lm_head_weight = create_f32_test_data(hidden_dim, vocab_size);
+
+    OwnedQuantizedModel {
+        config,
+        token_embedding: vec![0.1f32; vocab_size * hidden_dim],
+        layers: vec![layer],
+        output_norm_weight: vec![1.0f32; hidden_dim],
+        output_norm_bias: None,
+        lm_head_weight,
+        lm_head_bias: None,
+        #[cfg(feature = "cuda")]
+        cuda_executor: None,
+        #[cfg(feature = "cuda")]
+        cuda_kernel_count: std::sync::atomic::AtomicU64::new(0),
+        #[cfg(feature = "cuda")]
+        cached_weight_names: std::sync::Mutex::new(std::collections::HashSet::new()),
+    }
+}
+
+#[test]
+fn test_fused_matmul_f32_single_token() {
+    // GH-242: F32 weights (type 0) must not error in fused_matmul
+    let model = create_f32_test_model(64, 100);
+    let input = vec![1.0f32; 64];
+    let weight = create_f32_test_data(64, 32);
+    let result = model.fused_matmul(&input, &weight);
+    assert!(result.is_ok(), "F32 fused_matmul failed: {:?}", result.err());
+    assert_eq!(result.unwrap().len(), 32);
+}
+
+#[test]
+fn test_fused_matmul_f32_multi_token() {
+    // GH-242: F32 with seq_len > 1
+    let model = create_f32_test_model(64, 100);
+    let input = vec![1.0f32; 64 * 3]; // 3 tokens
+    let weight = create_f32_test_data(64, 32);
+    let result = model.fused_matmul(&input, &weight);
+    assert!(result.is_ok(), "F32 multi-token fused_matmul failed: {:?}", result.err());
+    assert_eq!(result.unwrap().len(), 32 * 3);
+}
+
+#[test]
+fn test_fused_matmul_f16_single_token() {
+    // GH-242: F16 weights (type 1) must not error in fused_matmul
+    let model = create_f32_test_model(64, 100);
+    let input = vec![1.0f32; 64];
+    let weight = create_f16_test_data(64, 32);
+    let result = model.fused_matmul(&input, &weight);
+    assert!(result.is_ok(), "F16 fused_matmul failed: {:?}", result.err());
+    assert_eq!(result.unwrap().len(), 32);
+}
+
+#[test]
+fn test_fused_matmul_f32_correctness() {
+    // GH-242: Verify F32 produces correct output (identity-like weight)
+    let model = create_f32_test_model(8, 16);
+    let mut input = vec![0.0f32; 8];
+    input[0] = 5.0;
+    input[1] = 3.0;
+    let weight = create_f32_test_data(8, 8); // 0.1 on diagonal
+    let result = model.fused_matmul(&input, &weight).unwrap();
+    // output[0] = input[0] * 0.1 = 0.5, output[1] = input[1] * 0.1 = 0.3
+    assert!((result[0] - 0.5).abs() < 1e-5, "Expected 0.5, got {}", result[0]);
+    assert!((result[1] - 0.3).abs() < 1e-5, "Expected 0.3, got {}", result[1]);
+}
+
+#[test]
+fn test_fused_matmul_into_f32() {
+    // GH-242: fused_matmul_into delegates F32 to fused_matmul
+    let model = create_f32_test_model(64, 100);
+    let input = vec![1.0f32; 64];
+    let weight = create_f32_test_data(64, 32);
+    let mut output = vec![0.0f32; 32];
+    let result = model.fused_matmul_into(&input, &weight, &mut output);
+    assert!(result.is_ok(), "F32 fused_matmul_into failed: {:?}", result.err());
+}
 
 #[test]
 fn test_embed_max_token() {
