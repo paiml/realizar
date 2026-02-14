@@ -253,3 +253,120 @@ pub fn validate_all_kernel_pairs(_dims: &KernelDimensions) -> PtxParityReport {
         failed: 0,
     }
 }
+
+/// Generate PTX source for a named kernel using the given model dimensions.
+///
+/// Supports the most commonly used kernels in the inference pipeline.
+/// Returns the kernel name and PTX source, or an error if the kernel is unknown.
+#[cfg(feature = "cuda")]
+pub fn generate_named_kernel_ptx(
+    name: &str,
+    dims: &KernelDimensions,
+) -> Result<(String, String), String> {
+    use trueno_gpu::kernels::{
+        ArgMaxKernel, BatchedQ4KGemvKernel, BatchedQ6KGemvKernel, BatchedResidualAddKernel,
+        BatchedRopeKernel, BatchedSwigluKernel, BatchedVectorizedRmsNormKernel,
+        FusedSwigluKernel, GemmKernel, Kernel, Q4KGemvKernel, Q5KGemvKernel, Q6KGemvKernel,
+        ResidualAddKernel, RmsNormKernel, RopeKernel, SoftmaxKernel, VectorizedRmsNormKernel,
+    };
+
+    let name_lower = name.to_lowercase().replace('-', "").replace('_', "");
+    let (label, ptx) = match name_lower.as_str() {
+        "q4kgemvkernel" | "q4kgemv" | "q4k" => {
+            let k = Q4KGemvKernel::new(dims.hidden_dim, dims.hidden_dim);
+            ("Q4KGemvKernel".to_string(), k.emit_ptx())
+        }
+        "q6kgemvkernel" | "q6kgemv" | "q6k" => {
+            let k = Q6KGemvKernel::new(dims.hidden_dim, dims.hidden_dim);
+            ("Q6KGemvKernel".to_string(), k.emit_ptx())
+        }
+        "q5kgemvkernel" | "q5kgemv" | "q5k" => {
+            let k = Q5KGemvKernel::new(dims.hidden_dim, dims.hidden_dim);
+            ("Q5KGemvKernel".to_string(), k.emit_ptx())
+        }
+        "rmsnormkernel" | "rmsnorm" => {
+            let k = RmsNormKernel::new(dims.hidden_dim);
+            ("RmsNormKernel".to_string(), k.emit_ptx())
+        }
+        "vectorizedrmsnormkernel" | "vectorizedrmsnorm" | "vecrmsnorm" => {
+            let k = VectorizedRmsNormKernel::new(dims.hidden_dim);
+            ("VectorizedRmsNormKernel".to_string(), k.emit_ptx())
+        }
+        "softmaxkernel" | "softmax" => {
+            let k = SoftmaxKernel::new(dims.hidden_dim);
+            ("SoftmaxKernel".to_string(), k.emit_ptx())
+        }
+        "argmaxkernel" | "argmax" => {
+            let k = ArgMaxKernel::new(dims.hidden_dim);
+            ("ArgMaxKernel".to_string(), k.emit_ptx())
+        }
+        "residualaddkernel" | "residualadd" | "residual" => {
+            let k = ResidualAddKernel::new(dims.hidden_dim);
+            ("ResidualAddKernel".to_string(), k.emit_ptx())
+        }
+        "ropekernel" | "rope" => {
+            let k = RopeKernel::new(dims.num_heads, dims.head_dim, dims.rope_theta);
+            ("RopeKernel".to_string(), k.emit_ptx())
+        }
+        "swiglukernel" | "swiglu" | "fusedswiglu" => {
+            let k = FusedSwigluKernel::new(dims.intermediate_dim);
+            ("FusedSwigluKernel".to_string(), k.emit_ptx())
+        }
+        "gemmkernel" | "gemm" => {
+            let k = GemmKernel::naive(dims.hidden_dim, dims.hidden_dim, dims.hidden_dim);
+            ("GemmKernel".to_string(), k.emit_ptx())
+        }
+        // Batched variants
+        "batchedrmsnorm" | "batchedvectorizedrmsnorm" => {
+            let k = BatchedVectorizedRmsNormKernel::new(dims.hidden_dim, 1)
+                .with_epsilon(dims.epsilon);
+            ("BatchedVectorizedRmsNormKernel".to_string(), k.emit_ptx())
+        }
+        "batchedq4kgemv" | "batchedq4k" => {
+            let k = BatchedQ4KGemvKernel::new(dims.hidden_dim, dims.hidden_dim, 1);
+            ("BatchedQ4KGemvKernel".to_string(), k.emit_ptx())
+        }
+        "batchedq6kgemv" | "batchedq6k" => {
+            let k = BatchedQ6KGemvKernel::new(dims.hidden_dim, dims.hidden_dim, 1);
+            ("BatchedQ6KGemvKernel".to_string(), k.emit_ptx())
+        }
+        "batchedresidualadd" | "batchedresidual" => {
+            let k = BatchedResidualAddKernel::new(dims.hidden_dim, 1);
+            ("BatchedResidualAddKernel".to_string(), k.emit_ptx())
+        }
+        "batchedrope" => {
+            let k = BatchedRopeKernel::new(dims.num_heads, dims.head_dim, 1, dims.rope_theta);
+            ("BatchedRopeKernel".to_string(), k.emit_ptx())
+        }
+        "batchedswiglu" => {
+            let k = BatchedSwigluKernel::new(dims.intermediate_dim, 1);
+            ("BatchedSwigluKernel".to_string(), k.emit_ptx())
+        }
+        _ => {
+            let available = [
+                "Q4KGemv", "Q5KGemv", "Q6KGemv", "RmsNorm", "VectorizedRmsNorm",
+                "Softmax", "ArgMax", "ResidualAdd", "RoPE", "SwiGLU", "GEMM",
+                "BatchedRmsNorm", "BatchedQ4KGemv", "BatchedQ6KGemv",
+                "BatchedResidualAdd", "BatchedRoPE", "BatchedSwiGLU",
+            ];
+            return Err(format!(
+                "Unknown kernel '{}'. Available: {}",
+                name,
+                available.join(", ")
+            ));
+        }
+    };
+    Ok((label, ptx))
+}
+
+/// Generate PTX source when CUDA is not available.
+#[cfg(not(feature = "cuda"))]
+pub fn generate_named_kernel_ptx(
+    name: &str,
+    _dims: &KernelDimensions,
+) -> Result<(String, String), String> {
+    Err(format!(
+        "Kernel '{}' requires CUDA feature. Build with --features cuda",
+        name
+    ))
+}
