@@ -851,6 +851,12 @@ impl AprV2Model {
         let num_elements: usize = entry.shape.iter().product();
 
         // Parse based on dtype
+        // GH-250: APR-native Q8/Q4 formats differ from GGML Q8_0/Q4_K!
+        //   APR Q8: [scale: f32 (4B)] + [i8 × N]  (single whole-tensor scale)
+        //   APR Q4: per-32-block [scale: f16 (2B)] + [16 packed nibble bytes]
+        //   GGML Q8_0: per-32-block [scale: f16 (2B)] + [32 × i8]
+        //   GGML Q4_K: 256-element super-blocks with sub-block scales
+        // APR Q4_K/Q6_K are passthrough GGML formats (from add_q4k_raw_tensor).
         match entry.dtype.as_str() {
             "F32" | "f32" => {
                 let floats: Vec<f32> = bytes
@@ -860,6 +866,10 @@ impl AprV2Model {
                 Ok(floats)
             },
             "F16" | "f16" => Ok(dequantize_f16(bytes, num_elements)),
+            // APR-native formats (different from GGML!)
+            "q8" | "Q8" => Ok(dequant::dequantize_apr_q8(bytes, num_elements)),
+            "q4" | "Q4" => Ok(dequant::dequantize_apr_q4(bytes, num_elements)),
+            // GGML-compatible formats (passthrough from GGUF import)
             "Q8_0" | "q8_0" => Ok(dequantize_q8_0(bytes, num_elements)),
             "Q4_K" | "q4_k" => Ok(dequantize_q4_k(bytes, num_elements)),
             "Q6_K" | "q6_k" => Ok(dequantize_q6_k(bytes, num_elements)),
