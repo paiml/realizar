@@ -204,7 +204,7 @@ pub fn detect_model(path: &Path) -> Result<ModelMetadata, LoadError> {
     }
 
     // Verify format from path and data
-    let format = detect_and_verify_format(path, &data[..8])?;
+    let format = detect_and_verify_format(path, data.get(..8).expect("len >= 8 checked above"))?;
 
     Ok(ModelMetadata::new(format).with_file_size(data.len() as u64))
 }
@@ -243,7 +243,7 @@ pub fn detect_model_from_bytes(data: &[u8]) -> Result<ModelMetadata, LoadError> 
         )));
     }
 
-    let format = detect_format(&data[..8])?;
+    let format = detect_format(data.get(..8).expect("len >= 8 checked above"))?;
 
     Ok(ModelMetadata::new(format).with_file_size(data.len() as u64))
 }

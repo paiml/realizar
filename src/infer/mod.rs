@@ -571,7 +571,7 @@ pub fn run_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     }
 
     // Detect format
-    let format = detect_format(&data[..8]).map_err(|e| RealizarError::FormatError {
+    let format = detect_format(data.get(..8).expect("len >= 8 checked above")).map_err(|e| RealizarError::FormatError {
         reason: format!("Format detection failed: {}", e),
     })?;
 

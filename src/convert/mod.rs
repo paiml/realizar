@@ -60,8 +60,8 @@ fn crc32(data: &[u8]) -> u32 {
 /// Checksum is CRC32 over bytes [0..40] + [44..64], excluding checksum field at [40..44]
 fn compute_apr_header_checksum(header: &[u8]) -> u32 {
     let mut data = Vec::with_capacity(60);
-    data.extend_from_slice(&header[0..40]);
-    data.extend_from_slice(&header[44..64]);
+    data.extend_from_slice(header.get(0..40).expect("APR header requires 64 bytes"));
+    data.extend_from_slice(header.get(44..64).expect("APR header requires 64 bytes"));
     crc32(&data)
 }
 

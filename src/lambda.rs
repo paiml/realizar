@@ -243,11 +243,11 @@ impl LambdaHandler {
 
         // Validate .apr magic bytes
         if model_bytes.len() >= 4 {
-            let magic = &model_bytes[0..4];
+            let magic = model_bytes.get(0..4).expect("len >= 4 checked above");
             if magic != APR_MAGIC {
                 return Err(LambdaError::InvalidMagic {
                     expected: "APR".to_string(),
-                    found: format!("{:?}", &model_bytes[0..4.min(model_bytes.len())]),
+                    found: format!("{:?}", model_bytes.get(0..4.min(model_bytes.len())).unwrap_or(&[])),
                 });
             }
         }

@@ -437,10 +437,10 @@ impl OwnedQuantizedModelCuda {
                         );
                         eprintln!(
                             "[GQA-DEBUG] Layer 0 V bias raw: first 5 = {:?}",
-                            &b[q_dim + k_dim..q_dim + k_dim + 5.min(v_dim)]
+                            b.get(q_dim + k_dim..q_dim + k_dim + 5.min(v_dim)).unwrap_or(&[])
                         );
                         // Also print Q bias for comparison
-                        eprintln!("[GQA-DEBUG] Layer 0 Q bias raw: first 5 = {:?}", &b[..5]);
+                        eprintln!("[GQA-DEBUG] Layer 0 Q bias raw: first 5 = {:?}", b.get(..5).unwrap_or(&[]));
                     }
                     &b[q_dim + k_dim..q_dim + k_dim + v_dim]
                 })

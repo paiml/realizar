@@ -1582,7 +1582,7 @@ impl CudaExecutor {
                     );
                     eprintln!(
                         "[CORRECTNESS-002] L2 FFN down sb0 first 20 bytes: {:?}",
-                        &host_data[..20]
+                        host_data.get(..20).unwrap_or(&[])
                     );
                 }
                 self.q4k_gemv_into(
