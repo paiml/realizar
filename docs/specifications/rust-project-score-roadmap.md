@@ -226,7 +226,6 @@ Each sprint must pass:
 ## Related Documentation
 
 - [Specification](rust-project-score-v1.1-spec.md)
-- [Implementation Status](../implementation-status-rust-project-score.md)
 - [PMAT Book](https://paiml.github.io/pmat-book/)
 
 ---

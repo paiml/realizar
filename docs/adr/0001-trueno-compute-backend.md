@@ -64,4 +64,4 @@ Use Trueno as the compute backend for all tensor operations.
 ## References
 
 - [Trueno GitHub](https://github.com/paiml/trueno)
-- [SIMD Performance Analysis](../specifications/simd-analysis.md)
+- [SIMD Optimization Spec](../specifications/simd-optimization-spec.md)
