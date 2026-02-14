@@ -67,74 +67,77 @@ impl OwnedQuantizedModel {
             return self.fused_matmul_cuda(input, weight, executor_mutex);
         }
 
-        // CPU path: F32 weights — direct SIMD matmul (no dequant needed)
+        // CPU path: F32 weights — rayon parallel dot products (zero-copy on raw bytes)
+        // Previous impl allocated 542MB Vec per call. This reads bytes directly.
         if weight.qtype == GGUF_TYPE_F32 {
-            let n_elements = in_dim * out_dim;
-            let mut weights_f32 = Vec::with_capacity(n_elements);
-            for i in 0..n_elements {
-                let offset = i * 4;
-                if offset + 3 < weight.data.len() {
-                    weights_f32.push(f32::from_le_bytes([
-                        weight.data[offset],
-                        weight.data[offset + 1],
-                        weight.data[offset + 2],
-                        weight.data[offset + 3],
-                    ]));
-                } else {
-                    weights_f32.push(0.0);
-                }
-            }
+            use rayon::prelude::*;
 
-            let weight_matrix = TruenoMatrix::from_vec(out_dim, in_dim, weights_f32)
-                .map_err(|_| RealizarError::InvalidShape {
-                    reason: "Failed to create weight matrix for F32".to_string(),
-                })?;
-
-            let mut output = Vec::with_capacity(seq_len * out_dim);
+            let mut all_output = Vec::with_capacity(seq_len * out_dim);
             for s in 0..seq_len {
                 let x = &input[s * in_dim..(s + 1) * in_dim];
-                let x_vec = TruenoVector::from_slice(x);
-                let r = weight_matrix.matvec(&x_vec).map_err(|_| {
-                    RealizarError::InvalidShape {
-                        reason: "SIMD matvec failed for F32".to_string(),
-                    }
-                })?;
-                output.extend_from_slice(r.as_slice());
+                let data = &weight.data;
+
+                let row_output: Vec<f32> = (0..out_dim)
+                    .into_par_iter()
+                    .map(|row| {
+                        let row_byte_start = row * in_dim * 4;
+                        let mut sum = 0.0f32;
+                        // Process 4 elements at a time for ILP
+                        let chunks = in_dim / 4;
+                        let remainder = in_dim % 4;
+                        for chunk in 0..chunks {
+                            let base = row_byte_start + chunk * 16;
+                            let w0 = f32::from_le_bytes([data[base], data[base + 1], data[base + 2], data[base + 3]]);
+                            let w1 = f32::from_le_bytes([data[base + 4], data[base + 5], data[base + 6], data[base + 7]]);
+                            let w2 = f32::from_le_bytes([data[base + 8], data[base + 9], data[base + 10], data[base + 11]]);
+                            let w3 = f32::from_le_bytes([data[base + 12], data[base + 13], data[base + 14], data[base + 15]]);
+                            let col = chunk * 4;
+                            sum += w0 * x[col] + w1 * x[col + 1] + w2 * x[col + 2] + w3 * x[col + 3];
+                        }
+                        for i in 0..remainder {
+                            let col = chunks * 4 + i;
+                            let offset = row_byte_start + col * 4;
+                            let w = f32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
+                            sum += w * x[col];
+                        }
+                        sum
+                    })
+                    .collect();
+
+                all_output.extend_from_slice(&row_output);
             }
-            return Ok(output);
+            return Ok(all_output);
         }
 
-        // CPU path: F16 weights — dequantize to F32 then SIMD matmul
+        // CPU path: F16 weights — rayon parallel dot products (zero-copy on raw bytes)
         if weight.qtype == GGUF_TYPE_F16 {
-            let n_elements = in_dim * out_dim;
-            let mut weights_f32 = Vec::with_capacity(n_elements);
-            for i in 0..n_elements {
-                let offset = i * 2;
-                if offset + 1 < weight.data.len() {
-                    let bits = u16::from_le_bytes([weight.data[offset], weight.data[offset + 1]]);
-                    weights_f32.push(half::f16::from_bits(bits).to_f32());
-                } else {
-                    weights_f32.push(0.0);
-                }
-            }
+            use rayon::prelude::*;
 
-            let weight_matrix = TruenoMatrix::from_vec(out_dim, in_dim, weights_f32)
-                .map_err(|_| RealizarError::InvalidShape {
-                    reason: "Failed to create weight matrix for F16".to_string(),
-                })?;
-
-            let mut output = Vec::with_capacity(seq_len * out_dim);
+            let mut all_output = Vec::with_capacity(seq_len * out_dim);
             for s in 0..seq_len {
                 let x = &input[s * in_dim..(s + 1) * in_dim];
-                let x_vec = TruenoVector::from_slice(x);
-                let r = weight_matrix.matvec(&x_vec).map_err(|_| {
-                    RealizarError::InvalidShape {
-                        reason: "SIMD matvec failed for F16".to_string(),
-                    }
-                })?;
-                output.extend_from_slice(r.as_slice());
+                let data = &weight.data;
+
+                let row_output: Vec<f32> = (0..out_dim)
+                    .into_par_iter()
+                    .map(|row| {
+                        let row_byte_start = row * in_dim * 2;
+                        let mut sum = 0.0f32;
+                        for col in 0..in_dim {
+                            let offset = row_byte_start + col * 2;
+                            if offset + 1 < data.len() {
+                                let bits = u16::from_le_bytes([data[offset], data[offset + 1]]);
+                                let w = half::f16::from_bits(bits).to_f32();
+                                sum += w * x[col];
+                            }
+                        }
+                        sum
+                    })
+                    .collect();
+
+                all_output.extend_from_slice(&row_output);
             }
-            return Ok(output);
+            return Ok(all_output);
         }
 
         // CPU path: For Q4_0, use fused Q8_0 integer SIMD matmul (llama.cpp parity)
@@ -739,6 +742,27 @@ impl OwnedQuantizedModel {
         };
 
         match weight.qtype {
+            // GH-242: F32 weights are already dequantized — reinterpret bytes
+            GGUF_TYPE_F32 => {
+                let floats: Vec<f32> = weight
+                    .data
+                    .chunks_exact(4)
+                    .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                    .collect();
+                Ok(floats)
+            }
+            // GH-242: F16 weights — convert to F32
+            GGUF_TYPE_F16 => {
+                let floats: Vec<f32> = weight
+                    .data
+                    .chunks_exact(2)
+                    .map(|b| {
+                        let bits = u16::from_le_bytes([b[0], b[1]]);
+                        half::f16::from_bits(bits).to_f32()
+                    })
+                    .collect();
+                Ok(floats)
+            }
             GGUF_TYPE_Q4_0 => dequantize_q4_0(&weight.data),
             GGUF_TYPE_Q4_1 => dequantize_q4_1(&weight.data),
             GGUF_TYPE_Q5_0 => dequantize_q5_0(&weight.data),
