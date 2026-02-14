@@ -282,7 +282,7 @@ pub fn dequantize_q8_blocks(blocks: &[Q8_0Block]) -> Vec<f32> {
 /// ```text
 /// Super-block: [d, dmin, scales[12], qs_interleaved[128]]
 /// qs_interleaved: values reordered for 32-byte aligned SIMD loads
-/// After _mm256_loadu_si256 + nibble extraction, values are in processing order
+/// After AVX2 256-bit load + nibble extraction, values are in processing order
 /// ```
 ///
 /// # Performance
@@ -623,7 +623,7 @@ impl InterleavedQ4K {
 
 /// SIMD-accelerated Q4_0 × Q8_0 integer dot product
 ///
-/// Uses _mm256_maddubs_epi16 for efficient integer multiply-accumulate.
+/// Uses AVX2 maddubs (multiply-add unsigned bytes) for efficient integer multiply-accumulate.
 /// This is the key optimization that brings us to llama.cpp parity.
 ///
 /// Selects between 2-block and 4-block unrolling based on vector size:
@@ -1035,7 +1035,7 @@ unsafe fn fused_q4_0_q8_0_dot_avx512_vnni(
 
 /// AVX2 accelerated Q4_0 × Q8_0 dot product using integer SIMD
 ///
-/// Uses _mm256_maddubs_epi16 which multiplies pairs of u8×i8 and accumulates
+/// Uses AVX2 maddubs which multiplies pairs of u8×i8 and accumulates
 /// to i16, then we sum to i32 and convert to f32. This is ~4x faster than
 /// the f32 FMA approach because:
 /// 1. Integer ops have lower latency
@@ -1606,7 +1606,7 @@ pub fn fused_q4_0_q8_0_parallel_matvec_into(
 
 /// AVX2 accelerated Q8_0 × Q8_0 dot product using integer SIMD
 ///
-/// Uses _mm256_maddubs_epi16 with sign trick for i8×i8 multiplication.
+/// Uses AVX2 maddubs with sign trick for i8×i8 multiplication.
 /// This is simpler than Q4_0×Q8_0 since no nibble unpacking is needed.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]

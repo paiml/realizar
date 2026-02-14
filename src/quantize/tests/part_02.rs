@@ -177,12 +177,8 @@ fn test_dequant_stats_default() {
 // - Target: 3 SIMD ops for 32 bytes (like llama.cpp's ggml-cpu-quants.c)
 // - Expected gain: ~1.5x throughput improvement
 //
-// Reference implementation from llama.cpp:
-// ```c
-// __m256i lowMask = _mm256_set1_epi8(0x0F);
-// __m256i lo = _mm256_and_si256(bytes, lowMask);
-// __m256i hi = _mm256_srli_epi16(bytes, 4);
-// ```
+// Reference: llama.cpp AVX2 nibble extraction pattern
+// lowMask = set1_epi8(0x0F); lo = and(bytes, lowMask); hi = srli_epi16(bytes, 4)
 
 /// IMP-147a: Verify scalar nibble extraction produces correct values
 #[test]
