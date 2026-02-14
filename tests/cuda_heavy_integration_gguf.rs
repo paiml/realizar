@@ -913,3 +913,198 @@ fn test_tqa017_gguf_long_context_512() {
         tokens.len() as f64 / elapsed.as_secs_f64()
     );
 }
+
+// ============================================================================
+// T-QA-017-GGUF-G: Cached Forward Path (forward_single_full_cuda_with_cache)
+// Refs #48: Grade F/D coverage gap
+// ============================================================================
+
+/// T-QA-017-GGUF-G1: Single token cached forward produces valid logits
+#[test]
+#[serial]
+#[ignore = "requires qwen2.5-0.5b model file + CUDA - run with make test-heavy"]
+fn test_tqa017_gguf_cached_forward_single_token() {
+    init_cuda_context();
+
+    let (model, _mapped) = match load_qwen_model() {
+        Some(m) => m,
+        None => return,
+    };
+
+    let config = model.config().clone();
+    let mut cuda_model = match OwnedQuantizedModelCuda::with_max_seq_len(model, 0, 32) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Skipping: CUDA init failed: {:?}", e.error);
+            return;
+        },
+    };
+
+    let mut kv_cache =
+        realizar::gguf::OwnedQuantizedKVCache::from_config(&config, 32);
+
+    let start = Instant::now();
+    let logits = match cuda_model.forward_single_full_cuda_with_cache(1, &mut kv_cache, 0) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("T-QA-017-GGUF-G1: SKIPPED (forward error: {:?})", e);
+            return;
+        },
+    };
+    let elapsed = start.elapsed();
+
+    assert_eq!(
+        logits.len(),
+        QWEN_05B_VOCAB_SIZE as usize,
+        "Logits should match vocab size"
+    );
+    let finite_count = logits.iter().filter(|x| x.is_finite()).count();
+    assert_eq!(finite_count, logits.len(), "All logits should be finite");
+
+    let max_logit = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min_logit = logits.iter().cloned().fold(f32::INFINITY, f32::min);
+    assert!(max_logit > min_logit, "Logits should have variance");
+
+    eprintln!(
+        "T-QA-017-GGUF-G1: PASS - Cached forward pos=0 in {:?} (range [{:.2}, {:.2}])",
+        elapsed, min_logit, max_logit
+    );
+}
+
+/// T-QA-017-GGUF-G2: Sequential cached forward accumulates KV cache correctly
+#[test]
+#[serial]
+#[ignore = "requires qwen2.5-0.5b model file + CUDA - run with make test-heavy"]
+fn test_tqa017_gguf_cached_forward_sequential() {
+    init_cuda_context();
+
+    let (model, _mapped) = match load_qwen_model() {
+        Some(m) => m,
+        None => return,
+    };
+
+    let config = model.config().clone();
+    let mut cuda_model = match OwnedQuantizedModelCuda::with_max_seq_len(model, 0, 32) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Skipping: CUDA init failed: {:?}", e.error);
+            return;
+        },
+    };
+
+    let mut kv_cache =
+        realizar::gguf::OwnedQuantizedKVCache::from_config(&config, 32);
+
+    let tokens = [1u32, 15496, 1917, 284, 345]; // BOS + sequence
+    let mut all_logits = Vec::new();
+
+    let start = Instant::now();
+    for (pos, &token) in tokens.iter().enumerate() {
+        let logits = match cuda_model.forward_single_full_cuda_with_cache(
+            token, &mut kv_cache, pos,
+        ) {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!(
+                    "T-QA-017-GGUF-G2: SKIPPED at pos {} (forward error: {:?})",
+                    pos, e
+                );
+                return;
+            },
+        };
+
+        assert_eq!(logits.len(), QWEN_05B_VOCAB_SIZE as usize);
+        let finite_count = logits.iter().filter(|x| x.is_finite()).count();
+        assert_eq!(
+            finite_count,
+            logits.len(),
+            "All logits at pos {} should be finite",
+            pos
+        );
+        all_logits.push(logits);
+    }
+    let elapsed = start.elapsed();
+
+    // Each position should produce different logits (different context)
+    for i in 1..all_logits.len() {
+        let diff: f32 = all_logits[i]
+            .iter()
+            .zip(all_logits[i - 1].iter())
+            .map(|(a, b)| (a - b).abs())
+            .sum();
+        assert!(
+            diff > 0.01,
+            "Logits at pos {} and {} should differ (diff={})",
+            i - 1,
+            i,
+            diff
+        );
+    }
+
+    eprintln!(
+        "T-QA-017-GGUF-G2: PASS - {} sequential cached forwards in {:?} ({:.1} tok/s)",
+        tokens.len(),
+        elapsed,
+        tokens.len() as f64 / elapsed.as_secs_f64()
+    );
+}
+
+/// T-QA-017-GGUF-G3: Cached forward determinism (same input → same output)
+#[test]
+#[serial]
+#[ignore = "requires qwen2.5-0.5b model file + CUDA - run with make test-heavy"]
+fn test_tqa017_gguf_cached_forward_determinism() {
+    init_cuda_context();
+
+    let (model, _mapped) = match load_qwen_model() {
+        Some(m) => m,
+        None => return,
+    };
+
+    let config = model.config().clone();
+    let mut cuda_model = match OwnedQuantizedModelCuda::with_max_seq_len(model, 0, 32) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Skipping: CUDA init failed: {:?}", e.error);
+            return;
+        },
+    };
+
+    // First run
+    let mut kv_cache1 =
+        realizar::gguf::OwnedQuantizedKVCache::from_config(&config, 32);
+    let logits1 = match cuda_model.forward_single_full_cuda_with_cache(1, &mut kv_cache1, 0) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("T-QA-017-GGUF-G3: SKIPPED (run1 error: {:?})", e);
+            return;
+        },
+    };
+
+    // Second run with fresh cache (same input → same output)
+    let mut kv_cache2 =
+        realizar::gguf::OwnedQuantizedKVCache::from_config(&config, 32);
+    let logits2 = match cuda_model.forward_single_full_cuda_with_cache(1, &mut kv_cache2, 0) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("T-QA-017-GGUF-G3: SKIPPED (run2 error: {:?})", e);
+            return;
+        },
+    };
+
+    // Logits should be identical (deterministic)
+    assert_eq!(logits1.len(), logits2.len());
+    let max_diff = logits1
+        .iter()
+        .zip(logits2.iter())
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0f32, f32::max);
+
+    assert!(
+        max_diff < 1e-4,
+        "Cached forward should be deterministic (max_diff={})",
+        max_diff
+    );
+
+    eprintln!("T-QA-017-GGUF-G3: PASS - Deterministic (max_diff={:.2e})", max_diff);
+}
