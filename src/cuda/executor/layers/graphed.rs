@@ -1145,7 +1145,7 @@ impl CudaExecutor {
 
             eprintln!(
                 "[CORRECTNESS-004] Graph logits[0..20]: {:?}",
-                &all_logits[..20]
+                all_logits.get(..20).expect("logits buffer has at least 20 elements")
             );
             eprintln!(
                 "[CORRECTNESS-004] GPU argmax: idx={}, val={}",

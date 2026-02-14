@@ -106,8 +106,8 @@ fn dequant_perrow(
 
 // Dequantize a single Q6K super-block (210 bytes → 256 f32 values)
 fn dequant_q6k_block(block: &[u8], out: &mut [f32]) {
-    let ql = &block[0..128];
-    let qh = &block[128..192];
+    let ql = block.get(0..128).expect("Q6K block requires 128 ql bytes");
+    let qh = block.get(128..192).expect("Q6K block requires 64 qh bytes at offset 128");
     let mut scales = [0i8; 16];
     #[allow(clippy::cast_possible_wrap)]
     for (i, s) in scales.iter_mut().enumerate() {
@@ -141,9 +141,9 @@ fn dequant_q4k_block(block: &[u8], out: &mut [f32]) {
     let d = dequant::f16_to_f32(u16::from_le_bytes([block[0], block[1]]));
     let dmin = dequant::f16_to_f32(u16::from_le_bytes([block[2], block[3]]));
     // scales: 12 bytes at offset 4
-    let scales = &block[4..16];
+    let scales = block.get(4..16).expect("Q4K block requires 12 scale bytes at offset 4");
     // qs: 128 bytes at offset 16
-    let qs = &block[16..144];
+    let qs = block.get(16..144).expect("Q4K block requires 128 qs bytes at offset 16");
 
     let mut ys_index = 0;
     for j in (0..256).step_by(64) {
@@ -427,7 +427,7 @@ impl AprTransformer {
         }
 
         // Check magic - first 3 bytes must be "APR", 4th byte is version (0, '1', or '2')
-        let magic = &data[0..4];
+        let magic = data.get(0..4).expect("APR file validated to have at least 64 bytes above");
         if magic[0..3] != *b"APR" || (magic[3] != 0 && magic[3] != b'1' && magic[3] != b'2') {
             return Err(RealizarError::FormatError {
                 reason: format!(

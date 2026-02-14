@@ -198,12 +198,12 @@ impl AprHeader {
             })?;
 
         // Validate magic prefix (APR)
-        if magic[0..3] != MAGIC_PREFIX {
+        if magic.get(0..3).expect("magic is 4 bytes") != MAGIC_PREFIX {
             return Err(RealizarError::FormatError {
                 reason: format!(
                     "Invalid .apr magic: expected APR {:?}, got {:?}",
                     MAGIC_PREFIX,
-                    &magic[0..3]
+                    magic.get(0..3).expect("magic is 4 bytes"),
                 ),
             });
         }
@@ -1860,7 +1860,7 @@ impl MappedAprModel {
 
     /// Create from existing memory map
     fn from_mmap(mmap: Mmap) -> Result<Self> {
-        let data = &mmap[..];
+        let data = mmap.get(..).expect("mmap deref to full slice");
 
         // Parse header
         let header = AprHeader::from_bytes(data)?;

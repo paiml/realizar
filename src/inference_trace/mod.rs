@@ -974,7 +974,7 @@ impl InferenceTracer {
                 TraceStep::Tokenize => {
                     if let Some(ref text) = event.details.input_text {
                         let display_text = if text.len() > 50 {
-                            format!("{}...", &text[..50])
+                            format!("{}...", text.get(..50).expect("text length checked > 50"))
                         } else {
                             text.clone()
                         };
