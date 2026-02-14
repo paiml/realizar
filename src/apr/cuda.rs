@@ -1468,7 +1468,7 @@ impl AprV2ModelCuda {
                 eprintln!(
                     "[PMAT-114] L0 after RMSNorm: mean={:.6}, first5={:?}",
                     mean,
-                    &last[..5]
+                    last.get(..5).expect("hidden_dim is at least 5")
                 );
             }
 
@@ -1677,7 +1677,7 @@ impl AprV2ModelCuda {
                     "[PMAT-114] L0 after QKV: Q mean={:.6}, K mean={:.6}, V mean={:.6}",
                     q_mean, k_mean, v_mean
                 );
-                eprintln!("[PMAT-114] L0 Q first5={:?}", &q_last[..5]);
+                eprintln!("[PMAT-114] L0 Q first5={:?}", q_last.get(..5).expect("Q projection has at least 5 elements"));
                 eprintln!(
                     "[PMAT-114] L0 shapes: q={}, k={}, v={}, hidden_dim={}, kv_dim={}",
                     q.len(),
