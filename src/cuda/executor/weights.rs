@@ -773,4 +773,107 @@ mod tests {
         assert!(ptr.is_ok());
         assert!(ptr.unwrap() > 0);
     }
+
+    // ========================================================================
+    // GH-45 FALSIFICATION: Dual-cache dispatch (weight_cache + quantized_weight_cache)
+    // ========================================================================
+
+    /// GH-45: has_weights() must find f32 weights, has_quantized_weights() must find
+    /// quantized weights. Before the fix, has_cached_weight() only checked weight_cache
+    /// (f32), so quantized APR weights were never found → 278x slowdown.
+    #[test]
+    fn test_falsify_gh45_dual_cache_dispatch() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+
+        // Load f32 weight
+        let f32_weights: Vec<f32> = vec![1.0; 256];
+        exec.load_weights("layer0.ffn_norm", &f32_weights).unwrap();
+
+        // Load quantized weight (Q4_K, type 12)
+        let q4k_weights = generate_q4_0_weights(256);
+        exec.load_quantized_weights_with_type("layer0.ffn_gate", &q4k_weights, 12)
+            .unwrap();
+
+        // GH-45 contract: f32 cache must find f32 weights
+        assert!(
+            exec.has_weights("layer0.ffn_norm"),
+            "GH-45: has_weights() must find f32 cached weight"
+        );
+        assert!(
+            !exec.has_weights("layer0.ffn_gate"),
+            "GH-45: has_weights() must NOT find quantized weight in f32 cache"
+        );
+
+        // GH-45 contract: quantized cache must find quantized weights
+        assert!(
+            exec.has_quantized_weights("layer0.ffn_gate"),
+            "GH-45: has_quantized_weights() must find quantized cached weight"
+        );
+        assert!(
+            !exec.has_quantized_weights("layer0.ffn_norm"),
+            "GH-45: has_quantized_weights() must NOT find f32 weight in quantized cache"
+        );
+
+        // GH-45 KEY TEST: The combined check (what has_cached_weight dispatches to)
+        // must return true for BOTH types of weights.
+        let has_norm = exec.has_weights("layer0.ffn_norm")
+            || exec.has_quantized_weights("layer0.ffn_norm");
+        let has_gate = exec.has_weights("layer0.ffn_gate")
+            || exec.has_quantized_weights("layer0.ffn_gate");
+        assert!(
+            has_norm,
+            "GH-45: Combined cache check must find f32 weight"
+        );
+        assert!(
+            has_gate,
+            "GH-45: Combined cache check must find quantized weight"
+        );
+
+        // Verify neither cache finds non-existent weight
+        let has_missing = exec.has_weights("nonexistent")
+            || exec.has_quantized_weights("nonexistent");
+        assert!(
+            !has_missing,
+            "GH-45: Combined check must return false for uncached weight"
+        );
+    }
+
+    /// GH-45: Quantized weight type must be tracked alongside cache entry.
+    /// Without type tracking, kernel dispatch falls to wrong dequant kernel.
+    #[test]
+    fn test_falsify_gh45_quantized_type_tracking() {
+        let Some(mut exec) = create_executor() else {
+            return;
+        };
+        let weights = generate_q4_0_weights(128);
+
+        // Load Q6_K (type 14) — type must be stored
+        exec.load_quantized_weights_with_type("layer0.attn_output", &weights, 14)
+            .unwrap();
+
+        // GH-45: Type must be retrievable for correct kernel dispatch
+        assert_eq!(
+            exec.get_quantized_weight_type("layer0.attn_output"),
+            Some(14),
+            "GH-45: Quantized weight type must be tracked for kernel dispatch"
+        );
+
+        // Load Q5_0 (type 6) — different type on different weight
+        exec.load_quantized_weights_with_type("layer0.attn_q", &weights, 6)
+            .unwrap();
+        assert_eq!(
+            exec.get_quantized_weight_type("layer0.attn_q"),
+            Some(6),
+            "GH-45: Each weight must track its own quantization type"
+        );
+
+        // Non-existent weight returns None
+        assert_eq!(
+            exec.get_quantized_weight_type("nonexistent"),
+            None,
+            "GH-45: Uncached weight must return None for type"
+        );
+    }
 }
