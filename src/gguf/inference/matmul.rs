@@ -5,8 +5,8 @@
 
 use crate::error::{RealizarError, Result};
 use crate::gguf::types::{
-    GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K,
-    GGUF_TYPE_Q8_0,
+    GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0,
+    GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0,
 };
 use crate::gguf::{ops, OwnedQKVWeights, OwnedQuantizedModel, OwnedQuantizedTensor};
 
@@ -65,6 +65,76 @@ impl OwnedQuantizedModel {
         #[cfg(feature = "cuda")]
         if let Some(ref executor_mutex) = self.cuda_executor {
             return self.fused_matmul_cuda(input, weight, executor_mutex);
+        }
+
+        // CPU path: F32 weights — direct SIMD matmul (no dequant needed)
+        if weight.qtype == GGUF_TYPE_F32 {
+            let n_elements = in_dim * out_dim;
+            let mut weights_f32 = Vec::with_capacity(n_elements);
+            for i in 0..n_elements {
+                let offset = i * 4;
+                if offset + 3 < weight.data.len() {
+                    weights_f32.push(f32::from_le_bytes([
+                        weight.data[offset],
+                        weight.data[offset + 1],
+                        weight.data[offset + 2],
+                        weight.data[offset + 3],
+                    ]));
+                } else {
+                    weights_f32.push(0.0);
+                }
+            }
+
+            let weight_matrix = TruenoMatrix::from_vec(out_dim, in_dim, weights_f32)
+                .map_err(|_| RealizarError::InvalidShape {
+                    reason: "Failed to create weight matrix for F32".to_string(),
+                })?;
+
+            let mut output = Vec::with_capacity(seq_len * out_dim);
+            for s in 0..seq_len {
+                let x = &input[s * in_dim..(s + 1) * in_dim];
+                let x_vec = TruenoVector::from_slice(x);
+                let r = weight_matrix.matvec(&x_vec).map_err(|_| {
+                    RealizarError::InvalidShape {
+                        reason: "SIMD matvec failed for F32".to_string(),
+                    }
+                })?;
+                output.extend_from_slice(r.as_slice());
+            }
+            return Ok(output);
+        }
+
+        // CPU path: F16 weights — dequantize to F32 then SIMD matmul
+        if weight.qtype == GGUF_TYPE_F16 {
+            let n_elements = in_dim * out_dim;
+            let mut weights_f32 = Vec::with_capacity(n_elements);
+            for i in 0..n_elements {
+                let offset = i * 2;
+                if offset + 1 < weight.data.len() {
+                    let bits = u16::from_le_bytes([weight.data[offset], weight.data[offset + 1]]);
+                    weights_f32.push(half::f16::from_bits(bits).to_f32());
+                } else {
+                    weights_f32.push(0.0);
+                }
+            }
+
+            let weight_matrix = TruenoMatrix::from_vec(out_dim, in_dim, weights_f32)
+                .map_err(|_| RealizarError::InvalidShape {
+                    reason: "Failed to create weight matrix for F16".to_string(),
+                })?;
+
+            let mut output = Vec::with_capacity(seq_len * out_dim);
+            for s in 0..seq_len {
+                let x = &input[s * in_dim..(s + 1) * in_dim];
+                let x_vec = TruenoVector::from_slice(x);
+                let r = weight_matrix.matvec(&x_vec).map_err(|_| {
+                    RealizarError::InvalidShape {
+                        reason: "SIMD matvec failed for F16".to_string(),
+                    }
+                })?;
+                output.extend_from_slice(r.as_slice());
+            }
+            return Ok(output);
         }
 
         // CPU path: For Q4_0, use fused Q8_0 integer SIMD matmul (llama.cpp parity)
