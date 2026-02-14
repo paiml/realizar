@@ -296,7 +296,7 @@ pub fn dequantize_apr_q8(bytes: &[u8], num_elements: usize) -> Vec<f32> {
     }
 
     let scale = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-    let quant_bytes = &bytes[4..];
+    let quant_bytes = bytes.get(4..).expect("APR Q8 buffer validated to have at least 4 bytes above");
 
     let mut result = Vec::with_capacity(num_elements);
     for i in 0..num_elements.min(quant_bytes.len()) {

@@ -8,5 +8,8 @@ cognitive-complexity-threshold = 20
 # Type complexity threshold
 type-complexity-threshold = 250
 
-# Enable all pedantic lints by default
-# (can be overridden with #[allow(clippy::...)] for specific cases)
+# Disallowed methods: ban panicking operations in production code (CB-503)
+disallowed-methods = [
+    { path = "core::option::Option::unwrap", reason = "use .expect() with context or handle None" },
+    { path = "core::result::Result::unwrap", reason = "use .expect() with context or propagate with ?" },
+]
