@@ -1,0 +1,9 @@
+comply:
+  suppressions:
+    - rules: ["CB-954"]
+      files: ["docs/roadmaps/roadmap.yaml"]
+      reason: "single-token ffn/inference and draft/accepted token counts are ML inference metric names, not secrets"
+
+    - rules: ["CB-954"]
+      files: ["playbooks/chat_template.yaml"]
+      reason: "token_count_min is a tokenizer validation field, not a secret"
