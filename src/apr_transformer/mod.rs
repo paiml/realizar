@@ -45,7 +45,10 @@ mod q4_simd;
 pub use config::{
     AprKVCache, AprTransformerConfig, AprTransformerLayer, GenerateConfig, Q4KLayerWeights,
 };
-use dequant::{dequantize_q4_k_apr, dequantize_q6_k_apr, dequantize_q8_0_apr, f16_to_f32};
+use dequant::{
+    dequantize_apr_q4_native, dequantize_apr_q8_native, dequantize_q4_k_apr, dequantize_q6_k_apr,
+    dequantize_q8_0_apr, f16_to_f32,
+};
 use helpers::{matmul_q4k_rowmajor, matmul_q6k_rowmajor, simd_add_weighted, simd_dot_f32};
 pub use loader::{
     AprQuantizationType, MmapAprTransformer, QuantizedAprTransformer, APR_TRANSFORMER_HEADER_SIZE,
@@ -692,10 +695,23 @@ impl AprTransformer {
                             dequantize_q6_k_apr(tensor_data, num_elements)
                         }
                     },
-                    // Q8_0 (GGML type 8): 34 bytes per block (2 f16 scale + 32 i8 quants)
+                    // GH-239: dtype=8 is ambiguous — either GGML Q8_0 (34 bytes/32 elements)
+                    // or APR Q4 native (18 bytes/32 elements). Disambiguate by byte count.
                     8 => {
                         let num_elements: usize = dims.iter().product();
-                        dequantize_q8_0_apr(tensor_data, num_elements)
+                        let num_blocks = num_elements.div_ceil(32);
+                        if tensor_data.len() == num_blocks * 34 {
+                            // GGML Q8_0: [f16 scale (2B) + 32×i8 quants] = 34 bytes/block
+                            dequantize_q8_0_apr(tensor_data, num_elements)
+                        } else {
+                            // APR Q4: [f16 scale (2B) + 16 nibble bytes] = 18 bytes/block
+                            dequantize_apr_q4_native(tensor_data, num_elements)
+                        }
+                    },
+                    // GH-239: APR Q8 native (dtype=9): [f32 scale (4B)] + [N × i8] = 4+N bytes
+                    9 => {
+                        let num_elements: usize = dims.iter().product();
+                        dequantize_apr_q8_native(tensor_data, num_elements)
                     },
                     // F16 (GGML type 1): convert f16 to f32
                     1 => tensor_data
@@ -1474,61 +1490,63 @@ impl AprTransformer {
             let seq_len = token_ids.len();
             let ffn_output = if let Some(ref gate_weight) = layer.ffn_gate_weight {
                 // SwiGLU: down(SiLU(gate(x)) * up(x))
-                // PMAT-103: Check for Q4K gate weight
-                let gate =
-                    if let Some(q4k_bytes) = q4k_layer.and_then(|q| q.ffn_gate_weight.as_ref()) {
-                        if trace_enabled && layer_idx == 0 {
-                            eprintln!("[TRACE] Layer {layer_idx}: ffn_gate using Q4K fused kernel");
+                // GH-192/199: Compute gate and up in parallel (like GGUF path)
+                let q4k_gate = q4k_layer.and_then(|q| q.ffn_gate_weight.as_ref());
+                let q4k_up = q4k_layer.and_then(|q| q.ffn_up_weight.as_ref());
+                let (gate_result, up_result) = rayon::join(
+                    || -> Result<Vec<f32>> {
+                        if let Some(q4k_bytes) = q4k_gate {
+                            if trace_enabled && layer_idx == 0 {
+                                eprintln!("[TRACE] Layer {layer_idx}: ffn_gate using Q4K fused kernel");
+                            }
+                            let mut output = Vec::with_capacity(seq_len * intermediate_dim);
+                            for s in 0..seq_len {
+                                let input_slice = &ffn_input[s * hidden_dim..(s + 1) * hidden_dim];
+                                let pos_out = matmul_q4k_rowmajor(
+                                    q4k_bytes,
+                                    input_slice,
+                                    intermediate_dim,
+                                    hidden_dim,
+                                )?;
+                                output.extend(pos_out);
+                            }
+                            Ok(output)
+                        } else {
+                            Ok(self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim))
                         }
-                        let mut output = Vec::with_capacity(seq_len * intermediate_dim);
-                        for s in 0..seq_len {
-                            let input_slice = &ffn_input[s * hidden_dim..(s + 1) * hidden_dim];
-                            // PMAT-103 FIX: Q4K kernel expects (ne0=output_dim, ne1=input_dim)
-                            // ffn_gate: [intermediate_dim, hidden_dim] maps hidden[1536] -> intermediate[8960]
-                            let pos_out = matmul_q4k_rowmajor(
-                                q4k_bytes,
-                                input_slice,
-                                intermediate_dim,
+                    },
+                    || -> Result<Vec<f32>> {
+                        if let Some(q4k_bytes) = q4k_up {
+                            if trace_enabled && layer_idx == 0 {
+                                eprintln!("[TRACE] Layer {layer_idx}: ffn_up using Q4K fused kernel");
+                            }
+                            let mut output = Vec::with_capacity(seq_len * intermediate_dim);
+                            for s in 0..seq_len {
+                                let input_slice = &ffn_input[s * hidden_dim..(s + 1) * hidden_dim];
+                                let pos_out = matmul_q4k_rowmajor(
+                                    q4k_bytes,
+                                    input_slice,
+                                    intermediate_dim,
+                                    hidden_dim,
+                                )?;
+                                output.extend(pos_out);
+                            }
+                            Ok(output)
+                        } else {
+                            if trace_enabled && layer_idx == 0 {
+                                eprintln!("[TRACE] Layer {layer_idx}: ffn_up using F32 fallback (slow!)");
+                            }
+                            Ok(self.matmul(
+                                &ffn_input,
+                                &layer.ffn_up_weight,
                                 hidden_dim,
-                            )?;
-                            output.extend(pos_out);
+                                intermediate_dim,
+                            ))
                         }
-                        output
-                    } else {
-                        // AUDIT-301: Use already-bound _gate_weight instead of expect()
-                        self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim)
-                    };
-
-                // PMAT-103: Check for Q4K up weight
-                let up = if let Some(q4k_bytes) = q4k_layer.and_then(|q| q.ffn_up_weight.as_ref()) {
-                    if trace_enabled && layer_idx == 0 {
-                        eprintln!("[TRACE] Layer {layer_idx}: ffn_up using Q4K fused kernel");
-                    }
-                    let mut output = Vec::with_capacity(seq_len * intermediate_dim);
-                    for s in 0..seq_len {
-                        let input_slice = &ffn_input[s * hidden_dim..(s + 1) * hidden_dim];
-                        // PMAT-103 FIX: Q4K kernel expects (ne0=output_dim, ne1=input_dim)
-                        // ffn_up: [intermediate_dim, hidden_dim] maps hidden[1536] -> intermediate[8960]
-                        let pos_out = matmul_q4k_rowmajor(
-                            q4k_bytes,
-                            input_slice,
-                            intermediate_dim,
-                            hidden_dim,
-                        )?;
-                        output.extend(pos_out);
-                    }
-                    output
-                } else {
-                    if trace_enabled && layer_idx == 0 {
-                        eprintln!("[TRACE] Layer {layer_idx}: ffn_up using F32 fallback (slow!)");
-                    }
-                    self.matmul(
-                        &ffn_input,
-                        &layer.ffn_up_weight,
-                        hidden_dim,
-                        intermediate_dim,
-                    )
-                };
+                    },
+                );
+                let gate = gate_result?;
+                let up = up_result?;
 
                 // SiLU(gate) * up, then down projection
                 let mut ffn_hidden = Vec::with_capacity(gate.len());
@@ -2289,64 +2307,70 @@ impl AprTransformer {
             let intermediate_dim = self.config.intermediate_dim;
             let ffn_output = if let Some(ref gate_weight) = layer.ffn_gate_weight {
                 // SwiGLU: down(SiLU(gate(x)) * up(x))
-                // PMAT-103: Check for Q4K gate weight
-                let gate = if !force_f32 {
-                    if let Some(q4k_bytes) = q4k_layer.and_then(|q| q.ffn_gate_weight.as_ref()) {
-                        if trace_enabled && layer_idx == 0 && position == 0 {
-                            eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using Q4K fused kernel");
-                        }
-                        matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)?
-                    } else {
-                        if trace_enabled && layer_idx == 0 && position == 0 {
-                            eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using F32 fallback (slow!)");
-                        }
-                        // AUDIT-301: Use already-bound _gate_weight instead of expect()
-                        self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim)
-                    }
+                // GH-192/199: Compute gate and up in parallel (like GGUF path)
+                let q4k_gate = if !force_f32 {
+                    q4k_layer.and_then(|q| q.ffn_gate_weight.as_ref())
                 } else {
-                    if trace_enabled && layer_idx == 0 && position == 0 {
-                        eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using F32 (APR_FORCE_F32)");
-                    }
-                    // AUDIT-301: Use already-bound _gate_weight instead of expect()
-                    self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim)
+                    None
                 };
-
-                // PMAT-103: Check for Q4K/Q6K up weight
-                let up = if !force_f32 {
-                    if let Some(q4k_bytes) = q4k_layer.and_then(|q| q.ffn_up_weight.as_ref()) {
-                        if trace_enabled && layer_idx == 0 && position == 0 {
-                            eprintln!("[TRACE-CACHE] Layer 0: ffn_up using Q4K fused kernel");
-                        }
-                        matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)?
-                    } else if let Some(q6k_bytes) =
-                        q4k_layer.and_then(|q| q.ffn_up_weight_q6k.as_ref())
-                    {
-                        if trace_enabled && layer_idx == 0 && position == 0 {
-                            eprintln!("[TRACE-CACHE] Layer 0: ffn_up using Q6K fused kernel");
-                        }
-                        matmul_q6k_rowmajor(q6k_bytes, &ffn_input, intermediate_dim, hidden_dim)?
-                    } else {
-                        if trace_enabled && layer_idx == 0 && position == 0 {
-                            eprintln!("[TRACE-CACHE] Layer 0: ffn_up using F32 fallback (slow!)");
-                        }
-                        self.matmul(
-                            &ffn_input,
-                            &layer.ffn_up_weight,
-                            hidden_dim,
-                            intermediate_dim,
-                        )
-                    }
+                let q4k_up = if !force_f32 {
+                    q4k_layer.and_then(|q| q.ffn_up_weight.as_ref())
                 } else {
-                    if trace_enabled && layer_idx == 0 && position == 0 {
-                        eprintln!("[TRACE-CACHE] Layer 0: ffn_up using F32 (APR_FORCE_F32)");
-                    }
-                    self.matmul(
-                        &ffn_input,
-                        &layer.ffn_up_weight,
-                        hidden_dim,
-                        intermediate_dim,
-                    )
+                    None
                 };
+                let q6k_up = if !force_f32 && q4k_up.is_none() {
+                    q4k_layer.and_then(|q| q.ffn_up_weight_q6k.as_ref())
+                } else {
+                    None
+                };
+                let (gate_result, up_result) = rayon::join(
+                    || -> Result<Vec<f32>> {
+                        if let Some(q4k_bytes) = q4k_gate {
+                            if trace_enabled && layer_idx == 0 && position == 0 {
+                                eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using Q4K fused kernel");
+                            }
+                            matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)
+                        } else {
+                            if trace_enabled && layer_idx == 0 && position == 0 {
+                                if force_f32 {
+                                    eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using F32 (APR_FORCE_F32)");
+                                } else {
+                                    eprintln!("[TRACE-CACHE] Layer 0: ffn_gate using F32 fallback (slow!)");
+                                }
+                            }
+                            Ok(self.matmul(&ffn_input, gate_weight, hidden_dim, intermediate_dim))
+                        }
+                    },
+                    || -> Result<Vec<f32>> {
+                        if let Some(q4k_bytes) = q4k_up {
+                            if trace_enabled && layer_idx == 0 && position == 0 {
+                                eprintln!("[TRACE-CACHE] Layer 0: ffn_up using Q4K fused kernel");
+                            }
+                            matmul_q4k_rowmajor(q4k_bytes, &ffn_input, intermediate_dim, hidden_dim)
+                        } else if let Some(q6k_bytes) = q6k_up {
+                            if trace_enabled && layer_idx == 0 && position == 0 {
+                                eprintln!("[TRACE-CACHE] Layer 0: ffn_up using Q6K fused kernel");
+                            }
+                            matmul_q6k_rowmajor(q6k_bytes, &ffn_input, intermediate_dim, hidden_dim)
+                        } else {
+                            if trace_enabled && layer_idx == 0 && position == 0 {
+                                if force_f32 {
+                                    eprintln!("[TRACE-CACHE] Layer 0: ffn_up using F32 (APR_FORCE_F32)");
+                                } else {
+                                    eprintln!("[TRACE-CACHE] Layer 0: ffn_up using F32 fallback (slow!)");
+                                }
+                            }
+                            Ok(self.matmul(
+                                &ffn_input,
+                                &layer.ffn_up_weight,
+                                hidden_dim,
+                                intermediate_dim,
+                            ))
+                        }
+                    },
+                );
+                let gate = gate_result?;
+                let up = up_result?;
 
                 // SiLU(gate) * up, then down projection
                 let mut ffn_hidden = Vec::with_capacity(gate.len());

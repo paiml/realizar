@@ -100,8 +100,18 @@ impl CudaExecutor {
             .get_mut(&cache_key)
             .expect("module just inserted");
 
-        // Transfer input (allocation overhead is negligible compared to weight caching)
-        let buf_input = GpuBuffer::from_host(&self.context, input)?;
+        // GH-215 FIX: Pad activations to ceil(K/256)*256 when K not 256-aligned.
+        // The Q4K kernel reads activations at sb_idx*256+val_idx, which reaches
+        // up to (num_super_blocks-1)*256+255. Without padding, this is an OOB read.
+        let padded_k = ((k as usize + 255) / 256) * 256;
+        let padded_input: std::borrow::Cow<'_, [f32]> = if padded_k > input.len() {
+            let mut padded = vec![0.0f32; padded_k];
+            padded[..input.len()].copy_from_slice(input);
+            std::borrow::Cow::Owned(padded)
+        } else {
+            std::borrow::Cow::Borrowed(input)
+        };
+        let buf_input = GpuBuffer::from_host(&self.context, &padded_input)?;
         let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
 
         let mut ptr_output = buf_output.as_ptr();

@@ -322,6 +322,50 @@ fn test_loader_part02_config_qwen2_style() {
     assert_eq!(config.rope_type, 2); // NEOX style for qwen2
 }
 
+/// GH-39: Verify Qwen2.5-0.5B dimensions parse correctly (7:1 GQA ratio, head_dim=64)
+#[test]
+fn test_loader_part02_config_qwen2_0_5b_dimensions() {
+    let vocab_size = 151_936;
+    let hidden_dim = 896;
+    let embed_data = create_f32_embedding_data(100, hidden_dim); // smaller vocab for test
+
+    let data = GGUFBuilder::new()
+        .architecture("qwen2")
+        .hidden_dim("qwen2", hidden_dim as u32)
+        .num_layers("qwen2", 24)
+        .num_heads("qwen2", 14)
+        .num_kv_heads("qwen2", 2)
+        .context_length("qwen2", 32768)
+        .rope_freq_base("qwen2", 1_000_000.0)
+        .rms_epsilon("qwen2", 1e-6)
+        .add_f32_tensor(
+            "token_embd.weight",
+            &[100_u64, hidden_dim as u64],
+            &embed_data,
+        )
+        .add_f32_tensor(
+            "blk.0.ffn_up.weight",
+            &[4864_u64, hidden_dim as u64],
+            &vec![0.0f32; 4864 * hidden_dim],
+        )
+        .build();
+
+    let model = GGUFModel::from_bytes(&data).expect("Should parse 0.5B-like GGUF");
+    let config = GGUFConfig::from_gguf(&model).expect("Should extract config");
+
+    assert_eq!(config.architecture, "qwen2");
+    assert_eq!(config.hidden_dim, 896);
+    assert_eq!(config.num_heads, 14);
+    assert_eq!(config.num_kv_heads, 2, "GH-39: Must read GQA ratio from metadata, not default to MHA");
+    assert_eq!(config.num_heads / config.num_kv_heads, 7, "GH-39: 7:1 GQA ratio");
+    assert_eq!(config.hidden_dim / config.num_heads, 64, "GH-39: head_dim=64 for 0.5B");
+    assert_eq!(config.num_layers, 24);
+    assert_eq!(config.intermediate_dim, 4864);
+    assert_eq!(config.rope_type, 2, "GH-39: qwen2 must use NEOX RoPE (type 2)");
+    assert!((config.rope_theta - 1_000_000.0).abs() < 100.0);
+    assert!((config.eps - 1e-6).abs() < 1e-8);
+}
+
 // =============================================================================
 // OwnedQuantizedModel Tests
 // =============================================================================

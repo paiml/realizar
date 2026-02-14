@@ -306,7 +306,18 @@ impl CudaExecutor {
             && self.has_indexed_weights()
             && self.indexed_layer_weights.len() == num_layers;
 
-        let mut hidden_gpu = GpuBuffer::from_host(&self.context, input)?;
+        // GH-215 FIX: Pad input embedding to Q4K super-block boundary (256).
+        // Q4K GEMV kernels access activations[sb_idx*256+val_idx] which can exceed
+        // the logical dimension for non-256-aligned models (e.g., hidden_dim=896).
+        let padded_len = ((input.len() + 255) / 256) * 256;
+        let padded_input: std::borrow::Cow<'_, [f32]> = if padded_len > input.len() {
+            let mut padded = vec![0.0f32; padded_len];
+            padded[..input.len()].copy_from_slice(input);
+            std::borrow::Cow::Owned(padded)
+        } else {
+            std::borrow::Cow::Borrowed(input)
+        };
+        let mut hidden_gpu = GpuBuffer::from_host(&self.context, &padded_input)?;
 
         // 4. Chain all transformer layers (no intermediate syncs)
         // PAR-044: Use workspace path for zero-allocation forward (fastest)
