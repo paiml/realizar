@@ -252,17 +252,25 @@ pub fn dequantize_q6_k(bytes: &[u8], num_elements: usize) -> Vec<f32> {
 ///
 /// These IDs are used by `load_quantized_weights_with_type()` to select
 /// the correct GPU dequantization kernel (Q4K GEMV, Q6K GEMV, etc.).
+///
+/// NOTE: APR-native formats (q8, q4) are NOT GGML types and return None.
+/// They use different binary layouts and must be dequantized on CPU via
+/// `dequantize_apr_q8()` / `dequantize_apr_q4()`.
 #[inline]
 pub fn dtype_to_ggml_qtype(dtype: &str) -> Option<u32> {
     match dtype {
-        "Q4_K" | "q4_k" => Some(12), // GGML_TYPE_Q4_K
-        "Q5_K" | "q5_k" => Some(13), // GGML_TYPE_Q5_K
-        "Q6_K" | "q6_k" => Some(14), // GGML_TYPE_Q6_K
-        "Q8_0" | "q8_0" => Some(8),  // GGML_TYPE_Q8_0
-        "Q4_0" | "q4_0" => Some(2),  // GGML_TYPE_Q4_0
-        "Q4_1" | "q4_1" => Some(3),  // GGML_TYPE_Q4_1
-        "Q5_0" | "q5_0" => Some(6),  // GGML_TYPE_Q5_0
-        _ => None,                   // F32/F16 are not quantized
+        // GGML-compatible formats (passthrough from GGUF import)
+        "Q4_K" | "q4_k" => Some(12),  // GGML_TYPE_Q4_K
+        "Q5_K" | "q5_k" => Some(13),  // GGML_TYPE_Q5_K
+        "Q6_K" | "q6_k" => Some(14),  // GGML_TYPE_Q6_K
+        "Q8_0" | "q8_0" => Some(8),   // GGML_TYPE_Q8_0
+        "Q4_0" | "q4_0" => Some(2),   // GGML_TYPE_Q4_0
+        "Q4_1" | "q4_1" => Some(3),   // GGML_TYPE_Q4_1
+        "Q5_0" | "q5_0" => Some(6),   // GGML_TYPE_Q5_0
+        // APR-native Q8/Q4 are NOT GGML — different binary layout
+        // "q8" | "Q8" => None (APR Q8: single f32 scale + N × i8)
+        // "q4" | "Q4" => None (APR Q4: block f16 scale + packed nibbles)
+        _ => None, // F32/F16/APR-native are not GGML quantized
     }
 }
 
@@ -270,4 +278,221 @@ pub fn dtype_to_ggml_qtype(dtype: &str) -> Option<u32> {
 #[inline]
 pub fn is_quantized_dtype(dtype: &str) -> bool {
     dtype_to_ggml_qtype(dtype).is_some()
+}
+
+// ============================================================================
+// APR-native quantization formats (different from GGML!)
+// ============================================================================
+
+/// Dequantize APR Q8 format (NOT the same as GGML Q8_0!)
+///
+/// APR Q8: `[scale: f32 (4 bytes)] + [quantized: i8 × N]` (single scale for whole tensor)
+/// GGML Q8_0: `[scale: f16 (2 bytes)] + [i8 × 32]` per block of 32
+///
+/// Dequant: `value = quantized_i8 * scale`
+pub fn dequantize_apr_q8(bytes: &[u8], num_elements: usize) -> Vec<f32> {
+    if bytes.len() < 4 {
+        return vec![0.0; num_elements];
+    }
+
+    let scale = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    let quant_bytes = &bytes[4..];
+
+    let mut result = Vec::with_capacity(num_elements);
+    for i in 0..num_elements.min(quant_bytes.len()) {
+        let q = quant_bytes[i] as i8;
+        result.push(f32::from(q) * scale);
+    }
+    result
+}
+
+/// Dequantize APR Q4 format (NOT the same as GGML Q4_K!)
+///
+/// APR Q4: For each block of 32 values:
+///   `[block_scale: f16 (2 bytes)] + [packed nibbles: 16 bytes]` = 18 bytes per block
+///
+/// Each nibble stores unsigned value (0-15), where:
+///   `original = (nibble - 8) * scale`
+///
+/// Nibble packing: byte = low_nibble | (high_nibble << 4)
+///   - Even index i: nibble = byte & 0x0F
+///   - Odd index i:  nibble = (byte >> 4) & 0x0F
+pub fn dequantize_apr_q4(bytes: &[u8], num_elements: usize) -> Vec<f32> {
+    const BLOCK_SIZE: usize = 32;
+    const BLOCK_BYTES: usize = 2 + 16; // f16 scale + 16 packed nibble bytes
+
+    let mut result = Vec::with_capacity(num_elements);
+    let mut offset = 0;
+
+    while result.len() < num_elements && offset + BLOCK_BYTES <= bytes.len() {
+        // Read block scale (f16)
+        let scale_bits = u16::from_le_bytes([bytes[offset], bytes[offset + 1]]);
+        let scale = f16_to_f32(scale_bits);
+        offset += 2;
+
+        // Unpack 32 nibbles from 16 bytes
+        let packed = &bytes[offset..offset + 16];
+        for i in 0..BLOCK_SIZE {
+            if result.len() >= num_elements {
+                break;
+            }
+            let byte = packed[i / 2];
+            let nibble = if i % 2 == 0 {
+                byte & 0x0F
+            } else {
+                (byte >> 4) & 0x0F
+            };
+            // Unsigned nibble (0-15) was stored as (original / scale + 8),
+            // so original = (nibble - 8) * scale
+            let value = (f32::from(nibble) - 8.0) * scale;
+            result.push(value);
+        }
+        offset += 16;
+    }
+
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dequantize_apr_q8_round_trip() {
+        // Simulate APR Q8 encoding: scale = max_abs / 127
+        let original = vec![1.0f32, -0.5, 0.3, -0.8, 0.0, 0.7];
+        let max_abs = original.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
+        let scale = max_abs / 127.0;
+
+        // Pack: [scale: f32 (4B)] + [quantized: i8 × N]
+        let mut bytes = Vec::with_capacity(4 + original.len());
+        bytes.extend_from_slice(&scale.to_le_bytes());
+        for &v in &original {
+            let q = (v / scale).round().clamp(-127.0, 127.0) as i8;
+            bytes.push(q as u8);
+        }
+
+        let result = dequantize_apr_q8(&bytes, original.len());
+        assert_eq!(result.len(), original.len());
+        for (i, (&orig, &dequant)) in original.iter().zip(result.iter()).enumerate() {
+            assert!(
+                (orig - dequant).abs() < 0.02,
+                "APR Q8 mismatch at {i}: orig={orig}, dequant={dequant}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_dequantize_apr_q8_zeros() {
+        // All zeros: scale=1.0, all i8 zeros
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1.0f32.to_le_bytes());
+        bytes.extend_from_slice(&[0u8; 10]);
+
+        let result = dequantize_apr_q8(&bytes, 10);
+        assert_eq!(result.len(), 10);
+        for &v in &result {
+            assert_eq!(v, 0.0);
+        }
+    }
+
+    #[test]
+    fn test_dequantize_apr_q8_empty() {
+        let result = dequantize_apr_q8(&[], 10);
+        assert_eq!(result, vec![0.0; 10]);
+    }
+
+    /// f32_to_f16 helper (IEEE 754 conversion for test encoding)
+    fn f32_to_f16_bits(value: f32) -> u16 {
+        let bits = value.to_bits();
+        let sign = (bits >> 31) & 1;
+        let exp = ((bits >> 23) & 0xFF) as i32 - 127;
+        let mant = bits & 0x7FFFFF;
+
+        if exp > 15 {
+            // Overflow → infinity
+            ((sign << 15) | (0x1F << 10)) as u16
+        } else if exp < -14 {
+            // Underflow → zero
+            (sign << 15) as u16
+        } else {
+            let f16_exp = (exp + 15) as u32;
+            let f16_mant = mant >> 13;
+            ((sign << 15) | (f16_exp << 10) | f16_mant) as u16
+        }
+    }
+
+    #[test]
+    fn test_dequantize_apr_q4_round_trip() {
+        // Simulate APR Q4 encoding: block of 32, scale = max_abs / 7
+        let original: Vec<f32> = (0..32).map(|i| (i as f32 - 16.0) / 16.0).collect();
+        let max_abs = original.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
+        let scale = if max_abs == 0.0 { 1.0 } else { max_abs / 7.0 };
+
+        // Pack: [scale: f16 (2B)] + [16 nibble bytes]
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&f32_to_f16_bits(scale).to_le_bytes());
+
+        let mut packed = [0u8; 16];
+        for (i, &v) in original.iter().enumerate() {
+            let q = (v / scale).round().clamp(-8.0, 7.0) as i8;
+            let nibble = ((q + 8) as u8) & 0x0F;
+            if i % 2 == 0 {
+                packed[i / 2] = nibble;
+            } else {
+                packed[i / 2] |= nibble << 4;
+            }
+        }
+        bytes.extend_from_slice(&packed);
+
+        let result = dequantize_apr_q4(&bytes, 32);
+        assert_eq!(result.len(), 32);
+        for (i, (&orig, &dequant)) in original.iter().zip(result.iter()).enumerate() {
+            assert!(
+                (orig - dequant).abs() < 0.25,
+                "APR Q4 mismatch at {i}: orig={orig}, dequant={dequant}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_dequantize_apr_q4_empty() {
+        let result = dequantize_apr_q4(&[], 10);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_apr_q8_not_ggml_q8_0() {
+        // Prove that APR Q8 and GGML Q8_0 produce DIFFERENT results from same bytes.
+        // This is the bug that GH-250 discovered.
+        let mut apr_bytes = Vec::new();
+        // APR Q8: 4-byte f32 scale + N i8 values
+        apr_bytes.extend_from_slice(&0.01f32.to_le_bytes()); // scale = 0.01
+        for i in 0..32 {
+            apr_bytes.push((i as i8 - 16) as u8);
+        }
+
+        let apr_result = dequantize_apr_q8(&apr_bytes, 32);
+        let ggml_result = dequantize_q8_0(&apr_bytes, 32);
+
+        // They must be DIFFERENT (proving the format mismatch)
+        assert_ne!(
+            apr_result, ggml_result,
+            "APR Q8 and GGML Q8_0 should produce different results from same bytes"
+        );
+    }
+
+    #[test]
+    fn test_dtype_to_ggml_qtype_apr_native_returns_none() {
+        // APR-native Q8/Q4 should NOT map to GGML type IDs
+        assert_eq!(dtype_to_ggml_qtype("q8"), None);
+        assert_eq!(dtype_to_ggml_qtype("Q8"), None);
+        assert_eq!(dtype_to_ggml_qtype("q4"), None);
+        assert_eq!(dtype_to_ggml_qtype("Q4"), None);
+
+        // GGML-compatible formats SHOULD map
+        assert_eq!(dtype_to_ggml_qtype("Q8_0"), Some(8));
+        assert_eq!(dtype_to_ggml_qtype("Q4_K"), Some(12));
+        assert_eq!(dtype_to_ggml_qtype("Q6_K"), Some(14));
+    }
 }
