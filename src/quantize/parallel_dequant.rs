@@ -74,17 +74,17 @@ pub(crate) fn dequantize_q4_k_superblock(sb_data: &[u8]) -> Vec<f32> {
     let mut result = vec![0.0f32; QK_K];
 
     // Read d (f16 -> f32)
-    let d = read_f16(&sb_data[0..2]);
+    let d = read_f16(sb_data.get(0..2).expect("Q4_K superblock: need ≥2 bytes for d"));
 
     // Read dmin (f16 -> f32)
-    let dmin = read_f16(&sb_data[2..4]);
+    let dmin = read_f16(sb_data.get(2..4).expect("Q4_K superblock: need ≥4 bytes for dmin"));
 
     // Read scales (12 bytes)
     let mut scales = [0u8; 12];
-    scales.copy_from_slice(&sb_data[4..16]);
+    scales.copy_from_slice(sb_data.get(4..16).expect("Q4_K superblock: need ≥16 bytes for scales"));
 
     // Read qs (128 bytes)
-    let qs = &sb_data[16..144];
+    let qs = sb_data.get(16..144).expect("Q4_K superblock: need ≥144 bytes for qs");
 
     // Dequantize following candle's layout:
     // For each 64-value chunk, output 32 low nibbles then 32 high nibbles
@@ -219,16 +219,16 @@ unsafe fn dequantize_q4_k_superblock_avx2(sb_data: &[u8]) -> Vec<f32> {
     let mut result = vec![0.0f32; QK_K];
 
     // Read d and dmin
-    let d = read_f16(&sb_data[0..2]);
-    let dmin = read_f16(&sb_data[2..4]);
+    let d = read_f16(sb_data.get(0..2).expect("Q4_K superblock: need ≥2 bytes for d"));
+    let dmin = read_f16(sb_data.get(2..4).expect("Q4_K superblock: need ≥4 bytes for dmin"));
 
     // SAFETY: AVX2 availability verified by caller's target_feature
     unsafe {
         // Read scales
         let mut scales = [0u8; 12];
-        scales.copy_from_slice(&sb_data[4..16]);
+        scales.copy_from_slice(sb_data.get(4..16).expect("Q4_K superblock: need ≥16 bytes for scales"));
 
-        let qs = &sb_data[16..144];
+        let qs = sb_data.get(16..144).expect("Q4_K superblock: need ≥144 bytes for qs");
 
         // Dequantize following candle's layout:
         // For each 64-value chunk, output 32 low nibbles then 32 high nibbles
