@@ -391,19 +391,20 @@ impl FormatType {
         }
 
         // GGUF: "GGUF" magic
-        if &data[0..4] == b"GGUF" {
+        if data.get(0..4).expect("len >= 8 checked above") == b"GGUF" {
             return Self::Gguf;
         }
 
         // APR: "APR\0" magic
-        if &data[0..4] == b"APR\0" || &data[0..4] == b"APR2" {
+        let magic4 = data.get(0..4).expect("len >= 8 checked above");
+        if magic4 == b"APR\0" || magic4 == b"APR2" {
             return Self::Apr;
         }
 
         // SafeTensors: u64 header length followed by '{"'
         if data.len() >= 10 {
-            let header_len = u64::from_le_bytes(data[0..8].try_into().unwrap_or([0; 8]));
-            if header_len < 100_000_000 && &data[8..10] == b"{\"" {
+            let header_len = u64::from_le_bytes(data.get(0..8).expect("len >= 10 checked above").try_into().unwrap_or([0; 8]));
+            if header_len < 100_000_000 && data.get(8..10).expect("len >= 10 checked above") == b"{\"" {
                 return Self::SafeTensors;
             }
         }

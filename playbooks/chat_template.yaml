@@ -70,7 +70,7 @@ machine:
     inference_ready:
       id: "inference_ready"
       description: "Prompt ready for model inference"
-      final_state: true
+      final_state: "true"
       invariants:
         - description: "Token IDs generated"
           condition: "engine.token_ids.len() > 0"
@@ -78,7 +78,7 @@ machine:
     error:
       id: "error"
       description: "Error encountered during processing"
-      final_state: true
+      final_state: "true"
       invariants:
         - description: "Error is recorded"
           condition: "engine.error.is_some()"
@@ -222,7 +222,7 @@ performance:
 
 # Determinism Requirements
 determinism:
-  enabled: true
+  enabled: "true"
   iterations: 5
   description: "Same input must produce identical token sequence"
 
@@ -242,9 +242,9 @@ assertions:
 
   output:
     - var: "token_ids"
-      not_empty: true
+      not_empty: "true"
     - var: "errors"
-      empty: true  # For valid inputs
+      empty: "true"  # For valid inputs
 
 # Test Scenarios
 scenarios:
@@ -324,11 +324,11 @@ scenarios:
         - "2+2?"
         - "4"
         - "3+3?"
-      message_order_preserved: true
+      message_order_preserved: "true"
 
 # Probador Integration
 probador:
-  enabled: true
+  enabled: "true"
   test_file: "tests/chat_template_tests.rs"
   example: "examples/chat_template.rs"
   coverage_report: "target/coverage/chat_template.json"

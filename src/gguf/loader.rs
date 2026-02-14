@@ -932,7 +932,7 @@ impl GGUFModel {
 
                 // Check if this is a byte token like <0xE6>
                 if token.starts_with("<0x") && token.ends_with('>') && token.len() == 6 {
-                    if let Ok(byte_val) = u8::from_str_radix(&token[3..5], 16) {
+                    if let Ok(byte_val) = u8::from_str_radix(token.get(3..5).expect("byte token <0xNN> has len 6, indices 3..5 always valid"), 16) {
                         bytes.push(byte_val);
                         continue;
                     }

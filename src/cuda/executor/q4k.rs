@@ -852,6 +852,10 @@ impl CudaExecutor {
         let mut k_val = k;
         let mut n_val = n;
 
+        // SAFETY: All device pointers (output, weights, input) are allocated by
+        // CudaExecutor and valid for the kernel's grid dimensions. k_val and n_val
+        // are stack-local scalars passed by pointer. The stream synchronizes before
+        // any host-side read of the output buffer.
         unsafe {
             self.stream.launch_kernel(
                 module,
@@ -937,6 +941,10 @@ impl CudaExecutor {
         let mut k_val = k;
         let mut n_val = n;
 
+        // SAFETY: All device pointers (output, weights, q8_buf) are allocated by
+        // CudaExecutor and valid for the kernel's grid dimensions. k_val and n_val
+        // are stack-local scalars passed by pointer. q8_buf is a view into
+        // workspace.q8_activation_buf and is kept alive via std::mem::forget below.
         unsafe {
             self.stream.launch_kernel(
                 module,

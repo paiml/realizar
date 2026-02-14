@@ -161,7 +161,7 @@ impl OwnedQuantizedModel {
                 let k_mean: f32 = k.iter().sum::<f32>() / kv_dim as f32;
                 let v_mean: f32 = v.iter().sum::<f32>() / kv_dim as f32;
                 eprintln!("[PMAT-114-GGUF] L0 after QKV (pre-RoPE): Q mean={:.6}, K mean={:.6}, V mean={:.6}", q_mean, k_mean, v_mean);
-                eprintln!("[PMAT-114-GGUF] L0 Q first5={:?}", &q[..5]);
+                eprintln!("[PMAT-114-GGUF] L0 Q first5={:?}", q.get(..5).unwrap_or(&[]));
             }
 
             // Apply RoPE in-place to Q and K within QKV buffer

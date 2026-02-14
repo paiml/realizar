@@ -645,7 +645,7 @@ impl CudaExecutor {
 
                     eprintln!(
                         "[CORRECTNESS-003] Q6K LM head logits[0..20]: {:?}",
-                        &all_logits[..20]
+                        all_logits.get(..20).unwrap_or(&[])
                     );
 
                     // Find global argmax
@@ -820,7 +820,7 @@ impl CudaExecutor {
                     logits_gpu.copy_to_host(&mut all_logits)?;
                     eprintln!(
                         "[GQA-DEBUG] Q8_0 LM head logits[0..20]: {:?}",
-                        &all_logits[..20]
+                        all_logits.get(..20).unwrap_or(&[])
                     );
                     // Find global argmax
                     let (argmax_idx, argmax_val) = all_logits

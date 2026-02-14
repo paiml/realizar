@@ -173,12 +173,10 @@ clippy-fix: ## Automatically fix clippy warnings
 # =============================================================================
 
 # Coverage exclusions: binary entry points + external deps + compute quarantine (SPEC-COV-95)
-# Control plane: api/(mod,types,realize_handlers,openai_handlers), cli/handlers,
-#   scheduler/, config, error, format, audit, cache, grammar, tokenizer, generate, etc.
+# Standard: trueno (external), tests, fixtures, main.rs, bench, examples
 # Compute plane (quarantined — verified by 11,354 correctness tests):
-#   cuda, layers/, simd, gpu/, gguf/(inference/|loader|io), apr_transformer/,
-#   quantize/(mod|fused), infer/, convert/, api/(gpu_handlers|apr_handlers), cli/(mod|inference)
-COV_EXCLUDE := --ignore-filename-regex='(trueno/|/tests|test_|fixtures|main\.rs|/bench|/examples/|cuda|layers/|simd|gpu/|gguf/(inference/|loader|io\.rs)|quantize/(fused|mod\.rs)|apr_transformer/|infer/|convert/|cli/(mod\.rs|inference\.rs)|api/(gpu_handlers|apr_handlers))'
+#   cuda, gpu, layers, simd, apr_transformer, gguf I/O, quantize core, infer, convert
+COV_EXCLUDE := --ignore-filename-regex='(trueno/|/tests|test_|fixtures|main\.rs|/(bench|examples)/|(cuda|gpu|layers|simd|apr_transformer|infer|convert)/|gguf/(inference/|loader|io\.rs)|quantize/(fused|mod\.rs)|cli/(mod|inference)\.rs|api/(gpu|apr)_handlers)'
 
 # D5: Configurable coverage threshold (default 95%, override with COV_THRESHOLD=90 make coverage-check)
 COV_THRESHOLD ?= 95
@@ -386,7 +384,7 @@ cov-report-control-plane: ## Generate CONTROL PLANE coverage (excludes compute q
 	@cargo llvm-cov report --summary-only $(COV_EXCLUDE) | grep -E "^TOTAL"
 
 coverage: ## DEFAULT: CUDA-Last sharded coverage (target: 95%)
-	@# CB-127: orchestrator — PROPTEST_CASES exported globally (line 25), --lib used in each cov-shard-*
+	@# CB-127: PROPTEST_CASES=$(PROPTEST_CASES) QUICKCHECK_TESTS=$(QUICKCHECK_TESTS) (exported globally)
 	@nvidia-smi > /dev/null 2>&1 || { echo "❌ NVIDIA GPU required (RTX 4090 expected)"; exit 1; }
 	@echo "🧹 Cleaning stale coverage data..."
 	@cargo llvm-cov clean --workspace 2>/dev/null || true

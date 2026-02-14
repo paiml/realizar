@@ -250,7 +250,7 @@ scenarios:
 # Visualization hints for SVG export
 visualization:
   layout: "hierarchical"
-  highlight_critical_path: true
+  highlight_critical_path: "true"
   critical_path:
     - "uninitialized"
     - "initialized"

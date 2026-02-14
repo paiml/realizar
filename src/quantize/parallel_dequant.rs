@@ -357,7 +357,7 @@ pub(crate) fn dequantize_q8_0_block(block_data: &[u8]) -> Vec<f32> {
     let scale = f16_to_f32(scale_bits);
 
     // Dequantize 32 int8 values
-    for &byte in &block_data[2..34] {
+    for &byte in block_data.get(2..34).expect("Q8_0 block requires 34 bytes") {
         let value = i8::from_le_bytes([byte]);
         result.push(scale * f32::from(value));
     }

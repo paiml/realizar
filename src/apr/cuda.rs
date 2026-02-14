@@ -618,11 +618,9 @@ impl AprV2ModelCuda {
                 }
             }
 
-            // Bug 210 (GH-222): Removed dead code that cached bias under layer_{}_q_bias
-            // names and O/FFN weights under layer_{}_o_proj names. Forward path (PMAT-805)
-            // only uses GGUF-style names (blk.{}.attn_output.weight etc.) from first pass
-            // at lines 457-539, and reads biases directly from model at line 1671.
-            // This saves ~5 GB GPU memory for 1.5B F32 models.
+            // Weights are loaded via GGUF-style names (blk.{}.attn_output.weight etc.)
+            // in the first pass above. Biases are read directly from the model at
+            // inference time. This avoids duplicate GPU memory for 1.5B F32 models.
 
             // Upload RMSNorm gamma weights (always F32)
             let norm_mappings = [

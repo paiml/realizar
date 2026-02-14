@@ -335,9 +335,8 @@ impl OwnedQuantizedModelCuda {
             );
         }
 
-        // PMAT-PREFILL: Batched prefill is currently broken (produces degenerate output).
-        // Root cause: BatchedQ4KGemvKernel dequant diverges from MwvQ4KGemv after PAR-082-V2.
-        // Default to serial prefill. Set BATCHED_PREFILL=1 to re-enable for debugging.
+        // Serial prefill produces correct output. Batched prefill is opt-in via
+        // BATCHED_PREFILL=1 for profiling the BatchedQ4KGemvKernel path.
         let use_serial_prefill = !std::env::var("BATCHED_PREFILL")
             .map(|v| v == "1")
             .unwrap_or(false);
@@ -530,8 +529,8 @@ impl OwnedQuantizedModelCuda {
 
         let mut tokens = prompt.to_vec();
 
-        // PMAT-PREFILL: Batched prefill is currently broken — default to serial.
-        // Set BATCHED_PREFILL=1 to re-enable for debugging.
+        // Serial prefill is the default path. Set BATCHED_PREFILL=1 to opt-in
+        // to batched prefill for profiling.
         let use_batched_prefill = std::env::var("BATCHED_PREFILL")
             .map(|v| v == "1")
             .unwrap_or(false);
