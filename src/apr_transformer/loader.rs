@@ -102,7 +102,7 @@ impl MmapAprTransformer {
         let header_bytes = &mmap[..APR_TRANSFORMER_HEADER_SIZE];
 
         // Verify APR magic
-        let magic = &header_bytes[0..4];
+        let magic = header_bytes.get(0..4).expect("APR header validated to have required size above");
         if magic != MAGIC {
             return Err(RealizarError::FormatError {
                 reason: format!("Invalid APR magic: expected {:?}, got {:?}", MAGIC, magic),

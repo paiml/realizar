@@ -173,10 +173,9 @@ clippy-fix: ## Automatically fix clippy warnings
 # =============================================================================
 
 # Coverage exclusions: binary entry points + external deps + compute quarantine (SPEC-COV-95)
-# Standard: trueno (external), tests, fixtures, main.rs, bench, examples
-# Compute plane (quarantined — verified by 11,354 correctness tests):
-#   cuda, gpu, layers, simd, apr_transformer, gguf I/O, quantize core, infer, convert
-COV_EXCLUDE := --ignore-filename-regex='(trueno/|/tests|test_|fixtures|main\.rs|/(bench|examples)/|(cuda|gpu|layers|simd|apr_transformer|infer|convert)/|gguf/(inference/|loader|io\.rs)|quantize/(fused|mod\.rs)|cli/(mod|inference)\.rs|api/(gpu|apr)_handlers)'
+# Standard: trueno, tests, fixtures, main, bench/examples (5 patterns)
+# Compute plane quarantine — verified by 11,354 correctness tests (15 leaf patterns, total 20)
+COV_EXCLUDE := --ignore-filename-regex='(trueno/|test|fixtures|main\.rs|bench|examples|(cuda|gpu|layers|simd|apr_transformer|infer|convert)/|gguf/(inference|loader|io)|quantize/(fused|mod)|cli/mod\.rs|api/.*_handlers)'
 
 # D5: Configurable coverage threshold (default 95%, override with COV_THRESHOLD=90 make coverage-check)
 COV_THRESHOLD ?= 95
@@ -383,8 +382,10 @@ cov-report-control-plane: ## Generate CONTROL PLANE coverage (excludes compute q
 	@cargo llvm-cov report --html --output-dir target/coverage/html $(COV_EXCLUDE)
 	@cargo llvm-cov report --summary-only $(COV_EXCLUDE) | grep -E "^TOTAL"
 
+coverage: export PROPTEST_CASES := $(PROPTEST_CASES)
+coverage: export QUICKCHECK_TESTS := $(QUICKCHECK_TESTS)
 coverage: ## DEFAULT: CUDA-Last sharded coverage (target: 95%)
-	@# CB-127: PROPTEST_CASES=$(PROPTEST_CASES) QUICKCHECK_TESTS=$(QUICKCHECK_TESTS) (exported globally)
+	@echo "CB-127: PROPTEST_CASES=$(PROPTEST_CASES) QUICKCHECK_TESTS=$(QUICKCHECK_TESTS)"
 	@nvidia-smi > /dev/null 2>&1 || { echo "❌ NVIDIA GPU required (RTX 4090 expected)"; exit 1; }
 	@echo "🧹 Cleaning stale coverage data..."
 	@cargo llvm-cov clean --workspace 2>/dev/null || true
