@@ -176,7 +176,7 @@ clippy-fix: ## Automatically fix clippy warnings
 # 10 flat patterns (CB-125-A: ≤10). No nested alternations.
 # cuda/ covers layers/ (cuda/executor/layers/), gpu/ covers simd (gpu/simd_ops.rs).
 # Compute plane verified by 14,877 correctness tests.
-COV_EXCLUDE := --ignore-filename-regex='(trueno/|test|fixtures|main\.rs|bench|examples|cuda/|gpu/|gguf/|quantize/|api/)'
+COV_EXCLUDE := --ignore-filename-regex='(trueno/|test|fixtures|main\.rs|bench|examples|cuda/|gpu/|gguf/|quantize/)'
 
 # D5: Configurable coverage threshold (default 95%, override with COV_THRESHOLD=N make coverage-check)
 COV_THRESHOLD ?= 95
