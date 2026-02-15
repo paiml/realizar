@@ -268,6 +268,31 @@ mod test_fixtures;
 #[cfg(test)]
 mod poison_trace_test;
 
+// COV-003 through COV-006 (layer preload, kv_cache, attention, quantized)
+#[cfg(test)]
+#[path = "tests_part_02.rs"]
+mod tests_part_02;
+
+// COV-007 through COV-012 (activations, workspace, gemm, core, layer, batched)
+#[cfg(test)]
+#[path = "tests_part_03.rs"]
+mod tests_part_03;
+
+// COV-014 through COV-020 (weights, layer errors, activations, core, quantized, attention, gemm)
+#[cfg(test)]
+#[path = "tests_part_04.rs"]
+mod tests_part_04;
+
+// COV-021 through COV-025 (activations untested, layer utility, quantized, argmax, buffer mgmt)
+#[cfg(test)]
+#[path = "tests_part_05.rs"]
+mod tests_part_05;
+
+// COV-026 through COV-031 (GEMV variants, tiled/fused, function coverage, weight/workspace, layer API)
+#[cfg(test)]
+#[path = "tests_part_06.rs"]
+mod tests_part_06;
+
 /// Process-level set of PTX hashes that failed compilation.
 /// Prevents re-attempting cuModuleLoadData with the same broken PTX,
 /// which would poison the CUDA context again.
