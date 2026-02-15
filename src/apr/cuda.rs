@@ -2262,6 +2262,14 @@ impl AprV2ModelCuda {
         max_new_tokens: usize,
         eos_id: u32,
     ) -> Result<Vec<u32>> {
+        // GH-260: Reset KV cache and decode graph before each generation.
+        // Without this, the second chat turn has stale kv_position from turn 1,
+        // causing the prefill to write KV entries at wrong positions and the
+        // decode graph to replay with stale state. This caused multi-minute
+        // delays on the second prompt.
+        self.reset_kv_cache();
+        self.executor.clear_decode_graph();
+
         // PMAT-113-F: Diagnostic tracing for logit verification
         let trace_enabled = std::env::var("APR_TRACE_LOGITS").is_ok();
 
