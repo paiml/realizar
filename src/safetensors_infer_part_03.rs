@@ -36,4 +36,5 @@ mod tests {
     }
 include!("safetensors_infer_part_03_part_02.rs");
 include!("safetensors_infer_part_03_part_03.rs");
+include!("safetensors_infer_part_03_part_04.rs");
 }
