@@ -1,0 +1,353 @@
+
+impl CudaExecutor {
+
+    /// PAR-023: Fully GPU-resident forward to logits (minimal syncs)
+    ///
+    /// Runs all transformer layers + output norm + LM head projection entirely on GPU,
+    /// only downloading the final logits. This eliminates the CPU round-trip for output norm.
+    ///
+    /// # Sync Count
+    ///
+    /// - Input embedding upload: 1 sync
+    /// - All transformer layers: 0 syncs (attention has internal D2D)
+    /// - Output RMSNorm: 0 syncs (on GPU)
+    /// - LM head projection: 0 syncs (on GPU)
+    /// - Logits download: 1 sync
+    /// - **Total: 2 syncs** vs 3+ syncs (with CPU output norm)
+    ///
+    /// # Requirements
+    ///
+    /// Must call `preload_rmsnorm_weights()` and `preload_output_norm()` before use.
+    /// LM head weights must be pre-cached via `load_quantized_weights("output.weight", ...)`.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input embedding [hidden_dim]
+    /// * `logits` - Output logits buffer [vocab_size]
+    /// * `position` - Token position for RoPE and KV cache (PAR-070: CORRECTNESS-001 fix)
+    /// * `num_layers` - Number of transformer layers
+    /// * `hidden_dim` - Hidden dimension
+    /// * `intermediate_dim` - FFN intermediate dimension
+    /// * `vocab_size` - Output vocabulary size
+    /// * `epsilon` - RMSNorm epsilon
+    #[allow(clippy::too_many_arguments)]
+    pub fn forward_all_layers_gpu_to_logits(
+        &mut self,
+        input: &[f32],
+        logits: &mut [f32],
+        position: u32,
+        num_layers: usize,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        vocab_size: u32,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        // PERF-002: Debug code removed for performance (was PAR-058-DEBUG)
+        // NaN checks required D2H transfer on every token - ~10ms overhead each
+
+        // 1. Validate all RMSNorm weights are cached (including output norm)
+        for layer_idx in 0..num_layers {
+            let attn_name = format!("blk.{}.attn_norm.gamma", layer_idx);
+            let ffn_name = format!("blk.{}.ffn_norm.gamma", layer_idx);
+            if !self.rmsnorm_cache.contains_key(&attn_name) {
+                return Err(GpuError::InvalidLaunchConfig(format!(
+                    "PAR-023: attn_norm not cached for layer {}",
+                    layer_idx
+                )));
+            }
+            if !self.rmsnorm_cache.contains_key(&ffn_name) {
+                return Err(GpuError::InvalidLaunchConfig(format!(
+                    "PAR-023: ffn_norm not cached for layer {}",
+                    layer_idx
+                )));
+            }
+        }
+        if !self.rmsnorm_cache.contains_key("output_norm.gamma") {
+            return Err(GpuError::InvalidLaunchConfig(
+                "PAR-023: output_norm not cached".to_string(),
+            ));
+        }
+
+        // 2. Collect all cache key names
+        let layer_keys: Vec<(String, String)> = (0..num_layers)
+            .map(|i| {
+                (
+                    format!("blk.{}.attn_norm.gamma", i),
+                    format!("blk.{}.ffn_norm.gamma", i),
+                )
+            })
+            .collect();
+
+        // 3. Upload input embedding - sync point #1
+        // PAR-044: Check if we can use zero-allocation workspace path
+        let use_workspace = self.has_workspace()
+            && self.has_indexed_weights()
+            && self.indexed_layer_weights.len() == num_layers;
+
+        // GH-215 FIX: Pad input embedding to Q4K super-block boundary (256).
+        // Q4K GEMV kernels access activations[sb_idx*256+val_idx] which can exceed
+        // the logical dimension for non-256-aligned models (e.g., hidden_dim=896).
+        let padded_len = ((input.len() + 255) / 256) * 256;
+        let padded_input: std::borrow::Cow<'_, [f32]> = if padded_len > input.len() {
+            let mut padded = vec![0.0f32; padded_len];
+            padded[..input.len()].copy_from_slice(input);
+            std::borrow::Cow::Owned(padded)
+        } else {
+            std::borrow::Cow::Borrowed(input)
+        };
+        let mut hidden_gpu = GpuBuffer::from_host(&self.context, &padded_input)?;
+
+        // 4. Chain all transformer layers (no intermediate syncs)
+        // PAR-044: Use workspace path for zero-allocation forward (fastest)
+        // PAR-043: Use indexed path if weights are pre-indexed (10x faster per-token)
+        // PAR-044 FIX: Track which buffer has output to avoid unnecessary D2D copy
+        // PAR-044: Workspace path enabled - confirmed same performance as indexed path
+        // See five-whys-gpu-performance-gap for analysis
+        let mut workspace_used = false;
+        if use_workspace {
+            // PAR-044: Zero-allocation path - workspace buffers + indexed weights
+            // Eliminates ~288 buffer allocations per token
+            workspace_used = true;
+
+            // Layer 0: input from external hidden_gpu
+            // PAR-070: Pass explicit position for RoPE and KV cache
+            if num_layers > 0 {
+                let layer_weights = self.indexed_layer_weights[0].clone();
+                self.transformer_layer_workspace(
+                    &hidden_gpu,
+                    0,
+                    &layer_weights,
+                    hidden_dim,
+                    intermediate_dim,
+                    epsilon,
+                    position,
+                )?;
+            }
+
+            // Layers 1+: input from hidden_buf2 (output of previous layer)
+            // Use raw pointer to avoid borrow conflict with &mut self
+            for layer_idx in 1..num_layers {
+                let layer_weights = self.indexed_layer_weights[layer_idx].clone();
+                // SAFETY: hidden_buf2 is initialized and remains valid throughout
+                // We get ptr/len before the mutable borrow, avoiding conflict
+                let buf_ptr = self
+                    .workspace
+                    .hidden_buf2
+                    .as_ref()
+                    .expect("hidden_buf2 must be initialized")
+                    .as_ptr();
+                let buf_len = self
+                    .workspace
+                    .hidden_buf2
+                    .as_ref()
+                    .expect("hidden_buf2 must be initialized")
+                    .len();
+                // Create temporary non-owning view of hidden_buf2
+                // SAFETY: Memory safety ensured by bounds checking and alignment
+                // SAFETY: Pointer valid from allocation, length verified, used within scope
+                let input_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(buf_ptr, buf_len) };
+                // PAR-070: Pass explicit position for RoPE and KV cache
+                self.transformer_layer_workspace(
+                    &input_buf,
+                    layer_idx,
+                    &layer_weights,
+                    hidden_dim,
+                    intermediate_dim,
+                    epsilon,
+                    position,
+                )?;
+                // Prevent Drop from freeing the borrowed memory
+                std::mem::forget(input_buf);
+            }
+
+            // PAR-044 FIX: Output is in hidden_buf2, use it directly for output norm
+            // (removed unnecessary copy_from_buffer - saves one D2D copy per token)
+        } else if self.has_indexed_weights() && self.indexed_layer_weights.len() == num_layers {
+            // PAR-043: Fast path - O(1) weight access, no string formatting
+            for layer_idx in 0..num_layers {
+                // Clone the layer weights to avoid borrow conflict
+                let layer_weights = self.indexed_layer_weights[layer_idx].clone();
+                hidden_gpu = self.transformer_layer_indexed(
+                    &hidden_gpu,
+                    layer_idx,
+                    &layer_weights,
+                    hidden_dim,
+                    intermediate_dim,
+                    epsilon,
+                )?;
+            }
+        } else {
+            // Legacy path - HashMap lookups + string formatting (~10ms overhead)
+            for layer_idx in 0..num_layers {
+                let prefix = format!("blk.{}", layer_idx);
+                let (ref attn_name, ref ffn_name) = layer_keys[layer_idx];
+
+                // Get cached gamma buffer pointers (no data copy, just metadata)
+                let attn_gamma = self.rmsnorm_cache.get(attn_name).ok_or_else(|| {
+                    GpuError::InvalidLaunchConfig(format!(
+                        "PAR-023: Missing cached gamma for {}",
+                        attn_name
+                    ))
+                })?;
+                let attn_ptr = attn_gamma.as_ptr();
+                let attn_len = attn_gamma.len();
+                let ffn_gamma = self.rmsnorm_cache.get(ffn_name).ok_or_else(|| {
+                    GpuError::InvalidLaunchConfig(format!(
+                        "PAR-023: Missing cached gamma for {}",
+                        ffn_name
+                    ))
+                })?;
+                let ffn_ptr = ffn_gamma.as_ptr();
+                let ffn_len = ffn_gamma.len();
+
+                // Run layer GPU-resident using cached gamma buffers
+                hidden_gpu = self.transformer_layer_gpu_cached(
+                    &hidden_gpu,
+                    layer_idx,
+                    &prefix,
+                    hidden_dim,
+                    intermediate_dim,
+                    attn_ptr,
+                    attn_len,
+                    ffn_ptr,
+                    ffn_len,
+                    epsilon,
+                )?;
+            }
+        }
+
+        // PERF-002: Debug code removed (was PAR-058-DEBUG hidden state check)
+        // D2H transfer + NaN check was ~15ms overhead per token
+
+        // CORRECTNESS-001: Compare hidden state before output norm
+        static HIDDEN_DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *HIDDEN_DEBUG.get_or_init(|| {
+            std::env::var("GPU_DEBUG")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        }) {
+            self.stream.synchronize()?;
+            let hidden_to_check = if workspace_used {
+                let ptr = self
+                    .workspace
+                    .hidden_buf2
+                    .as_ref()
+                    .expect("hidden_buf2 must be initialized")
+                    .as_ptr();
+                let len = self
+                    .workspace
+                    .hidden_buf2
+                    .as_ref()
+                    .expect("hidden_buf2 must be initialized")
+                    .len();
+                // SAFETY: Memory safety ensured by bounds checking and alignment
+                unsafe { GpuBuffer::<f32>::from_raw_parts(ptr, len) }
+            } else {
+                // SAFETY: Memory safety ensured by bounds checking and alignment
+                unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_gpu.as_ptr(), hidden_gpu.len()) }
+            };
+            let mut hidden_host = vec![0.0f32; hidden_to_check.len()];
+            hidden_to_check.copy_to_host(&mut hidden_host)?;
+            std::mem::forget(hidden_to_check);
+            let sum: f32 = hidden_host.iter().sum();
+            let sum_sq: f32 = hidden_host.iter().map(|x| x * x).sum();
+            eprintln!(
+                "[CORRECTNESS-001] Hidden before output_norm: first 5 = {:?}, sum = {:.4}, rms = {:.4}",
+                &hidden_host[..5.min(hidden_host.len())],
+                sum,
+                (sum_sq / hidden_host.len() as f32).sqrt()
+            );
+        }
+
+        // 5. Output RMSNorm on GPU (no sync)
+        // PAR-PROFILE: Brick timer for output norm
+        let profiling = self.profiler.is_enabled();
+        let timer_output_norm = if profiling {
+            self.start_brick_id(trueno::BrickId::RmsNorm)
+        } else {
+            None
+        };
+        // PAR-044 FIX: Use workspace hidden_buf2 directly if workspace was used
+        let output_norm_gamma = self.rmsnorm_cache.get("output_norm.gamma").ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(
+                "PAR-023: Missing cached gamma for output_norm.gamma".to_string(),
+            )
+        })?;
+        let output_gamma_ptr = output_norm_gamma.as_ptr();
+        let output_gamma_len = output_norm_gamma.len();
+
+        let normed_hidden = if workspace_used {
+            // PAR-044 FIX: Use hidden_buf2 directly (no D2D copy)
+            let hidden_ptr = self
+                .workspace
+                .hidden_buf2
+                .as_ref()
+                .expect("hidden_buf2 must be initialized")
+                .as_ptr();
+            let hidden_len = self
+                .workspace
+                .hidden_buf2
+                .as_ref()
+                .expect("hidden_buf2 must be initialized")
+                .len();
+            // SAFETY: Memory safety ensured by bounds checking and alignment
+            // SAFETY: Pointer valid from allocation, length verified, used within scope
+            let hidden_input = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_ptr, hidden_len) };
+            let result = self.rmsnorm_gpu_ptr(
+                &hidden_input,
+                output_gamma_ptr,
+                output_gamma_len,
+                hidden_dim,
+                epsilon,
+            )?;
+            std::mem::forget(hidden_input);
+            result
+        } else {
+            self.rmsnorm_gpu_ptr(
+                &hidden_gpu,
+                output_gamma_ptr,
+                output_gamma_len,
+                hidden_dim,
+                epsilon,
+            )?
+        };
+
+        // CORRECTNESS-002: Debug normed_hidden output (before LM head)
+        if *HIDDEN_DEBUG.get_or_init(|| {
+            std::env::var("GPU_DEBUG")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        }) {
+            self.stream.synchronize()?;
+            let mut normed_host = vec![0.0f32; normed_hidden.len()];
+            normed_hidden.copy_to_host(&mut normed_host)?;
+            let sum: f32 = normed_host.iter().sum();
+            let sum_sq: f32 = normed_host.iter().map(|x| x * x).sum();
+            eprintln!(
+                "[CORRECTNESS-002] Normed hidden: first 5 = {:?}, sum = {:.4}, rms = {:.4}",
+                &normed_host[..5.min(normed_host.len())],
+                sum,
+                (sum_sq / normed_host.len() as f32).sqrt()
+            );
+        }
+
+        // PAR-PROFILE: Stop output norm timer, start LM head timer
+        if profiling {
+            self.stop_brick_id(timer_output_norm, 1);
+        }
+        // Compute debug flag for passing to helper
+        let debug_enabled = *HIDDEN_DEBUG.get_or_init(|| {
+            std::env::var("GPU_DEBUG")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+
+        // 6-7. LM head projection + final sync + download
+        self.dispatch_lm_head_and_download(
+            &normed_hidden, logits, vocab_size, hidden_dim, debug_enabled,
+        )
+    }
+}
+
+include!("forward_part_02_lmhead.rs");
+include!("forward_part_02_part_02.rs");
