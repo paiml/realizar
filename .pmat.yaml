@@ -11,3 +11,7 @@ comply:
     - rules: ["CB-021"]
       files: ["src/quantize/**", "src/apr_transformer/q4_simd.rs"]
       reason: "CB-021 flags _mm256_ in doc comments/code comments; actual SIMD functions already have #[target_feature(enable = avx2)]"
+
+    - rules: ["CB-501"]
+      files: ["src/**/tests_part_*.rs"]
+      reason: "tests_part_*.rs files are test modules split for File Health; unwrap() is standard in tests"
