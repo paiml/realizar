@@ -94,3 +94,121 @@ fn test_load_safetensors_model_valid() {
         assert!(result.is_ok());
     }
 }
+
+// ============================================================================
+// run_bench_compare: happy path with valid JSON (GH-219 coverage)
+// ============================================================================
+
+fn make_valid_full_bench_json() -> String {
+    use crate::bench::FullBenchmarkResult;
+    let result = FullBenchmarkResult {
+        version: "1.1".to_string(),
+        timestamp: "2026-02-15T00:00:00Z".to_string(),
+        config: crate::bench::BenchmarkConfig {
+            model: "test-model".to_string(),
+            format: "gguf".to_string(),
+            quantization: "Q4_K".to_string(),
+            runtime: "realizar".to_string(),
+            runtime_version: "0.14.0".to_string(),
+        },
+        hardware: crate::bench::HardwareSpec {
+            cpu: "test-cpu".to_string(),
+            gpu: None,
+            memory_gb: 32,
+            storage: "nvme".to_string(),
+        },
+        sampling: crate::bench::SamplingConfig {
+            method: "dynamic_cv".to_string(),
+            cv_threshold: 0.05,
+            actual_iterations: 100,
+            cv_at_stop: 0.03,
+            warmup_iterations: 10,
+        },
+        thermal: crate::bench::ThermalInfo {
+            valid: true,
+            temp_variance_c: 1.0,
+            max_temp_c: 65.0,
+        },
+        results: crate::bench::BenchmarkResults {
+            ttft_ms: crate::bench::TtftResults { p50: 50.0, p95: 80.0, p99: 100.0, p999: 120.0 },
+            itl_ms: crate::bench::ItlResults { median: 10.0, std_dev: 2.0, p99: 20.0 },
+            throughput_tok_s: crate::bench::ThroughputResults { median: 100.0, ci_95: (95.0, 105.0) },
+            memory_mb: crate::bench::MemoryResults { model_mb: 500, peak_rss_mb: 1000, kv_waste_pct: 5.0 },
+            energy: crate::bench::EnergyResults { total_joules: 10.0, token_joules: 0.1, idle_watts: 50.0 },
+            cold_start_ms: crate::bench::ColdStartResults { median: 200.0, p99: 300.0 },
+        },
+        quality: crate::bench::QualityValidation {
+            kl_divergence_vs_fp32: 0.01,
+            perplexity_wikitext2: None,
+        },
+    };
+    serde_json::to_string(&result).unwrap()
+}
+
+#[test]
+fn test_run_bench_compare_valid_json() {
+    let json = make_valid_full_bench_json();
+    let path1 = "/tmp/test_bench_cmp_valid1_gh219.json";
+    let path2 = "/tmp/test_bench_cmp_valid2_gh219.json";
+
+    std::fs::write(path1, &json).unwrap();
+    std::fs::write(path2, &json).unwrap();
+
+    let result = run_bench_compare(path1, path2, 5.0);
+    let _ = std::fs::remove_file(path1);
+    let _ = std::fs::remove_file(path2);
+
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_run_bench_compare_different_thresholds() {
+    let json = make_valid_full_bench_json();
+    let path1 = "/tmp/test_bench_cmp_thresh1_gh219.json";
+    let path2 = "/tmp/test_bench_cmp_thresh2_gh219.json";
+
+    std::fs::write(path1, &json).unwrap();
+    std::fs::write(path2, &json).unwrap();
+
+    let result = run_bench_compare(path1, path2, 0.1);
+    let _ = std::fs::remove_file(path1);
+    let _ = std::fs::remove_file(path2);
+
+    assert!(result.is_ok());
+}
+
+// ============================================================================
+// run_bench_regression: happy path with valid JSON (GH-219 coverage)
+// ============================================================================
+
+#[test]
+fn test_run_bench_regression_valid_json_no_regression() {
+    let json = make_valid_full_bench_json();
+    let path_base = "/tmp/test_bench_reg_valid_base_gh219.json";
+    let path_curr = "/tmp/test_bench_reg_valid_curr_gh219.json";
+
+    std::fs::write(path_base, &json).unwrap();
+    std::fs::write(path_curr, &json).unwrap();
+
+    let result = run_bench_regression(path_base, path_curr, false);
+    let _ = std::fs::remove_file(path_base);
+    let _ = std::fs::remove_file(path_curr);
+
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_run_bench_regression_strict_mode_no_regression() {
+    let json = make_valid_full_bench_json();
+    let path_base = "/tmp/test_bench_reg_strict_base_gh219.json";
+    let path_curr = "/tmp/test_bench_reg_strict_curr_gh219.json";
+
+    std::fs::write(path_base, &json).unwrap();
+    std::fs::write(path_curr, &json).unwrap();
+
+    let result = run_bench_regression(path_base, path_curr, true);
+    let _ = std::fs::remove_file(path_base);
+    let _ = std::fs::remove_file(path_curr);
+
+    assert!(result.is_ok());
+}

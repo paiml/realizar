@@ -422,4 +422,100 @@ mod tests {
             vram_1k
         );
     }
+
+    // ========================================================================
+    // transpose_for_gemm: undersized weight guard (PMAT-805 branch coverage)
+    // ========================================================================
+
+    #[test]
+    fn test_transpose_for_gemm_undersized_weight() {
+        // Weight has fewer elements than n*k — should zero-pad and transpose
+        let weight = vec![1.0, 2.0, 3.0]; // 3 elements, but n=2, k=3 expects 6
+        let transposed = SafeTensorsCudaModel::transpose_for_gemm(&weight, 2, 3);
+
+        // Output should be k×n = 3×2 = 6 elements
+        assert_eq!(transposed.len(), 6);
+
+        // First row of input [1,2,3] transposes to column 0: transposed[0]=1, transposed[2]=2, transposed[4]=3
+        assert_eq!(transposed[0], 1.0); // [0,0] -> [0,0]
+        assert_eq!(transposed[2], 2.0); // [0,1] -> [1,0]
+        assert_eq!(transposed[4], 3.0); // [0,2] -> [2,0]
+
+        // Second row is all zeros (weight was too short)
+        assert_eq!(transposed[1], 0.0); // [0,1]
+        assert_eq!(transposed[3], 0.0); // [1,1]
+        assert_eq!(transposed[5], 0.0); // [2,1]
+    }
+
+    #[test]
+    fn test_transpose_for_gemm_undersized_weight_partial_row() {
+        // Weight has partial second row
+        let weight = vec![1.0, 2.0, 3.0, 4.0, 5.0]; // 5 of expected 8 (n=2, k=4)
+        let transposed = SafeTensorsCudaModel::transpose_for_gemm(&weight, 2, 4);
+
+        assert_eq!(transposed.len(), 8);
+        // First row [1,2,3,4] fully present
+        assert_eq!(transposed[0], 1.0);
+        assert_eq!(transposed[2], 2.0);
+        assert_eq!(transposed[4], 3.0);
+        assert_eq!(transposed[6], 4.0);
+        // Second row [5,_,_,_] — only first element present
+        assert_eq!(transposed[1], 5.0);
+        assert_eq!(transposed[3], 0.0); // zero-padded
+        assert_eq!(transposed[5], 0.0);
+        assert_eq!(transposed[7], 0.0);
+    }
+
+    #[test]
+    fn test_transpose_for_gemm_empty_weight() {
+        // Empty weight array — should produce all zeros
+        let weight: Vec<f32> = vec![];
+        let transposed = SafeTensorsCudaModel::transpose_for_gemm(&weight, 3, 2);
+
+        assert_eq!(transposed.len(), 6);
+        assert!(transposed.iter().all(|&x| x == 0.0));
+    }
+
+    // ========================================================================
+    // concat_qkv_transposed: verify correctness of concatenation order
+    // ========================================================================
+
+    #[test]
+    fn test_concat_qkv_transposed_content_correctness() {
+        // 2x2 Q, 1x2 K, 1x2 V (hidden_dim=2, kv_dim=1)
+        let q = vec![1.0, 2.0, 3.0, 4.0]; // 2×2 Q weight
+        let k = vec![5.0, 6.0];            // 1×2 K weight
+        let v = vec![7.0, 8.0];            // 1×2 V weight
+
+        let qkv = SafeTensorsCudaModel::concat_qkv_transposed(&q, &k, &v, 2, 1);
+
+        // Output: [hidden_dim, hidden_dim + 2*kv_dim] = [2, 4]
+        assert_eq!(qkv.len(), 8);
+
+        // After transpose: q_t=[1,3,2,4], k_t=[5,6], v_t=[7,8]
+        // Row 0: [q_t[0..2], k_t[0..1], v_t[0..1]] = [1, 3, 5, 7]
+        // Row 1: [q_t[2..4], k_t[1..2], v_t[1..2]] = [2, 4, 6, 8]
+        assert_eq!(qkv[0], 1.0);
+        assert_eq!(qkv[1], 3.0);
+        assert_eq!(qkv[2], 5.0);
+        assert_eq!(qkv[3], 7.0);
+        assert_eq!(qkv[4], 2.0);
+        assert_eq!(qkv[5], 4.0);
+        assert_eq!(qkv[6], 6.0);
+        assert_eq!(qkv[7], 8.0);
+    }
+
+    #[test]
+    fn test_concat_qkv_transposed_equal_kv() {
+        // Test where kv_dim == hidden_dim (MHA, no GQA)
+        let hidden_dim = 4;
+        let kv_dim = 4;
+        let q = vec![1.0f32; hidden_dim * hidden_dim];
+        let k = vec![2.0f32; kv_dim * hidden_dim];
+        let v = vec![3.0f32; kv_dim * hidden_dim];
+
+        let qkv = SafeTensorsCudaModel::concat_qkv_transposed(&q, &k, &v, hidden_dim, kv_dim);
+        let expected_len = hidden_dim * (hidden_dim + 2 * kv_dim);
+        assert_eq!(qkv.len(), expected_len);
+    }
 }
