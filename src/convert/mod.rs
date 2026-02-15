@@ -173,6 +173,8 @@ impl GgufToAprConverter {
     /// # Errors
     ///
     /// Returns error if serialization fails
+    // serde_json::json!() uses infallible unwrap
+    #[allow(clippy::disallowed_methods)]
     #[allow(clippy::cast_possible_truncation)]
     pub fn to_apr_bytes(transformer: &AprTransformer) -> Result<Vec<u8>> {
         // Serialize metadata
@@ -521,6 +523,8 @@ impl GgufToAprQ4KConverter {
     /// # Returns
     ///
     /// Statistics about the conversion
+    // serde_json::json!() uses infallible unwrap
+    #[allow(clippy::disallowed_methods)]
     #[allow(clippy::cast_possible_truncation)]
     pub fn convert(
         gguf_path: &std::path::Path,

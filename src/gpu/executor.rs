@@ -192,7 +192,7 @@ impl MockExecutor {
     pub fn matmul_count(&self) -> usize {
         self.calls
             .lock()
-            .unwrap()
+            .expect("executor calls lock poisoned")
             .iter()
             .filter(|c| matches!(c, ExecutorCall::Matmul { .. }))
             .count()

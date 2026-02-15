@@ -909,7 +909,10 @@ impl DynTempConfig {
 pub fn apply_dynamic_temperature(logits: &Tensor<f32>, config: &DynTempConfig) -> Tensor<f32> {
     // If no delta, just apply static temperature
     if config.delta <= 0.0 {
-        return apply_temperature(logits, config.temp).unwrap_or_else(|_| logits.clone());
+        return apply_temperature(logits, config.temp).unwrap_or_else(|e| {
+            eprintln!("[WARN] Temperature application failed ({e}), using raw logits");
+            logits.clone()
+        });
     }
 
     let data = logits.data();
@@ -948,7 +951,10 @@ pub fn apply_dynamic_temperature(logits: &Tensor<f32>, config: &DynTempConfig) -
     let dyn_temp = min_temp + (max_temp - min_temp) * normalized_entropy.powf(config.exponent);
 
     // Apply calculated temperature
-    apply_temperature(logits, dyn_temp).unwrap_or_else(|_| logits.clone())
+    apply_temperature(logits, dyn_temp).unwrap_or_else(|e| {
+        eprintln!("[WARN] Dynamic temperature application failed ({e}), using raw logits");
+        logits.clone()
+    })
 }
 
 // ============================================================================
@@ -1058,11 +1064,9 @@ fn create_eog_only_logits(
         }
     }
 
-    Tensor::from_vec(shape.to_vec(), new_data).unwrap_or_else(|_| {
-        Tensor::from_vec(shape.to_vec(), data.to_vec()).unwrap_or_else(|_| {
-            Tensor::from_vec(vec![1], vec![0.0]).expect("single-element tensor")
-        })
-    })
+    // Shape and data length match by construction (new_data.len() == data.len())
+    Tensor::from_vec(shape.to_vec(), new_data)
+        .expect("BUG: EOG logits shape/data mismatch (same shape as input tensor)")
 }
 
 /// # Returns

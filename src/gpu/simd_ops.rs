@@ -46,9 +46,12 @@ pub fn simd_softmax(input: &[f32]) -> Vec<f32> {
     // Compute exp(x - max) - exp is not SIMD accelerated
     let exp_vals: Vec<f32> = input.iter().map(|&x| (x - max_val).exp()).collect();
 
-    // Sum using trueno's SIMD sum
+    // Sum using trueno's SIMD sum (CPU fallback if SIMD fails)
     let exp_vec = trueno::Vector::from_slice(&exp_vals);
-    let sum = exp_vec.sum().unwrap_or_else(|_| exp_vals.iter().sum());
+    let sum = exp_vec.sum().unwrap_or_else(|e| {
+        eprintln!("[WARN] SIMD softmax sum failed ({e}), using scalar fallback");
+        exp_vals.iter().sum()
+    });
 
     // Normalize
     exp_vals.iter().map(|&e| e / sum).collect()
@@ -144,17 +147,25 @@ pub fn simd_rope(input: &[f32], seq_len: usize, head_dim: usize, theta: f32) -> 
 
             // Compute: out0 = x0 * cos - x1 * sin
             //          out1 = x0 * sin + x1 * cos
-            let x0_cos = x0_vec.mul(&cos_vec).unwrap_or_else(|_| x0_vec.clone());
-            let x1_sin = x1_vec.mul(&sin_vec).unwrap_or_else(|_| x1_vec.clone());
-            let x0_sin = x0_vec.mul(&sin_vec).unwrap_or_else(|_| x0_vec.clone());
-            let x1_cos = x1_vec.mul(&cos_vec).unwrap_or_else(|_| x1_vec.clone());
+            // BUG-HUNTER-FIX: If any SIMD op fails, fall back to scalar_rope
+            // (returning unrotated input silently corrupts position embeddings)
+            let simd_result = (|| -> std::result::Result<(trueno::Vector<f32>, trueno::Vector<f32>), trueno::TruenoError> {
+                let x0_cos = x0_vec.mul(&cos_vec)?;
+                let x1_sin = x1_vec.mul(&sin_vec)?;
+                let x0_sin = x0_vec.mul(&sin_vec)?;
+                let x1_cos = x1_vec.mul(&cos_vec)?;
+                let out0 = x0_cos.sub(&x1_sin)?;
+                let out1 = x0_sin.add(&x1_cos)?;
+                Ok((out0, out1))
+            })();
 
-            let out0 = x0_cos
-                .sub(&x1_sin)
-                .unwrap_or_else(|_| trueno::Vector::from_slice(x0_slice));
-            let out1 = x0_sin
-                .add(&x1_cos)
-                .unwrap_or_else(|_| trueno::Vector::from_slice(x1_slice));
+            let (out0, out1) = match simd_result {
+                Ok(pair) => pair,
+                Err(e) => {
+                    eprintln!("[WARN] SIMD RoPE failed ({e}), falling back to scalar");
+                    return scalar_rope(input, seq_len, head_dim, theta);
+                }
+            };
 
             // Copy results to output
             output[head_start..head_start + half_head].copy_from_slice(out0.as_slice());
