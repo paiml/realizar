@@ -235,7 +235,7 @@ required-features = ["aprender-serve", "lambda"]
 
 [[bin]]
 name = "realizar-monitor"
-path = "src/bin/realizar_monitor.rs"
+path = "src/bin/realizar_monitor/main.rs"
 required-features = ["tui"]
 
 [[bench]]

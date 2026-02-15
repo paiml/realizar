@@ -1,0 +1,373 @@
+
+impl OwnedQuantizedModel {
+
+    /// Fused matmul into pre-allocated output buffer
+    pub(crate) fn fused_matmul_into(
+        &self,
+        input: &[f32],
+        weight: &OwnedQuantizedTensor,
+        output: &mut [f32],
+    ) -> Result<()> {
+        use crate::quantize::{
+            fused_q4_0_q8_0_parallel_matvec_into, fused_q4k_parallel_matvec_into,
+            fused_q5k_parallel_matvec_into, fused_q6k_parallel_matvec_into,
+            fused_q8_0_q8_0_parallel_matvec_into,
+        };
+
+        let in_dim = weight.in_dim;
+        let out_dim = weight.out_dim;
+        let seq_len = input.len() / in_dim;
+
+        // Only support single-token case for now (most common in generation)
+        if seq_len != 1 {
+            let result = self.fused_matmul(input, weight)?;
+            output[..result.len()].copy_from_slice(&result);
+            return Ok(());
+        }
+
+        debug_assert!(
+            output.len() >= out_dim,
+            "Output buffer too small: {} < {}",
+            output.len(),
+            out_dim
+        );
+
+        match weight.qtype {
+            GGUF_TYPE_Q4_0 => fused_q4_0_q8_0_parallel_matvec_into(
+                &weight.data,
+                input,
+                in_dim,
+                &mut output[..out_dim],
+            ),
+            GGUF_TYPE_Q8_0 => fused_q8_0_q8_0_parallel_matvec_into(
+                &weight.data,
+                input,
+                in_dim,
+                out_dim,
+                &mut output[..out_dim],
+            ),
+            GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec_into(
+                &weight.data,
+                input,
+                in_dim,
+                out_dim,
+                &mut output[..out_dim],
+            ),
+            GGUF_TYPE_Q5_K => fused_q5k_parallel_matvec_into(
+                &weight.data,
+                input,
+                in_dim,
+                out_dim,
+                &mut output[..out_dim],
+            ),
+            GGUF_TYPE_Q6_K => fused_q6k_parallel_matvec_into(
+                &weight.data,
+                input,
+                in_dim,
+                out_dim,
+                &mut output[..out_dim],
+            ),
+            _ => {
+                let result = self.fused_matmul(input, weight)?;
+                output[..result.len()].copy_from_slice(&result);
+                Ok(())
+            },
+        }
+    }
+
+    /// QKV projection matmul
+    pub fn qkv_matmul(&self, input: &[f32], qkv: &OwnedQKVWeights) -> Result<Vec<f32>> {
+        let hidden_dim = self.config.hidden_dim;
+        match qkv {
+            OwnedQKVWeights::Fused(ref weight) => self.fused_matmul(input, weight),
+            OwnedQKVWeights::Separate {
+                ref q,
+                ref k,
+                ref v,
+            } => {
+                let seq_len = input.len() / hidden_dim;
+
+                let q_out = self.fused_matmul(input, q)?;
+                let k_out = self.fused_matmul(input, k)?;
+                let v_out = self.fused_matmul(input, v)?;
+
+                // Interleave Q, K, V for each position
+                let qkv_dim = q.out_dim + k.out_dim + v.out_dim;
+                let mut output = Vec::with_capacity(seq_len * qkv_dim);
+                for s in 0..seq_len {
+                    output.extend_from_slice(&q_out[s * q.out_dim..(s + 1) * q.out_dim]);
+                    output.extend_from_slice(&k_out[s * k.out_dim..(s + 1) * k.out_dim]);
+                    output.extend_from_slice(&v_out[s * v.out_dim..(s + 1) * v.out_dim]);
+                }
+                Ok(output)
+            },
+        }
+    }
+
+    /// QKV matmul into pre-allocated buffer
+    pub fn qkv_matmul_into(
+        &self,
+        input: &[f32],
+        qkv: &OwnedQKVWeights,
+        output: &mut [f32],
+    ) -> Result<()> {
+        match qkv {
+            OwnedQKVWeights::Fused(ref weight) => self.fused_matmul_into(input, weight, output),
+            OwnedQKVWeights::Separate {
+                ref q,
+                ref k,
+                ref v,
+            } => {
+                let q_dim = q.out_dim;
+                let k_dim = k.out_dim;
+                let v_dim = v.out_dim;
+
+                self.fused_matmul_into(input, q, &mut output[..q_dim])?;
+                self.fused_matmul_into(input, k, &mut output[q_dim..q_dim + k_dim])?;
+                self.fused_matmul_into(
+                    input,
+                    v,
+                    &mut output[q_dim + k_dim..q_dim + k_dim + v_dim],
+                )?;
+
+                Ok(())
+            },
+        }
+    }
+
+    /// Layer normalization
+    pub fn layer_norm(
+        &self,
+        input: &[f32],
+        weight: &[f32],
+        bias: Option<&[f32]>,
+        eps: f32,
+    ) -> Vec<f32> {
+        ops::layer_norm(input, weight, bias, eps)
+    }
+
+    /// Add bias to activations
+    pub fn add_bias(&self, input: &mut [f32], bias: &[f32]) {
+        for (x, b) in input.iter_mut().zip(bias.iter()) {
+            *x += b;
+        }
+    }
+
+    /// GELU activation
+    pub fn gelu(&self, input: &mut [f32]) {
+        for x in input.iter_mut() {
+            *x = 0.5 * *x * (1.0 + (*x * 0.797_884_6 * (1.0 + 0.044715 * *x * *x)).tanh());
+        }
+    }
+
+    /// Fused RMSNorm + matmul helper
+    fn fused_rmsnorm_matmul(
+        &self,
+        input: &[f32],
+        norm_weight: &[f32],
+        eps: f32,
+        weight: &OwnedQuantizedTensor,
+    ) -> Result<Vec<f32>> {
+        use crate::quantize::fused_rmsnorm_q4_0_matmul;
+
+        // Only use fused path for Q4_0 weights (most common)
+        if weight.qtype == GGUF_TYPE_Q4_0 && input.len() == weight.in_dim {
+            return fused_rmsnorm_q4_0_matmul(
+                input,
+                norm_weight,
+                eps,
+                &weight.data,
+                weight.in_dim,
+                weight.out_dim,
+            );
+        }
+
+        // Fallback to separate RMSNorm + matmul for other types
+        let normed = ops::rms_norm(input, norm_weight, eps);
+        self.fused_matmul(&normed, weight)
+    }
+
+    /// Fused RMSNorm + QKV matmul
+    pub fn fused_rmsnorm_qkv_matmul(
+        &self,
+        input: &[f32],
+        norm_weight: &[f32],
+        eps: f32,
+        qkv: &OwnedQKVWeights,
+    ) -> Result<Vec<f32>> {
+        match qkv {
+            OwnedQKVWeights::Fused(ref weight) => {
+                self.fused_rmsnorm_matmul(input, norm_weight, eps, weight)
+            },
+            OwnedQKVWeights::Separate {
+                ref q,
+                ref k,
+                ref v,
+            } => {
+                // For separate Q/K/V, normalize once and reuse
+                let normed = ops::rms_norm(input, norm_weight, eps);
+
+                // PMAT-114: Trace K weight to compare with APR
+                static ONCE: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if std::env::var("APR_TRACE_WEIGHTS").is_ok()
+                    && !ONCE.swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    eprintln!(
+                        "[PMAT-114-GGUF] K weight: in_dim={}, out_dim={}, qtype={}, data_len={}",
+                        k.in_dim,
+                        k.out_dim,
+                        k.qtype,
+                        k.data.len()
+                    );
+                    // Dequantize first row completely to compare with APR
+                    // Q4K: 144 bytes per super-block of 256 values, so first row = in_dim/256 super-blocks
+                    let bytes_per_row = (k.in_dim.div_ceil(256)) * 144;
+                    use crate::quantize::dequantize_q4_k_parallel;
+                    if let Ok(dequant) = dequantize_q4_k_parallel(&k.data[0..bytes_per_row]) {
+                        let row_mean: f32 = dequant.iter().sum::<f32>() / dequant.len() as f32;
+                        let row_min = dequant.iter().cloned().fold(f32::INFINITY, f32::min);
+                        let row_max = dequant.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                        eprintln!("[PMAT-114-GGUF] K weight row 0 (dequant): mean={:.6}, min={:.6}, max={:.6}, len={}",
+                            row_mean, row_min, row_max, dequant.len());
+                        eprintln!(
+                            "[PMAT-114-GGUF] K weight row 0 first10={:?}",
+                            &dequant[..10.min(dequant.len())]
+                        );
+                    }
+                }
+
+                let q_out = self.fused_matmul(&normed, q)?;
+                let k_out = self.fused_matmul(&normed, k)?;
+                let v_out = self.fused_matmul(&normed, v)?;
+
+                let qkv_dim = q.out_dim + k.out_dim + v.out_dim;
+                let mut output = Vec::with_capacity(qkv_dim);
+                output.extend_from_slice(&q_out);
+                output.extend_from_slice(&k_out);
+                output.extend_from_slice(&v_out);
+                Ok(output)
+            },
+        }
+    }
+
+    /// Fused RMSNorm + LM head
+    pub fn fused_rmsnorm_lm_head(&self, input: &[f32]) -> Result<Vec<f32>> {
+        use crate::quantize::fused_rmsnorm_q4_0_matmul;
+
+        // Only use fused path for Q4_0 weights
+        if self.lm_head_weight.qtype == GGUF_TYPE_Q4_0 && input.len() == self.lm_head_weight.in_dim
+        {
+            return fused_rmsnorm_q4_0_matmul(
+                input,
+                &self.output_norm_weight,
+                self.config.eps,
+                &self.lm_head_weight.data,
+                self.lm_head_weight.in_dim,
+                self.lm_head_weight.out_dim,
+            );
+        }
+
+        // Fallback to separate RMSNorm + matmul for other types
+        let normed = ops::rms_norm(input, &self.output_norm_weight, self.config.eps);
+        self.fused_matmul(&normed, &self.lm_head_weight)
+    }
+
+    /// Fused RMSNorm + FFN up/gate projections for SwiGLU
+    pub fn fused_rmsnorm_ffn_up_gate(
+        &self,
+        input: &[f32],
+        norm_weight: &[f32],
+        eps: f32,
+        up_weight: &OwnedQuantizedTensor,
+        gate_weight: &OwnedQuantizedTensor,
+    ) -> Result<(Vec<f32>, Vec<f32>)> {
+        use crate::quantize::fused_rmsnorm_ffn_up_gate;
+
+        // Only use fused path for Q4_0 weights
+        if up_weight.qtype == GGUF_TYPE_Q4_0
+            && gate_weight.qtype == GGUF_TYPE_Q4_0
+            && input.len() == up_weight.in_dim
+            && up_weight.in_dim == gate_weight.in_dim
+            && up_weight.out_dim == gate_weight.out_dim
+        {
+            return fused_rmsnorm_ffn_up_gate(
+                input,
+                norm_weight,
+                eps,
+                &up_weight.data,
+                &gate_weight.data,
+                up_weight.in_dim,
+                up_weight.out_dim,
+            );
+        }
+
+        // Fallback to separate RMSNorm + matmuls for other types
+        let normed = ops::rms_norm(input, norm_weight, eps);
+        let up_out = self.fused_matmul(&normed, up_weight)?;
+        let gate_out = self.fused_matmul(&normed, gate_weight)?;
+        Ok((up_out, gate_out))
+    }
+
+    /// Q8K QKV matmul into buffer
+    ///
+    /// Uses pre-quantized Q8K activations for faster matmul with Q4K weights.
+    #[allow(unused_variables)]
+    pub fn qkv_matmul_q8k_into(
+        &self,
+        input: &[f32],
+        qkv: &OwnedQKVWeights,
+        output: &mut [f32],
+        scales: &[f32],
+        quants: &[i8],
+    ) -> Result<()> {
+        // Fall back to regular qkv_matmul_into (Q8K acceleration deferred)
+        self.qkv_matmul_into(input, qkv, output)
+    }
+
+    /// Helper to dequantize weights for CUDA GEMM
+    #[cfg(feature = "cuda")]
+    fn dequantize_weight_for_cuda(&self, weight: &OwnedQuantizedTensor) -> Result<Vec<f32>> {
+        use crate::quantize::{
+            dequantize_q4_0, dequantize_q4_1, dequantize_q4_k, dequantize_q5_0, dequantize_q5_k,
+            dequantize_q6_k, dequantize_q8_0,
+        };
+
+        match weight.qtype {
+            // GH-242: F32 weights are already dequantized — reinterpret bytes
+            GGUF_TYPE_F32 => {
+                let floats: Vec<f32> = weight
+                    .data
+                    .chunks_exact(4)
+                    .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                    .collect();
+                Ok(floats)
+            }
+            // GH-242: F16 weights — convert to F32
+            GGUF_TYPE_F16 => {
+                let floats: Vec<f32> = weight
+                    .data
+                    .chunks_exact(2)
+                    .map(|b| {
+                        let bits = u16::from_le_bytes([b[0], b[1]]);
+                        half::f16::from_bits(bits).to_f32()
+                    })
+                    .collect();
+                Ok(floats)
+            }
+            GGUF_TYPE_Q4_0 => dequantize_q4_0(&weight.data),
+            GGUF_TYPE_Q4_1 => dequantize_q4_1(&weight.data),
+            GGUF_TYPE_Q5_0 => dequantize_q5_0(&weight.data),
+            GGUF_TYPE_Q8_0 => dequantize_q8_0(&weight.data),
+            GGUF_TYPE_Q4_K => dequantize_q4_k(&weight.data),
+            GGUF_TYPE_Q5_K => dequantize_q5_k(&weight.data),
+            GGUF_TYPE_Q6_K => dequantize_q6_k(&weight.data),
+            _ => Err(RealizarError::UnsupportedOperation {
+                operation: "dequantize_weight_for_cuda".to_string(),
+                reason: format!("Unsupported quantization type: {}", weight.qtype),
+            }),
+        }
+    }
+}
+
+include!("matmul_part_02_part_02.rs");

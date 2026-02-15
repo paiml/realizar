@@ -1,0 +1,393 @@
+impl CudaExecutor {
+    /// Batched Q6K GEMV (matrix-vector multiply) with quantized weights.
+    ///
+    /// Performs `output = weight * input` where weight is Q6K quantized.
+    pub fn batched_q6k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "batched_q6k_gemv_into")?;
+        debug_assert!(
+            k.is_multiple_of(256),
+            "K must be multiple of 256 for Q6K super-blocks"
+        );
+
+        let kernel_type = KernelType::BatchedQ6KGemv { k, n, m };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("batched_q6k_gemv_{}_{}_{}", m, k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Grid: N blocks (one per output row), 32 threads per block
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+        let mut m_val = m;
+
+        // Kernel signature: batched_q6k_gemv_warp_reduce(y_ptr, w_ptr, x_ptr, k_dim, n_dim, m_dim)
+        // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-058: Execute Q6_K GEMV into existing buffer (zero-allocation, async)
+    ///
+    /// Like `q4k_gemv_into` but for Q6_K quantized weights.
+    /// Used when V projection weights are Q6_K quantized (some GGUF models).
+    ///
+    /// Q6_K format: 210 bytes per 256 elements (vs Q4_K's 144 bytes)
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_ptr` - Raw device pointer to Q6K weight data
+    /// * `input` - GPU buffer containing input vector
+    /// * `output` - Pre-allocated output buffer (must be at least n elements)
+    /// * `n` - Output dimension
+    /// * `k` - Input dimension
+    #[inline]
+    pub fn q6k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "q6k_gemv_into")?;
+        // Original Q6K kernel (CoalescedQ6K disabled due to CORRECTNESS-006)
+        let kernel_type = KernelType::Q6KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q6k_gemv_{}_{}", k, n);
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-066: Execute coalesced Q6K GEMV into existing buffer
+    ///
+    /// Uses vectorized scale loading (4 x u32) instead of 16 single-byte loads.
+    /// Five-Whys root cause: Original Q6KGemvKernel caused 16 memory transactions
+    /// per super-block for scale loading. This kernel reduces to 4 transactions.
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_ptr` - Raw device pointer to Q6K weight data
+    /// * `input` - GPU buffer containing input vector
+    /// * `output` - Pre-allocated output buffer (must be at least n elements)
+    /// * `n` - Output dimension
+    /// * `k` - Input dimension (must be multiple of 256)
+    #[inline]
+    pub fn coalesced_q6k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "coalesced_q6k_gemv_into")?;
+        let kernel_type = KernelType::CoalescedQ6KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("coalesced_q6k_gemv_{}_{}", k, n);
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-058: Execute Q8_0 GEMV into existing buffer (zero-allocation, async)
+    ///
+    /// Like `q4k_gemv_into` but for Q8_0 quantized weights.
+    /// Used when FFN down weights are Q8_0 quantized (some GGUF models like Qwen2.5-0.5B).
+    ///
+    /// Q8_0 format: 34 bytes per 32 elements (2-byte fp16 scale + 32 int8 values)
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_ptr` - Raw device pointer to Q8_0 weight data
+    /// * `input` - GPU buffer containing input vector
+    /// * `output` - Pre-allocated output buffer (must be at least n elements)
+    /// * `n` - Output dimension
+    /// * `k` - Input dimension
+    #[inline]
+    pub fn q8_0_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "q8_0_gemv_into")?;
+        // PAR-058: Zero allocation Q8_0 GEMV for mixed-quantization models
+        let kernel_type = KernelType::Q8_0Gemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q8_0_gemv_{}_{}", k, n);
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-058: Execute Q5_0 GEMV into existing buffer (zero-allocation, async)
+    ///
+    /// Like `q8_0_gemv_into` but for Q5_0 quantized weights.
+    /// Used when Q/K weights are Q5_0 quantized (Qwen 0.5B).
+    ///
+    /// Q5_0 format: 22 bytes per 32 elements (2-byte fp16 scale + 4-byte high bits + 16 bytes packed nibbles)
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_ptr` - Raw device pointer to Q5_0 weight data
+    /// * `input` - GPU buffer containing input vector
+    /// * `output` - Pre-allocated output buffer (must be at least n elements)
+    /// * `n` - Output dimension
+    /// * `k` - Input dimension
+    #[inline]
+    pub fn q5_0_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "q5_0_gemv_into")?;
+        // PAR-058: Zero allocation Q5_0 GEMV for Qwen 0.5B Q/K weights
+        let kernel_type = KernelType::Q5_0Gemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q5_0_gemv_{}_{}", k, n);
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-058: Execute Q4_0 GEMV into existing buffer (zero-allocation, async)
+    ///
+    /// Like `q5_0_gemv_into` but for Q4_0 quantized weights.
+    /// Used when GGUF header claims Q5_0 but data is actually Q4_0 format (qtype mismatch).
+    ///
+    /// Q4_0 format: 18 bytes per 32 elements (2-byte fp16 scale + 16 bytes packed nibbles)
+    ///
+    /// # Arguments
+    ///
+    /// * `weight_ptr` - Raw device pointer to Q4_0 weight data
+    /// * `input` - GPU buffer containing input vector
+    /// * `output` - Pre-allocated output buffer (must be at least n elements)
+    /// * `n` - Output dimension
+    /// * `k` - Input dimension
+    #[inline]
+    pub fn q4_0_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "q4_0_gemv_into")?;
+        // PAR-058: Zero allocation Q4_0 GEMV for GGUF qtype mismatch
+        let kernel_type = KernelType::Q4_0Gemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q4_0_gemv_{}_{}", k, n);
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+}

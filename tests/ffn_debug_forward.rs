@@ -17,6 +17,7 @@ fn print_stats(name: &str, data: &[f32]) {
 }
 
 #[test]
+#[ignore = "requires real GGUF model file - run with --ignored"]
 fn test_debug_forward_pass() {
     let model_path = std::env::var("GGUF_MODEL").unwrap_or_else(|_| {
         "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf"
@@ -139,6 +140,7 @@ fn test_debug_forward_pass() {
 
 /// Compare our forward pass with what we'd expect from correct weights
 #[test]
+#[ignore = "requires real GGUF model file - run with --ignored"]
 fn test_weight_sanity() {
     let model_path = std::env::var("GGUF_MODEL").unwrap_or_else(|_| {
         "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf"

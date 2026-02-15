@@ -1,0 +1,382 @@
+impl CudaExecutor {
+    /// Phase 1-2: Pre-attention RMSNorm + Q/K/V projections + bias + RoPE
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    fn workspace_qkv_rope_phase(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        hidden_buf1: &GpuBuffer<f32>,
+        q_buf: &GpuBuffer<f32>,
+        k_buf: &GpuBuffer<f32>,
+        v_buf: &GpuBuffer<f32>,
+        layer_idx: usize,
+        layer_weights: &IndexedLayerWeights,
+        hidden_dim: u32,
+        q_dim: u32,
+        kv_dim: u32,
+        epsilon: f32,
+        position: u32,
+        skip_debug: bool,
+        profiling: bool,
+    ) -> Result<(), GpuError> {
+        // 1. Pre-attention RMSNorm: input -> hidden_buf1 (normed)
+        let timer_rmsnorm1 = if profiling {
+            self.start_brick_id(trueno::BrickId::RmsNorm)
+        } else {
+            None
+        };
+        self.rmsnorm_ptr_into(
+            input,
+            layer_weights.attn_norm_ptr,
+            layer_weights.attn_norm_len,
+            hidden_buf1,
+            hidden_dim,
+            epsilon,
+        )?;
+        if profiling {
+            self.stop_brick_id(timer_rmsnorm1, 1);
+        }
+
+        // PAR-058-DEBUG: Check after RMSNorm (skip during graph capture)
+        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
+            self.stream.synchronize()?;
+            let mut rmsnorm_out = vec![0.0f32; hidden_buf1.len()];
+            hidden_buf1.copy_to_host(&mut rmsnorm_out)?;
+            let nan_count = rmsnorm_out.iter().filter(|x| x.is_nan()).count();
+            if nan_count > 0 {
+                eprintln!(
+                    "[PAR-058-L{}] RMSNorm output has {} NaN",
+                    layer_idx, nan_count
+                );
+            } else {
+                eprintln!(
+                    "[PAR-058-L{}] RMSNorm OK, first 3: {:?}",
+                    layer_idx,
+                    &rmsnorm_out[..3.min(rmsnorm_out.len())]
+                );
+            }
+        }
+
+        // 2. Q/K/V projections using indexed pointers -> workspace buffers
+        let timer_qkv = if profiling {
+            self.start_brick_id(trueno::BrickId::QkvProjection)
+        } else {
+            None
+        };
+
+        // CORRECTNESS-011: Debug Q4K GEMV parameters for layer 0
+        if !skip_debug && layer_idx == 0 && layer_weights.attn_q_qtype == WeightQuantType::Q4K {
+            self.stream.synchronize()?;
+            let mut input_check = vec![0.0f32; hidden_buf1.len()];
+            hidden_buf1.copy_to_host(&mut input_check)?;
+            eprintln!(
+                "[CORRECTNESS-011-L0] Q4K GEMV params: n={}, k={}",
+                q_dim, hidden_dim
+            );
+            eprintln!(
+                "[CORRECTNESS-011-L0] Input (hidden_buf1): first 5 = {:?}",
+                &input_check[..5.min(input_check.len())]
+            );
+            eprintln!(
+                "[CORRECTNESS-011-L0] Weight ptr = {:#x}, len = {}",
+                layer_weights.attn_q_ptr, layer_weights.attn_q_len
+            );
+        }
+
+        // Q projection
+        self.gemv_dispatch(
+            layer_weights.attn_q_qtype,
+            layer_weights.attn_q_ptr,
+            hidden_buf1, q_buf, q_dim, hidden_dim,
+        )?;
+
+        // CORRECTNESS-011: Debug Q output for Q4K layer 0
+        if !skip_debug && layer_idx == 0 && layer_weights.attn_q_qtype == WeightQuantType::Q4K {
+            self.stream.synchronize()?;
+            let mut q_check = vec![0.0f32; q_buf.len()];
+            q_buf.copy_to_host(&mut q_check)?;
+            eprintln!(
+                "[CORRECTNESS-011-L0] Q output: first 5 = {:?}",
+                &q_check[..5.min(q_check.len())]
+            );
+        }
+
+        // GQA-DEBUG: Print K qtype for debugging
+        if !skip_debug && layer_idx == 0 {
+            eprintln!(
+                "[GQA-DEBUG-GPU-L0] K qtype = {:?}, ptr = {:#x}, len = {}",
+                layer_weights.attn_k_qtype, layer_weights.attn_k_ptr, layer_weights.attn_k_len
+            );
+        }
+
+        // K projection
+        self.gemv_dispatch(
+            layer_weights.attn_k_qtype,
+            layer_weights.attn_k_ptr,
+            hidden_buf1, k_buf, kv_dim, hidden_dim,
+        )?;
+
+        // V projection
+        self.gemv_dispatch(
+            layer_weights.attn_v_qtype,
+            layer_weights.attn_v_ptr,
+            hidden_buf1, v_buf, kv_dim, hidden_dim,
+        )?;
+
+        if profiling {
+            self.stop_brick_id(timer_qkv, 1);
+        }
+
+        // BIAS-FIX: Add QKV bias after GEMV (Qwen2.5 models have QKV bias)
+        self.apply_qkv_bias(q_buf, k_buf, v_buf, layer_idx, layer_weights, q_dim, kv_dim, skip_debug)?;
+
+        // PAR-058-DEBUG: Check Q/K/V after projections (skip during graph capture)
+        if !skip_debug
+            && (layer_idx == 0
+                || layer_idx == 1
+                || layer_idx == 2
+                || layer_idx == 3
+                || layer_idx == 5)
+        {
+            self.stream.synchronize()?;
+            eprintln!(
+                "[PAR-058-L{}] Weight ptrs: Q={:#x}, K={:#x}, V={:#x}",
+                layer_idx,
+                layer_weights.attn_q_ptr,
+                layer_weights.attn_k_ptr,
+                layer_weights.attn_v_ptr
+            );
+            eprintln!(
+                "[PAR-058-L{}] Weight lens: Q={}, K={}, V={}",
+                layer_idx,
+                layer_weights.attn_q_len,
+                layer_weights.attn_k_len,
+                layer_weights.attn_v_len
+            );
+
+            let mut q_out = vec![0.0f32; q_buf.len()];
+            q_buf.copy_to_host(&mut q_out)?;
+            let q_nan = q_out.iter().filter(|x| x.is_nan()).count();
+            if q_nan > 0 {
+                eprintln!("[PAR-058-L{}] Q has {} NaN", layer_idx, q_nan);
+            } else {
+                eprintln!(
+                    "[PAR-058-L{}] Q OK, first 3: {:?}",
+                    layer_idx,
+                    &q_out[..3.min(q_out.len())]
+                );
+            }
+            let mut k_out = vec![0.0f32; k_buf.len()];
+            k_buf.copy_to_host(&mut k_out)?;
+            let k_nan = k_out.iter().filter(|x| x.is_nan()).count();
+            let k_max = k_out.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            let k_min = k_out.iter().fold(f32::INFINITY, |a, &b| a.min(b));
+            eprintln!(
+                "[PAR-058-L{}] K stats: nan={}, min={:.4}, max={:.4}, first 5: {:?}",
+                layer_idx, k_nan, k_min, k_max,
+                &k_out[..5.min(k_out.len())]
+            );
+            let mut v_out = vec![0.0f32; v_buf.len()];
+            v_buf.copy_to_host(&mut v_out)?;
+            let v_nan = v_out.iter().filter(|x| x.is_nan()).count();
+            let v_max = v_out.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+            let v_min = v_out.iter().fold(f32::INFINITY, |a, &b| a.min(b));
+            eprintln!(
+                "[PAR-058-L{}] V stats: nan={}, min={:.4}, max={:.4}, first 5: {:?}",
+                layer_idx, v_nan, v_min, v_max,
+                &v_out[..5.min(v_out.len())]
+            );
+        }
+
+        // PAR-060: Apply RoPE to Q and K before attention using GPU kernel
+        // PAR-070: Use explicit position parameter instead of deriving from cache length
+        let timer_rope = if profiling {
+            self.start_brick_id(trueno::BrickId::RopeEmbedding)
+        } else {
+            None
+        };
+        {
+            let num_heads = self.kv_num_heads as u32;
+            let num_kv_heads = self.kv_num_kv_heads as u32;
+            let head_dim = self.kv_head_dim as u32;
+            let theta = self.rope_theta;
+
+            // PAR-061: Use indirect position for CUDA graph capture to avoid baking position
+            if layer_idx == 0 && verbose() {
+                eprintln!(
+                    "[CORRECTNESS-010] RoPE: skip_debug={}, position_buf={}, using {}",
+                    skip_debug,
+                    self.position_buf.is_some(),
+                    if skip_debug && self.position_buf.is_some() {
+                        "indirect"
+                    } else {
+                        "direct"
+                    }
+                );
+            }
+            // CORRECTNESS-011: Use NEOX RoPE style for rope_type == 2 (Qwen2.5, etc.)
+            if skip_debug && self.position_buf.is_some() {
+                // Graph capture mode: read position from device memory (updated before replay)
+                let pos_buf_ptr = self
+                    .position_buf
+                    .as_ref()
+                    .expect("position_buf must be initialized")
+                    .as_ptr();
+                let pos_buf_len = self
+                    .position_buf
+                    .as_ref()
+                    .expect("position_buf must be initialized")
+                    .len();
+                // SAFETY: Pointer valid from allocation, length verified, used within scope
+                let pos_buf = unsafe { GpuBuffer::<u32>::from_raw_parts(pos_buf_ptr, pos_buf_len) };
+                if self.rope_type == 2 {
+                    // NEOX style: split halves (i, i + half_dim)
+                    self.rope_neox_indirect_into(
+                        q_buf, q_buf, &pos_buf, num_heads, head_dim, theta,
+                    )?;
+                    self.rope_neox_indirect_into(
+                        k_buf, k_buf, &pos_buf, num_kv_heads, head_dim, theta,
+                    )?;
+                } else {
+                    // NORM style: adjacent pairs (2*i, 2*i+1)
+                    self.rope_indirect_into(q_buf, q_buf, &pos_buf, num_heads, head_dim, theta)?;
+                    self.rope_indirect_into(
+                        k_buf, k_buf, &pos_buf, num_kv_heads, head_dim, theta,
+                    )?;
+                }
+                std::mem::forget(pos_buf); // Don't drop - it's a view into self.position_buf
+            } else {
+                // Normal mode: use direct position value
+                if self.rope_type == 2 {
+                    self.rope_neox_into(q_buf, q_buf, position, num_heads, head_dim, theta)?;
+                    self.rope_neox_into(k_buf, k_buf, position, num_kv_heads, head_dim, theta)?;
+                } else {
+                    self.rope_into(q_buf, q_buf, position, num_heads, head_dim, theta)?;
+                    self.rope_into(k_buf, k_buf, position, num_kv_heads, head_dim, theta)?;
+                }
+            }
+
+            if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3)
+            {
+                self.stream.synchronize()?;
+                let mut q_host = vec![0.0f32; q_buf.len()];
+                let mut k_host = vec![0.0f32; k_buf.len()];
+                q_buf.copy_to_host(&mut q_host)?;
+                k_buf.copy_to_host(&mut k_host)?;
+                eprintln!("[PAR-060-L{}] Applied GPU RoPE at position {}, theta={}, Q first 3: {:?}, K first 3: {:?}",
+                    layer_idx, position, theta, &q_host[..3.min(q_host.len())], &k_host[..3.min(k_host.len())]);
+            }
+        }
+        if profiling {
+            self.stop_brick_id(timer_rope, 1);
+        }
+
+        Ok(())
+    }
+
+    /// Apply QKV bias after GEMV (Qwen2.5 models have QKV bias).
+    /// Only adds bias if bias exists (len > 0).
+    #[allow(clippy::too_many_arguments)]
+    fn apply_qkv_bias(
+        &mut self,
+        q_buf: &GpuBuffer<f32>,
+        k_buf: &GpuBuffer<f32>,
+        v_buf: &GpuBuffer<f32>,
+        layer_idx: usize,
+        layer_weights: &IndexedLayerWeights,
+        q_dim: u32,
+        kv_dim: u32,
+        skip_debug: bool,
+    ) -> Result<(), GpuError> {
+        if layer_weights.attn_q_bias_len > 0 {
+            // SAFETY: bias_ptr is valid device memory owned by bias_cache
+            let q_bias_buf = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    layer_weights.attn_q_bias_ptr,
+                    layer_weights.attn_q_bias_len,
+                )
+            };
+            self.residual_add_into(q_buf, &q_bias_buf, q_buf, q_dim)?;
+            std::mem::forget(q_bias_buf);
+
+            if !skip_debug && (layer_idx == 0 || layer_idx == 4 || layer_idx == 5) {
+                self.stream.synchronize()?;
+                let mut q_check = vec![0.0f32; q_buf.len()];
+                q_buf.copy_to_host(&mut q_check)?;
+                eprintln!(
+                    "[BIAS-FIX-L{}] Q after bias: first 5 = {:?}",
+                    layer_idx,
+                    &q_check[..5.min(q_check.len())]
+                );
+            }
+        }
+        if layer_weights.attn_k_bias_len > 0 {
+            // GQA-DEBUG: Print K values BEFORE bias to isolate issue
+            if !skip_debug && layer_idx == 0 {
+                self.stream.synchronize()?;
+                let mut k_pre = vec![0.0f32; k_buf.len()];
+                k_buf.copy_to_host(&mut k_pre)?;
+                eprintln!(
+                    "[GQA-DEBUG-L0] K BEFORE bias: first 5 = {:?}",
+                    &k_pre[..5.min(k_pre.len())]
+                );
+                let k_bias_buf_check = unsafe {
+                    GpuBuffer::<f32>::from_raw_parts(
+                        layer_weights.attn_k_bias_ptr,
+                        layer_weights.attn_k_bias_len,
+                    )
+                };
+                let mut k_bias_vals = vec![0.0f32; k_bias_buf_check.len()];
+                k_bias_buf_check.copy_to_host(&mut k_bias_vals)?;
+                eprintln!(
+                    "[GQA-DEBUG-L0] K bias values: first 5 = {:?}",
+                    &k_bias_vals[..5.min(k_bias_vals.len())]
+                );
+                std::mem::forget(k_bias_buf_check);
+            }
+
+            // SAFETY: Pointer and length from layer_weights validated at model load time
+            let k_bias_buf = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    layer_weights.attn_k_bias_ptr,
+                    layer_weights.attn_k_bias_len,
+                )
+            };
+            self.residual_add_into(k_buf, &k_bias_buf, k_buf, kv_dim)?;
+            std::mem::forget(k_bias_buf);
+
+            if !skip_debug && (layer_idx == 0 || layer_idx == 4 || layer_idx == 5) {
+                self.stream.synchronize()?;
+                let mut k_check = vec![0.0f32; k_buf.len()];
+                k_buf.copy_to_host(&mut k_check)?;
+                eprintln!(
+                    "[BIAS-FIX-L{}] K after bias: first 5 = {:?}",
+                    layer_idx,
+                    &k_check[..5.min(k_check.len())]
+                );
+            }
+        }
+        if layer_weights.attn_v_bias_len > 0 {
+            // SAFETY: Pointer and length from layer_weights validated at model load time
+            let v_bias_buf = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    layer_weights.attn_v_bias_ptr,
+                    layer_weights.attn_v_bias_len,
+                )
+            };
+            self.residual_add_into(v_buf, &v_bias_buf, v_buf, kv_dim)?;
+            std::mem::forget(v_bias_buf);
+
+            if !skip_debug && (layer_idx == 0 || layer_idx == 4 || layer_idx == 5) {
+                self.stream.synchronize()?;
+                let mut v_check = vec![0.0f32; v_buf.len()];
+                v_buf.copy_to_host(&mut v_check)?;
+                eprintln!(
+                    "[BIAS-FIX-L{}] V after bias: first 5 = {:?}",
+                    layer_idx,
+                    &v_check[..5.min(v_check.len())]
+                );
+            }
+        }
+        Ok(())
+    }
+}
