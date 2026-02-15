@@ -1,5 +1,5 @@
 roadmap_version: '1.0'
-github_enabled: "true"
+github_enabled: true
 github_repo: paiml/realizar
 roadmap:
 - id: PARITY-001
@@ -4430,6 +4430,22 @@ roadmap:
   assigned_to: null
   created: 2026-02-14T23:12:54Z
   updated: 2026-02-14T23:12:57.891789422+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
+- id: PMAT-808
+  github_issue: null
+  item_type: task
+  title: 'CB-COMPLY-002: File Health grade D→C, CB-021 target_feature, CB-500 exclude patterns'
+  status: inprogress
+  priority: high
+  assigned_to: null
+  created: 2026-02-14T23:34:47Z
+  updated: 2026-02-14T23:34:51.132030786+00:00
   spec: null
   acceptance_criteria: []
   phases: []
