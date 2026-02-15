@@ -27,6 +27,8 @@ fn sample_next_token(logits: &[f32], temperature: f32) -> u32 {
 }
 
 /// Print inference results in the requested format
+// serde_json::json!() uses infallible unwrap
+#[allow(clippy::disallowed_methods)]
 fn print_inference_output(
     model_ref: &str,
     prompt: &str,
@@ -566,6 +568,8 @@ pub fn run_gguf_inference_gpu(
 }
 
 /// Run SafeTensors inference with performance timing
+// serde_json::json!() uses infallible unwrap
+#[allow(clippy::disallowed_methods)]
 pub fn run_safetensors_inference(
     model_ref: &str,
     prompt: &str,
@@ -719,6 +723,8 @@ pub fn run_safetensors_inference(
 /// Run APR inference with performance timing
 ///
 /// Supports both CPU and GPU backends (PMAT-106).
+// serde_json::json!() uses infallible unwrap
+#[allow(clippy::disallowed_methods)]
 pub fn run_apr_inference(
     model_ref: &str,
     file_data: &[u8],

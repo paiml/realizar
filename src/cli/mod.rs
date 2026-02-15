@@ -576,6 +576,8 @@ fn print_bench_config(
 }
 
 /// Write benchmark results to JSON file
+// serde_json::json!() uses infallible unwrap
+#[allow(clippy::disallowed_methods)]
 fn write_bench_json(
     output_path: &str,
     stdout: &str,
@@ -761,6 +763,8 @@ pub fn run_benchmarks(
 }
 
 /// Parse a single cargo bench output line into a JSON result
+// serde_json::json!() uses infallible unwrap
+#[allow(clippy::disallowed_methods)]
 fn parse_bench_line(line: &str, suite: Option<&str>) -> Option<serde_json::Value> {
     if !line.contains("bench:") || !line.contains("ns/iter") {
         return None;

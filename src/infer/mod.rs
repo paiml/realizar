@@ -299,7 +299,13 @@ fn prepare_tokens_gguf(config: &InferenceConfig, prompt: &str) -> Result<Prepare
     let tokens = mapped
         .model
         .encode(&formatted_prompt)
-        .unwrap_or_else(|| vec![1u32]);
+        .ok_or_else(|| {
+            RealizarError::InferenceError(format!(
+                "Tokenizer encode failed for GGUF model (no tokenizer data in GGUF file?). \
+                 Prompt length: {} chars",
+                formatted_prompt.len()
+            ))
+        })?;
 
     if config.verbose {
         eprintln!("[DEBUG] encoded {} tokens: {:?}", tokens.len(), &tokens[..tokens.len().min(30)]);
@@ -348,7 +354,13 @@ fn prepare_tokens_safetensors(config: &InferenceConfig, prompt: &str) -> Result<
     };
 
     let tokens = AprV2Model::encode_text(&config.model_path, &formatted_prompt)
-        .unwrap_or_else(|| vec![1u32]);
+        .ok_or_else(|| {
+            RealizarError::InferenceError(format!(
+                "Tokenizer encode failed for SafeTensors model (no tokenizer.json sibling?). \
+                 Prompt length: {} chars",
+                formatted_prompt.len()
+            ))
+        })?;
 
     Ok(PreparedTokens {
         input_count: tokens.len(),
@@ -403,7 +415,13 @@ fn prepare_tokens_apr(config: &InferenceConfig, prompt: &str) -> Result<Prepared
     };
 
     let tokens = AprV2Model::encode_text(&config.model_path, &formatted_prompt)
-        .unwrap_or_else(|| vec![1u32]);
+        .ok_or_else(|| {
+            RealizarError::InferenceError(format!(
+                "Tokenizer encode failed for APR model (no tokenizer in APR metadata?). \
+                 Prompt length: {} chars",
+                formatted_prompt.len()
+            ))
+        })?;
 
     Ok(PreparedTokens {
         input_count: tokens.len(),

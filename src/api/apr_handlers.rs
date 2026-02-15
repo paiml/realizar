@@ -25,6 +25,8 @@ use super::{
 ///
 /// Note: APR v2 uses tensor-based access rather than direct predict().
 /// For LLM inference, use the /generate endpoint instead.
+// serde_json::json!() uses infallible unwrap
+#[allow(clippy::disallowed_methods)]
 pub(crate) async fn apr_predict_handler(
     State(state): State<AppState>,
     Json(request): Json<PredictRequest>,
@@ -174,6 +176,8 @@ pub(crate) async fn apr_predict_handler(
 /// APR explanation handler (/v1/explain)
 ///
 /// Returns SHAP-based feature importance explanations for APR models.
+// serde_json::json!() uses infallible unwrap
+#[allow(clippy::disallowed_methods)]
 pub(crate) async fn apr_explain_handler(
     State(_state): State<AppState>,
     Json(request): Json<ExplainRequest>,

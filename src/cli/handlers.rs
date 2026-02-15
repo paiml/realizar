@@ -322,6 +322,8 @@ fn scan_model_directory(dir: &std::path::Path) -> Vec<(String, u64)> {
 }
 
 /// Print a list of models in the requested format
+// serde_json::json!() uses infallible unwrap
+#[allow(clippy::disallowed_methods)]
 fn print_model_list(models: &[(String, u64)], format: &str) {
     match format {
         "json" => {

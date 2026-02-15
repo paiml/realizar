@@ -436,6 +436,29 @@ pub trait ComputeBrick: Send + Sync {
     }
 }
 
+/// CB-BUDGET: Validate that a ComputeBrick implementation has assertions and budget.
+///
+/// This is the module-level budget validation gate required by CBTOP-SPEC-001.
+/// Call this at brick registration time to ensure contract compliance.
+pub fn validate_brick_contract(brick: &dyn ComputeBrick<Output = Vec<f32>>) -> Result<(), BrickError> {
+    let assertions = brick.assertions();
+    if assertions.is_empty() {
+        return Err(BrickError::AssertionFailed {
+            name: format!("{}/CB-BUDGET", brick.name()),
+            expected: "at least 1 assertion".to_string(),
+            actual: "0 assertions".to_string(),
+        });
+    }
+    let budget = brick.budget();
+    if budget.us_per_token <= 0.0 || budget.tokens_per_sec <= 0.0 {
+        return Err(BrickError::BudgetExceeded {
+            limit_us: 0.0,
+            actual_us: budget.us_per_token,
+        });
+    }
+    Ok(())
+}
+
 // ============================================================================
 // Transformer Brick Implementations
 // ============================================================================
@@ -1773,6 +1796,26 @@ mod brick_tests_part_02;
 #[cfg(test)]
 #[path = "tests_part_03.rs"]
 mod brick_tests_part_03;
+
+// Additional tests in tests_part_04.rs
+#[cfg(test)]
+#[path = "tests_part_04.rs"]
+mod brick_tests_part_04;
+
+// Additional tests in tests_part_05.rs
+#[cfg(test)]
+#[path = "tests_part_05.rs"]
+mod brick_tests_part_05;
+
+// Additional tests in tests_part_06.rs
+#[cfg(test)]
+#[path = "tests_part_06.rs"]
+mod brick_tests_part_06;
+
+// Additional tests in tests_part_07.rs
+#[cfg(test)]
+#[path = "tests_part_07.rs"]
+mod brick_tests_part_07;
 
 // BrickProfiler tests (PMAT-112)
 #[cfg(test)]

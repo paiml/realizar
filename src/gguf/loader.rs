@@ -1667,6 +1667,8 @@ impl OwnedQuantizedModel {
     /// # Errors
     ///
     /// Returns error if serialization fails
+    // serde_json::json!() uses infallible unwrap
+    #[allow(clippy::disallowed_methods)]
     #[allow(clippy::cast_possible_truncation)]
     pub fn to_apr_bytes(&self) -> Result<Vec<u8>> {
         use crate::apr::{ALIGNMENT, HEADER_SIZE, MAGIC};
