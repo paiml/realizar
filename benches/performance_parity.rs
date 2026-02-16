@@ -46,7 +46,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
 // Import realizar types
-use realizar::layers::{softmax, Attention, FusedQKVAttention, LayerNorm, Linear};
+use realizar::layers::{softmax, Attention, FusedQKVAttention, LayerNorm};
 use realizar::quantize::{dequantize_q4_k_simd, fused_q4k_dot_simd, fused_q4k_parallel_matvec};
 use realizar::Tensor;
 
@@ -416,6 +416,19 @@ enum LayerBenchOp {
         seq_len: usize,
         batch_sizes: &'static [usize],
     },
+    /// Fused vs Separate Attention comparison (IMP-003)
+    AttentionComparison {
+        hidden_dim: usize,
+        head_dim: usize,
+        seq_len: usize,
+    },
+    /// TTFT Prefill simulation (multi-layer forward pass)
+    TtftPrefill {
+        hidden_dim: usize,
+        head_dim: usize,
+        num_layers: usize,
+        prompt_len: usize,
+    },
 }
 
 /// Run a layer-forward benchmark from a `LayerBenchOp` descriptor.
@@ -552,160 +565,173 @@ fn run_layer_bench(c: &mut Criterion, group_name: &str, sample_size: usize, op: 
                 );
             }
         }
+        LayerBenchOp::AttentionComparison {
+            hidden_dim,
+            head_dim,
+            seq_len,
+        } => {
+            // Fused attention
+            let fused = FusedQKVAttention::new(*head_dim, *hidden_dim).expect("test");
+            let input = Tensor::from_vec(
+                vec![*seq_len, *hidden_dim],
+                (0..(*seq_len * *hidden_dim))
+                    .map(|i| (i as f32 * 0.001).sin())
+                    .collect(),
+            )
+            .expect("test");
+
+            group.bench_function("fused_qkv_attention", |b| {
+                b.iter(|| {
+                    let output = fused.forward(black_box(&input)).expect("test");
+                    black_box(output)
+                });
+            });
+
+            // Separate attention (baseline)
+            let attention = Attention::new(*head_dim).expect("test");
+            let q = Tensor::from_vec(
+                vec![*seq_len, *head_dim],
+                vec![0.1; *seq_len * *head_dim],
+            )
+            .expect("test");
+            let k = q.clone();
+            let v = q.clone();
+
+            group.bench_function("separate_attention", |b| {
+                b.iter(|| {
+                    let output = attention
+                        .forward(black_box(&q), black_box(&k), black_box(&v))
+                        .expect("test");
+                    black_box(output)
+                });
+            });
+        }
+        LayerBenchOp::TtftPrefill {
+            hidden_dim,
+            head_dim,
+            num_layers,
+            prompt_len,
+        } => {
+            let fused_attns: Vec<_> = (0..*num_layers)
+                .map(|_| FusedQKVAttention::new(*head_dim, *hidden_dim).expect("test"))
+                .collect();
+            let layer_norms: Vec<_> = (0..*num_layers)
+                .map(|_| LayerNorm::new(*hidden_dim, 1e-5).expect("test"))
+                .collect();
+
+            let input = Tensor::from_vec(
+                vec![*prompt_len, *hidden_dim],
+                (0..(*prompt_len * *hidden_dim))
+                    .map(|i| (i as f32 * 0.001).sin())
+                    .collect(),
+            )
+            .expect("test");
+
+            group.throughput(Throughput::Elements(*prompt_len as u64));
+            group.bench_function(
+                format!("prefill_{num_layers}_layers"),
+                |b| {
+                    b.iter(|| {
+                        let mut hidden = input.clone();
+                        for layer_idx in 0..*num_layers {
+                            hidden = layer_norms[layer_idx].forward(&hidden).expect("test");
+                            hidden = fused_attns[layer_idx].forward(&hidden).expect("test");
+                        }
+                        black_box(hidden)
+                    });
+                },
+            );
+        }
     }
 
     group.finish();
 }
 
-fn benchmark_fused_attention(c: &mut Criterion) {
-    run_layer_bench(
-        c,
-        "fused_attention",
-        50,
-        &LayerBenchOp::FusedAttention {
-            hidden_dim: 256,
-            head_dim: 32,
-            seq_lengths: SEQ_LENGTHS,
+/// Table-driven layer benchmark entry.
+struct LayerBenchEntry {
+    group_name: &'static str,
+    sample_size: usize,
+    op: LayerBenchOp,
+}
+
+/// Static dimension table for linear benchmarks.
+static LINEAR_DIMS: &[(usize, usize)] = &[(256, 256), (256, 1024), (1024, 256), (1024, 1024)];
+
+/// Static batch sizes for memory-efficiency benchmarks.
+static MEM_EFF_BATCH_SIZES: &[usize] = &[1, 4, 8];
+
+/// Run all layer benchmarks from the suite table (Kaizen: single entry point).
+fn benchmark_layer_suite(c: &mut Criterion) {
+    let suite: &[LayerBenchEntry] = &[
+        LayerBenchEntry {
+            group_name: "fused_attention",
+            sample_size: 50,
+            op: LayerBenchOp::FusedAttention {
+                hidden_dim: 256,
+                head_dim: 32,
+                seq_lengths: SEQ_LENGTHS,
+            },
         },
-    );
-}
-
-// ============================================================================
-// IMP-003: Separate vs Fused Attention Comparison
-// ============================================================================
-
-fn benchmark_attention_comparison(c: &mut Criterion) {
-    let mut group = c.benchmark_group("attention_comparison");
-    group.sample_size(50);
-
-    let seq_len = 128;
-    let head_dim = 32;
-    let hidden_dim = 128;
-
-    // Fused attention
-    let fused = FusedQKVAttention::new(head_dim, hidden_dim).expect("test");
-    let input = Tensor::from_vec(
-        vec![seq_len, hidden_dim],
-        (0..(seq_len * hidden_dim))
-            .map(|i| (i as f32 * 0.001).sin())
-            .collect(),
-    )
-    .expect("test");
-
-    group.bench_function("fused_qkv_attention", |b| {
-        b.iter(|| {
-            let output = fused.forward(black_box(&input)).expect("test");
-            black_box(output)
-        });
-    });
-
-    // Separate attention (baseline)
-    let attention = Attention::new(head_dim).expect("test");
-    let q = Tensor::from_vec(vec![seq_len, head_dim], vec![0.1; seq_len * head_dim]).expect("test");
-    let k = q.clone();
-    let v = q.clone();
-
-    group.bench_function("separate_attention", |b| {
-        b.iter(|| {
-            let output = attention
-                .forward(black_box(&q), black_box(&k), black_box(&v))
-                .expect("test");
-            black_box(output)
-        });
-    });
-
-    group.finish();
-}
-
-fn benchmark_layer_norm(c: &mut Criterion) {
-    run_layer_bench(
-        c,
-        "layer_norm",
-        10,
-        &LayerBenchOp::LayerNorm {
-            hidden_dim: 256,
-            seq_lengths: SEQ_LENGTHS,
+        LayerBenchEntry {
+            group_name: "layer_norm",
+            sample_size: 10,
+            op: LayerBenchOp::LayerNorm {
+                hidden_dim: 256,
+                seq_lengths: SEQ_LENGTHS,
+            },
         },
-    );
-}
-
-fn benchmark_softmax(c: &mut Criterion) {
-    run_layer_bench(
-        c,
-        "softmax",
-        10,
-        &LayerBenchOp::Softmax {
-            seq_lengths: SEQ_LENGTHS,
+        LayerBenchEntry {
+            group_name: "softmax",
+            sample_size: 10,
+            op: LayerBenchOp::Softmax {
+                seq_lengths: SEQ_LENGTHS,
+            },
         },
-    );
-}
-
-fn benchmark_linear(c: &mut Criterion) {
-    static DIMS: &[(usize, usize)] = &[(256, 256), (256, 1024), (1024, 256), (1024, 1024)];
-    run_layer_bench(c, "linear", 50, &LayerBenchOp::Linear { dimensions: DIMS });
-}
-
-// ============================================================================
-// TTFT (Time To First Token) Simulation
-// ============================================================================
-
-fn benchmark_ttft_simulation(c: &mut Criterion) {
-    let mut group = c.benchmark_group("ttft_simulation");
-    group.sample_size(20); // Fewer samples for complex operations
-
-    // Simulate prefill phase with multiple layers
-    let num_layers = 4;
-    let hidden_dim = 256;
-    let head_dim = 32;
-    let prompt_len = 32;
-
-    // Create layers
-    let fused_attns: Vec<_> = (0..num_layers)
-        .map(|_| FusedQKVAttention::new(head_dim, hidden_dim).expect("test"))
-        .collect();
-    let layer_norms: Vec<_> = (0..num_layers)
-        .map(|_| LayerNorm::new(hidden_dim, 1e-5).expect("test"))
-        .collect();
-
-    let input = Tensor::from_vec(
-        vec![prompt_len, hidden_dim],
-        (0..(prompt_len * hidden_dim))
-            .map(|i| (i as f32 * 0.001).sin())
-            .collect(),
-    )
-    .expect("test");
-
-    group.throughput(Throughput::Elements(prompt_len as u64));
-    group.bench_function("prefill_4_layers", |b| {
-        b.iter(|| {
-            let mut hidden = input.clone();
-            for layer_idx in 0..num_layers {
-                // Layer norm
-                hidden = layer_norms[layer_idx].forward(&hidden).expect("test");
-                // Attention
-                hidden = fused_attns[layer_idx].forward(&hidden).expect("test");
-            }
-            black_box(hidden)
-        });
-    });
-
-    group.finish();
-}
-
-fn benchmark_memory_efficiency(c: &mut Criterion) {
-    static BATCH_SIZES: &[usize] = &[1, 4, 8];
-    run_layer_bench(
-        c,
-        "memory_efficiency",
-        20,
-        &LayerBenchOp::FusedAttentionBatch {
-            hidden_dim: 256,
-            head_dim: 32,
-            seq_len: 64,
-            batch_sizes: BATCH_SIZES,
+        LayerBenchEntry {
+            group_name: "linear",
+            sample_size: 50,
+            op: LayerBenchOp::Linear {
+                dimensions: LINEAR_DIMS,
+            },
         },
-    );
+        LayerBenchEntry {
+            group_name: "memory_efficiency",
+            sample_size: 20,
+            op: LayerBenchOp::FusedAttentionBatch {
+                hidden_dim: 256,
+                head_dim: 32,
+                seq_len: 64,
+                batch_sizes: MEM_EFF_BATCH_SIZES,
+            },
+        },
+        LayerBenchEntry {
+            group_name: "attention_comparison",
+            sample_size: 50,
+            op: LayerBenchOp::AttentionComparison {
+                hidden_dim: 128,
+                head_dim: 32,
+                seq_len: 128,
+            },
+        },
+        LayerBenchEntry {
+            group_name: "ttft_simulation",
+            sample_size: 20,
+            op: LayerBenchOp::TtftPrefill {
+                hidden_dim: 256,
+                head_dim: 32,
+                num_layers: 4,
+                prompt_len: 32,
+            },
+        },
+    ];
+
+    for entry in suite {
+        run_layer_bench(c, entry.group_name, entry.sample_size, &entry.op);
+    }
 }
+
+// Layer benchmarks (fused_attention, layer_norm, softmax, linear, memory_efficiency,
+// attention_comparison, ttft_simulation) are all driven by benchmark_layer_suite above.
 
 // ============================================================================
 // Tests for benchmark infrastructure
@@ -766,87 +792,177 @@ mod tests {
 // IMP-100c: Quantized vs Dequantized Throughput — included in Q4K_BENCH_SUITE
 
 // ============================================================================
-// IMP-101d: KV Cache vs Full Recompute Benchmark
+// IMP-101d + IMP-106: Unified Cache Strategy Benchmarks
 // ============================================================================
 
-/// Benchmark comparing O(n) KV cache attention vs O(n²) full recompute
-///
-/// This validates the KV cache integration (IMP-101c) provides expected speedup
-/// for incremental token generation.
-fn benchmark_kv_cache_attention(c: &mut Criterion) {
+/// Cache benchmark variant descriptor for table-driven dispatch.
+enum CacheBenchOp {
+    /// KV cache attention vs full recompute (IMP-101d)
+    KvCacheVsRecompute {
+        hidden_dim: usize,
+        num_heads: usize,
+        num_layers: usize,
+        seq_lengths: &'static [usize],
+    },
+    /// Batch prefill vs sequential prefill (IMP-106c)
+    BatchPrefill {
+        prompt_lengths: &'static [usize],
+    },
+}
+
+/// Table-driven cache benchmark entry.
+struct CacheBenchEntry {
+    group_name: &'static str,
+    sample_size: usize,
+    op: CacheBenchOp,
+}
+
+/// Run a cache-strategy benchmark from a `CacheBenchOp` descriptor.
+fn run_cache_bench(c: &mut Criterion, entry: &CacheBenchEntry) {
     use realizar::gguf::OwnedQuantizedKVCache;
 
-    let mut group = c.benchmark_group("imp_101d_kv_cache_attention");
-    group.sample_size(50);
+    let mut group = c.benchmark_group(entry.group_name);
+    group.sample_size(entry.sample_size);
 
-    let seq_lengths = [32, 64, 128, 256];
-    let hidden_dim = 256;
-    let num_heads = 4;
-    let head_dim = hidden_dim / num_heads;
-    let num_layers = 4;
+    match &entry.op {
+        CacheBenchOp::KvCacheVsRecompute {
+            hidden_dim,
+            num_heads,
+            num_layers,
+            seq_lengths,
+        } => {
+            let head_dim = *hidden_dim / *num_heads;
 
-    for &seq_len in &seq_lengths {
-        let mut cache = OwnedQuantizedKVCache::new(num_layers, hidden_dim, seq_len + 64);
-        for pos in 0..(seq_len - 1) {
-            for layer in 0..num_layers {
-                let k: Vec<f32> = (0..hidden_dim)
-                    .map(|i| ((pos * hidden_dim + i) as f32 * 0.001).sin())
+            for &seq_len in *seq_lengths {
+                let mut cache =
+                    OwnedQuantizedKVCache::new(*num_layers, *hidden_dim, seq_len + 64);
+                for pos in 0..(seq_len - 1) {
+                    for layer in 0..*num_layers {
+                        let k: Vec<f32> = (0..*hidden_dim)
+                            .map(|i| ((pos * *hidden_dim + i) as f32 * 0.001).sin())
+                            .collect();
+                        let v: Vec<f32> = (0..*hidden_dim)
+                            .map(|i| ((pos * *hidden_dim + i) as f32 * 0.002).cos())
+                            .collect();
+                        cache.append(layer, &k, &v);
+                    }
+                    cache.advance();
+                }
+
+                let q: Vec<f32> =
+                    (0..*hidden_dim).map(|i| (i as f32 * 0.003).sin()).collect();
+                let current_k: Vec<f32> =
+                    (0..*hidden_dim).map(|i| (i as f32 * 0.004).cos()).collect();
+                let current_v: Vec<f32> =
+                    (0..*hidden_dim).map(|i| (i as f32 * 0.005).sin()).collect();
+
+                let hd = *hidden_dim;
+                group.throughput(Throughput::Elements(seq_len as u64));
+                group.bench_with_input(
+                    BenchmarkId::new("kv_cache_attention", format!("seq{seq_len}")),
+                    &(&q, &cache, &current_k, &current_v, *num_heads, head_dim),
+                    |b, (q, cache, cur_k, cur_v, n_heads, h_dim)| {
+                        b.iter(|| {
+                            let k_cache = cache.get_k(0);
+                            let v_cache = cache.get_v(0);
+                            let cache_len = k_cache.len() / hd;
+                            let output = bench_cached_attention(
+                                q, k_cache, v_cache, cur_k, cur_v, *n_heads, *h_dim, hd,
+                                cache_len,
+                            );
+                            black_box(output)
+                        });
+                    },
+                );
+
+                // Full recompute (O(n²) per token) - baseline comparison
+                let all_k: Vec<f32> = (0..(seq_len * *hidden_dim))
+                    .map(|i| (i as f32 * 0.001).sin())
                     .collect();
-                let v: Vec<f32> = (0..hidden_dim)
-                    .map(|i| ((pos * hidden_dim + i) as f32 * 0.002).cos())
+                let all_v: Vec<f32> = (0..(seq_len * *hidden_dim))
+                    .map(|i| (i as f32 * 0.002).cos())
                     .collect();
-                cache.append(layer, &k, &v);
+                let all_q: Vec<f32> = (0..(seq_len * *hidden_dim))
+                    .map(|i| (i as f32 * 0.003).sin())
+                    .collect();
+
+                group.bench_with_input(
+                    BenchmarkId::new("full_recompute", format!("seq{seq_len}")),
+                    &(&all_q, &all_k, &all_v, *num_heads, head_dim, seq_len),
+                    |b, (q, k, v, n_heads, h_dim, s_len)| {
+                        b.iter(|| {
+                            let output = bench_full_recompute_attention(
+                                q, k, v, *n_heads, *h_dim, hd, *s_len,
+                            );
+                            black_box(output)
+                        });
+                    },
+                );
             }
-            cache.advance();
         }
+        CacheBenchOp::BatchPrefill { prompt_lengths } => {
+            for &prompt_len in *prompt_lengths {
+                let config = make_bench_config(256, 512, 2, 8, 1000);
+                let model = create_benchmark_model(&config);
+                let prompt: Vec<u32> = (0..prompt_len as u32).collect();
 
-        let q: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 * 0.003).sin()).collect();
-        let current_k: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 * 0.004).cos()).collect();
-        let current_v: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 * 0.005).sin()).collect();
-
-        group.throughput(Throughput::Elements(seq_len as u64));
-        group.bench_with_input(
-            BenchmarkId::new("kv_cache_attention", format!("seq{seq_len}")),
-            &(&q, &cache, &current_k, &current_v, num_heads, head_dim),
-            |b, (q, cache, cur_k, cur_v, n_heads, h_dim)| {
-                b.iter(|| {
-                    let k_cache = cache.get_k(0);
-                    let v_cache = cache.get_v(0);
-                    let cache_len = k_cache.len() / hidden_dim;
-                    let output = bench_cached_attention(
-                        q, k_cache, v_cache, cur_k, cur_v, *n_heads, *h_dim, hidden_dim, cache_len,
-                    );
-                    black_box(output)
+                group.bench_function(BenchmarkId::new("sequential", prompt_len), |b| {
+                    b.iter(|| {
+                        let mut cache = OwnedQuantizedKVCache::from_config(&config, 128);
+                        for (pos, &token_id) in prompt.iter().enumerate() {
+                            let _ = model
+                                .forward_single_with_cache(black_box(token_id), &mut cache, pos);
+                        }
+                        black_box(cache.len())
+                    });
                 });
-            },
-        );
 
-        // Full recompute (O(n²) per token) - baseline comparison
-        let all_k: Vec<f32> = (0..(seq_len * hidden_dim))
-            .map(|i| (i as f32 * 0.001).sin())
-            .collect();
-        let all_v: Vec<f32> = (0..(seq_len * hidden_dim))
-            .map(|i| (i as f32 * 0.002).cos())
-            .collect();
-        let all_q: Vec<f32> = (0..(seq_len * hidden_dim))
-            .map(|i| (i as f32 * 0.003).sin())
-            .collect();
-
-        group.bench_with_input(
-            BenchmarkId::new("full_recompute", format!("seq{seq_len}")),
-            &(&all_q, &all_k, &all_v, num_heads, head_dim, seq_len),
-            |b, (q, k, v, n_heads, h_dim, s_len)| {
-                b.iter(|| {
-                    let output = bench_full_recompute_attention(
-                        q, k, v, *n_heads, *h_dim, hidden_dim, *s_len,
-                    );
-                    black_box(output)
+                group.bench_function(BenchmarkId::new("batch", prompt_len), |b| {
+                    b.iter(|| {
+                        let mut cache = OwnedQuantizedKVCache::from_config(&config, 128);
+                        let _ = model.prefill_batch(black_box(&prompt), &mut cache);
+                        black_box(cache.len())
+                    });
                 });
-            },
-        );
+            }
+        }
     }
 
     group.finish();
+}
+
+/// Static sequence lengths for KV cache benchmark.
+static KV_CACHE_SEQ_LENGTHS: &[usize] = &[32, 64, 128, 256];
+
+/// Static prompt lengths for batch prefill benchmark.
+static BATCH_PREFILL_PROMPT_LENGTHS: &[usize] = &[4, 8, 16, 32];
+
+/// Cache benchmark suite table: all cache-related entries driven by a single function.
+static CACHE_BENCH_SUITE: &[CacheBenchEntry] = &[
+    CacheBenchEntry {
+        group_name: "imp_101d_kv_cache_attention",
+        sample_size: 50,
+        op: CacheBenchOp::KvCacheVsRecompute {
+            hidden_dim: 256,
+            num_heads: 4,
+            num_layers: 4,
+            seq_lengths: KV_CACHE_SEQ_LENGTHS,
+        },
+    },
+    CacheBenchEntry {
+        group_name: "imp_106_batch_prefill",
+        sample_size: 50,
+        op: CacheBenchOp::BatchPrefill {
+            prompt_lengths: BATCH_PREFILL_PROMPT_LENGTHS,
+        },
+    },
+];
+
+/// Run all cache-strategy benchmarks from the suite table (Kaizen: single entry point).
+fn benchmark_cache_suite(c: &mut Criterion) {
+    for entry in CACHE_BENCH_SUITE {
+        run_cache_bench(c, entry);
+    }
 }
 
 /// Cached attention benchmark helper — single-token decode with KV cache
@@ -1376,55 +1492,6 @@ fn benchmark_component_profiling(c: &mut Criterion) {
 }
 
 // IMP-103a: SIMD-Optimized Q4_K Matvec — included in Q4K_BENCH_SUITE
-
-// ============================================================================
-// IMP-106: Batch Prefill Benchmarks
-// ============================================================================
-
-/// Benchmark batch prefill vs sequential prefill (IMP-106c)
-///
-/// Compares:
-/// - Sequential: for each token, forward_single_with_cache
-/// - Batch: prefill_batch (processes all tokens)
-fn benchmark_batch_prefill(c: &mut Criterion) {
-    use realizar::gguf::OwnedQuantizedKVCache;
-
-    let mut group = c.benchmark_group("imp_106_batch_prefill");
-    group.sample_size(50);
-
-    // Test different prompt lengths
-    let prompt_lengths = [4, 8, 16, 32];
-
-    for &prompt_len in &prompt_lengths {
-        let config = make_bench_config(256, 512, 2, 8, 1000);
-
-        // Create test model
-        let model = create_benchmark_model(&config);
-        let prompt: Vec<u32> = (0..prompt_len as u32).collect();
-
-        // Benchmark sequential prefill
-        group.bench_function(BenchmarkId::new("sequential", prompt_len), |b| {
-            b.iter(|| {
-                let mut cache = OwnedQuantizedKVCache::from_config(&config, 128);
-                for (pos, &token_id) in prompt.iter().enumerate() {
-                    let _ = model.forward_single_with_cache(black_box(token_id), &mut cache, pos);
-                }
-                black_box(cache.len())
-            });
-        });
-
-        // Benchmark batch prefill
-        group.bench_function(BenchmarkId::new("batch", prompt_len), |b| {
-            b.iter(|| {
-                let mut cache = OwnedQuantizedKVCache::from_config(&config, 128);
-                let _ = model.prefill_batch(black_box(&prompt), &mut cache);
-                black_box(cache.len())
-            });
-        });
-    }
-
-    group.finish();
-}
 
 /// Create a benchmark model with proper Q4_K weights
 /// NOTE: Disabled - new_for_benchmark method doesn't exist
@@ -2385,21 +2452,12 @@ fn create_bench_model_with_config(
 #[cfg(feature = "gpu")]
 criterion_group!(
     benches,
-    benchmark_q4k_dequant_simd,
-    benchmark_fused_q4k_dot,
-    benchmark_fused_attention,
-    benchmark_attention_comparison,
-    benchmark_layer_norm,
-    benchmark_softmax,
-    benchmark_linear,
-    benchmark_ttft_simulation,
-    benchmark_memory_efficiency,
-    benchmark_fused_batch_matmul,
-    benchmark_quantized_vs_dequantized,
-    benchmark_kv_cache_attention,
+    benchmark_q4k_suite,
+    benchmark_layer_suite,
+    benchmark_cache_suite,
     benchmark_e2e_generation,
     benchmark_component_profiling,
-    benchmark_q4k_matvec_optimization,
+    benchmark_fused_batch_matmul,
     benchmark_gpu_batch_matmul,
     benchmark_batched_causal_attention,
     benchmark_parallel_multihead_attention,
@@ -2414,20 +2472,11 @@ criterion_group!(
 #[cfg(not(feature = "gpu"))]
 criterion_group!(
     benches,
-    benchmark_q4k_dequant_simd,
-    benchmark_fused_q4k_dot,
-    benchmark_fused_attention,
-    benchmark_attention_comparison,
-    benchmark_layer_norm,
-    benchmark_softmax,
-    benchmark_linear,
-    benchmark_ttft_simulation,
-    benchmark_memory_efficiency,
-    benchmark_quantized_vs_dequantized,
-    benchmark_kv_cache_attention,
+    benchmark_q4k_suite,
+    benchmark_layer_suite,
+    benchmark_cache_suite,
     benchmark_e2e_generation,
     benchmark_component_profiling,
-    benchmark_q4k_matvec_optimization,
 );
 
 criterion_main!(benches);
