@@ -67,6 +67,116 @@ const NUM_HEADS: usize = 32;
 const HEAD_DIM: usize = HIDDEN_DIM / NUM_HEADS;
 
 // ============================================================================
+// Shared Benchmark Helpers (Kaizen: DRY data transformation patterns)
+// ============================================================================
+
+/// Q4_K super-block size constants
+const Q4K_SUPERBLOCK_SIZE: usize = 256; // values per super-block
+const Q4K_SUPERBLOCK_BYTES: usize = 144; // bytes per super-block
+
+/// Create raw Q4_K super-block data for benchmarking.
+///
+/// Each super-block is 144 bytes encoding 256 values.
+/// Uses d=1.0 (f16), dmin=0.0, and a deterministic fill pattern.
+fn make_q4k_data(num_values: usize) -> Vec<u8> {
+    make_q4k_data_scaled(num_values, 0x3C00) // d=1.0 in f16
+}
+
+/// Create raw Q4_K data with a configurable scale factor (d) in f16 encoding.
+fn make_q4k_data_scaled(num_values: usize, d_f16: u16) -> Vec<u8> {
+    let sb_count = num_values.div_ceil(Q4K_SUPERBLOCK_SIZE);
+    let data_size = sb_count * Q4K_SUPERBLOCK_BYTES;
+    let mut data = vec![0u8; data_size];
+
+    for sb_idx in 0..sb_count {
+        let offset = sb_idx * Q4K_SUPERBLOCK_BYTES;
+        data[offset..offset + 2].copy_from_slice(&d_f16.to_le_bytes());
+        data[offset + 2..offset + 4].copy_from_slice(&0x0000_u16.to_le_bytes()); // dmin=0
+        for i in 4..Q4K_SUPERBLOCK_BYTES {
+            data[offset + i] = ((sb_idx + i) % 16) as u8;
+        }
+    }
+    data
+}
+
+/// Create Q4_K weight matrix data (out_dim rows of in_dim values each).
+fn make_q4k_weights(in_dim: usize, out_dim: usize) -> Vec<u8> {
+    make_q4k_data(in_dim * out_dim)
+}
+
+/// Create an `OwnedQuantizedTensor` with Q4_K benchmark data.
+fn make_q4k_tensor(in_dim: usize, out_dim: usize) -> realizar::gguf::OwnedQuantizedTensor {
+    let super_blocks_per_row = in_dim.div_ceil(Q4K_SUPERBLOCK_SIZE);
+    let bytes_per_row = super_blocks_per_row * Q4K_SUPERBLOCK_BYTES;
+    let data_size = out_dim * bytes_per_row;
+    let mut data = vec![0u8; data_size];
+
+    for row in 0..out_dim {
+        for sb in 0..super_blocks_per_row {
+            let offset = row * bytes_per_row + sb * Q4K_SUPERBLOCK_BYTES;
+            data[offset..offset + 2].copy_from_slice(&0x3C00_u16.to_le_bytes()); // d=1.0
+            data[offset + 2..offset + 4].copy_from_slice(&0x0000_u16.to_le_bytes()); // dmin=0
+            for i in 4..Q4K_SUPERBLOCK_BYTES {
+                data[offset + i] = ((row + sb + i) % 16) as u8;
+            }
+        }
+    }
+
+    realizar::gguf::OwnedQuantizedTensor {
+        data,
+        in_dim,
+        out_dim,
+        qtype: 12, // Q4_K (GGUF_TYPE_Q4_K)
+    }
+}
+
+/// Create a `GGUFConfig` for benchmarking with sensible defaults.
+///
+/// Only the most commonly varied parameters are exposed; the rest use
+/// standard benchmark defaults (context_length=2048, rope_theta=10000, etc.).
+fn make_bench_config(
+    hidden_dim: usize,
+    intermediate_dim: usize,
+    num_layers: usize,
+    num_heads: usize,
+    vocab_size: usize,
+) -> realizar::gguf::GGUFConfig {
+    realizar::gguf::GGUFConfig {
+        architecture: "test".to_string(),
+        hidden_dim,
+        intermediate_dim,
+        num_layers,
+        num_heads,
+        num_kv_heads: num_heads,
+        vocab_size,
+        context_length: 2048,
+        eps: 1e-5,
+        rope_theta: 10000.0,
+        rope_type: 0,
+        bos_token_id: None,
+    }
+}
+
+/// Create Q, K, V test vectors of shape [seq_len, dim] with deterministic patterns.
+fn make_qkv_vecs(seq_len: usize, dim: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
+    let q: Vec<f32> = (0..seq_len * dim)
+        .map(|i| ((i % 13) as f32 - 6.0) * 0.1)
+        .collect();
+    let k: Vec<f32> = (0..seq_len * dim)
+        .map(|i| ((i % 11) as f32 - 5.0) * 0.1)
+        .collect();
+    let v: Vec<f32> = (0..seq_len * dim)
+        .map(|i| ((i % 7) as f32 - 3.0) * 0.1)
+        .collect();
+    (q, k, v)
+}
+
+/// Create sinusoidal activation vector for benchmark input.
+fn make_activations(size: usize) -> Vec<f32> {
+    (0..size).map(|i| (i as f32 * 0.001).sin()).collect()
+}
+
+// ============================================================================
 // IMP-001: SIMD Q4_K Dequantization Benchmarks
 // ============================================================================
 
@@ -74,26 +184,12 @@ fn benchmark_q4k_dequant_simd(c: &mut Criterion) {
     let mut group = c.benchmark_group("q4k_dequant_simd");
     group.sample_size(100);
 
-    // Q4_K super-block sizes to test
-    let super_block_counts = [1, 4, 16, 64, 256]; // 256 to 65536 values
+    // Q4_K super-block sizes to test: 256 to 65536 values
+    let super_block_counts = [1, 4, 16, 64, 256];
 
     for &sb_count in &super_block_counts {
-        let num_values = sb_count * 256;
-        let data_size = sb_count * 144; // 144 bytes per Q4_K super-block
-
-        // Create Q4_K test data
-        let mut data = vec![0u8; data_size];
-        for sb_idx in 0..sb_count {
-            let offset = sb_idx * 144;
-            // d = 1.0 (f16)
-            data[offset..offset + 2].copy_from_slice(&0x3C00_u16.to_le_bytes());
-            // dmin = 0.0 (f16)
-            data[offset + 2..offset + 4].copy_from_slice(&0x0000_u16.to_le_bytes());
-            // scales and qs filled with pattern
-            for i in 4..144 {
-                data[offset + i] = (i % 16) as u8;
-            }
-        }
+        let num_values = sb_count * Q4K_SUPERBLOCK_SIZE;
+        let data = make_q4k_data(num_values);
 
         group.throughput(Throughput::Elements(num_values as u64));
         group.bench_with_input(
@@ -123,22 +219,8 @@ fn benchmark_fused_q4k_dot(c: &mut Criterion) {
     let sizes = [256, 1024, 4096, 16384];
 
     for &size in &sizes {
-        let sb_count = size / 256;
-        let data_size = sb_count * 144;
-
-        // Create Q4_K weights
-        let mut weights = vec![0u8; data_size];
-        for sb_idx in 0..sb_count {
-            let offset = sb_idx * 144;
-            weights[offset..offset + 2].copy_from_slice(&0x3C00_u16.to_le_bytes()); // d=1.0
-            weights[offset + 2..offset + 4].copy_from_slice(&0x0000_u16.to_le_bytes()); // dmin=0.0
-            for i in 4..144 {
-                weights[offset + i] = ((sb_idx + i) % 16) as u8;
-            }
-        }
-
-        // Create activation vector
-        let activations: Vec<f32> = (0..size).map(|i| (i as f32 * 0.001).sin()).collect();
+        let weights = make_q4k_data(size);
+        let activations = make_activations(size);
 
         group.throughput(Throughput::Elements(size as u64));
         group.bench_with_input(

@@ -23,6 +23,12 @@ impl ContinuousBatchScheduler {
         }
     }
 
+    /// Count slots matching a predicate.
+    fn count_slots_where(&self, predicate: fn(&SlotState) -> bool) -> usize {
+        let slots = self.slots.lock().expect("Mutex poisoned");
+        slots.iter().filter(|s| predicate(s)).count()
+    }
+
     /// Submit a new request to the scheduler
     ///
     /// Returns request ID if slot available, None if all slots full
@@ -56,14 +62,12 @@ impl ContinuousBatchScheduler {
 
     /// Get number of active slots
     pub fn active_count(&self) -> usize {
-        let slots = self.slots.lock().expect("Mutex poisoned");
-        slots.iter().filter(|s| s.is_active()).count()
+        self.count_slots_where(SlotState::is_active)
     }
 
     /// Get number of empty slots
     pub fn empty_count(&self) -> usize {
-        let slots = self.slots.lock().expect("Mutex poisoned");
-        slots.iter().filter(|s| s.is_empty()).count()
+        self.count_slots_where(SlotState::is_empty)
     }
 
     /// Check if any slot has completed request
@@ -200,14 +204,15 @@ impl SpeculativeDecoder {
         }
     }
 
+    /// Load a draft-related atomic counter with Relaxed ordering.
+    fn load_relaxed(counter: &std::sync::atomic::AtomicU64) -> u64 {
+        counter.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Get acceptance rate (accepted / total draft tokens)
     pub fn acceptance_rate(&self) -> f64 {
-        let total = self
-            .total_draft_tokens
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let accepted = self
-            .total_accepted_tokens
-            .load(std::sync::atomic::Ordering::Relaxed);
+        let total = Self::load_relaxed(&self.total_draft_tokens);
+        let accepted = Self::load_relaxed(&self.total_accepted_tokens);
         if total == 0 {
             return 0.0;
         }

@@ -103,6 +103,52 @@ pub fn scalar_rope(input: &[f32], seq_len: usize, head_dim: usize, theta: f32) -
     output
 }
 
+/// Pre-compute the RoPE frequency table for the given head dimension and theta.
+fn rope_frequency_table(half_head: usize, head_dim: usize, theta: f32) -> Vec<f32> {
+    (0..half_head)
+        .map(|i| 1.0 / theta.powf((2.0 * i as f32) / head_dim as f32))
+        .collect()
+}
+
+/// Compute cos and sin trueno vectors for a given position and frequency table.
+fn rope_trig_vectors(
+    pos: usize,
+    freqs: &[f32],
+) -> (trueno::Vector<f32>, trueno::Vector<f32>) {
+    let angles: Vec<f32> = freqs.iter().map(|&f| pos as f32 * f).collect();
+    let cos_vals: Vec<f32> = angles.iter().map(|&a| a.cos()).collect();
+    let sin_vals: Vec<f32> = angles.iter().map(|&a| a.sin()).collect();
+    (
+        trueno::Vector::from_slice(&cos_vals),
+        trueno::Vector::from_slice(&sin_vals),
+    )
+}
+
+/// Apply rotary embedding to one head using SIMD vector operations.
+///
+/// Returns `Ok(())` on success or a `TruenoError` if any SIMD operation fails.
+fn rope_rotate_head(
+    input: &[f32],
+    output: &mut [f32],
+    head_start: usize,
+    half_head: usize,
+    head_dim: usize,
+    cos_vec: &trueno::Vector<f32>,
+    sin_vec: &trueno::Vector<f32>,
+) -> std::result::Result<(), trueno::TruenoError> {
+    let x0_vec = trueno::Vector::from_slice(&input[head_start..head_start + half_head]);
+    let x1_vec = trueno::Vector::from_slice(&input[head_start + half_head..head_start + head_dim]);
+
+    // out0 = x0 * cos - x1 * sin
+    // out1 = x0 * sin + x1 * cos
+    let out0 = x0_vec.mul(cos_vec)?.sub(&x1_vec.mul(sin_vec)?)?;
+    let out1 = x0_vec.mul(sin_vec)?.add(&x1_vec.mul(cos_vec)?)?;
+
+    output[head_start..head_start + half_head].copy_from_slice(out0.as_slice());
+    output[head_start + half_head..head_start + head_dim].copy_from_slice(out1.as_slice());
+    Ok(())
+}
+
 /// SIMD-accelerated RoPE implementation (M19 - IMP-041)
 ///
 /// Uses Trueno's SIMD operations for vectorized position encoding.
@@ -116,60 +162,23 @@ pub fn simd_rope(input: &[f32], seq_len: usize, head_dim: usize, theta: f32) -> 
     let num_heads = hidden_dim / head_dim;
     let half_head = head_dim / 2;
 
-    // Pre-compute frequency table (cache-friendly)
-    let mut freqs: Vec<f32> = Vec::with_capacity(half_head);
-    for i in 0..half_head {
-        freqs.push(1.0 / theta.powf((2.0 * i as f32) / head_dim as f32));
-    }
-
+    let freqs = rope_frequency_table(half_head, head_dim, theta);
     let mut output = vec![0.0f32; input.len()];
 
-    // Process each position using SIMD operations
     for pos in 0..seq_len {
-        // Pre-compute angles for this position
-        let angles: Vec<f32> = freqs.iter().map(|&f| pos as f32 * f).collect();
-        let cos_vals: Vec<f32> = angles.iter().map(|&a| a.cos()).collect();
-        let sin_vals: Vec<f32> = angles.iter().map(|&a| a.sin()).collect();
-
-        // Use trueno vectors for batch operations
-        let cos_vec = trueno::Vector::from_slice(&cos_vals);
-        let sin_vec = trueno::Vector::from_slice(&sin_vals);
+        let (cos_vec, sin_vec) = rope_trig_vectors(pos, &freqs);
 
         for head in 0..num_heads {
             let head_start = pos * hidden_dim + head * head_dim;
 
-            // Extract x0 and x1 halves
-            let x0_slice = &input[head_start..head_start + half_head];
-            let x1_slice = &input[head_start + half_head..head_start + head_dim];
-
-            let x0_vec = trueno::Vector::from_slice(x0_slice);
-            let x1_vec = trueno::Vector::from_slice(x1_slice);
-
-            // Compute: out0 = x0 * cos - x1 * sin
-            //          out1 = x0 * sin + x1 * cos
             // BUG-HUNTER-FIX: If any SIMD op fails, fall back to scalar_rope
             // (returning unrotated input silently corrupts position embeddings)
-            let simd_result = (|| -> std::result::Result<(trueno::Vector<f32>, trueno::Vector<f32>), trueno::TruenoError> {
-                let x0_cos = x0_vec.mul(&cos_vec)?;
-                let x1_sin = x1_vec.mul(&sin_vec)?;
-                let x0_sin = x0_vec.mul(&sin_vec)?;
-                let x1_cos = x1_vec.mul(&cos_vec)?;
-                let out0 = x0_cos.sub(&x1_sin)?;
-                let out1 = x0_sin.add(&x1_cos)?;
-                Ok((out0, out1))
-            })();
-
-            let (out0, out1) = match simd_result {
-                Ok(pair) => pair,
-                Err(e) => {
-                    eprintln!("[WARN] SIMD RoPE failed ({e}), falling back to scalar");
-                    return scalar_rope(input, seq_len, head_dim, theta);
-                }
-            };
-
-            // Copy results to output
-            output[head_start..head_start + half_head].copy_from_slice(out0.as_slice());
-            output[head_start + half_head..head_start + head_dim].copy_from_slice(out1.as_slice());
+            if let Err(e) = rope_rotate_head(
+                input, &mut output, head_start, half_head, head_dim, &cos_vec, &sin_vec,
+            ) {
+                eprintln!("[WARN] SIMD RoPE failed ({e}), falling back to scalar");
+                return scalar_rope(input, seq_len, head_dim, theta);
+            }
         }
     }
 
