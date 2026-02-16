@@ -51,7 +51,7 @@ unsafe fn fused_q4_0_q8_0_dot_avx2_4block(
             // Block 0
             let q4_ptr_0 = q4_data.as_ptr().add(block_idx * Q4_0_BLOCK_BYTES);
             let q8_ptr_0 = q8_quants.as_ptr().add(block_idx * Q4_0_BLOCK_SIZE);
-            let q4_scale_0 = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr_0, *q4_ptr_0.add(1)]));
+            let q4_scale_0 = read_q4_scale(q4_ptr_0);
             let combined_scale_0 = _mm256_set1_ps(q4_scale_0 * q8_scales[block_idx]);
             let q4_lo_0 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_0.add(2).cast());
             let q4_hi_0 = std::arch::x86_64::_mm_srli_epi16(q4_lo_0, 4);
@@ -74,7 +74,7 @@ unsafe fn fused_q4_0_q8_0_dot_avx2_4block(
             // Block 1
             let q4_ptr_1 = q4_data.as_ptr().add((block_idx + 1) * Q4_0_BLOCK_BYTES);
             let q8_ptr_1 = q8_quants.as_ptr().add((block_idx + 1) * Q4_0_BLOCK_SIZE);
-            let q4_scale_1 = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr_1, *q4_ptr_1.add(1)]));
+            let q4_scale_1 = read_q4_scale(q4_ptr_1);
             let combined_scale_1 = _mm256_set1_ps(q4_scale_1 * q8_scales[block_idx + 1]);
             let q4_lo_1 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_1.add(2).cast());
             let q4_hi_1 = std::arch::x86_64::_mm_srli_epi16(q4_lo_1, 4);
@@ -97,7 +97,7 @@ unsafe fn fused_q4_0_q8_0_dot_avx2_4block(
             // Block 2
             let q4_ptr_2 = q4_data.as_ptr().add((block_idx + 2) * Q4_0_BLOCK_BYTES);
             let q8_ptr_2 = q8_quants.as_ptr().add((block_idx + 2) * Q4_0_BLOCK_SIZE);
-            let q4_scale_2 = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr_2, *q4_ptr_2.add(1)]));
+            let q4_scale_2 = read_q4_scale(q4_ptr_2);
             let combined_scale_2 = _mm256_set1_ps(q4_scale_2 * q8_scales[block_idx + 2]);
             let q4_lo_2 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_2.add(2).cast());
             let q4_hi_2 = std::arch::x86_64::_mm_srli_epi16(q4_lo_2, 4);
@@ -120,7 +120,7 @@ unsafe fn fused_q4_0_q8_0_dot_avx2_4block(
             // Block 3
             let q4_ptr_3 = q4_data.as_ptr().add((block_idx + 3) * Q4_0_BLOCK_BYTES);
             let q8_ptr_3 = q8_quants.as_ptr().add((block_idx + 3) * Q4_0_BLOCK_SIZE);
-            let q4_scale_3 = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr_3, *q4_ptr_3.add(1)]));
+            let q4_scale_3 = read_q4_scale(q4_ptr_3);
             let combined_scale_3 = _mm256_set1_ps(q4_scale_3 * q8_scales[block_idx + 3]);
             let q4_lo_3 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_3.add(2).cast());
             let q4_hi_3 = std::arch::x86_64::_mm_srli_epi16(q4_lo_3, 4);
@@ -151,7 +151,7 @@ unsafe fn fused_q4_0_q8_0_dot_avx2_4block(
         while block_idx < num_blocks {
             let q4_ptr = q4_data.as_ptr().add(block_idx * Q4_0_BLOCK_BYTES);
             let q8_ptr = q8_quants.as_ptr().add(block_idx * Q4_0_BLOCK_SIZE);
-            let q4_scale = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr, *q4_ptr.add(1)]));
+            let q4_scale = read_q4_scale(q4_ptr);
             let combined_scale = _mm256_set1_ps(q4_scale * q8_scales[block_idx]);
             let q4_lo = std::arch::x86_64::_mm_loadu_si128(q4_ptr.add(2).cast());
             let q4_hi = std::arch::x86_64::_mm_srli_epi16(q4_lo, 4);
