@@ -4,6 +4,7 @@ book/book/
 
 # Build artifacts
 target/
+target_disk/
 
 # Other generated files
 *.lock
