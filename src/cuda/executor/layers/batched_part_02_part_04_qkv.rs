@@ -167,6 +167,8 @@ impl CudaExecutor {
                 GpuError::InvalidLaunchConfig("PAR-114: positions_buf not initialized".to_string())
             })?
             .as_ptr();
+        // SAFETY: positions_buf_ptr was obtained from a valid GpuBuffer via as_ptr(),
+        // and m is the batch size matching the original allocation.
         let mut positions_buf =
             unsafe { GpuBuffer::<u32>::from_raw_parts(positions_buf_ptr, m as usize) };
         let positions_u32: Vec<u32> = positions.to_vec();
