@@ -169,30 +169,57 @@ impl MockExecutor {
         self
     }
 
-    /// Get all recorded calls (cloned for thread-safety)
-    #[must_use]
-    pub fn calls(&self) -> Vec<ExecutorCall> {
+    /// Acquire the calls lock, recovering from poison if needed.
+    ///
+    /// Centralizes the resource-acquire pattern for the `calls` mutex.
+    /// All call-recording and call-querying methods delegate here.
+    fn lock_calls(&self) -> std::sync::MutexGuard<'_, Vec<ExecutorCall>> {
         self.calls
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+    }
+
+    /// Record a call and return the configured matmul response.
+    ///
+    /// Consolidates the record → check-failure → respond pattern
+    /// shared by `matmul` and `matmul_transpose_b`.
+    fn record_call_and_respond(
+        &self,
+        call: ExecutorCall,
+        output_len: usize,
+    ) -> Result<Vec<f32>> {
+        self.lock_calls().push(call);
+        self.call_counter.fetch_add(1, Ordering::SeqCst);
+
+        if self.matmul_should_fail {
+            return Err(crate::error::RealizarError::GpuError {
+                reason: "MockExecutor configured to fail".to_string(),
+            });
+        }
+
+        if let Some(ref result) = self.matmul_result {
+            Ok(result.clone())
+        } else {
+            Ok(vec![0.0f32; output_len])
+        }
+    }
+
+    /// Get all recorded calls (cloned for thread-safety)
+    #[must_use]
+    pub fn calls(&self) -> Vec<ExecutorCall> {
+        self.lock_calls().clone()
     }
 
     /// Get number of calls
     #[must_use]
     pub fn call_count(&self) -> usize {
-        self.calls
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .len()
+        self.lock_calls().len()
     }
 
     /// Get number of matmul calls
     #[must_use]
     pub fn matmul_count(&self) -> usize {
-        self.calls
-            .lock()
-            .expect("executor calls lock poisoned")
+        self.lock_calls()
             .iter()
             .filter(|c| matches!(c, ExecutorCall::Matmul { .. }))
             .count()
@@ -200,64 +227,36 @@ impl MockExecutor {
 
     /// Clear recorded calls
     pub fn clear_calls(&self) {
-        self.calls
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clear();
+        self.lock_calls().clear();
         self.call_counter.store(0, Ordering::SeqCst);
     }
 
     /// Check if specific call was made
     #[must_use]
     pub fn has_call(&self, call: &ExecutorCall) -> bool {
-        self.calls
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .contains(call)
+        self.lock_calls().contains(call)
     }
 
     /// Get last call (cloned for thread-safety)
     #[must_use]
     pub fn last_call(&self) -> Option<ExecutorCall> {
-        self.calls
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .last()
-            .cloned()
+        self.lock_calls().last().cloned()
     }
 }
 
 impl GpuExecutorTrait for MockExecutor {
     #[allow(clippy::many_single_char_names)]
     fn matmul(&mut self, a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Result<Vec<f32>> {
-        // Record the call (thread-safe via Mutex)
-        let call = ExecutorCall::Matmul {
-            a_len: a.len(),
-            b_len: b.len(),
-            m,
-            k,
-            n,
-        };
-        self.calls
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(call);
-        self.call_counter.fetch_add(1, Ordering::SeqCst);
-
-        // Check for configured failure
-        if self.matmul_should_fail {
-            return Err(crate::error::RealizarError::GpuError {
-                reason: "MockExecutor configured to fail".to_string(),
-            });
-        }
-
-        // Return custom result or zeros
-        if let Some(ref result) = self.matmul_result {
-            Ok(result.clone())
-        } else {
-            // Default: return zeros of correct size
-            Ok(vec![0.0f32; m * n])
-        }
+        self.record_call_and_respond(
+            ExecutorCall::Matmul {
+                a_len: a.len(),
+                b_len: b.len(),
+                m,
+                k,
+                n,
+            },
+            m * n,
+        )
     }
 
     fn is_available(&self) -> bool {
@@ -283,34 +282,16 @@ impl GpuExecutorTrait for MockExecutor {
         k: usize,
         n: usize,
     ) -> Result<Vec<f32>> {
-        // Record the call (thread-safe via Mutex)
-        let call = ExecutorCall::MatmulTransposeB {
-            a_len: a.len(),
-            b_len: b.len(),
-            m,
-            k,
-            n,
-        };
-        self.calls
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(call);
-        self.call_counter.fetch_add(1, Ordering::SeqCst);
-
-        // Check for configured failure
-        if self.matmul_should_fail {
-            return Err(crate::error::RealizarError::GpuError {
-                reason: "MockExecutor configured to fail".to_string(),
-            });
-        }
-
-        // Return custom result or zeros
-        if let Some(ref result) = self.matmul_result {
-            Ok(result.clone())
-        } else {
-            // Default: return zeros of correct size
-            Ok(vec![0.0f32; m * n])
-        }
+        self.record_call_and_respond(
+            ExecutorCall::MatmulTransposeB {
+                a_len: a.len(),
+                b_len: b.len(),
+                m,
+                k,
+                n,
+            },
+            m * n,
+        )
     }
 }
 
@@ -318,14 +299,7 @@ impl std::fmt::Debug for MockExecutor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MockExecutor")
             .field("name", &self.name)
-            .field(
-                "calls",
-                &self
-                    .calls
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .len(),
-            )
+            .field("calls", &self.lock_calls().len())
             .field("call_counter", &self.call_counter.load(Ordering::SeqCst))
             .field("available", &self.available)
             .field("matmul_result", &self.matmul_result.is_some())

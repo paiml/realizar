@@ -177,102 +177,364 @@ fn make_activations(size: usize) -> Vec<f32> {
 }
 
 // ============================================================================
-// IMP-001: SIMD Q4_K Dequantization Benchmarks
+// IMP-001 + IMP-002: Unified Q4_K SIMD Benchmarks (dequant + dot + matvec)
 // ============================================================================
+
+/// Table-driven Q4K benchmark entry describing a single benchmark variant.
+struct Q4kBenchEntry {
+    group_name: &'static str,
+    sample_size: usize,
+    cases: Q4kBenchCases,
+}
+
+/// The different Q4K benchmark case types, unified under one dispatch.
+enum Q4kBenchCases {
+    /// Dequantize raw Q4_K super-blocks to f32.
+    Dequant(&'static [usize]),
+    /// Fused Q4_K dot product (single row).
+    FusedDot(&'static [usize]),
+    /// Fused Q4_K parallel matvec with optional dequant-then-matvec baseline.
+    Matvec {
+        dimensions: &'static [(usize, usize, &'static str)],
+        include_dequant_baseline: bool,
+    },
+    /// Single-row fused dot benchmarks (fixed sizes).
+    SingleRowDot(&'static [usize]),
+}
+
+/// Run all Q4K-family benchmarks via a single table-driven dispatcher.
+fn run_q4k_bench_entry(c: &mut Criterion, entry: &Q4kBenchEntry) {
+    let mut group = c.benchmark_group(entry.group_name);
+    group.sample_size(entry.sample_size);
+
+    match &entry.cases {
+        Q4kBenchCases::Dequant(sb_counts) => {
+            for &sb_count in *sb_counts {
+                let num_values = sb_count * Q4K_SUPERBLOCK_SIZE;
+                let data = make_q4k_data(num_values);
+
+                group.throughput(Throughput::Elements(num_values as u64));
+                group.bench_with_input(
+                    BenchmarkId::new("simd", format!("{num_values}_values")),
+                    &data,
+                    |b, d| {
+                        b.iter(|| {
+                            let result = dequantize_q4_k_simd(black_box(d)).expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+            }
+        }
+        Q4kBenchCases::FusedDot(sizes) => {
+            for &size in *sizes {
+                let weights = make_q4k_data(size);
+                let activations = make_activations(size);
+
+                group.throughput(Throughput::Elements(size as u64));
+                group.bench_with_input(
+                    BenchmarkId::new("fused_simd", format!("{size}_dim")),
+                    &(&weights, &activations),
+                    |b, (w, a)| {
+                        b.iter(|| {
+                            let result =
+                                fused_q4k_dot_simd(black_box(*w), black_box(*a)).expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+            }
+        }
+        Q4kBenchCases::Matvec {
+            dimensions,
+            include_dequant_baseline,
+        } => {
+            for &(in_dim, out_dim, name) in *dimensions {
+                let weights = make_q4k_weights(in_dim, out_dim);
+                let activations = make_activations(in_dim);
+                let weight_values = in_dim * out_dim;
+                let flops = 2 * in_dim * out_dim;
+
+                // Pick throughput metric: weight_values for IMP-100c, flops for IMP-103
+                let throughput = if *include_dequant_baseline {
+                    weight_values
+                } else {
+                    flops
+                };
+                group.throughput(Throughput::Elements(throughput as u64));
+
+                group.bench_with_input(
+                    BenchmarkId::new("fused_q4k_matvec", format!("{name}_{in_dim}x{out_dim}")),
+                    &(&weights, &activations, in_dim, out_dim),
+                    |b, (w, a, in_d, out_d)| {
+                        b.iter(|| {
+                            let result = fused_q4k_parallel_matvec(
+                                black_box(*w),
+                                black_box(*a),
+                                *in_d,
+                                *out_d,
+                            )
+                            .expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+
+                if *include_dequant_baseline {
+                    group.bench_with_input(
+                        BenchmarkId::new(
+                            "dequant_then_matvec",
+                            format!("{name}_{in_dim}x{out_dim}"),
+                        ),
+                        &(&weights, &activations, in_dim, out_dim),
+                        |b, (w, a, in_d, out_d)| {
+                            b.iter(|| {
+                                let dequantized =
+                                    dequantize_q4_k_simd(black_box(*w)).expect("test");
+                                let mut output = vec![0.0f32; *out_d];
+                                for row in 0..*out_d {
+                                    let row_start = row * *in_d;
+                                    let row_end = row_start + *in_d;
+                                    if row_end <= dequantized.len() {
+                                        let row_slice = &dequantized[row_start..row_end];
+                                        output[row] =
+                                            row_slice.iter().zip(a.iter()).map(|(w, x)| w * x).sum();
+                                    }
+                                }
+                                black_box(output)
+                            });
+                        },
+                    );
+                }
+            }
+        }
+        Q4kBenchCases::SingleRowDot(sizes) => {
+            for &size in *sizes {
+                let row_weights = make_q4k_data(size);
+                let activations = make_activations(size);
+
+                group.bench_function(format!("single_row_dot_{size}"), |b| {
+                    b.iter(|| {
+                        let result =
+                            fused_q4k_dot_simd(black_box(&row_weights), black_box(&activations))
+                                .expect("test");
+                        black_box(result)
+                    });
+                });
+            }
+        }
+    }
+
+    group.finish();
+}
+
+// Q4K benchmark table: each entry becomes a criterion group sub-benchmark
+static Q4K_DEQUANT_ENTRY: Q4kBenchEntry = Q4kBenchEntry {
+    group_name: "q4k_dequant_simd",
+    sample_size: 100,
+    cases: Q4kBenchCases::Dequant(&[1, 4, 16, 64, 256]),
+};
+
+static Q4K_FUSED_DOT_ENTRY: Q4kBenchEntry = Q4kBenchEntry {
+    group_name: "fused_q4k_dot",
+    sample_size: 100,
+    cases: Q4kBenchCases::FusedDot(&[256, 1024, 4096, 16384]),
+};
 
 fn benchmark_q4k_dequant_simd(c: &mut Criterion) {
-    let mut group = c.benchmark_group("q4k_dequant_simd");
-    group.sample_size(100);
-
-    // Q4_K super-block sizes to test: 256 to 65536 values
-    let super_block_counts = [1, 4, 16, 64, 256];
-
-    for &sb_count in &super_block_counts {
-        let num_values = sb_count * Q4K_SUPERBLOCK_SIZE;
-        let data = make_q4k_data(num_values);
-
-        group.throughput(Throughput::Elements(num_values as u64));
-        group.bench_with_input(
-            BenchmarkId::new("simd", format!("{num_values}_values")),
-            &data,
-            |b, d| {
-                b.iter(|| {
-                    let result = dequantize_q4_k_simd(black_box(d)).expect("test");
-                    black_box(result)
-                });
-            },
-        );
-    }
-
-    group.finish();
+    run_q4k_bench_entry(c, &Q4K_DEQUANT_ENTRY);
 }
-
-// ============================================================================
-// IMP-002: Fused Q4_K Dot Product Benchmarks
-// ============================================================================
 
 fn benchmark_fused_q4k_dot(c: &mut Criterion) {
-    let mut group = c.benchmark_group("fused_q4k_dot");
-    group.sample_size(100);
+    run_q4k_bench_entry(c, &Q4K_FUSED_DOT_ENTRY);
+}
 
-    // Test sizes matching typical layer dimensions
-    let sizes = [256, 1024, 4096, 16384];
+// ============================================================================
+// Unified Layer Forward Benchmarks (Kaizen: DRY layer-forward patterns)
+// ============================================================================
 
-    for &size in &sizes {
-        let weights = make_q4k_data(size);
-        let activations = make_activations(size);
+/// Describes a parameterized layer-forward benchmark variant.
+/// Each entry maps to a criterion benchmark group, reducing the repeated
+/// "create layer -> create tensor -> bench forward" DataTransformation pattern.
+enum LayerBenchOp {
+    /// FusedQKVAttention::forward over sequence lengths
+    FusedAttention {
+        hidden_dim: usize,
+        head_dim: usize,
+        seq_lengths: &'static [usize],
+    },
+    /// LayerNorm::forward over sequence lengths
+    LayerNorm {
+        hidden_dim: usize,
+        seq_lengths: &'static [usize],
+    },
+    /// softmax over sequence lengths
+    Softmax {
+        seq_lengths: &'static [usize],
+    },
+    /// Linear::forward over (in_dim, out_dim) pairs
+    Linear {
+        dimensions: &'static [(usize, usize)],
+    },
+    /// FusedQKVAttention::forward over batch sizes (memory efficiency)
+    FusedAttentionBatch {
+        hidden_dim: usize,
+        head_dim: usize,
+        seq_len: usize,
+        batch_sizes: &'static [usize],
+    },
+}
 
-        group.throughput(Throughput::Elements(size as u64));
-        group.bench_with_input(
-            BenchmarkId::new("fused_simd", format!("{size}_dim")),
-            &(&weights, &activations),
-            |b, (w, a)| {
-                b.iter(|| {
-                    let result = fused_q4k_dot_simd(black_box(*w), black_box(*a)).expect("test");
-                    black_box(result)
-                });
-            },
-        );
+/// Run a layer-forward benchmark from a `LayerBenchOp` descriptor.
+fn run_layer_bench(c: &mut Criterion, group_name: &str, sample_size: usize, op: &LayerBenchOp) {
+    let mut group = c.benchmark_group(group_name);
+    group.sample_size(sample_size);
+
+    match op {
+        LayerBenchOp::FusedAttention {
+            hidden_dim,
+            head_dim,
+            seq_lengths,
+        } => {
+            for &seq_len in *seq_lengths {
+                let fused = FusedQKVAttention::new(*head_dim, *hidden_dim).expect("test");
+                let input = Tensor::from_vec(
+                    vec![seq_len, *hidden_dim],
+                    (0..(seq_len * *hidden_dim))
+                        .map(|i| (i as f32 * 0.001).sin())
+                        .collect(),
+                )
+                .expect("test");
+
+                group.throughput(Throughput::Elements(seq_len as u64));
+                group.bench_with_input(
+                    BenchmarkId::new("forward", format!("seq{seq_len}")),
+                    &(&fused, &input),
+                    |b, (f, i)| {
+                        b.iter(|| {
+                            let output = f.forward(black_box(*i)).expect("test");
+                            black_box(output)
+                        });
+                    },
+                );
+            }
+        }
+        LayerBenchOp::LayerNorm {
+            hidden_dim,
+            seq_lengths,
+        } => {
+            for &seq_len in *seq_lengths {
+                let layer_norm =
+                    realizar::layers::LayerNorm::new(*hidden_dim, 1e-5).expect("test");
+                let input = Tensor::from_vec(
+                    vec![seq_len, *hidden_dim],
+                    (0..(seq_len * *hidden_dim))
+                        .map(|i| (i as f32 * 0.01).sin())
+                        .collect(),
+                )
+                .expect("test");
+
+                group.throughput(Throughput::Elements((seq_len * *hidden_dim) as u64));
+                group.bench_with_input(
+                    BenchmarkId::new("forward", format!("seq{seq_len}")),
+                    &(&layer_norm, &input),
+                    |b, (ln, i)| {
+                        b.iter(|| {
+                            let output = ln.forward(black_box(*i)).expect("test");
+                            black_box(output)
+                        });
+                    },
+                );
+            }
+        }
+        LayerBenchOp::Softmax { seq_lengths } => {
+            for &seq_len in *seq_lengths {
+                let input = Tensor::from_vec(
+                    vec![seq_len],
+                    (0..seq_len).map(|i| (i as f32 * 0.1).sin()).collect(),
+                )
+                .expect("test");
+
+                group.throughput(Throughput::Elements(seq_len as u64));
+                group.bench_with_input(
+                    BenchmarkId::new("forward", format!("len{seq_len}")),
+                    &input,
+                    |b, i| {
+                        b.iter(|| {
+                            let output = softmax(black_box(i)).expect("test");
+                            black_box(output)
+                        });
+                    },
+                );
+            }
+        }
+        LayerBenchOp::Linear { dimensions } => {
+            for &(in_dim, out_dim) in *dimensions {
+                let linear =
+                    realizar::layers::Linear::new(in_dim, out_dim).expect("test");
+                let input = Tensor::from_vec(
+                    vec![1, in_dim],
+                    (0..in_dim).map(|i| (i as f32 * 0.01).sin()).collect(),
+                )
+                .expect("test");
+
+                let ops = (in_dim * out_dim) as u64;
+                group.throughput(Throughput::Elements(ops));
+                group.bench_with_input(
+                    BenchmarkId::new("forward", format!("{in_dim}x{out_dim}")),
+                    &(&linear, &input),
+                    |b, (l, i)| {
+                        b.iter(|| {
+                            let output = l.forward(black_box(*i)).expect("test");
+                            black_box(output)
+                        });
+                    },
+                );
+            }
+        }
+        LayerBenchOp::FusedAttentionBatch {
+            hidden_dim,
+            head_dim,
+            seq_len,
+            batch_sizes,
+        } => {
+            for &batch_size in *batch_sizes {
+                let fused = FusedQKVAttention::new(*head_dim, *hidden_dim).expect("test");
+                let input = Tensor::from_vec(
+                    vec![batch_size * *seq_len, *hidden_dim],
+                    vec![0.1; batch_size * *seq_len * *hidden_dim],
+                )
+                .expect("test");
+
+                group.throughput(Throughput::Elements((batch_size * *seq_len) as u64));
+                group.bench_with_input(
+                    BenchmarkId::new("fused_attn_batch", format!("batch{batch_size}")),
+                    &(&fused, &input),
+                    |b, (f, i)| {
+                        b.iter(|| {
+                            let output = f.forward(black_box(*i)).expect("test");
+                            black_box(output)
+                        });
+                    },
+                );
+            }
+        }
     }
 
     group.finish();
 }
 
-// ============================================================================
-// IMP-003: Fused QKV + Attention Benchmarks
-// ============================================================================
-
 fn benchmark_fused_attention(c: &mut Criterion) {
-    let mut group = c.benchmark_group("fused_attention");
-    group.sample_size(50); // Fewer samples for expensive operations
-
-    for &seq_len in SEQ_LENGTHS {
-        let hidden_dim = 256; // Smaller for benchmark speed
-        let head_dim = 32;
-
-        let fused = FusedQKVAttention::new(head_dim, hidden_dim).expect("test");
-        let input = Tensor::from_vec(
-            vec![seq_len, hidden_dim],
-            (0..(seq_len * hidden_dim))
-                .map(|i| (i as f32 * 0.001).sin())
-                .collect(),
-        )
-        .expect("test");
-
-        group.throughput(Throughput::Elements(seq_len as u64));
-        group.bench_with_input(
-            BenchmarkId::new("forward", format!("seq{seq_len}")),
-            &(&fused, &input),
-            |b, (f, i)| {
-                b.iter(|| {
-                    let output = f.forward(black_box(*i)).expect("test");
-                    black_box(output)
-                });
-            },
-        );
-    }
-
-    group.finish();
+    run_layer_bench(
+        c,
+        "fused_attention",
+        50,
+        &LayerBenchOp::FusedAttention {
+            hidden_dim: 256,
+            head_dim: 32,
+            seq_lengths: SEQ_LENGTHS,
+        },
+    );
 }
 
 // ============================================================================
@@ -322,103 +584,32 @@ fn benchmark_attention_comparison(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
-// Layer Normalization Benchmarks
-// ============================================================================
-
 fn benchmark_layer_norm(c: &mut Criterion) {
-    let mut group = c.benchmark_group("layer_norm");
-
-    for &seq_len in SEQ_LENGTHS {
-        let hidden_dim = 256;
-        let layer_norm = LayerNorm::new(hidden_dim, 1e-5).expect("test");
-        let input = Tensor::from_vec(
-            vec![seq_len, hidden_dim],
-            (0..(seq_len * hidden_dim))
-                .map(|i| (i as f32 * 0.01).sin())
-                .collect(),
-        )
-        .expect("test");
-
-        group.throughput(Throughput::Elements((seq_len * hidden_dim) as u64));
-        group.bench_with_input(
-            BenchmarkId::new("forward", format!("seq{seq_len}")),
-            &(&layer_norm, &input),
-            |b, (ln, i)| {
-                b.iter(|| {
-                    let output = ln.forward(black_box(*i)).expect("test");
-                    black_box(output)
-                });
-            },
-        );
-    }
-
-    group.finish();
+    run_layer_bench(
+        c,
+        "layer_norm",
+        10,
+        &LayerBenchOp::LayerNorm {
+            hidden_dim: 256,
+            seq_lengths: SEQ_LENGTHS,
+        },
+    );
 }
-
-// ============================================================================
-// Softmax Benchmarks
-// ============================================================================
 
 fn benchmark_softmax(c: &mut Criterion) {
-    let mut group = c.benchmark_group("softmax");
-
-    for &seq_len in SEQ_LENGTHS {
-        let input = Tensor::from_vec(
-            vec![seq_len],
-            (0..seq_len).map(|i| (i as f32 * 0.1).sin()).collect(),
-        )
-        .expect("test");
-
-        group.throughput(Throughput::Elements(seq_len as u64));
-        group.bench_with_input(
-            BenchmarkId::new("forward", format!("len{seq_len}")),
-            &input,
-            |b, i| {
-                b.iter(|| {
-                    let output = softmax(black_box(i)).expect("test");
-                    black_box(output)
-                });
-            },
-        );
-    }
-
-    group.finish();
+    run_layer_bench(
+        c,
+        "softmax",
+        10,
+        &LayerBenchOp::Softmax {
+            seq_lengths: SEQ_LENGTHS,
+        },
+    );
 }
 
-// ============================================================================
-// Linear Layer Benchmarks
-// ============================================================================
-
 fn benchmark_linear(c: &mut Criterion) {
-    let mut group = c.benchmark_group("linear");
-    group.sample_size(50);
-
-    let dimensions = [(256, 256), (256, 1024), (1024, 256), (1024, 1024)];
-
-    for (in_dim, out_dim) in dimensions {
-        let linear = Linear::new(in_dim, out_dim).expect("test");
-        let input = Tensor::from_vec(
-            vec![1, in_dim],
-            (0..in_dim).map(|i| (i as f32 * 0.01).sin()).collect(),
-        )
-        .expect("test");
-
-        let ops = (in_dim * out_dim) as u64; // FLOPs approximation
-        group.throughput(Throughput::Elements(ops));
-        group.bench_with_input(
-            BenchmarkId::new("forward", format!("{in_dim}x{out_dim}")),
-            &(&linear, &input),
-            |b, (l, i)| {
-                b.iter(|| {
-                    let output = l.forward(black_box(*i)).expect("test");
-                    black_box(output)
-                });
-            },
-        );
-    }
-
-    group.finish();
+    static DIMS: &[(usize, usize)] = &[(256, 256), (256, 1024), (1024, 256), (1024, 1024)];
+    run_layer_bench(c, "linear", 50, &LayerBenchOp::Linear { dimensions: DIMS });
 }
 
 // ============================================================================
@@ -468,42 +659,19 @@ fn benchmark_ttft_simulation(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
-// Memory Efficiency Benchmarks
-// ============================================================================
-
 fn benchmark_memory_efficiency(c: &mut Criterion) {
-    let mut group = c.benchmark_group("memory_efficiency");
-    group.sample_size(20);
-
-    // Compare memory patterns for different batch sizes
-    let batch_sizes = [1, 4, 8];
-    let hidden_dim = 256;
-    let head_dim = 32;
-
-    for &batch_size in &batch_sizes {
-        let seq_len = 64;
-        let fused = FusedQKVAttention::new(head_dim, hidden_dim).expect("test");
-        let input = Tensor::from_vec(
-            vec![batch_size * seq_len, hidden_dim],
-            vec![0.1; batch_size * seq_len * hidden_dim],
-        )
-        .expect("test");
-
-        group.throughput(Throughput::Elements((batch_size * seq_len) as u64));
-        group.bench_with_input(
-            BenchmarkId::new("fused_attn_batch", format!("batch{batch_size}")),
-            &(&fused, &input),
-            |b, (f, i)| {
-                b.iter(|| {
-                    let output = f.forward(black_box(*i)).expect("test");
-                    black_box(output)
-                });
-            },
-        );
-    }
-
-    group.finish();
+    static BATCH_SIZES: &[usize] = &[1, 4, 8];
+    run_layer_bench(
+        c,
+        "memory_efficiency",
+        20,
+        &LayerBenchOp::FusedAttentionBatch {
+            hidden_dim: 256,
+            head_dim: 32,
+            seq_len: 64,
+            batch_sizes: BATCH_SIZES,
+        },
+    );
 }
 
 // ============================================================================
@@ -566,69 +734,26 @@ mod tests {
 // IMP-100c: Quantized vs Dequantized Throughput Benchmark
 // ============================================================================
 
+/// IMP-100c dimension table: (in_dim, out_dim, label)
+static IMP100C_DIMS: &[(usize, usize, &str)] = &[
+    (1024, 1024, "square"),    // Square baseline
+    (1536, 4096, "qwen_up"),   // Qwen-like FFN up
+    (4096, 1536, "qwen_down"), // Qwen-like FFN down
+    (2560, 10240, "phi2_up"),  // Phi-2-like FFN up
+];
+
 fn benchmark_quantized_vs_dequantized(c: &mut Criterion) {
-    let mut group = c.benchmark_group("imp_100c_quantized_vs_dequantized");
-    group.sample_size(100);
-
-    // Test LLM-typical dimensions: (in_dim, out_dim)
-    // Qwen 1.5B: hidden=1536, intermediate=4096
-    // Phi-2: hidden=2560, intermediate=10240
-    let dimensions = [
-        (1024, 1024),  // Square baseline
-        (1536, 4096),  // Qwen-like FFN up
-        (4096, 1536),  // Qwen-like FFN down
-        (2560, 10240), // Phi-2-like FFN up
-    ];
-
-    for (in_dim, out_dim) in dimensions {
-        let weight_values = in_dim * out_dim;
-
-        // Use shared Q4_K data factory and activation factory
-        let weights = make_q4k_weights(in_dim, out_dim);
-        let activations = make_activations(in_dim);
-
-        // Benchmark 1: Fused Q4_K parallel matvec (IMP-100)
-        group.throughput(Throughput::Elements(weight_values as u64));
-        group.bench_with_input(
-            BenchmarkId::new("fused_q4k_matvec", format!("{in_dim}x{out_dim}")),
-            &(&weights, &activations, in_dim, out_dim),
-            |b, (w, a, in_d, out_d)| {
-                b.iter(|| {
-                    let result =
-                        fused_q4k_parallel_matvec(black_box(*w), black_box(*a), *in_d, *out_d)
-                            .expect("test");
-                    black_box(result)
-                });
+    run_q4k_bench_entry(
+        c,
+        &Q4kBenchEntry {
+            group_name: "imp_100c_quantized_vs_dequantized",
+            sample_size: 100,
+            cases: Q4kBenchCases::Matvec {
+                dimensions: IMP100C_DIMS,
+                include_dequant_baseline: true,
             },
-        );
-
-        // Benchmark 2: Dequantize then f32 matvec (baseline)
-        // This simulates what a naive implementation would do
-        group.bench_with_input(
-            BenchmarkId::new("dequant_then_matvec", format!("{in_dim}x{out_dim}")),
-            &(&weights, &activations, in_dim, out_dim),
-            |b, (w, a, in_d, out_d)| {
-                b.iter(|| {
-                    // Step 1: Dequantize Q4_K to f32
-                    let dequantized = dequantize_q4_k_simd(black_box(*w)).expect("test");
-
-                    // Step 2: Manual matmul (out_dim x in_dim) * (in_dim,) -> (out_dim,)
-                    let mut output = vec![0.0f32; *out_d];
-                    for row in 0..*out_d {
-                        let row_start = row * *in_d;
-                        let row_end = row_start + *in_d;
-                        if row_end <= dequantized.len() {
-                            let row_slice = &dequantized[row_start..row_end];
-                            output[row] = row_slice.iter().zip(a.iter()).map(|(w, x)| w * x).sum();
-                        }
-                    }
-                    black_box(output)
-                });
-            },
-        );
-    }
-
-    group.finish();
+        },
+    );
 }
 
 // ============================================================================
@@ -1245,6 +1370,20 @@ fn benchmark_component_profiling(c: &mut Criterion) {
 // IMP-103a: SIMD-Optimized Q4_K Matvec Benchmark
 // ============================================================================
 
+/// IMP-103 dimension table: (in_dim, out_dim, label)
+/// Dimensions from IMP-102c profiling (most time-consuming):
+/// LM head: 512 -> 2000 (21.4% of time)
+/// QKV: 512 -> 1536 (19.5% of time)
+/// FFN up: 512 -> 1024 (15.4% of time)
+static IMP103_DIMS: &[(usize, usize, &str)] = &[
+    (512, 512, "output_proj"),
+    (512, 1024, "ffn_up"),
+    (1024, 512, "ffn_down"),
+    (512, 1536, "qkv_proj"),
+    (512, 2000, "lm_head"),
+    (1024, 4096, "large_ffn"),
+];
+
 /// Benchmark for fused Q4_K matvec optimization (IMP-103)
 ///
 /// Measures throughput of fused_q4k_parallel_matvec at different dimensions
@@ -1252,72 +1391,28 @@ fn benchmark_component_profiling(c: &mut Criterion) {
 ///
 /// Target: 2x speedup via improved SIMD utilization
 fn benchmark_q4k_matvec_optimization(c: &mut Criterion) {
-    let mut group = c.benchmark_group("imp_103_q4k_matvec_optimization");
-    group.sample_size(50);
-
-    // Dimensions from IMP-102c profiling (most time-consuming):
-    // LM head: 512 -> 2000 (21.4% of time)
-    // QKV: 512 -> 1536 (19.5% of time)
-    // FFN up: 512 -> 1024 (15.4% of time)
-    let dimensions = [
-        (512, 512, "output_proj"),
-        (512, 1024, "ffn_up"),
-        (1024, 512, "ffn_down"),
-        (512, 1536, "qkv_proj"),
-        (512, 2000, "lm_head"),
-        (1024, 4096, "large_ffn"),
-    ];
-
-    for (in_dim, out_dim, name) in dimensions {
-        // Use shared Q4_K data and activation factories
-        let weights = make_q4k_weights(in_dim, out_dim);
-        let activations = make_activations(in_dim);
-
-        // Measure throughput in GFLOPS (2 * in_dim * out_dim for matvec)
-        let flops = 2 * in_dim * out_dim;
-        group.throughput(Throughput::Elements(flops as u64));
-
-        group.bench_with_input(
-            BenchmarkId::new("fused_q4k_matvec", format!("{name}_{in_dim}x{out_dim}")),
-            &(&weights, &activations, in_dim, out_dim),
-            |b, (w, a, in_d, out_d)| {
-                b.iter(|| {
-                    let result =
-                        fused_q4k_parallel_matvec(black_box(*w), black_box(*a), *in_d, *out_d)
-                            .expect("test");
-                    black_box(result)
-                });
+    // Matvec benchmarks via shared dispatcher
+    run_q4k_bench_entry(
+        c,
+        &Q4kBenchEntry {
+            group_name: "imp_103_q4k_matvec_optimization",
+            sample_size: 50,
+            cases: Q4kBenchCases::Matvec {
+                dimensions: IMP103_DIMS,
+                include_dequant_baseline: false,
             },
-        );
-    }
+        },
+    );
 
-    // Also benchmark the inner dot product to isolate single-row performance
-    let in_dim = 512;
-    let row_weights = make_q4k_data(in_dim);
-    let activations = make_activations(in_dim);
-
-    group.bench_function("single_row_dot_512", |b| {
-        b.iter(|| {
-            let result =
-                fused_q4k_dot_simd(black_box(&row_weights), black_box(&activations)).expect("test");
-            black_box(result)
-        });
-    });
-
-    // Larger single row for better measurement
-    let in_dim = 4096;
-    let row_weights = make_q4k_data(in_dim);
-    let activations_large = make_activations(in_dim);
-
-    group.bench_function("single_row_dot_4096", |b| {
-        b.iter(|| {
-            let result = fused_q4k_dot_simd(black_box(&row_weights), black_box(&activations_large))
-                .expect("test");
-            black_box(result)
-        });
-    });
-
-    group.finish();
+    // Single-row dot benchmarks via shared dispatcher
+    run_q4k_bench_entry(
+        c,
+        &Q4kBenchEntry {
+            group_name: "imp_103_q4k_matvec_optimization",
+            sample_size: 50,
+            cases: Q4kBenchCases::SingleRowDot(&[512, 4096]),
+        },
+    );
 }
 
 // ============================================================================

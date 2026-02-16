@@ -8,6 +8,53 @@ fn l2_norm(v: &[f32]) -> f32 {
     (v.iter().map(|x| x * x).sum::<f32>()).sqrt()
 }
 
+/// Look up a token string from the vocabulary, returning "?" for unknown tokens.
+fn tok_str<'a>(vocab: &'a [String], id: usize) -> &'a str {
+    vocab.get(id).map(|s| s.as_str()).unwrap_or("?")
+}
+
+/// Sort logits descending and return (index, score) pairs.
+fn sorted_logits(logits: &[f32]) -> Vec<(usize, f32)> {
+    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    indexed
+}
+
+/// Greedy-decode: return the token index with the highest logit.
+fn greedy_pick(logits: &[f32]) -> usize {
+    logits
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .expect("logits must be non-empty")
+        .0
+}
+
+/// Print logit statistics and top-k tokens for one forward-pass position.
+fn print_position_summary(vocab: &[String], logits: &[f32], pos: usize, token: u32) {
+    let l2 = l2_norm(logits);
+    let min = logits.iter().cloned().fold(f32::INFINITY, f32::min);
+    let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let ranked = sorted_logits(logits);
+
+    println!(
+        "\nPosition {}: token {} ('{}')",
+        pos, token, tok_str(vocab, token as usize)
+    );
+    println!("  Logits: L2={:.2}, min={:.4}, max={:.4}", l2, min, max);
+    println!("  Top 5 next tokens:");
+    for (rank, &(idx, score)) in ranked.iter().take(5).enumerate() {
+        println!(
+            "    {}: token {} = {:.4} ('{}')",
+            rank + 1, idx, score, tok_str(vocab, idx)
+        );
+    }
+    println!(
+        "  \u{2192} Greedy next: {} ('{}')",
+        ranked[0].0, tok_str(vocab, ranked[0].0)
+    );
+}
+
 fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
 
@@ -23,11 +70,10 @@ fn main() {
     );
 
     // Test tokens - "Once upon a time"
-    let tokens = [26222u32, 2501, 263, 931]; // Once upon a time (approx)
+    let tokens = [26222u32, 2501, 263, 931];
     println!("\nTest prompt tokens: {:?}", tokens);
     for &t in &tokens {
-        let s = vocab.get(t as usize).map(|s| s.as_str()).unwrap_or("?");
-        println!("  {}: '{}'", t, s);
+        println!("  {}: '{}'", t, tok_str(&vocab, t as usize));
     }
 
     // Run forward pass for each token position
@@ -40,41 +86,10 @@ fn main() {
         let logits = model
             .forward_cached(token, &mut cache, pos)
             .expect("forward failed");
-
-        let l2 = l2_norm(&logits);
-        let min = logits.iter().cloned().fold(f32::INFINITY, f32::min);
-        let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-
-        // Find top 5 tokens
-        let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
-        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        println!(
-            "\nPosition {}: token {} ('{}')",
-            pos,
-            token,
-            vocab.get(token as usize).map(|s| s.as_str()).unwrap_or("?")
-        );
-        println!("  Logits: L2={:.2}, min={:.4}, max={:.4}", l2, min, max);
-        println!("  Top 5 next tokens:");
-        for (rank, (idx, score)) in indexed.iter().take(5).enumerate() {
-            let tok_str = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
-            println!(
-                "    {}: token {} = {:.4} ('{}')",
-                rank + 1,
-                idx,
-                score,
-                tok_str
-            );
-        }
-
-        // Also show what greedy decoding would pick
-        let greedy_idx = indexed[0].0;
-        let greedy_str = vocab.get(greedy_idx).map(|s| s.as_str()).unwrap_or("?");
-        println!("  → Greedy next: {} ('{}')", greedy_idx, greedy_str);
+        print_position_summary(&vocab, &logits, pos, token);
     }
 
-    // Now generate a few tokens
+    // Greedy generation
     println!("\n=== Generation (greedy) ===");
     let mut generated = tokens.to_vec();
     for _ in 0..10 {
@@ -84,25 +99,16 @@ fn main() {
             .forward_cached(token, &mut cache, pos)
             .expect("forward failed");
 
-        // Greedy select
-        let (next_idx, _) = logits
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .expect("test");
-
+        let next_idx = greedy_pick(&logits);
         generated.push(next_idx as u32);
-
-        let tok_str = vocab.get(next_idx).map(|s| s.as_str()).unwrap_or("?");
-        print!("{}", tok_str);
+        print!("{}", tok_str(&vocab, next_idx));
     }
     println!();
 
     // Print full generated sequence
     println!("\nFull sequence:");
     for &t in &generated {
-        let s = vocab.get(t as usize).map(|s| s.as_str()).unwrap_or("?");
-        print!("{}", s);
+        print!("{}", tok_str(&vocab, t as usize));
     }
     println!();
 
