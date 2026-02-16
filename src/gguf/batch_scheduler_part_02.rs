@@ -1,6 +1,21 @@
 
 #[cfg(feature = "gpu")]
 impl ContinuousBatchScheduler {
+    /// Lock the slots mutex, panicking on poison.
+    fn lock_slots(&self) -> std::sync::MutexGuard<'_, Vec<SlotState>> {
+        self.slots.lock().expect("Mutex poisoned")
+    }
+
+    /// Lock the completed queue mutex, panicking on poison.
+    fn lock_completed(&self) -> std::sync::MutexGuard<'_, Vec<(u64, Vec<u32>)>> {
+        self.completed.lock().expect("Mutex poisoned")
+    }
+
+    /// Lock the KV caches mutex, panicking on poison.
+    fn lock_caches(&self) -> std::sync::MutexGuard<'_, Vec<OwnedQuantizedKVCache>> {
+        self.caches.lock().expect("Mutex poisoned")
+    }
+
     /// Create scheduler with specified number of slots
     ///
     /// # Arguments
@@ -25,8 +40,7 @@ impl ContinuousBatchScheduler {
 
     /// Count slots matching a predicate.
     fn count_slots_where(&self, predicate: fn(&SlotState) -> bool) -> usize {
-        let slots = self.slots.lock().expect("Mutex poisoned");
-        slots.iter().filter(|s| predicate(s)).count()
+        self.lock_slots().iter().filter(|s| predicate(s)).count()
     }
 
     /// Submit a new request to the scheduler
@@ -39,7 +53,7 @@ impl ContinuousBatchScheduler {
         temperature: f32,
         top_k: usize,
     ) -> Option<u64> {
-        let mut slots = self.slots.lock().expect("Mutex poisoned");
+        let mut slots = self.lock_slots();
 
         // Find first empty slot
         let empty_idx = slots.iter().position(SlotState::is_empty)?;
@@ -72,20 +86,18 @@ impl ContinuousBatchScheduler {
 
     /// Check if any slot has completed request
     pub fn has_completed(&self) -> bool {
-        let completed = self.completed.lock().expect("Mutex poisoned");
-        !completed.is_empty()
+        !self.lock_completed().is_empty()
     }
 
     /// Retrieve completed request results
     pub fn poll_completed(&self) -> Vec<(u64, Vec<u32>)> {
-        let mut completed = self.completed.lock().expect("Mutex poisoned");
-        std::mem::take(&mut *completed)
+        std::mem::take(&mut *self.lock_completed())
     }
 
     /// Mark a request as completed and move to completed queue
     pub fn complete_request(&self, slot_idx: usize, tokens: Vec<u32>) {
-        let mut slots = self.slots.lock().expect("Mutex poisoned");
-        let mut completed = self.completed.lock().expect("Mutex poisoned");
+        let mut slots = self.lock_slots();
+        let mut completed = self.lock_completed();
 
         if slot_idx < slots.len() {
             if let SlotState::Active { request_id, .. } = &slots[slot_idx] {
@@ -96,16 +108,14 @@ impl ContinuousBatchScheduler {
                 slots[slot_idx] = SlotState::Empty;
 
                 // Reset KV cache for this slot
-                let mut caches = self.caches.lock().expect("Mutex poisoned");
-                caches[slot_idx].reset();
+                self.lock_caches()[slot_idx].reset();
             }
         }
     }
 
     /// Get active slot indices and their current positions
     pub fn get_active_slots(&self) -> Vec<(usize, usize)> {
-        let slots = self.slots.lock().expect("Mutex poisoned");
-        slots
+        self.lock_slots()
             .iter()
             .enumerate()
             .filter_map(|(idx, slot)| match slot {
@@ -186,12 +196,32 @@ pub struct SpeculativeDecoder {
 
 #[cfg(feature = "gpu")]
 impl SpeculativeDecoder {
+    /// Create a new `AtomicU64` initialized to zero.
+    fn new_counter() -> std::sync::atomic::AtomicU64 {
+        std::sync::atomic::AtomicU64::new(0)
+    }
+
+    /// Load an atomic counter with Relaxed ordering.
+    fn load_relaxed(counter: &std::sync::atomic::AtomicU64) -> u64 {
+        counter.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Add a value to an atomic counter (Relaxed ordering).
+    fn add(counter: &std::sync::atomic::AtomicU64, val: u64) {
+        counter.fetch_add(val, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Reset an atomic counter to zero (Relaxed ordering).
+    fn reset_counter(counter: &std::sync::atomic::AtomicU64) {
+        counter.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+
     /// Create new speculative decoder with default config
     pub fn new() -> Self {
         Self {
             config: SpeculativeConfig::default(),
-            total_draft_tokens: std::sync::atomic::AtomicU64::new(0),
-            total_accepted_tokens: std::sync::atomic::AtomicU64::new(0),
+            total_draft_tokens: Self::new_counter(),
+            total_accepted_tokens: Self::new_counter(),
         }
     }
 
@@ -199,14 +229,9 @@ impl SpeculativeDecoder {
     pub fn with_config(config: SpeculativeConfig) -> Self {
         Self {
             config,
-            total_draft_tokens: std::sync::atomic::AtomicU64::new(0),
-            total_accepted_tokens: std::sync::atomic::AtomicU64::new(0),
+            total_draft_tokens: Self::new_counter(),
+            total_accepted_tokens: Self::new_counter(),
         }
-    }
-
-    /// Load a draft-related atomic counter with Relaxed ordering.
-    fn load_relaxed(counter: &std::sync::atomic::AtomicU64) -> u64 {
-        counter.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get acceptance rate (accepted / total draft tokens)
@@ -293,12 +318,8 @@ impl SpeculativeDecoder {
         }
 
         // Update statistics
-        self.total_draft_tokens.fetch_add(
-            draft_tokens.len() as u64,
-            std::sync::atomic::Ordering::Relaxed,
-        );
-        self.total_accepted_tokens
-            .fetch_add(accepted_count as u64, std::sync::atomic::Ordering::Relaxed);
+        Self::add(&self.total_draft_tokens, draft_tokens.len() as u64);
+        Self::add(&self.total_accepted_tokens, accepted_count as u64);
 
         VerificationResult {
             accepted_count,
@@ -319,10 +340,8 @@ impl SpeculativeDecoder {
 
     /// Reset statistics
     pub fn reset_stats(&self) {
-        self.total_draft_tokens
-            .store(0, std::sync::atomic::Ordering::Relaxed);
-        self.total_accepted_tokens
-            .store(0, std::sync::atomic::Ordering::Relaxed);
+        Self::reset_counter(&self.total_draft_tokens);
+        Self::reset_counter(&self.total_accepted_tokens);
     }
 }
 

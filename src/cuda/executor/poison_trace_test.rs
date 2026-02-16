@@ -29,6 +29,44 @@ fn ctx_sync_status(ctx: &CudaContext) -> &'static str {
     }
 }
 
+/// Inspect and log the current state of sentinel, context pool, and stream pool.
+fn log_pool_state(prefix: &str) {
+    {
+        let sentinel = CUDA_SENTINEL.lock().unwrap();
+        let has_sentinel = sentinel.is_some();
+        eprintln!("  [{prefix}a] Sentinel exists: {has_sentinel}");
+        if let Some(ref ctx) = *sentinel {
+            eprintln!("  [{prefix}b] Sentinel status: {}", ctx_sync_status(ctx));
+        }
+    }
+    {
+        let pool = CONTEXT_POOL.lock().unwrap();
+        eprintln!("  [{prefix}c] Context pool has entry: {}", pool.is_some());
+    }
+    {
+        let pool = STREAM_POOL.lock().unwrap();
+        eprintln!("  [{prefix}d] Stream pool has entry: {}", pool.is_some());
+    }
+    eprintln!();
+}
+
+/// Attempt a trivial GPU allocation and log the result.
+fn try_gpu_alloc(ctx: &CudaContext, label: &str) {
+    let buf = GpuBuffer::from_host(ctx, &[1.0f32, 2.0, 3.0]);
+    eprintln!(
+        "  [{label}] GpuBuffer::from_host: {}",
+        if buf.is_ok() { "OK" } else { "FAILED" }
+    );
+}
+
+/// Log the result of a try_executor() call.
+fn log_executor_result(result: &Result<CudaExecutor, String>, label: &str, num: u32) {
+    match result {
+        Ok(_) => eprintln!("  [{label}] Executor #{num} created: OK"),
+        Err(e) => eprintln!("  [{label}] Executor #{num} created: FAILED — {e}"),
+    }
+}
+
 #[test]
 #[ignore = "Diagnostic test that permanently poisons the GPU device — run manually with --ignored"]
 fn test_poison_lifecycle_trace() {
@@ -50,35 +88,18 @@ fn test_poison_lifecycle_trace() {
     assert!(stream_sync.is_ok(), "Phase 1: stream must be healthy");
 
     // Do a trivial GPU operation to prove the context works
-    let buf = GpuBuffer::from_host(&exec.context, &[1.0f32, 2.0, 3.0]);
-    eprintln!(
-        "  [1d] GpuBuffer::from_host: {}",
-        if buf.is_ok() { "OK" } else { "FAILED" }
+    try_gpu_alloc(&exec.context, "1d");
+    assert!(
+        GpuBuffer::from_host(&exec.context, &[1.0f32]).is_ok(),
+        "Phase 1: must be able to allocate GPU memory"
     );
-    assert!(buf.is_ok(), "Phase 1: must be able to allocate GPU memory");
 
     drop(exec);
     eprintln!("  [1e] Executor dropped\n");
 
     // ── Phase 2: Check sentinel + pool state ────────────────────────
     eprintln!("── Phase 2: Sentinel + pool state after Phase 1 ──");
-    {
-        let sentinel = CUDA_SENTINEL.lock().unwrap();
-        let has_sentinel = sentinel.is_some();
-        eprintln!("  [2a] Sentinel exists: {has_sentinel}");
-        if let Some(ref ctx) = *sentinel {
-            eprintln!("  [2b] Sentinel status: {}", ctx_sync_status(ctx));
-        }
-    }
-    {
-        let pool = CONTEXT_POOL.lock().unwrap();
-        eprintln!("  [2c] Context pool has entry: {}", pool.is_some());
-    }
-    {
-        let pool = STREAM_POOL.lock().unwrap();
-        eprintln!("  [2d] Stream pool has entry: {}", pool.is_some());
-    }
-    eprintln!();
+    log_pool_state("2");
 
     // ── Phase 3: Poison the context via flash_attention kernel ──────
     eprintln!("── Phase 3: Poison via flash_attention ──");
@@ -126,11 +147,7 @@ fn test_poison_lifecycle_trace() {
     eprintln!("  [3e] Stream sync AFTER flash_attention: {stream_after:?}");
 
     // Check if we can still allocate GPU memory
-    let buf2 = GpuBuffer::from_host(&exec2.context, &[1.0f32, 2.0, 3.0]);
-    eprintln!(
-        "  [3f] GpuBuffer after poison: {}",
-        if buf2.is_ok() { "OK" } else { "FAILED" }
-    );
+    try_gpu_alloc(&exec2.context, "3f");
 
     // Sync AGAIN — does it return the same error or OK?
     let sync2 = exec2.context.synchronize();
@@ -145,31 +162,12 @@ fn test_poison_lifecycle_trace() {
 
     // ── Phase 4: Post-poison sentinel state ─────────────────────────
     eprintln!("── Phase 4: Sentinel + pool state after poisoning ──");
-    {
-        let sentinel = CUDA_SENTINEL.lock().unwrap();
-        let has_sentinel = sentinel.is_some();
-        eprintln!("  [4a] Sentinel exists: {has_sentinel}");
-        if let Some(ref ctx) = *sentinel {
-            eprintln!("  [4b] Sentinel status: {}", ctx_sync_status(ctx));
-        }
-    }
-    {
-        let pool = CONTEXT_POOL.lock().unwrap();
-        eprintln!("  [4c] Context pool has entry: {}", pool.is_some());
-    }
-    {
-        let pool = STREAM_POOL.lock().unwrap();
-        eprintln!("  [4d] Stream pool has entry: {}", pool.is_some());
-    }
-    eprintln!();
+    log_pool_state("4");
 
     // ── Phase 5: Attempt recovery — create new executor ─────────────
     eprintln!("── Phase 5: Recovery attempt ──");
     let exec3_result = try_executor();
-    match &exec3_result {
-        Ok(_) => eprintln!("  [5a] Executor #3 created: OK"),
-        Err(e) => eprintln!("  [5a] Executor #3 created: FAILED — {e}"),
-    }
+    log_executor_result(&exec3_result, "5a", 3);
 
     if let Ok(mut exec3) = exec3_result {
         let status = ctx_sync_status(&exec3.context);
@@ -178,11 +176,7 @@ fn test_poison_lifecycle_trace() {
         let stream_ok = exec3.stream.synchronize();
         eprintln!("  [5c] Executor #3 stream sync: {stream_ok:?}");
 
-        let buf3 = GpuBuffer::from_host(&exec3.context, &[1.0f32, 2.0, 3.0]);
-        eprintln!(
-            "  [5d] GPU alloc on executor #3: {}",
-            if buf3.is_ok() { "OK" } else { "FAILED" }
-        );
+        try_gpu_alloc(&exec3.context, "5d");
 
         // Try a trivial kernel (SiLU — small, simple, known to work)
         let silu_input = GpuBuffer::from_host(&exec3.context, &[0.5f32, -0.5, 1.0, -1.0]);
@@ -207,10 +201,7 @@ fn test_poison_lifecycle_trace() {
     // ── Phase 6: Second recovery attempt ────────────────────────────
     eprintln!("── Phase 6: Second recovery attempt ──");
     let exec4_result = try_executor();
-    match &exec4_result {
-        Ok(_) => eprintln!("  [6a] Executor #4 created: OK"),
-        Err(e) => eprintln!("  [6a] Executor #4 created: FAILED — {e}"),
-    }
+    log_executor_result(&exec4_result, "6a", 4);
 
     if let Ok(exec4) = exec4_result {
         let status = ctx_sync_status(&exec4.context);

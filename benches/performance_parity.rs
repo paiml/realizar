@@ -581,24 +581,11 @@ fn benchmark_quantized_vs_dequantized(c: &mut Criterion) {
     ];
 
     for (in_dim, out_dim) in dimensions {
-        // Calculate Q4_K sizes: 144 bytes per 256 values (super-block)
         let weight_values = in_dim * out_dim;
-        let sb_count = (weight_values + 255) / 256;
-        let q4k_size = sb_count * 144;
 
-        // Create Q4_K weight matrix (row-major: out_dim rows of in_dim values each)
-        let mut weights = vec![0u8; q4k_size];
-        for sb_idx in 0..sb_count {
-            let offset = sb_idx * 144;
-            weights[offset..offset + 2].copy_from_slice(&0x3C00_u16.to_le_bytes()); // d=1.0
-            weights[offset + 2..offset + 4].copy_from_slice(&0x0000_u16.to_le_bytes()); // dmin=0.0
-            for i in 4..144 {
-                weights[offset + i] = ((sb_idx + i) % 16) as u8;
-            }
-        }
-
-        // Create input activation vector (batch=1, m=1)
-        let activations: Vec<f32> = (0..in_dim).map(|i| (i as f32 * 0.001).sin()).collect();
+        // Use shared Q4_K data factory and activation factory
+        let weights = make_q4k_weights(in_dim, out_dim);
+        let activations = make_activations(in_dim);
 
         // Benchmark 1: Fused Q4_K parallel matvec (IMP-100)
         group.throughput(Throughput::Elements(weight_values as u64));
@@ -845,8 +832,7 @@ fn bench_softmax_inplace(scores: &mut [f32]) {
 /// - Token sampling
 fn benchmark_e2e_generation(c: &mut Criterion) {
     use realizar::gguf::{
-        GGUFConfig, OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedModel,
-        OwnedQuantizedTensor, QuantizedGenerateConfig,
+        OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedModel, QuantizedGenerateConfig,
     };
 
     let mut group = c.benchmark_group("imp_102a_e2e_generation");
@@ -860,45 +846,10 @@ fn benchmark_e2e_generation(c: &mut Criterion) {
     let vocab_size = 1000;
     let _head_dim = hidden_dim / num_heads;
 
-    let config = GGUFConfig {
-        architecture: "benchmark".to_string(),
-        hidden_dim,
-        intermediate_dim,
-        num_layers,
-        num_heads,
-        num_kv_heads: num_heads,
-        vocab_size,
-        context_length: 2048,
-        eps: 1e-5,
-        rope_theta: 10000.0,
-        rope_type: 0,
-        bos_token_id: None,
-    };
+    let config = make_bench_config(hidden_dim, intermediate_dim, num_layers, num_heads, vocab_size);
 
-    // Create Q4_K quantized weights (144 bytes per 256 values)
-    let create_q4k_tensor = |in_dim: usize, out_dim: usize| -> OwnedQuantizedTensor {
-        let total_values = in_dim * out_dim;
-        let sb_count = (total_values + 255) / 256;
-        let data_size = sb_count * 144;
-        let mut data = vec![0u8; data_size];
-
-        for sb_idx in 0..sb_count {
-            let offset = sb_idx * 144;
-            // d = 0.1 (small scale for stable outputs)
-            data[offset..offset + 2].copy_from_slice(&0x2E66_u16.to_le_bytes()); // ~0.1 in f16
-            data[offset + 2..offset + 4].copy_from_slice(&0x0000_u16.to_le_bytes()); // dmin = 0
-            for i in 4..144 {
-                data[offset + i] = ((sb_idx + i) % 16) as u8;
-            }
-        }
-
-        OwnedQuantizedTensor {
-            data,
-            in_dim,
-            out_dim,
-            qtype: 12, // Q4_K (GGUF_TYPE_Q4_K)
-        }
-    };
+    // Use shared Q4_K tensor factory (uses d=1.0; stable enough for benchmarking)
+    let create_q4k_tensor = make_q4k_tensor;
 
     // Create token embeddings (vocab_size x hidden_dim)
     let token_embedding: Vec<f32> = (0..(vocab_size * hidden_dim))
@@ -1007,23 +958,8 @@ fn benchmark_component_profiling(c: &mut Criterion) {
     let vocab_size = 2000;
     let seq_len = 64; // Simulate 64 tokens in KV cache
 
-    // Create Q4_K weight data
-    let create_q4k_data = |in_dim: usize, out_dim: usize| -> Vec<u8> {
-        let total_values = in_dim * out_dim;
-        let sb_count = (total_values + 255) / 256;
-        let data_size = sb_count * 144;
-        let mut data = vec![0u8; data_size];
-
-        for sb_idx in 0..sb_count {
-            let offset = sb_idx * 144;
-            data[offset..offset + 2].copy_from_slice(&0x3C00_u16.to_le_bytes()); // d=1.0
-            data[offset + 2..offset + 4].copy_from_slice(&0x0000_u16.to_le_bytes()); // dmin=0
-            for i in 4..144 {
-                data[offset + i] = ((sb_idx + i) % 16) as u8;
-            }
-        }
-        data
-    };
+    // Use shared Q4_K data factory (equivalent to old inline create_q4k_data)
+    let create_q4k_data = make_q4k_weights;
 
     // Component 1: Token embedding lookup
     let embeddings: Vec<f32> = (0..(vocab_size * hidden_dim))
@@ -1333,23 +1269,9 @@ fn benchmark_q4k_matvec_optimization(c: &mut Criterion) {
     ];
 
     for (in_dim, out_dim, name) in dimensions {
-        // Create Q4_K weight data
-        let total_values = in_dim * out_dim;
-        let sb_count = (total_values + 255) / 256;
-        let data_size = sb_count * 144;
-        let mut weights = vec![0u8; data_size];
-
-        for sb_idx in 0..sb_count {
-            let offset = sb_idx * 144;
-            weights[offset..offset + 2].copy_from_slice(&0x3C00_u16.to_le_bytes()); // d=1.0
-            weights[offset + 2..offset + 4].copy_from_slice(&0x0000_u16.to_le_bytes()); // dmin=0
-            for i in 4..144 {
-                weights[offset + i] = ((sb_idx + i) % 16) as u8;
-            }
-        }
-
-        // Create activations
-        let activations: Vec<f32> = (0..in_dim).map(|i| (i as f32 * 0.001).sin()).collect();
+        // Use shared Q4_K data and activation factories
+        let weights = make_q4k_weights(in_dim, out_dim);
+        let activations = make_activations(in_dim);
 
         // Measure throughput in GFLOPS (2 * in_dim * out_dim for matvec)
         let flops = 2 * in_dim * out_dim;
@@ -1371,18 +1293,8 @@ fn benchmark_q4k_matvec_optimization(c: &mut Criterion) {
 
     // Also benchmark the inner dot product to isolate single-row performance
     let in_dim = 512;
-    let sb_count = in_dim / 256;
-    let data_size = sb_count * 144;
-    let mut row_weights = vec![0u8; data_size];
-    for sb_idx in 0..sb_count {
-        let offset = sb_idx * 144;
-        row_weights[offset..offset + 2].copy_from_slice(&0x3C00_u16.to_le_bytes());
-        row_weights[offset + 2..offset + 4].copy_from_slice(&0x0000_u16.to_le_bytes());
-        for i in 4..144 {
-            row_weights[offset + i] = ((sb_idx + i) % 16) as u8;
-        }
-    }
-    let activations: Vec<f32> = (0..in_dim).map(|i| (i as f32 * 0.001).sin()).collect();
+    let row_weights = make_q4k_data(in_dim);
+    let activations = make_activations(in_dim);
 
     group.bench_function("single_row_dot_512", |b| {
         b.iter(|| {
@@ -1394,18 +1306,8 @@ fn benchmark_q4k_matvec_optimization(c: &mut Criterion) {
 
     // Larger single row for better measurement
     let in_dim = 4096;
-    let sb_count = in_dim / 256;
-    let data_size = sb_count * 144;
-    let mut row_weights = vec![0u8; data_size];
-    for sb_idx in 0..sb_count {
-        let offset = sb_idx * 144;
-        row_weights[offset..offset + 2].copy_from_slice(&0x3C00_u16.to_le_bytes());
-        row_weights[offset + 2..offset + 4].copy_from_slice(&0x0000_u16.to_le_bytes());
-        for i in 4..144 {
-            row_weights[offset + i] = ((sb_idx + i) % 16) as u8;
-        }
-    }
-    let activations_large: Vec<f32> = (0..in_dim).map(|i| (i as f32 * 0.001).sin()).collect();
+    let row_weights = make_q4k_data(in_dim);
+    let activations_large = make_activations(in_dim);
 
     group.bench_function("single_row_dot_4096", |b| {
         b.iter(|| {
@@ -1428,7 +1330,7 @@ fn benchmark_q4k_matvec_optimization(c: &mut Criterion) {
 /// - Sequential: for each token, forward_single_with_cache
 /// - Batch: prefill_batch (processes all tokens)
 fn benchmark_batch_prefill(c: &mut Criterion) {
-    use realizar::gguf::{GGUFConfig, OwnedQuantizedKVCache};
+    use realizar::gguf::OwnedQuantizedKVCache;
 
     let mut group = c.benchmark_group("imp_106_batch_prefill");
     group.sample_size(50);
@@ -1437,20 +1339,7 @@ fn benchmark_batch_prefill(c: &mut Criterion) {
     let prompt_lengths = [4, 8, 16, 32];
 
     for &prompt_len in &prompt_lengths {
-        let config = GGUFConfig {
-            architecture: "test".to_string(),
-            hidden_dim: 256,
-            intermediate_dim: 512,
-            num_layers: 2,
-            num_heads: 8,
-            num_kv_heads: 8,
-            vocab_size: 1000,
-            context_length: 2048,
-            rope_theta: 10000.0,
-            eps: 1e-5,
-            rope_type: 0,
-            bos_token_id: None,
-        };
+        let config = make_bench_config(256, 512, 2, 8, 1000);
 
         // Create test model
         let model = create_benchmark_model(&config);
@@ -1489,30 +1378,9 @@ fn create_benchmark_model(
     unimplemented!("TODO: Update to use OwnedQuantizedModel struct constructor")
 }
 
-/// Create Q4_K benchmark data
+/// Create Q4_K benchmark data (delegates to shared make_q4k_tensor helper)
 fn create_bench_q4k_data(in_dim: usize, out_dim: usize) -> realizar::gguf::OwnedQuantizedTensor {
-    let super_blocks_per_row = in_dim.div_ceil(256);
-    let bytes_per_row = super_blocks_per_row * 144;
-    let data_size = out_dim * bytes_per_row;
-    let mut data = vec![0u8; data_size];
-
-    for row in 0..out_dim {
-        for sb in 0..super_blocks_per_row {
-            let offset = row * bytes_per_row + sb * 144;
-            data[offset..offset + 2].copy_from_slice(&0x3C00_u16.to_le_bytes()); // d=1.0
-            data[offset + 2..offset + 4].copy_from_slice(&0x0000_u16.to_le_bytes()); // dmin=0
-            for i in 4..144 {
-                data[offset + i] = ((row + sb + i) % 16) as u8;
-            }
-        }
-    }
-
-    realizar::gguf::OwnedQuantizedTensor {
-        data,
-        in_dim,
-        out_dim,
-        qtype: 12, // Q4_K
-    }
+    make_q4k_tensor(in_dim, out_dim)
 }
 
 // ============================================================================
@@ -1608,8 +1476,6 @@ fn cpu_matmul_bench(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f
 /// compared to sequential per-position attention.
 #[cfg(feature = "gpu")]
 fn benchmark_batched_causal_attention(c: &mut Criterion) {
-    use realizar::gguf::GGUFConfig;
-
     let mut group = c.benchmark_group("batched_causal_attention");
     group.sample_size(30);
 
@@ -1617,35 +1483,14 @@ fn benchmark_batched_causal_attention(c: &mut Criterion) {
     let seq_lengths = [4, 8, 16, 32, 64];
 
     for seq_len in seq_lengths {
-        let config = GGUFConfig {
-            architecture: "test".to_string(),
-            hidden_dim: 256, // Realistic hidden dim
-            intermediate_dim: 512,
-            num_layers: 1,
-            num_heads: 8,
-            num_kv_heads: 8,
-            vocab_size: 1000,
-            context_length: 2048,
-            rope_theta: 10000.0,
-            eps: 1e-5,
-            rope_type: 0,
-            bos_token_id: None,
-        };
+        let config = make_bench_config(256, 512, 1, 8, 1000);
 
         let model = create_bench_model_with_config(&config);
 
         // Create test Q, K, V
         let hidden_dim = config.hidden_dim;
         let num_heads = config.num_heads;
-        let q: Vec<f32> = (0..seq_len * hidden_dim)
-            .map(|i| ((i % 13) as f32 - 6.0) * 0.1)
-            .collect();
-        let k: Vec<f32> = (0..seq_len * hidden_dim)
-            .map(|i| ((i % 11) as f32 - 5.0) * 0.1)
-            .collect();
-        let v: Vec<f32> = (0..seq_len * hidden_dim)
-            .map(|i| ((i % 7) as f32 - 3.0) * 0.1)
-            .collect();
+        let (q, k, v) = make_qkv_vecs(seq_len, hidden_dim);
 
         group.throughput(Throughput::Elements(
             (seq_len * seq_len * hidden_dim) as u64,
@@ -1772,20 +1617,7 @@ fn benchmark_fused_batch_matmul(c: &mut Criterion) {
     ];
 
     for (batch_size, hidden_dim, intermediate_dim, label) in configs {
-        let config = GGUFConfig {
-            architecture: "test".to_string(),
-            hidden_dim,
-            intermediate_dim,
-            num_layers: 1,
-            num_heads: 4,
-            num_kv_heads: 4,
-            vocab_size: 100,
-            context_length: 1024,
-            rope_theta: 10000.0,
-            eps: 1e-5,
-            rope_type: 0,
-            bos_token_id: None,
-        };
+        let config = make_bench_config(hidden_dim, intermediate_dim, 1, 4, 100);
 
         let model = create_bench_model_with_config(&config);
 
@@ -1907,33 +1739,12 @@ fn benchmark_parallel_multihead_attention(c: &mut Criterion) {
     ];
 
     for (seq_len, hidden_dim, num_heads, label) in configs {
-        let config = GGUFConfig {
-            architecture: "test".to_string(),
-            hidden_dim,
-            intermediate_dim: hidden_dim * 2,
-            num_layers: 1,
-            num_heads,
-            num_kv_heads: num_heads,
-            vocab_size: 100,
-            context_length: 1024,
-            rope_theta: 10000.0,
-            eps: 1e-5,
-            rope_type: 0,
-            bos_token_id: None,
-        };
+        let config = make_bench_config(hidden_dim, hidden_dim * 2, 1, num_heads, 100);
 
         let model = create_bench_model_with_config(&config);
 
         // Create Q, K, V tensors [seq_len, hidden_dim]
-        let q: Vec<f32> = (0..seq_len * hidden_dim)
-            .map(|i| ((i % 13) as f32 - 6.0) * 0.1)
-            .collect();
-        let k: Vec<f32> = (0..seq_len * hidden_dim)
-            .map(|i| ((i % 11) as f32 - 5.0) * 0.1)
-            .collect();
-        let v: Vec<f32> = (0..seq_len * hidden_dim)
-            .map(|i| ((i % 7) as f32 - 3.0) * 0.1)
-            .collect();
+        let (q, k, v) = make_qkv_vecs(seq_len, hidden_dim);
 
         let head_dim = hidden_dim / num_heads;
         // Ops: num_heads * (QK^T: seq*seq*head_dim + softmax: seq*seq + AV: seq*seq*head_dim)
@@ -2007,35 +1818,14 @@ fn benchmark_tiled_attention(c: &mut Criterion) {
     ];
 
     for (seq_len, hidden_dim, num_heads, tile_size, label) in configs {
-        let config = GGUFConfig {
-            architecture: "test".to_string(),
-            hidden_dim,
-            intermediate_dim: hidden_dim * 2,
-            num_layers: 1,
-            num_heads,
-            num_kv_heads: num_heads,
-            vocab_size: 100,
-            context_length: 1024,
-            rope_theta: 10000.0,
-            eps: 1e-5,
-            rope_type: 0,
-            bos_token_id: None,
-        };
+        let config = make_bench_config(hidden_dim, hidden_dim * 2, 1, num_heads, 100);
 
         let model = create_bench_model_with_config(&config);
         let head_dim = hidden_dim / num_heads;
         let scale = 1.0 / (head_dim as f32).sqrt();
 
         // Create single-head Q, K, V for fair comparison
-        let q: Vec<f32> = (0..seq_len * head_dim)
-            .map(|i| ((i % 13) as f32 - 6.0) * 0.1)
-            .collect();
-        let k: Vec<f32> = (0..seq_len * head_dim)
-            .map(|i| ((i % 11) as f32 - 5.0) * 0.1)
-            .collect();
-        let v: Vec<f32> = (0..seq_len * head_dim)
-            .map(|i| ((i % 7) as f32 - 3.0) * 0.1)
-            .collect();
+        let (q, k, v) = make_qkv_vecs(seq_len, head_dim);
 
         // Ops: QK^T: seq*seq*head_dim + softmax: seq*seq + AV: seq*seq*head_dim
         let ops = seq_len * seq_len * head_dim * 2;
@@ -2116,25 +1906,12 @@ fn benchmark_tiled_attention(c: &mut Criterion) {
 /// across multiple forward passes instead of recreating it each time.
 #[cfg(feature = "gpu")]
 fn benchmark_scheduler_caching(c: &mut Criterion) {
-    use realizar::gguf::{GGUFConfig, OwnedQuantizedModelCached};
+    use realizar::gguf::OwnedQuantizedModelCached;
 
     let mut group = c.benchmark_group("scheduler_caching_imp112");
     group.sample_size(20); // Fewer samples since operations are slow
 
-    let config = GGUFConfig {
-        architecture: "test".to_string(),
-        hidden_dim: 64,
-        intermediate_dim: 128,
-        num_layers: 1,
-        num_heads: 4,
-        num_kv_heads: 4,
-        vocab_size: 100,
-        context_length: 256,
-        rope_theta: 10000.0,
-        eps: 1e-5,
-        rope_type: 0,
-        bos_token_id: None,
-    };
+    let config = make_bench_config(64, 128, 1, 4, 100);
 
     let model = create_bench_model_with_config(&config);
     let cached_model = OwnedQuantizedModelCached::new(model.clone());
@@ -2190,7 +1967,7 @@ fn benchmark_scheduler_caching(c: &mut Criterion) {
 /// - Single-dispatch: Batched operations with cached scheduler
 #[cfg(feature = "gpu")]
 fn benchmark_single_dispatch_attention(c: &mut Criterion) {
-    use realizar::gguf::{GGUFConfig, OwnedQuantizedModelCached};
+    use realizar::gguf::OwnedQuantizedModelCached;
 
     let mut group = c.benchmark_group("single_dispatch_attention_imp113");
     group.sample_size(30);
@@ -2205,34 +1982,13 @@ fn benchmark_single_dispatch_attention(c: &mut Criterion) {
     ];
 
     for (seq_len, hidden_dim, num_heads, label) in configs {
-        let config = GGUFConfig {
-            architecture: "test".to_string(),
-            hidden_dim,
-            intermediate_dim: hidden_dim * 2,
-            num_layers: 1,
-            num_heads,
-            num_kv_heads: num_heads,
-            vocab_size: 100,
-            context_length: 1024,
-            rope_theta: 10000.0,
-            eps: 1e-5,
-            rope_type: 0,
-            bos_token_id: None,
-        };
+        let config = make_bench_config(hidden_dim, hidden_dim * 2, 1, num_heads, 100);
 
         let model = create_bench_model_with_config(&config);
         let cached_model = OwnedQuantizedModelCached::new(model.clone());
 
         // Create Q, K, V tensors [seq_len, hidden_dim]
-        let q: Vec<f32> = (0..seq_len * hidden_dim)
-            .map(|i| ((i % 13) as f32 - 6.0) * 0.1)
-            .collect();
-        let k: Vec<f32> = (0..seq_len * hidden_dim)
-            .map(|i| ((i % 11) as f32 - 5.0) * 0.1)
-            .collect();
-        let v: Vec<f32> = (0..seq_len * hidden_dim)
-            .map(|i| ((i % 7) as f32 - 3.0) * 0.1)
-            .collect();
+        let (q, k, v) = make_qkv_vecs(seq_len, hidden_dim);
 
         let head_dim = hidden_dim / num_heads;
         let ops = num_heads * seq_len * seq_len * head_dim * 2;
@@ -2289,7 +2045,7 @@ fn benchmark_single_dispatch_attention(c: &mut Criterion) {
 /// approach from IMP-113.
 #[cfg(feature = "gpu")]
 fn benchmark_flattened_batched_gemm(c: &mut Criterion) {
-    use realizar::gguf::{GGUFConfig, OwnedQuantizedModelCached};
+    use realizar::gguf::OwnedQuantizedModelCached;
 
     let mut group = c.benchmark_group("flattened_batched_gemm_imp114");
     group.sample_size(30);
@@ -2304,20 +2060,7 @@ fn benchmark_flattened_batched_gemm(c: &mut Criterion) {
     ];
 
     for (batch_size, m, k, n, label) in configs {
-        let config = GGUFConfig {
-            architecture: "test".to_string(),
-            hidden_dim: 64,
-            intermediate_dim: 128,
-            num_layers: 1,
-            num_heads: 4,
-            num_kv_heads: 4,
-            vocab_size: 100,
-            context_length: 1024,
-            rope_theta: 10000.0,
-            eps: 1e-5,
-            rope_type: 0,
-            bos_token_id: None,
-        };
+        let config = make_bench_config(64, 128, 1, 4, 100);
 
         let model = create_bench_model_with_config(&config);
         let cached_model = OwnedQuantizedModelCached::new(model);
@@ -2379,7 +2122,7 @@ fn benchmark_flattened_batched_gemm(c: &mut Criterion) {
 /// IMP-115: Benchmark fused kernel attention vs separate operations
 #[cfg(feature = "gpu")]
 fn benchmark_fused_kernel_attention(c: &mut Criterion) {
-    use realizar::gguf::{GGUFConfig, OwnedQuantizedModelCached};
+    use realizar::gguf::OwnedQuantizedModelCached;
 
     let mut group = c.benchmark_group("fused_kernel_attention_imp115");
     group.sample_size(30);
@@ -2394,34 +2137,13 @@ fn benchmark_fused_kernel_attention(c: &mut Criterion) {
 
     for (num_heads, seq_len, head_dim, label) in configs {
         let hidden_dim = num_heads * head_dim;
-        let config = GGUFConfig {
-            architecture: "test".to_string(),
-            hidden_dim,
-            intermediate_dim: hidden_dim * 4,
-            num_layers: 1,
-            num_heads,
-            num_kv_heads: num_heads,
-            vocab_size: 100,
-            context_length: 1024,
-            rope_theta: 10000.0,
-            eps: 1e-5,
-            rope_type: 0,
-            bos_token_id: None,
-        };
+        let config = make_bench_config(hidden_dim, hidden_dim * 4, 1, num_heads, 100);
 
         let model = create_bench_model_with_config(&config);
         let cached_model = OwnedQuantizedModelCached::new(model);
 
         // Create Q, K, V tensors
-        let q: Vec<f32> = (0..seq_len * hidden_dim)
-            .map(|i| ((i % 13) as f32 - 6.0) * 0.1)
-            .collect();
-        let k: Vec<f32> = (0..seq_len * hidden_dim)
-            .map(|i| ((i % 11) as f32 - 5.0) * 0.1)
-            .collect();
-        let v: Vec<f32> = (0..seq_len * hidden_dim)
-            .map(|i| ((i % 7) as f32 - 3.0) * 0.1)
-            .collect();
+        let (q, k, v) = make_qkv_vecs(seq_len, hidden_dim);
 
         // Approximate ops: num_heads * (seq * seq * head_dim * 2 + seq * seq + seq * head_dim * seq)
         let ops = num_heads * seq_len * seq_len * head_dim * 4;
@@ -2484,7 +2206,7 @@ fn benchmark_fused_kernel_attention(c: &mut Criterion) {
 /// - Identifies the sequence length where GPU becomes faster
 #[cfg(feature = "gpu")]
 fn benchmark_gpu_cpu_crossover(c: &mut Criterion) {
-    use realizar::gguf::{GGUFConfig, OwnedQuantizedModelCached};
+    use realizar::gguf::OwnedQuantizedModelCached;
 
     let mut group = c.benchmark_group("gpu_cpu_crossover_imp120");
     group.sample_size(20); // Fewer samples for longer benchmarks
@@ -2495,20 +2217,7 @@ fn benchmark_gpu_cpu_crossover(c: &mut Criterion) {
     let num_heads = 8;
     let hidden_dim = num_heads * head_dim;
 
-    let config = GGUFConfig {
-        architecture: "test".to_string(),
-        hidden_dim,
-        intermediate_dim: hidden_dim * 4,
-        num_layers: 1,
-        num_heads,
-        num_kv_heads: num_heads,
-        vocab_size: 100,
-        context_length: 1024,
-        rope_theta: 10000.0,
-        eps: 1e-5,
-        rope_type: 0,
-        bos_token_id: None,
-    };
+    let config = make_bench_config(hidden_dim, hidden_dim * 4, 1, num_heads, 100);
 
     let model = create_bench_model_with_config(&config);
     let cached_model = OwnedQuantizedModelCached::new(model);

@@ -1,6 +1,28 @@
 
 #[cfg(feature = "gpu")]
 impl GpuBufferPool {
+    /// Create a new `AtomicU64` initialized to zero.
+    fn new_counter() -> std::sync::atomic::AtomicU64 {
+        std::sync::atomic::AtomicU64::new(0)
+    }
+
+    /// Increment an atomic counter by 1 (Relaxed ordering).
+    fn inc(counter: &std::sync::atomic::AtomicU64) {
+        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Load an atomic u64 counter with Relaxed ordering.
+    fn load_relaxed(counter: &std::sync::atomic::AtomicU64) -> u64 {
+        counter.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Lock a buffer pool mutex, panicking on poison.
+    fn lock_pool(
+        buffers: &std::sync::Mutex<Vec<Vec<f32>>>,
+    ) -> std::sync::MutexGuard<'_, Vec<Vec<f32>>> {
+        buffers.lock().expect("mutex poisoned")
+    }
+
     /// Create new buffer pool with specified dimensions
     pub fn new(
         hidden_dim: usize,
@@ -18,16 +40,16 @@ impl GpuBufferPool {
             max_seq_len,
             num_heads,
             pool_size,
-            borrows: std::sync::atomic::AtomicU64::new(0),
-            returns: std::sync::atomic::AtomicU64::new(0),
-            post_warmup_allocs: std::sync::atomic::AtomicU64::new(0),
+            borrows: Self::new_counter(),
+            returns: Self::new_counter(),
+            post_warmup_allocs: Self::new_counter(),
             warmed_up: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
     /// Pre-allocate buffers of a given size into a pool mutex.
     fn warmup_pool(buffers: &std::sync::Mutex<Vec<Vec<f32>>>, count: usize, size: usize) {
-        let mut pool = buffers.lock().expect("mutex poisoned");
+        let mut pool = Self::lock_pool(buffers);
         for _ in 0..count {
             pool.push(vec![0.0f32; size]);
         }
@@ -41,16 +63,14 @@ impl GpuBufferPool {
         buffers: &std::sync::Mutex<Vec<Vec<f32>>>,
         alloc_size: usize,
     ) -> Vec<f32> {
-        self.borrows
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self::inc(&self.borrows);
 
-        let mut pool = buffers.lock().expect("mutex poisoned");
+        let mut pool = Self::lock_pool(buffers);
         if let Some(buffer) = pool.pop() {
             buffer
         } else {
             if self.warmed_up.load(std::sync::atomic::Ordering::Acquire) {
-                self.post_warmup_allocs
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Self::inc(&self.post_warmup_allocs);
             }
             vec![0.0f32; alloc_size]
         }
@@ -60,13 +80,12 @@ impl GpuBufferPool {
     ///
     /// Drops the buffer if the pool is already at capacity.
     fn return_to_pool(&self, buffers: &std::sync::Mutex<Vec<Vec<f32>>>, mut buffer: Vec<f32>) {
-        self.returns
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self::inc(&self.returns);
 
         // Zero out for security and determinism
         buffer.fill(0.0);
 
-        let mut pool = buffers.lock().expect("mutex poisoned");
+        let mut pool = Self::lock_pool(buffers);
         if pool.len() < self.pool_size {
             pool.push(buffer);
         }
@@ -132,28 +151,19 @@ impl GpuBufferPool {
     /// Check if pool has achieved zero-allocation after warmup
     pub fn is_zero_alloc(&self) -> bool {
         self.warmed_up.load(std::sync::atomic::Ordering::Acquire)
-            && self
-                .post_warmup_allocs
-                .load(std::sync::atomic::Ordering::Relaxed)
-                == 0
+            && Self::load_relaxed(&self.post_warmup_allocs) == 0
     }
 
     /// Get pool statistics
     pub fn stats(&self) -> GpuBufferPoolStats {
         GpuBufferPoolStats {
-            borrows: self.borrows.load(std::sync::atomic::Ordering::Relaxed),
-            returns: self.returns.load(std::sync::atomic::Ordering::Relaxed),
-            post_warmup_allocs: self
-                .post_warmup_allocs
-                .load(std::sync::atomic::Ordering::Relaxed),
+            borrows: Self::load_relaxed(&self.borrows),
+            returns: Self::load_relaxed(&self.returns),
+            post_warmup_allocs: Self::load_relaxed(&self.post_warmup_allocs),
             warmed_up: self.warmed_up.load(std::sync::atomic::Ordering::Acquire),
-            hidden_available: self.hidden_buffers.lock().expect("mutex poisoned").len(),
-            intermediate_available: self
-                .intermediate_buffers
-                .lock()
-                .expect("mutex poisoned")
-                .len(),
-            attention_available: self.attention_buffers.lock().expect("mutex poisoned").len(),
+            hidden_available: Self::lock_pool(&self.hidden_buffers).len(),
+            intermediate_available: Self::lock_pool(&self.intermediate_buffers).len(),
+            attention_available: Self::lock_pool(&self.attention_buffers).len(),
         }
     }
 
@@ -255,6 +265,26 @@ impl Default for CommandSlot {
 
 #[cfg(feature = "gpu")]
 impl AsyncCommandQueue {
+    /// Create a new `AtomicU64` initialized to zero.
+    fn new_counter() -> std::sync::atomic::AtomicU64 {
+        std::sync::atomic::AtomicU64::new(0)
+    }
+
+    /// Increment an atomic counter by 1 (Relaxed ordering).
+    fn inc(counter: &std::sync::atomic::AtomicU64) {
+        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Load an atomic u64 counter with Relaxed ordering.
+    fn load_relaxed(counter: &std::sync::atomic::AtomicU64) -> u64 {
+        counter.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Lock a command slot by index, panicking on poison.
+    fn lock_slot(&self, slot_idx: usize) -> std::sync::MutexGuard<'_, CommandSlot> {
+        self.slots[slot_idx].lock().expect("mutex poisoned")
+    }
+
     /// Create new async command queue with double-buffering
     pub fn new() -> Self {
         Self {
@@ -263,15 +293,10 @@ impl AsyncCommandQueue {
                 std::sync::Mutex::new(CommandSlot::default()),
             ],
             current_slot: std::sync::atomic::AtomicUsize::new(0),
-            commands_submitted: std::sync::atomic::AtomicU64::new(0),
-            commands_completed: std::sync::atomic::AtomicU64::new(0),
-            pipeline_stalls: std::sync::atomic::AtomicU64::new(0),
+            commands_submitted: Self::new_counter(),
+            commands_completed: Self::new_counter(),
+            pipeline_stalls: Self::new_counter(),
         }
-    }
-
-    /// Load an atomic u64 counter with Relaxed ordering.
-    fn load_relaxed(counter: &std::sync::atomic::AtomicU64) -> u64 {
-        counter.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Submit a command for async execution
@@ -285,15 +310,14 @@ impl AsyncCommandQueue {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
             % 2;
 
-        let mut slot = self.slots[slot_idx].lock().expect("mutex poisoned");
+        let mut slot = self.lock_slot(slot_idx);
 
         // Check if we need to wait for previous command
         if matches!(
             slot.state,
             CommandSlotState::Submitted | CommandSlotState::Preparing
         ) {
-            self.pipeline_stalls
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Self::inc(&self.pipeline_stalls);
             // In real implementation, would wait for GPU completion
             // For now, mark as complete to allow reuse
             slot.state = CommandSlotState::Complete;
@@ -307,26 +331,24 @@ impl AsyncCommandQueue {
 
         // Mark as submitted
         slot.state = CommandSlotState::Submitted;
-        self.commands_submitted
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self::inc(&self.commands_submitted);
 
         slot_idx
     }
 
     /// Mark a command as complete with output
     pub fn complete(&self, slot_idx: usize, output: Vec<f32>) {
-        let mut slot = self.slots[slot_idx].lock().expect("mutex poisoned");
+        let mut slot = self.lock_slot(slot_idx);
         slot.state = CommandSlotState::Complete;
         slot.output = Some(output);
-        self.commands_completed
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self::inc(&self.commands_completed);
     }
 
     /// Get output from a completed command
     ///
     /// Returns None if command is not complete yet.
     pub fn get_output(&self, slot_idx: usize) -> Option<Vec<f32>> {
-        let mut slot = self.slots[slot_idx].lock().expect("mutex poisoned");
+        let mut slot = self.lock_slot(slot_idx);
         if matches!(slot.state, CommandSlotState::Complete) {
             slot.state = CommandSlotState::Empty;
             slot.output.take()
