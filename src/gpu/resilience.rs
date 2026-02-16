@@ -222,21 +222,31 @@ impl CircuitBreaker {
         }
     }
 
+    /// Acquire the state mutex (resource-management helper).
+    fn lock_state(&self) -> std::sync::MutexGuard<'_, CircuitState> {
+        self.state.lock().expect("mutex poisoned")
+    }
+
+    /// Acquire the last-failure mutex (resource-management helper).
+    fn lock_last_failure(&self) -> std::sync::MutexGuard<'_, Option<std::time::Instant>> {
+        self.last_failure.lock().expect("mutex poisoned")
+    }
+
     /// Get current state
     #[must_use]
     pub fn state(&self) -> CircuitState {
-        *self.state.lock().expect("mutex poisoned")
+        *self.lock_state()
     }
 
     /// Check if request should be allowed
     #[must_use]
     pub fn allow_request(&self) -> bool {
-        let mut state = self.state.lock().expect("mutex poisoned");
+        let mut state = self.lock_state();
         match *state {
             CircuitState::Closed | CircuitState::HalfOpen => true,
             CircuitState::Open => {
                 // Check if timeout has elapsed
-                let last_failure = self.last_failure.lock().expect("mutex poisoned");
+                let last_failure = self.lock_last_failure();
                 if let Some(last) = *last_failure {
                     if last.elapsed() >= self.config.timeout {
                         *state = CircuitState::HalfOpen;
@@ -264,7 +274,7 @@ impl CircuitBreaker {
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
                 + 1;
 
-            let mut state = self.state.lock().expect("mutex poisoned");
+            let mut state = self.lock_state();
             if *state == CircuitState::HalfOpen && count >= self.config.success_threshold {
                 *state = CircuitState::Closed;
             }
@@ -273,9 +283,9 @@ impl CircuitBreaker {
                 .failure_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
                 + 1;
-            *self.last_failure.lock().expect("mutex poisoned") = Some(std::time::Instant::now());
+            *self.lock_last_failure() = Some(std::time::Instant::now());
 
-            let mut state = self.state.lock().expect("mutex poisoned");
+            let mut state = self.lock_state();
             match *state {
                 CircuitState::Closed => {
                     if count >= self.config.failure_threshold {
