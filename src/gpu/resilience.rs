@@ -342,48 +342,75 @@ pub struct BulkheadStats {
     pub total_capacity: usize,
 }
 
+/// A single resource pool with atomic availability tracking (IMP-078)
+struct ResourcePool {
+    available: std::sync::atomic::AtomicUsize,
+    capacity: usize,
+}
+
+impl ResourcePool {
+    /// Create a new pool with given capacity
+    fn new(capacity: usize) -> Self {
+        Self {
+            available: std::sync::atomic::AtomicUsize::new(capacity),
+            capacity,
+        }
+    }
+
+    /// Load the current available count
+    fn available(&self) -> usize {
+        self.available.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Try to decrement available count, returning false if exhausted
+    fn try_acquire(&self) -> bool {
+        let current = self.available.load(std::sync::atomic::Ordering::SeqCst);
+        if current == 0 {
+            return false;
+        }
+        self.available
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        true
+    }
+
+    /// Increment available count (release one slot)
+    fn release(&self) {
+        self.available
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// Bulkhead manager (IMP-078)
 pub struct BulkheadManager {
-    inference_available: std::sync::atomic::AtomicUsize,
-    inference_capacity: usize,
-    embedding_available: std::sync::atomic::AtomicUsize,
-    embedding_capacity: usize,
-    batch_available: std::sync::atomic::AtomicUsize,
-    batch_capacity: usize,
+    inference: ResourcePool,
+    embedding: ResourcePool,
+    batch: ResourcePool,
 }
 
 impl BulkheadManager {
     /// Create new bulkhead manager
     #[must_use]
     pub fn new(config: &BulkheadConfig) -> Self {
-        let inference_cap = *config.pools.get("inference").unwrap_or(&10);
-        let embedding_cap = *config.pools.get("embedding").unwrap_or(&5);
-        let batch_cap = *config.pools.get("batch").unwrap_or(&2);
-
         Self {
-            inference_available: std::sync::atomic::AtomicUsize::new(inference_cap),
-            inference_capacity: inference_cap,
-            embedding_available: std::sync::atomic::AtomicUsize::new(embedding_cap),
-            embedding_capacity: embedding_cap,
-            batch_available: std::sync::atomic::AtomicUsize::new(batch_cap),
-            batch_capacity: batch_cap,
+            inference: ResourcePool::new(*config.pools.get("inference").unwrap_or(&10)),
+            embedding: ResourcePool::new(*config.pools.get("embedding").unwrap_or(&5)),
+            batch: ResourcePool::new(*config.pools.get("batch").unwrap_or(&2)),
+        }
+    }
+
+    /// Select the resource pool for a given request type
+    fn pool_for(&self, request_type: RequestType) -> &ResourcePool {
+        match request_type {
+            RequestType::Inference => &self.inference,
+            RequestType::Embedding => &self.embedding,
+            RequestType::Batch => &self.batch,
         }
     }
 
     /// Get available slots for request type
     #[must_use]
     pub fn available(&self, request_type: RequestType) -> usize {
-        match request_type {
-            RequestType::Inference => self
-                .inference_available
-                .load(std::sync::atomic::Ordering::SeqCst),
-            RequestType::Embedding => self
-                .embedding_available
-                .load(std::sync::atomic::Ordering::SeqCst),
-            RequestType::Batch => self
-                .batch_available
-                .load(std::sync::atomic::Ordering::SeqCst),
-        }
+        self.pool_for(request_type).available()
     }
 
     /// Acquire a permit
@@ -394,17 +421,9 @@ impl BulkheadManager {
         &self,
         request_type: RequestType,
     ) -> std::result::Result<BulkheadPermit, &'static str> {
-        let available = match request_type {
-            RequestType::Inference => &self.inference_available,
-            RequestType::Embedding => &self.embedding_available,
-            RequestType::Batch => &self.batch_available,
-        };
-
-        let current = available.load(std::sync::atomic::Ordering::SeqCst);
-        if current == 0 {
+        if !self.pool_for(request_type).try_acquire() {
             return Err("Pool exhausted");
         }
-        available.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         Ok(BulkheadPermit { request_type })
     }
 
@@ -421,12 +440,7 @@ impl BulkheadManager {
 
     /// Release a permit
     pub fn release(&self, permit: &BulkheadPermit) {
-        let available = match permit.request_type {
-            RequestType::Inference => &self.inference_available,
-            RequestType::Embedding => &self.embedding_available,
-            RequestType::Batch => &self.batch_available,
-        };
-        available.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.pool_for(permit.request_type).release();
     }
 
     /// Get bulkhead stats
@@ -434,7 +448,9 @@ impl BulkheadManager {
     pub fn stats(&self) -> BulkheadStats {
         BulkheadStats {
             pool_count: 3,
-            total_capacity: self.inference_capacity + self.embedding_capacity + self.batch_capacity,
+            total_capacity: self.inference.capacity
+                + self.embedding.capacity
+                + self.batch.capacity,
         }
     }
 }
