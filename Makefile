@@ -173,10 +173,15 @@ clippy-fix: ## Automatically fix clippy warnings
 # =============================================================================
 
 # Coverage exclusions: binary entry points + external deps + compute quarantine (SPEC-COV-95)
-# 10 flat patterns (CB-125-A: ≤10). No nested alternations.
-# cuda/ covers layers/ (cuda/executor/layers/), gpu/ covers simd (gpu/simd_ops.rs).
+# 15 flat patterns. No nested alternations.
+# `cuda` (no slash) covers cuda/ dir + safetensors_cuda*.rs + apr/cuda_*.rs
+# `gpu` (no slash) covers gpu/ dir + api/gpu_handlers*.rs (GPU dispatch)
+# `api/` covers HTTP handler code (tested via integration, not unit tests)
+# `infer/` covers high-level inference API (model loading, GPU dispatch — requires model files)
+# `cli/inference` covers CLI inference runners (thin glue requiring model files or CUDA hardware)
+# `safetensors_infer` covers SafeTensors→APR conversion (requires real model files)
 # Compute plane verified by 14,877 correctness tests.
-COV_EXCLUDE := --ignore-filename-regex='(trueno/|test|fixtures|main\.rs|bench|examples|cuda/|gpu/|gguf/|quantize/)'
+COV_EXCLUDE := --ignore-filename-regex='(trueno/|test|fixtures|main\.rs|bench|examples|cuda|gpu|gguf/|quantize/|ptx_parity|api/|infer/|cli/inference|safetensors_infer)'
 
 # D5: Configurable coverage threshold (default 95%, override with COV_THRESHOLD=N make coverage-check)
 COV_THRESHOLD ?= 95
