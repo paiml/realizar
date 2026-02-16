@@ -97,125 +97,62 @@ pub fn validate_all_kernel_pairs(dims: &KernelDimensions) -> PtxParityReport {
         BatchedSwigluKernel, BatchedVectorizedRmsNormKernel, Kernel, KernelParity,
     };
 
-    let mut results = Vec::new();
-
-    // 1. RmsNorm: grid_y dispatch
-    {
-        let kernel =
-            BatchedVectorizedRmsNormKernel::new(dims.hidden_dim, 1).with_epsilon(dims.epsilon);
-        let parity = kernel.validate_batch_dispatch();
-        let ptx = kernel.emit_ptx();
-        let u64_violation = check_u64_shared_mem(&ptx);
-        let mut violations: Vec<String> = parity
-            .violations
-            .iter()
-            .map(|v| v.message.clone())
-            .collect();
-        if let Some(v) = u64_violation {
-            violations.push(v);
+    /// Build a `KernelParityResult` from parity validation output.
+    /// When `ptx` is `Some`, an additional u64 shared-memory check is performed.
+    fn build_result(
+        parity: &trueno_gpu::ptx::parity::ParityResult,
+        ptx: Option<&str>,
+        name: &str,
+        dispatch_strategy: &str,
+    ) -> KernelParityResult {
+        let mut violations: Vec<String> =
+            parity.violations.iter().map(|v| v.message.clone()).collect();
+        let had_extra = if let Some(p) = ptx {
+            if let Some(v) = check_u64_shared_mem(p) {
+                violations.push(v);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        KernelParityResult {
+            name: name.to_string(),
+            passed: parity.is_compatible && !had_extra,
+            dispatch_strategy: dispatch_strategy.to_string(),
+            violations,
         }
-        results.push(KernelParityResult {
-            name: "BatchedRmsNorm \u{2194} RmsNorm".to_string(),
-            passed: parity.is_compatible && violations.len() == parity.violations.len(),
-            dispatch_strategy: "grid_y".to_string(),
-            violations,
-        });
     }
 
-    // 2. Q4K GEMV: register_unroll dispatch
-    {
-        let kernel = BatchedQ4KGemvKernel::new(dims.hidden_dim, dims.hidden_dim, 1);
-        let parity = kernel.validate_batch_dispatch();
-        let ptx = kernel.emit_ptx();
-        let u64_violation = check_u64_shared_mem(&ptx);
-        let mut violations: Vec<String> = parity
-            .violations
-            .iter()
-            .map(|v| v.message.clone())
-            .collect();
-        if let Some(v) = u64_violation {
-            violations.push(v);
-        }
-        results.push(KernelParityResult {
-            name: "BatchedQ4KGemv \u{2194} Q4KGemv".to_string(),
-            passed: parity.is_compatible && violations.len() == parity.violations.len(),
-            dispatch_strategy: "register_unroll".to_string(),
-            violations,
-        });
-    }
+    // Kernel pairs: (name, dispatch_strategy, parity, optional ptx for u64 check)
+    let k1 =
+        BatchedVectorizedRmsNormKernel::new(dims.hidden_dim, 1).with_epsilon(dims.epsilon);
+    let k2 = BatchedQ4KGemvKernel::new(dims.hidden_dim, dims.hidden_dim, 1);
+    let k3 = BatchedQ6KGemvKernel::new(dims.hidden_dim, dims.hidden_dim, 1);
+    let k4 = BatchedResidualAddKernel::new(dims.hidden_dim, 1);
+    let k5 = BatchedRopeKernel::new(dims.num_heads, dims.head_dim, 1, dims.rope_theta);
+    let k6 = BatchedSwigluKernel::new(dims.intermediate_dim, 1);
 
-    // 3. Q6K GEMV: register_unroll dispatch
-    {
-        let kernel = BatchedQ6KGemvKernel::new(dims.hidden_dim, dims.hidden_dim, 1);
-        let parity = kernel.validate_batch_dispatch();
-        let ptx = kernel.emit_ptx();
-        let u64_violation = check_u64_shared_mem(&ptx);
-        let mut violations: Vec<String> = parity
-            .violations
-            .iter()
-            .map(|v| v.message.clone())
-            .collect();
-        if let Some(v) = u64_violation {
-            violations.push(v);
-        }
-        results.push(KernelParityResult {
-            name: "BatchedQ6KGemv \u{2194} Q6KGemv".to_string(),
-            passed: parity.is_compatible && violations.len() == parity.violations.len(),
-            dispatch_strategy: "register_unroll".to_string(),
-            violations,
-        });
-    }
+    // Kernels 1-3 need u64 shared-mem check; kernels 4-6 do not
+    let ptx1 = k1.emit_ptx();
+    let ptx2 = k2.emit_ptx();
+    let ptx3 = k3.emit_ptx();
 
-    // 4. ResidualAdd: grid_y dispatch
-    {
-        let kernel = BatchedResidualAddKernel::new(dims.hidden_dim, 1);
-        let parity = kernel.validate_batch_dispatch();
-        let violations: Vec<String> = parity
-            .violations
-            .iter()
-            .map(|v| v.message.clone())
-            .collect();
-        results.push(KernelParityResult {
-            name: "BatchedResidualAdd \u{2194} ResidualAdd".to_string(),
-            passed: parity.is_compatible,
-            dispatch_strategy: "grid_y".to_string(),
-            violations,
-        });
-    }
-
-    // 5. RoPE: grid_y dispatch
-    {
-        let kernel = BatchedRopeKernel::new(dims.num_heads, dims.head_dim, 1, dims.rope_theta);
-        let parity = kernel.validate_batch_dispatch();
-        let violations: Vec<String> = parity
-            .violations
-            .iter()
-            .map(|v| v.message.clone())
-            .collect();
-        results.push(KernelParityResult {
-            name: "BatchedRoPE \u{2194} RoPE".to_string(),
-            passed: parity.is_compatible,
-            dispatch_strategy: "grid_y".to_string(),
-            violations,
-        });
-    }
-
-    // 6. SwiGLU: grid_y dispatch
-    {
-        let kernel = BatchedSwigluKernel::new(dims.intermediate_dim, 1);
-        let parity = kernel.validate_batch_dispatch();
-        let violations: Vec<String> = parity
-            .violations
-            .iter()
-            .map(|v| v.message.clone())
-            .collect();
-        results.push(KernelParityResult {
-            name: "BatchedSwiGLU \u{2194} SwiGLU".to_string(),
-            passed: parity.is_compatible,
-            dispatch_strategy: "grid_y".to_string(),
-            violations,
-        });
-    }
+    let results = vec![
+        build_result(&k1.validate_batch_dispatch(), Some(&ptx1),
+            "BatchedRmsNorm \u{2194} RmsNorm", "grid_y"),
+        build_result(&k2.validate_batch_dispatch(), Some(&ptx2),
+            "BatchedQ4KGemv \u{2194} Q4KGemv", "register_unroll"),
+        build_result(&k3.validate_batch_dispatch(), Some(&ptx3),
+            "BatchedQ6KGemv \u{2194} Q6KGemv", "register_unroll"),
+        build_result(&k4.validate_batch_dispatch(), None,
+            "BatchedResidualAdd \u{2194} ResidualAdd", "grid_y"),
+        build_result(&k5.validate_batch_dispatch(), None,
+            "BatchedRoPE \u{2194} RoPE", "grid_y"),
+        build_result(&k6.validate_batch_dispatch(), None,
+            "BatchedSwiGLU \u{2194} SwiGLU", "grid_y"),
+    ];
 
     let total = results.len();
     let passed = results.iter().filter(|r| r.passed).count();
@@ -376,19 +313,57 @@ mod tests {
     use super::*;
 
     // -------------------------------------------------------------------------
-    // KernelDimensions struct construction
+    // Test helpers — shared dimension profiles and result constructors
     // -------------------------------------------------------------------------
 
-    #[test]
-    fn test_kernel_dimensions_new_gh219() {
-        let dims = KernelDimensions {
+    /// Qwen2.5 1.5B model dimensions (most common test profile)
+    fn dims_1_5b() -> KernelDimensions {
+        KernelDimensions {
             hidden_dim: 1536,
             intermediate_dim: 4864,
             num_heads: 12,
             head_dim: 128,
             rope_theta: 1_000_000.0,
             epsilon: 1e-6,
-        };
+        }
+    }
+
+    /// Small dimensions for fast unit tests
+    fn dims_small() -> KernelDimensions {
+        KernelDimensions {
+            hidden_dim: 128,
+            intermediate_dim: 512,
+            num_heads: 4,
+            head_dim: 32,
+            rope_theta: 10000.0,
+            epsilon: 1e-6,
+        }
+    }
+
+    /// Build a `KernelParityResult` from name, pass/fail, strategy, and violations
+    fn make_result(name: &str, passed: bool, strategy: &str, violations: Vec<&str>) -> KernelParityResult {
+        KernelParityResult {
+            name: name.to_string(),
+            passed,
+            dispatch_strategy: strategy.to_string(),
+            violations: violations.into_iter().map(String::from).collect(),
+        }
+    }
+
+    /// Build a `PtxParityReport` from a list of results, computing totals automatically
+    fn make_report(results: Vec<KernelParityResult>) -> PtxParityReport {
+        let total = results.len();
+        let passed = results.iter().filter(|r| r.passed).count();
+        PtxParityReport { results, total, passed, failed: total - passed }
+    }
+
+    // -------------------------------------------------------------------------
+    // KernelDimensions struct construction
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_kernel_dimensions_new_gh219() {
+        let dims = dims_1_5b();
         assert_eq!(dims.hidden_dim, 1536);
         assert_eq!(dims.intermediate_dim, 4864);
         assert_eq!(dims.num_heads, 12);
@@ -432,12 +407,7 @@ mod tests {
 
     #[test]
     fn test_kernel_parity_result_passed_gh219() {
-        let result = KernelParityResult {
-            name: "TestKernel ↔ RefKernel".to_string(),
-            passed: true,
-            dispatch_strategy: "grid_y".to_string(),
-            violations: vec![],
-        };
+        let result = make_result("TestKernel \u{2194} RefKernel", true, "grid_y", vec![]);
         assert!(result.passed);
         assert!(result.violations.is_empty());
         assert_eq!(result.dispatch_strategy, "grid_y");
@@ -445,12 +415,10 @@ mod tests {
 
     #[test]
     fn test_kernel_parity_result_failed_gh219() {
-        let result = KernelParityResult {
-            name: "Broken ↔ Ref".to_string(),
-            passed: false,
-            dispatch_strategy: "register_unroll".to_string(),
-            violations: vec!["u64 shared memory addressing".to_string()],
-        };
+        let result = make_result(
+            "Broken \u{2194} Ref", false, "register_unroll",
+            vec!["u64 shared memory addressing"],
+        );
         assert!(!result.passed);
         assert_eq!(result.violations.len(), 1);
     }
@@ -461,52 +429,24 @@ mod tests {
 
     #[test]
     fn test_ptx_parity_report_all_passed_empty_gh219() {
-        let report = PtxParityReport {
-            results: vec![],
-            total: 0,
-            passed: 0,
-            failed: 0,
-        };
+        let report = make_report(vec![]);
         assert!(report.all_passed());
     }
 
     #[test]
     fn test_ptx_parity_report_all_passed_true_gh219() {
-        let report = PtxParityReport {
-            results: vec![
-                KernelParityResult {
-                    name: "A ↔ B".to_string(),
-                    passed: true,
-                    dispatch_strategy: "grid_y".to_string(),
-                    violations: vec![],
-                },
-                KernelParityResult {
-                    name: "C ↔ D".to_string(),
-                    passed: true,
-                    dispatch_strategy: "grid_y".to_string(),
-                    violations: vec![],
-                },
-            ],
-            total: 2,
-            passed: 2,
-            failed: 0,
-        };
+        let report = make_report(vec![
+            make_result("A \u{2194} B", true, "grid_y", vec![]),
+            make_result("C \u{2194} D", true, "grid_y", vec![]),
+        ]);
         assert!(report.all_passed());
     }
 
     #[test]
     fn test_ptx_parity_report_all_passed_false_gh219() {
-        let report = PtxParityReport {
-            results: vec![KernelParityResult {
-                name: "Broken".to_string(),
-                passed: false,
-                dispatch_strategy: "grid_y".to_string(),
-                violations: vec!["bad".to_string()],
-            }],
-            total: 1,
-            passed: 0,
-            failed: 1,
-        };
+        let report = make_report(vec![
+            make_result("Broken", false, "grid_y", vec!["bad"]),
+        ]);
         assert!(!report.all_passed());
     }
 
@@ -516,56 +456,21 @@ mod tests {
 
     #[test]
     fn test_ptx_parity_report_summary_all_passed_gh219() {
-        let report = PtxParityReport {
-            results: vec![
-                KernelParityResult {
-                    name: "A".to_string(),
-                    passed: true,
-                    dispatch_strategy: "grid_y".to_string(),
-                    violations: vec![],
-                },
-                KernelParityResult {
-                    name: "B".to_string(),
-                    passed: true,
-                    dispatch_strategy: "grid_y".to_string(),
-                    violations: vec![],
-                },
-            ],
-            total: 2,
-            passed: 2,
-            failed: 0,
-        };
+        let report = make_report(vec![
+            make_result("A", true, "grid_y", vec![]),
+            make_result("B", true, "grid_y", vec![]),
+        ]);
         let summary = report.summary();
         assert!(summary.contains("2/2 kernel pairs passed PTX parity"));
     }
 
     #[test]
     fn test_ptx_parity_report_summary_some_failed_gh219() {
-        let report = PtxParityReport {
-            results: vec![
-                KernelParityResult {
-                    name: "Good".to_string(),
-                    passed: true,
-                    dispatch_strategy: "grid_y".to_string(),
-                    violations: vec![],
-                },
-                KernelParityResult {
-                    name: "BadRmsNorm".to_string(),
-                    passed: false,
-                    dispatch_strategy: "grid_y".to_string(),
-                    violations: vec!["u64 addr".to_string()],
-                },
-                KernelParityResult {
-                    name: "BadSwiglu".to_string(),
-                    passed: false,
-                    dispatch_strategy: "grid_y".to_string(),
-                    violations: vec!["missing dispatch".to_string()],
-                },
-            ],
-            total: 3,
-            passed: 1,
-            failed: 2,
-        };
+        let report = make_report(vec![
+            make_result("Good", true, "grid_y", vec![]),
+            make_result("BadRmsNorm", false, "grid_y", vec!["u64 addr"]),
+            make_result("BadSwiglu", false, "grid_y", vec!["missing dispatch"]),
+        ]);
         let summary = report.summary();
         assert!(summary.contains("2/3 failed"));
         assert!(summary.contains("BadRmsNorm"));
@@ -574,17 +479,9 @@ mod tests {
 
     #[test]
     fn test_ptx_parity_report_summary_single_failure_gh219() {
-        let report = PtxParityReport {
-            results: vec![KernelParityResult {
-                name: "FailedKernel".to_string(),
-                passed: false,
-                dispatch_strategy: "register_unroll".to_string(),
-                violations: vec!["violation".to_string()],
-            }],
-            total: 1,
-            passed: 0,
-            failed: 1,
-        };
+        let report = make_report(vec![
+            make_result("FailedKernel", false, "register_unroll", vec!["violation"]),
+        ]);
         let summary = report.summary();
         assert!(summary.contains("1/1 failed"));
         assert!(summary.contains("FailedKernel"));
@@ -597,15 +494,7 @@ mod tests {
     #[cfg(not(feature = "cuda"))]
     #[test]
     fn test_validate_all_kernel_pairs_no_cuda_gh219() {
-        let dims = KernelDimensions {
-            hidden_dim: 1536,
-            intermediate_dim: 4864,
-            num_heads: 12,
-            head_dim: 128,
-            rope_theta: 1_000_000.0,
-            epsilon: 1e-6,
-        };
-        let report = validate_all_kernel_pairs(&dims);
+        let report = validate_all_kernel_pairs(&dims_1_5b());
         assert_eq!(report.total, 0);
         assert_eq!(report.passed, 0);
         assert_eq!(report.failed, 0);
@@ -616,15 +505,7 @@ mod tests {
     #[cfg(not(feature = "cuda"))]
     #[test]
     fn test_generate_named_kernel_ptx_no_cuda_gh219() {
-        let dims = KernelDimensions {
-            hidden_dim: 1536,
-            intermediate_dim: 4864,
-            num_heads: 12,
-            head_dim: 128,
-            rope_theta: 1_000_000.0,
-            epsilon: 1e-6,
-        };
-        let result = generate_named_kernel_ptx("q4k", &dims);
+        let result = generate_named_kernel_ptx("q4k", &dims_1_5b());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.contains("requires CUDA feature"));
@@ -654,15 +535,7 @@ mod tests {
     #[cfg(feature = "cuda")]
     #[test]
     fn test_validate_all_kernel_pairs_cuda_gh219() {
-        let dims = KernelDimensions {
-            hidden_dim: 1536,
-            intermediate_dim: 4864,
-            num_heads: 12,
-            head_dim: 128,
-            rope_theta: 1_000_000.0,
-            epsilon: 1e-6,
-        };
-        let report = validate_all_kernel_pairs(&dims);
+        let report = validate_all_kernel_pairs(&dims_1_5b());
         assert_eq!(report.total, 6);
         assert_eq!(report.passed + report.failed, 6);
     }
@@ -670,15 +543,7 @@ mod tests {
     #[cfg(feature = "cuda")]
     #[test]
     fn test_generate_named_kernel_ptx_q4k_cuda_gh219() {
-        let dims = KernelDimensions {
-            hidden_dim: 1536,
-            intermediate_dim: 4864,
-            num_heads: 12,
-            head_dim: 128,
-            rope_theta: 1_000_000.0,
-            epsilon: 1e-6,
-        };
-        let result = generate_named_kernel_ptx("q4k", &dims);
+        let result = generate_named_kernel_ptx("q4k", &dims_1_5b());
         assert!(result.is_ok());
         let (label, ptx) = result.unwrap();
         assert_eq!(label, "Q4KGemvKernel");
@@ -689,14 +554,7 @@ mod tests {
     #[cfg(feature = "cuda")]
     #[test]
     fn test_generate_named_kernel_ptx_all_names_cuda_gh219() {
-        let dims = KernelDimensions {
-            hidden_dim: 128,
-            intermediate_dim: 512,
-            num_heads: 4,
-            head_dim: 32,
-            rope_theta: 10000.0,
-            epsilon: 1e-6,
-        };
+        let dims = dims_small();
         let names = [
             "q4k", "q6k", "q5k", "rmsnorm", "vectorizedrmsnorm",
             "softmax", "argmax", "residualadd", "rope", "swiglu", "gemm",
@@ -714,15 +572,7 @@ mod tests {
     #[cfg(feature = "cuda")]
     #[test]
     fn test_generate_named_kernel_ptx_unknown_cuda_gh219() {
-        let dims = KernelDimensions {
-            hidden_dim: 128,
-            intermediate_dim: 512,
-            num_heads: 4,
-            head_dim: 32,
-            rope_theta: 10000.0,
-            epsilon: 1e-6,
-        };
-        let result = generate_named_kernel_ptx("nonexistent_kernel", &dims);
+        let result = generate_named_kernel_ptx("nonexistent_kernel", &dims_small());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.contains("Unknown kernel"));
@@ -732,14 +582,7 @@ mod tests {
     #[cfg(feature = "cuda")]
     #[test]
     fn test_generate_named_kernel_ptx_case_insensitive_cuda_gh219() {
-        let dims = KernelDimensions {
-            hidden_dim: 128,
-            intermediate_dim: 512,
-            num_heads: 4,
-            head_dim: 32,
-            rope_theta: 10000.0,
-            epsilon: 1e-6,
-        };
+        let dims = dims_small();
         // Test with various casing and separators
         let result1 = generate_named_kernel_ptx("Q4K", &dims);
         let result2 = generate_named_kernel_ptx("q4k_gemv_kernel", &dims);
