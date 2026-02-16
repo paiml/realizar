@@ -1,4 +1,73 @@
 
+/// Expand 16 packed Q4_0 nibble bytes at `q4_ptr + 2` into a 256-bit vector.
+///
+/// Returns raw expanded bytes (low nibbles in lower 128, high nibbles in upper 128).
+/// The caller is responsible for masking to 0x0F and subtracting the offset.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn expand_q4_raw_avx2(q4_ptr: *const u8) -> std::arch::x86_64::__m256i {
+    // SAFETY: caller guarantees q4_ptr + 2..+18 is valid
+    use std::arch::x86_64::{_mm256_set_m128i, _mm_loadu_si128, _mm_srli_epi16};
+    let raw = _mm_loadu_si128(q4_ptr.add(2).cast());
+    let hi = _mm_srli_epi16(raw, 4);
+    _mm256_set_m128i(hi, raw)
+}
+
+/// Expand 16 packed Q4_0 nibble bytes into a 256-bit vector of signed values (-8..+7).
+///
+/// Loads 16 bytes from `q4_ptr + 2`, splits into low/high nibbles, masks to 0x0F,
+/// and subtracts 8 to center at zero.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn expand_q4_nibbles_avx2(q4_ptr: *const u8) -> std::arch::x86_64::__m256i {
+    // SAFETY: caller guarantees q4_ptr + 2..+18 is valid
+    use std::arch::x86_64::{_mm256_and_si256, _mm256_set1_epi8, _mm256_sub_epi8};
+    let combined = expand_q4_raw_avx2(q4_ptr);
+    let nibbles = _mm256_and_si256(combined, _mm256_set1_epi8(0x0F));
+    _mm256_sub_epi8(nibbles, _mm256_set1_epi8(8))
+}
+
+/// Process one Q4_0 block via AVX2 maddubs and accumulate into `acc`.
+///
+/// Performs: acc += (q4_scale * q8_scale) * dot(q4_block, q8_block)
+/// using the sign trick for unsigned x signed maddubs.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn avx2_block_dot_accumulate(
+    q4_signed: std::arch::x86_64::__m256i,
+    q8_ptr: *const i8,
+    combined_scale: std::arch::x86_64::__m256,
+    acc: std::arch::x86_64::__m256,
+) -> std::arch::x86_64::__m256 {
+    // SAFETY: caller guarantees q8_ptr..+32 is valid
+    use std::arch::x86_64::{
+        _mm256_cvtepi32_ps, _mm256_fmadd_ps, _mm256_loadu_si256, _mm256_madd_epi16,
+        _mm256_maddubs_epi16, _mm256_set1_epi16, _mm256_sign_epi8,
+    };
+    let q8_vec = _mm256_loadu_si256(q8_ptr.cast());
+    let q4_abs = _mm256_sign_epi8(q4_signed, q4_signed);
+    let q8_signed = _mm256_sign_epi8(q8_vec, q4_signed);
+    let prod_i16 = _mm256_maddubs_epi16(q4_abs, q8_signed);
+    let prod_i32 = _mm256_madd_epi16(prod_i16, _mm256_set1_epi16(1));
+    let prod_f32 = _mm256_cvtepi32_ps(prod_i32);
+    _mm256_fmadd_ps(combined_scale, prod_f32, acc)
+}
+
+/// Horizontal sum of 8 f32 lanes in a __m256 register.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn hsum_avx2(v: std::arch::x86_64::__m256) -> f32 {
+    use std::arch::x86_64::{
+        _mm256_castps256_ps128, _mm256_extractf128_ps, _mm_add_ps, _mm_cvtss_f32, _mm_hadd_ps,
+    };
+    let hi = _mm256_extractf128_ps(v, 1);
+    let lo = _mm256_castps256_ps128(v);
+    let sum128 = _mm_add_ps(lo, hi);
+    let sum64 = _mm_hadd_ps(sum128, sum128);
+    let sum32 = _mm_hadd_ps(sum64, sum64);
+    _mm_cvtss_f32(sum32)
+}
+
 /// AVX-512 VNNI accelerated Q4_0 × Q8_0 dot product using vpdpbusd with 512-bit vectors
 ///
 /// Uses 512-bit registers to process 2 blocks (64 values) per iteration, providing
@@ -66,13 +135,9 @@ unsafe fn fused_q4_0_q8_0_dot_avx512_vnni(
             let q8_scale_0 = q8_scales[block_idx];
             let q8_scale_1 = q8_scales[block_idx + 1];
 
-            // Expand nibbles for blocks 0,1
-            let q4_lo_0 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_0.add(2).cast());
-            let q4_hi_0 = std::arch::x86_64::_mm_srli_epi16(q4_lo_0, 4);
-            let q4_expanded_0 = std::arch::x86_64::_mm256_set_m128i(q4_hi_0, q4_lo_0);
-            let q4_lo_1 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_1.add(2).cast());
-            let q4_hi_1 = std::arch::x86_64::_mm_srli_epi16(q4_lo_1, 4);
-            let q4_expanded_1 = std::arch::x86_64::_mm256_set_m128i(q4_hi_1, q4_lo_1);
+            // Expand nibbles for blocks 0,1 (raw expansion, mask+offset applied after 512-bit combine)
+            let q4_expanded_0 = expand_q4_raw_avx2(q4_ptr_0);
+            let q4_expanded_1 = expand_q4_raw_avx2(q4_ptr_1);
 
             let q4_combined_a: __m512i = std::arch::x86_64::_mm512_inserti64x4(
                 std::arch::x86_64::_mm512_castsi256_si512(q4_expanded_0),
@@ -99,12 +164,8 @@ unsafe fn fused_q4_0_q8_0_dot_avx512_vnni(
             let q8_scale_2 = q8_scales[block_idx + 2];
             let q8_scale_3 = q8_scales[block_idx + 3];
 
-            let q4_lo_2 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_2.add(2).cast());
-            let q4_hi_2 = std::arch::x86_64::_mm_srli_epi16(q4_lo_2, 4);
-            let q4_expanded_2 = std::arch::x86_64::_mm256_set_m128i(q4_hi_2, q4_lo_2);
-            let q4_lo_3 = std::arch::x86_64::_mm_loadu_si128(q4_ptr_3.add(2).cast());
-            let q4_hi_3 = std::arch::x86_64::_mm_srli_epi16(q4_lo_3, 4);
-            let q4_expanded_3 = std::arch::x86_64::_mm256_set_m128i(q4_hi_3, q4_lo_3);
+            let q4_expanded_2 = expand_q4_raw_avx2(q4_ptr_2);
+            let q4_expanded_3 = expand_q4_raw_avx2(q4_ptr_3);
 
             let q4_combined_b: __m512i = std::arch::x86_64::_mm512_inserti64x4(
                 std::arch::x86_64::_mm512_castsi256_si512(q4_expanded_2),
@@ -170,20 +231,9 @@ unsafe fn fused_q4_0_q8_0_dot_avx512_vnni(
             let q8_scale_0 = q8_scales[block_idx];
             let q8_scale_1 = q8_scales[block_idx + 1];
 
-            // Load Q4_0 quants for both blocks (16 bytes each = 32 nibbles)
-            let q4_bytes_0 = std::slice::from_raw_parts(q4_ptr_0.add(2), 16);
-            let q4_bytes_1 = std::slice::from_raw_parts(q4_ptr_1.add(2), 16);
-
-            // Expand nibbles to bytes for both blocks
-            // Block 0
-            let q4_lo_0 = std::arch::x86_64::_mm_loadu_si128(q4_bytes_0.as_ptr().cast());
-            let q4_hi_0 = std::arch::x86_64::_mm_srli_epi16(q4_lo_0, 4);
-            let q4_expanded_0 = std::arch::x86_64::_mm256_set_m128i(q4_hi_0, q4_lo_0);
-
-            // Block 1
-            let q4_lo_1 = std::arch::x86_64::_mm_loadu_si128(q4_bytes_1.as_ptr().cast());
-            let q4_hi_1 = std::arch::x86_64::_mm_srli_epi16(q4_lo_1, 4);
-            let q4_expanded_1 = std::arch::x86_64::_mm256_set_m128i(q4_hi_1, q4_lo_1);
+            // Expand nibbles for both blocks (raw expansion, mask+offset applied after 512-bit combine)
+            let q4_expanded_0 = expand_q4_raw_avx2(q4_ptr_0);
+            let q4_expanded_1 = expand_q4_raw_avx2(q4_ptr_1);
 
             // Combine into 512-bit vector
             let q4_combined: __m512i = std::arch::x86_64::_mm512_inserti64x4(
@@ -235,44 +285,18 @@ unsafe fn fused_q4_0_q8_0_dot_avx512_vnni(
             let q4_ptr = q4_data.as_ptr().add(block_idx * Q4_0_BLOCK_BYTES);
             let q8_ptr = q8_quants.as_ptr().add(block_idx * Q4_0_BLOCK_SIZE);
 
-            let q4_scale_bits = u16::from_le_bytes([*q4_ptr, *q4_ptr.add(1)]);
-            let q4_scale = f16_to_f32_lut(q4_scale_bits);
-            let q8_scale = q8_scales[block_idx];
-            let combined_scale = std::arch::x86_64::_mm256_set1_ps(q4_scale * q8_scale);
+            let q4_scale = f16_to_f32_lut(u16::from_le_bytes([*q4_ptr, *q4_ptr.add(1)]));
+            let combined_scale = std::arch::x86_64::_mm256_set1_ps(q4_scale * q8_scales[block_idx]);
 
-            let q4_bytes = std::slice::from_raw_parts(q4_ptr.add(2), 16);
-            let q4_lo_128 = std::arch::x86_64::_mm_loadu_si128(q4_bytes.as_ptr().cast());
-            let q4_hi_128 = std::arch::x86_64::_mm_srli_epi16(q4_lo_128, 4);
-            let q4_combined = std::arch::x86_64::_mm256_set_m128i(q4_hi_128, q4_lo_128);
-            let low_mask_256 = std::arch::x86_64::_mm256_set1_epi8(0x0F);
-            let offset_256 = std::arch::x86_64::_mm256_set1_epi8(8);
-            let q4_nibbles = std::arch::x86_64::_mm256_and_si256(q4_combined, low_mask_256);
-            let q4_signed = std::arch::x86_64::_mm256_sub_epi8(q4_nibbles, offset_256);
-
-            let q8_vec = std::arch::x86_64::_mm256_loadu_si256(q8_ptr.cast());
-
-            // Use maddubs approach for remaining block
-            let q4_abs = std::arch::x86_64::_mm256_sign_epi8(q4_signed, q4_signed);
-            let q8_signed = std::arch::x86_64::_mm256_sign_epi8(q8_vec, q4_signed);
-
-            let ones = std::arch::x86_64::_mm256_set1_epi16(1);
-            let prod_i16 = std::arch::x86_64::_mm256_maddubs_epi16(q4_abs, q8_signed);
-            let prod_i32 = std::arch::x86_64::_mm256_madd_epi16(prod_i16, ones);
-            let prod_f32 = _mm256_cvtepi32_ps(prod_i32);
-
-            acc0 = _mm256_fmadd_ps(combined_scale, prod_f32, acc0);
+            let q4_signed = expand_q4_nibbles_avx2(q4_ptr);
+            acc0 = avx2_block_dot_accumulate(q4_signed, q8_ptr, combined_scale, acc0);
 
             block_idx += 1;
         }
 
         // Combine both accumulators and do horizontal sum
         let acc = std::arch::x86_64::_mm256_add_ps(acc0, acc1);
-        let hi = std::arch::x86_64::_mm256_extractf128_ps(acc, 1);
-        let lo = std::arch::x86_64::_mm256_castps256_ps128(acc);
-        let sum128 = _mm_add_ps(lo, hi);
-        let sum64 = _mm_hadd_ps(sum128, sum128);
-        let sum32 = _mm_hadd_ps(sum64, sum64);
-        _mm_cvtss_f32(sum32)
+        hsum_avx2(acc)
     }
 }
 

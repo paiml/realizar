@@ -27,6 +27,23 @@ impl PrefixCache {
         }
     }
 
+    /// Lock the entries mutex, panicking on poison.
+    fn lock_entries(
+        &self,
+    ) -> std::sync::MutexGuard<'_, std::collections::HashMap<u64, PrefixCacheEntry>> {
+        self.entries.lock().expect("mutex poisoned")
+    }
+
+    /// Increment an atomic counter by 1 (Relaxed ordering).
+    fn inc(counter: &std::sync::atomic::AtomicU64) {
+        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Load an atomic counter (Relaxed ordering).
+    fn load(counter: &std::sync::atomic::AtomicU64) -> u64 {
+        counter.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Hash tokens to create cache key (FNV-1a)
     fn hash_tokens(tokens: &[u32]) -> u64 {
         const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
@@ -47,19 +64,18 @@ impl PrefixCache {
     pub fn lookup(&self, tokens: &[u32]) -> Option<(Vec<Vec<f32>>, Vec<Vec<f32>>)> {
         let hash = Self::hash_tokens(tokens);
 
-        let mut entries = self.entries.lock().expect("mutex poisoned");
+        let mut entries = self.lock_entries();
         if let Some(entry) = entries.get_mut(&hash) {
             // Verify tokens match (hash collision check)
             if entry.tokens == tokens {
-                self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Self::inc(&self.hits);
                 entry.last_access = std::time::Instant::now();
                 entry.hit_count += 1;
                 return Some((entry.k_cache.clone(), entry.v_cache.clone()));
             }
         }
 
-        self.misses
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self::inc(&self.misses);
         None
     }
 
@@ -69,15 +85,14 @@ impl PrefixCache {
     pub fn insert(&self, tokens: Vec<u32>, k_cache: Vec<Vec<f32>>, v_cache: Vec<Vec<f32>>) {
         let hash = Self::hash_tokens(&tokens);
 
-        let mut entries = self.entries.lock().expect("mutex poisoned");
+        let mut entries = self.lock_entries();
 
         // Evict LRU if at capacity
         if entries.len() >= self.max_entries {
             // Find oldest entry
             if let Some((&oldest_hash, _)) = entries.iter().min_by_key(|(_, e)| e.last_access) {
                 entries.remove(&oldest_hash);
-                self.evictions
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Self::inc(&self.evictions);
             }
         }
 
@@ -96,21 +111,20 @@ impl PrefixCache {
     /// Check if a prefix is cached
     pub fn contains(&self, tokens: &[u32]) -> bool {
         let hash = Self::hash_tokens(tokens);
-        let entries = self.entries.lock().expect("mutex poisoned");
-        entries.contains_key(&hash)
+        self.lock_entries().contains_key(&hash)
     }
 
     /// Get cache statistics
     pub fn stats(&self) -> PrefixCacheStats {
-        let hits = self.hits.load(std::sync::atomic::Ordering::Relaxed);
-        let misses = self.misses.load(std::sync::atomic::Ordering::Relaxed);
+        let hits = Self::load(&self.hits);
+        let misses = Self::load(&self.misses);
         let total = hits + misses;
 
         PrefixCacheStats {
             hits,
             misses,
-            evictions: self.evictions.load(std::sync::atomic::Ordering::Relaxed),
-            entries: self.entries.lock().expect("mutex poisoned").len(),
+            evictions: Self::load(&self.evictions),
+            entries: self.lock_entries().len(),
             hit_rate: if total > 0 {
                 hits as f64 / total as f64
             } else {
@@ -121,14 +135,12 @@ impl PrefixCache {
 
     /// Clear all cached entries
     pub fn clear(&self) {
-        let mut entries = self.entries.lock().expect("mutex poisoned");
-        entries.clear();
+        self.lock_entries().clear();
     }
 
     /// Estimate memory usage of cached prefixes
     pub fn memory_usage_bytes(&self) -> usize {
-        let entries = self.entries.lock().expect("mutex poisoned");
-        entries
+        self.lock_entries()
             .values()
             .map(|e| {
                 let k_bytes: usize = e.k_cache.iter().map(|v| v.len() * 4).sum();
@@ -287,6 +299,43 @@ pub struct MultiRequestScheduler {
 
 #[cfg(feature = "gpu")]
 impl MultiRequestScheduler {
+    /// Create a new `AtomicU64` initialized to zero.
+    fn new_counter() -> std::sync::atomic::AtomicU64 {
+        std::sync::atomic::AtomicU64::new(0)
+    }
+
+    /// Increment an atomic counter by 1 (Relaxed ordering).
+    fn inc(counter: &std::sync::atomic::AtomicU64) {
+        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Increment an atomic counter by `n` (Relaxed ordering).
+    fn inc_by(counter: &std::sync::atomic::AtomicU64, n: u64) {
+        counter.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Load an atomic counter (Relaxed ordering).
+    fn load(counter: &std::sync::atomic::AtomicU64) -> u64 {
+        counter.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Lock the pending queue mutex.
+    fn lock_pending(
+        &self,
+    ) -> std::sync::MutexGuard<'_, std::collections::VecDeque<MultiSchedulerRequest>> {
+        self.pending.lock().expect("mutex poisoned")
+    }
+
+    /// Lock the active requests mutex.
+    fn lock_active(&self) -> std::sync::MutexGuard<'_, Vec<MultiSchedulerRequest>> {
+        self.active.lock().expect("mutex poisoned")
+    }
+
+    /// Lock the completed requests mutex.
+    fn lock_completed(&self) -> std::sync::MutexGuard<'_, Vec<MultiSchedulerRequest>> {
+        self.completed.lock().expect("mutex poisoned")
+    }
+
     /// Create new scheduler with given parameters
     pub fn new(max_batch_size: usize, max_concurrent: usize, policy: SchedulingPolicy) -> Self {
         Self {
@@ -296,11 +345,11 @@ impl MultiRequestScheduler {
             max_batch_size,
             max_concurrent,
             policy,
-            next_id: std::sync::atomic::AtomicU64::new(0),
-            requests_submitted: std::sync::atomic::AtomicU64::new(0),
-            requests_completed: std::sync::atomic::AtomicU64::new(0),
-            tokens_generated: std::sync::atomic::AtomicU64::new(0),
-            batch_iterations: std::sync::atomic::AtomicU64::new(0),
+            next_id: Self::new_counter(),
+            requests_submitted: Self::new_counter(),
+            requests_completed: Self::new_counter(),
+            tokens_generated: Self::new_counter(),
+            batch_iterations: Self::new_counter(),
         }
     }
 
@@ -311,10 +360,8 @@ impl MultiRequestScheduler {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let request = MultiSchedulerRequest::new(id, tokens, max_tokens);
 
-        let mut pending = self.pending.lock().expect("mutex poisoned");
-        pending.push_back(request);
-        self.requests_submitted
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.lock_pending().push_back(request);
+        Self::inc(&self.requests_submitted);
 
         id
     }
@@ -323,8 +370,8 @@ impl MultiRequestScheduler {
     ///
     /// Returns request IDs and their current positions
     pub fn get_decode_batch(&self) -> Vec<(u64, usize)> {
-        let mut active = self.active.lock().expect("mutex poisoned");
-        let mut pending = self.pending.lock().expect("mutex poisoned");
+        let mut active = self.lock_active();
+        let mut pending = self.lock_pending();
 
         // Promote pending requests to active (up to max_concurrent)
         while active.len() < self.max_concurrent && !pending.is_empty() {
@@ -362,7 +409,7 @@ impl MultiRequestScheduler {
 
     /// Record generated token for a request
     pub fn record_token(&self, request_id: u64, token: u32) {
-        let mut active = self.active.lock().expect("mutex poisoned");
+        let mut active = self.lock_active();
 
         if let Some(req) = active.iter_mut().find(|r| r.id == request_id) {
             // Record TTFT for first token
@@ -372,8 +419,7 @@ impl MultiRequestScheduler {
 
             req.generated.push(token);
             req.kv_position += 1;
-            self.tokens_generated
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Self::inc(&self.tokens_generated);
 
             // Check if complete
             if req.is_complete() {
@@ -384,8 +430,8 @@ impl MultiRequestScheduler {
 
     /// Move completed requests from active to completed
     pub fn collect_completed(&self) -> Vec<MultiSchedulerRequest> {
-        let mut active = self.active.lock().expect("mutex poisoned");
-        let mut completed = self.completed.lock().expect("mutex poisoned");
+        let mut active = self.lock_active();
+        let mut completed = self.lock_completed();
 
         let (done, still_active): (Vec<_>, Vec<_>) = active
             .drain(..)
@@ -393,10 +439,7 @@ impl MultiRequestScheduler {
 
         *active = still_active;
 
-        for _req in &done {
-            self.requests_completed
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        }
+        Self::inc_by(&self.requests_completed, done.len() as u64);
 
         completed.extend(done.iter().cloned());
         done
@@ -404,27 +447,18 @@ impl MultiRequestScheduler {
 
     /// Run one batch iteration (for simulation)
     pub fn step(&self) {
-        self.batch_iterations
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self::inc(&self.batch_iterations);
     }
 
     /// Get scheduler statistics
     pub fn stats(&self) -> MultiRequestStats {
-        let submitted = self
-            .requests_submitted
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let completed = self
-            .requests_completed
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let tokens = self
-            .tokens_generated
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let iterations = self
-            .batch_iterations
-            .load(std::sync::atomic::Ordering::Relaxed);
+        let submitted = Self::load(&self.requests_submitted);
+        let completed = Self::load(&self.requests_completed);
+        let tokens = Self::load(&self.tokens_generated);
+        let iterations = Self::load(&self.batch_iterations);
 
-        let pending = self.pending.lock().expect("mutex poisoned").len();
-        let active = self.active.lock().expect("mutex poisoned").len();
+        let pending = self.lock_pending().len();
+        let active = self.lock_active().len();
 
         MultiRequestStats {
             requests_submitted: submitted,

@@ -72,19 +72,22 @@ fn test_f118_hidden_dim_divisibility() {
     assert_eq!(config.head_dim() * config.num_heads, config.hidden_dim);
 }
 
+/// Standard set of model configs for cross-config validation tests.
+fn all_model_configs() -> [ModelConfig; 4] {
+    [
+        ModelConfig::tiny(),
+        ModelConfig::small(),
+        ModelConfig::tinyllama(),
+        ModelConfig::qwen_1_5b(),
+    ]
+}
+
 /// F119: RoPE Theta Sanity
 ///
 /// Prohibition: If rope_theta <= 0, position encoding will fail.
 #[test]
 fn test_f119_rope_theta_sanity() {
-    let configs = [
-        ModelConfig::tiny(),
-        ModelConfig::small(),
-        ModelConfig::tinyllama(),
-        ModelConfig::qwen_1_5b(),
-    ];
-
-    for config in configs {
+    for config in all_model_configs() {
         assert!(
             config.rope_theta > 0.0,
             "rope_theta {} must be positive",
@@ -99,14 +102,7 @@ fn test_f119_rope_theta_sanity() {
 /// Prohibition: If rms_norm_eps <= 0 or too large, normalization will fail.
 #[test]
 fn test_f120_rms_norm_eps_sanity() {
-    let configs = [
-        ModelConfig::tiny(),
-        ModelConfig::small(),
-        ModelConfig::tinyllama(),
-        ModelConfig::qwen_1_5b(),
-    ];
-
-    for config in configs {
+    for config in all_model_configs() {
         assert!(
             config.rms_norm_eps > 0.0,
             "rms_norm_eps {} must be positive",

@@ -47,6 +47,12 @@ static STREAM_POOL: Mutex<Option<(CudaStream, CudaStream, CudaStream)>> = Mutex:
 /// The sentinel keeps the primary context alive; this pool avoids retain() calls.
 static CONTEXT_POOL: Mutex<Option<CudaContext>> = Mutex::new(None);
 
+/// Lock a process-level Mutex, panicking with a descriptive message on poison.
+fn lock_pool<T>(pool: &Mutex<T>, name: &str, operation: &str) -> std::sync::MutexGuard<'_, T> {
+    pool.lock()
+        .unwrap_or_else(|_| panic!("{name} mutex poisoned during {operation}"))
+}
+
 /// Ensure the sentinel context exists and is healthy for the given device.
 /// If poisoned (e.g. by a previous PTX compilation failure), drops and
 /// recreates it (and discards the stream pool since those streams are
@@ -56,9 +62,7 @@ fn ensure_sentinel(device_ordinal: i32) -> Result<(), GpuError> {
     if device_ordinal < 0 || device_ordinal as usize >= count {
         return Err(GpuError::DeviceNotFound(device_ordinal, count));
     }
-    let mut guard = CUDA_SENTINEL
-        .lock()
-        .expect("CUDA_SENTINEL mutex poisoned - previous thread panicked while holding lock");
+    let mut guard = lock_pool(&CUDA_SENTINEL, "CUDA_SENTINEL", "ensure_sentinel");
     if let Some(ref ctx) = *guard {
         // Health check: sync detects any async kernel crashes from previous tests.
         // With sync-on-drop in CudaExecutor, poisoning should already be caught.
@@ -68,12 +72,8 @@ fn ensure_sentinel(device_ordinal: i32) -> Result<(), GpuError> {
         }
         // Poisoned — burn everything and start fresh.
         // Clear ALL pools so refcount reaches 0 when sentinel drops.
-        *STREAM_POOL
-            .lock()
-            .expect("STREAM_POOL mutex poisoned during context reset") = None;
-        *CONTEXT_POOL
-            .lock()
-            .expect("CONTEXT_POOL mutex poisoned during context reset") = None;
+        *lock_pool(&STREAM_POOL, "STREAM_POOL", "context reset") = None;
+        *lock_pool(&CONTEXT_POOL, "CONTEXT_POOL", "context reset") = None;
         // Drop sentinel: refcount→0 → primary context DESTROYED
         *guard = None;
         eprintln!(
@@ -87,9 +87,7 @@ fn ensure_sentinel(device_ordinal: i32) -> Result<(), GpuError> {
 
 /// Check out a CudaContext: try the pool first, create fresh if empty.
 fn checkout_context(device_ordinal: i32) -> Result<CudaContext, GpuError> {
-    let mut guard = CONTEXT_POOL
-        .lock()
-        .expect("CONTEXT_POOL mutex poisoned in checkout");
+    let mut guard = lock_pool(&CONTEXT_POOL, "CONTEXT_POOL", "checkout");
     if let Some(ctx) = guard.take() {
         // Reuse pooled context — no cuDevicePrimaryCtxRetain needed.
         ctx.make_current()?;
@@ -108,9 +106,7 @@ fn checkout_context(device_ordinal: i32) -> Result<CudaContext, GpuError> {
 /// If the pool already has one, the returned context is dropped normally
 /// (cuDevicePrimaryCtxRelease), but the sentinel keeps refcount ≥ 1.
 fn checkin_context(ctx: CudaContext) {
-    let mut guard = CONTEXT_POOL
-        .lock()
-        .expect("CONTEXT_POOL mutex poisoned in checkin");
+    let mut guard = lock_pool(&CONTEXT_POOL, "CONTEXT_POOL", "checkin");
     if guard.is_none() {
         *guard = Some(ctx);
     }
@@ -119,9 +115,7 @@ fn checkin_context(ctx: CudaContext) {
 
 /// Check out 3 streams: try the pool first, create fresh if empty.
 fn checkout_streams(ctx: &CudaContext) -> Result<(CudaStream, CudaStream, CudaStream), GpuError> {
-    let mut guard = STREAM_POOL
-        .lock()
-        .expect("STREAM_POOL mutex poisoned in checkout");
+    let mut guard = lock_pool(&STREAM_POOL, "STREAM_POOL", "checkout");
     if let Some(streams) = guard.take() {
         return Ok(streams);
     }
@@ -137,10 +131,7 @@ fn checkout_streams(ctx: &CudaContext) -> Result<(CudaStream, CudaStream, CudaSt
 
 /// Return 3 streams to the pool for reuse by the next executor.
 fn checkin_streams(s1: CudaStream, s2: CudaStream, s3: CudaStream) {
-    let mut guard = STREAM_POOL
-        .lock()
-        .expect("STREAM_POOL mutex poisoned in checkin");
-    *guard = Some((s1, s2, s3));
+    *lock_pool(&STREAM_POOL, "STREAM_POOL", "checkin") = Some((s1, s2, s3));
 }
 
 /// A CUDA stream wrapper that can be safely taken out for pooling.

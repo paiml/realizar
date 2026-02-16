@@ -24,6 +24,33 @@ const THREAD_INVARIANCE_TOLERANCE: f32 = 0.0;
 const SIMD_PARITY_EPSILON: f32 = 1e-6;
 
 // =============================================================================
+// Shared Test Helpers
+// =============================================================================
+
+/// Generate F32 reference weights and quantized weights for a given quant type,
+/// returning the compression ratio of embed_weights.
+fn compression_ratio_for(quant: QuantType, seed: u64) -> f32 {
+    let config = ModelConfig::tiny();
+    let gen = SyntheticWeightGenerator::new(seed);
+    let f32_weights = gen.generate_model_weights(&config, QuantType::F32);
+    let q_weights = gen.generate_model_weights(&config, quant);
+    f32_weights.embed_weights.len() as f32 / q_weights.embed_weights.len() as f32
+}
+
+/// Generate model weights for the tiny config with a given seed and quant type.
+fn tiny_weights(quant: QuantType, seed: u64) -> super::generators::ModelWeights {
+    let config = ModelConfig::tiny();
+    let gen = SyntheticWeightGenerator::new(seed);
+    gen.generate_model_weights(&config, quant)
+}
+
+/// Run a forward pass on a tiny GQA fixture and return the output.
+fn tiny_gqa_forward(tokens: &[u32]) -> crate::Result<Vec<f32>> {
+    let fixture = GgufFixture::tiny_gqa();
+    fixture.forward(Device::Cpu, tokens)
+}
+
+// =============================================================================
 // Falsification Gate 1: Quantization Forbidden Zones
 // =============================================================================
 
@@ -51,46 +78,25 @@ fn max_abs_error(a: &[f32], b: &[f32]) -> f32 {
 /// Prohibition: If RMSE(Q4_0_output, F32_output) > 1e-3, the implementation is refuted.
 #[test]
 fn test_f100_quantization_rmse_gate_q4_0() {
-    let config = ModelConfig::tiny();
-    let gen = SyntheticWeightGenerator::new(42);
-
-    // Generate F32 reference weights
-    let f32_weights = gen.generate_model_weights(&config, QuantType::F32);
-
-    // Generate Q4_0 quantized weights
-    let q4_weights = gen.generate_model_weights(&config, QuantType::Q4_0);
-
-    // For now, compare embedding weights (both stored as raw bytes)
-    // In a full implementation, we would dequantize and compare
-    let f32_len = f32_weights.embed_weights.len();
-    let q4_len = q4_weights.embed_weights.len();
-
+    let ratio = compression_ratio_for(QuantType::Q4_0, 42);
     // Q4_0 should be smaller (4 bits vs 32 bits = 8x compression)
     // Allow for block overhead: expect 4-6x compression
-    let compression_ratio = f32_len as f32 / q4_len as f32;
     assert!(
-        compression_ratio > 3.0 && compression_ratio < 10.0,
+        ratio > 3.0 && ratio < 10.0,
         "Q4_0 compression ratio {} outside expected range [3, 10]",
-        compression_ratio
+        ratio
     );
 }
 
 /// F101: Falsification Gate - Q8_0 RMSE must not exceed threshold
 #[test]
 fn test_f101_quantization_rmse_gate_q8_0() {
-    let config = ModelConfig::tiny();
-    let gen = SyntheticWeightGenerator::new(42);
-
-    let f32_weights = gen.generate_model_weights(&config, QuantType::F32);
-    let q8_weights = gen.generate_model_weights(&config, QuantType::Q8_0);
-
+    let ratio = compression_ratio_for(QuantType::Q8_0, 42);
     // Q8_0 should be ~4x smaller than F32
-    let compression_ratio =
-        f32_weights.embed_weights.len() as f32 / q8_weights.embed_weights.len() as f32;
     assert!(
-        compression_ratio > 2.0 && compression_ratio < 6.0,
+        ratio > 2.0 && ratio < 6.0,
         "Q8_0 compression ratio {} outside expected range [2, 6]",
-        compression_ratio
+        ratio
     );
 }
 
@@ -149,14 +155,8 @@ fn test_f102_thread_invariance() {
 /// Prohibition: If same seed produces different results, RNG is refuted.
 #[test]
 fn test_f103_seed_reproducibility() {
-    let config = ModelConfig::tiny();
-
-    // Generate with same seed twice
-    let gen1 = SyntheticWeightGenerator::new(12345);
-    let weights1 = gen1.generate_model_weights(&config, QuantType::F32);
-
-    let gen2 = SyntheticWeightGenerator::new(12345);
-    let weights2 = gen2.generate_model_weights(&config, QuantType::F32);
+    let weights1 = tiny_weights(QuantType::F32, 12345);
+    let weights2 = tiny_weights(QuantType::F32, 12345);
 
     // Must be bit-exact
     assert_eq!(
@@ -170,13 +170,8 @@ fn test_f103_seed_reproducibility() {
 /// Prohibition: If different seeds produce identical results, RNG is trivial.
 #[test]
 fn test_f104_seed_variation() {
-    let config = ModelConfig::tiny();
-
-    let gen1 = SyntheticWeightGenerator::new(1);
-    let weights1 = gen1.generate_model_weights(&config, QuantType::F32);
-
-    let gen2 = SyntheticWeightGenerator::new(2);
-    let weights2 = gen2.generate_model_weights(&config, QuantType::F32);
+    let weights1 = tiny_weights(QuantType::F32, 1);
+    let weights2 = tiny_weights(QuantType::F32, 2);
 
     // Must differ
     assert_ne!(
@@ -195,13 +190,9 @@ fn test_f104_seed_variation() {
 #[test]
 fn test_f105_empty_input_handling() {
     let fixture = GgufFixture::tiny_gqa();
-    let empty_tokens: Vec<u32> = vec![];
 
     // Should not panic - may return error or empty output
-    let result = fixture.forward(Device::Cpu, &empty_tokens);
-
-    // Either succeeds with empty/default output, or returns proper error
-    match result {
+    match tiny_gqa_forward(&[]) {
         Ok(output) => {
             // Empty or vocab-sized output is acceptable
             assert!(
@@ -222,12 +213,7 @@ fn test_f105_empty_input_handling() {
 #[test]
 fn test_f106_single_token_handling() {
     let fixture = GgufFixture::tiny_gqa();
-    let single_token = vec![42u32];
-
-    let result = fixture.forward(Device::Cpu, &single_token);
-    assert!(result.is_ok(), "Single token input should succeed");
-
-    let output = result.unwrap();
+    let output = tiny_gqa_forward(&[42]).expect("Single token input should succeed");
     assert_eq!(output.len(), fixture.config().vocab_size);
 }
 
@@ -238,9 +224,7 @@ fn test_f106_single_token_handling() {
 fn test_f107_max_token_id() {
     let fixture = GgufFixture::tiny_gqa();
     let max_token = (fixture.config().vocab_size - 1) as u32;
-    let tokens = vec![max_token];
-
-    let result = fixture.forward(Device::Cpu, &tokens);
+    let result = tiny_gqa_forward(&[max_token]);
     assert!(result.is_ok(), "Max token ID {} should be valid", max_token);
 }
 
@@ -251,11 +235,9 @@ fn test_f107_max_token_id() {
 fn test_f108_oov_token_handling() {
     let fixture = GgufFixture::tiny_gqa();
     let oov_token = fixture.config().vocab_size as u32 + 1000;
-    let tokens = vec![oov_token];
 
     // Should not panic - current impl may clamp or return error
-    let result = std::panic::catch_unwind(|| fixture.forward(Device::Cpu, &tokens));
-
+    let result = std::panic::catch_unwind(move || tiny_gqa_forward(&[oov_token]));
     assert!(result.is_ok(), "OOV token {} caused panic", oov_token);
 }
 
@@ -264,11 +246,7 @@ fn test_f108_oov_token_handling() {
 /// Prohibition: If forward pass produces NaN, numerical stability is refuted.
 #[test]
 fn test_f109_no_nan_in_output() {
-    let fixture = GgufFixture::tiny_gqa();
-    let tokens = vec![1, 2, 3, 4, 5, 6, 7, 8];
-
-    let output = fixture.forward(Device::Cpu, &tokens).unwrap();
-
+    let output = tiny_gqa_forward(&[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
     let nan_count = output.iter().filter(|x| x.is_nan()).count();
     assert_eq!(nan_count, 0, "Output contains {} NaN values", nan_count);
 }
@@ -278,11 +256,7 @@ fn test_f109_no_nan_in_output() {
 /// Prohibition: If forward pass produces Inf, overflow occurred.
 #[test]
 fn test_f110_no_inf_in_output() {
-    let fixture = GgufFixture::tiny_gqa();
-    let tokens = vec![1, 2, 3, 4, 5, 6, 7, 8];
-
-    let output = fixture.forward(Device::Cpu, &tokens).unwrap();
-
+    let output = tiny_gqa_forward(&[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
     let inf_count = output.iter().filter(|x| x.is_infinite()).count();
     assert_eq!(inf_count, 0, "Output contains {} Inf values", inf_count);
 }
@@ -321,27 +295,26 @@ fn test_f112_quant_forward_consistency() {
     let config = ModelConfig::tiny();
     let tokens = vec![1, 2, 3];
 
-    let f32_fixture = GgufFixture::new(config.clone(), QuantType::F32, 42);
-    let q8_fixture = GgufFixture::new(config.clone(), QuantType::Q8_0, 42);
-    let q4_fixture = GgufFixture::new(config, QuantType::Q4_0, 42);
+    /// Run forward pass for a given quant type and return L2 norm of output.
+    fn forward_l2(config: &ModelConfig, quant: QuantType, tokens: &[u32]) -> (Vec<f32>, f32) {
+        let fixture = GgufFixture::new(config.clone(), quant, 42);
+        let out = fixture.forward(Device::Cpu, tokens).unwrap();
+        let l2: f32 = out.iter().map(|x| x * x).sum::<f32>().sqrt();
+        (out, l2)
+    }
 
-    let f32_out = f32_fixture.forward(Device::Cpu, &tokens).unwrap();
-    let q8_out = q8_fixture.forward(Device::Cpu, &tokens).unwrap();
-    let q4_out = q4_fixture.forward(Device::Cpu, &tokens).unwrap();
+    let (f32_out, f32_l2) = forward_l2(&config, QuantType::F32, &tokens);
+    let (q8_out, q8_l2) = forward_l2(&config, QuantType::Q8_0, &tokens);
+    let (q4_out, q4_l2) = forward_l2(&config, QuantType::Q4_0, &tokens);
 
     // All should produce vocab_size outputs
     assert_eq!(f32_out.len(), q8_out.len());
     assert_eq!(f32_out.len(), q4_out.len());
 
-    // L2 norms should be in same order of magnitude
-    let f32_l2: f32 = f32_out.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let q8_l2: f32 = q8_out.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let q4_l2: f32 = q4_out.iter().map(|x| x * x).sum::<f32>().sqrt();
-
     // All L2 norms should be finite and positive
-    assert!(f32_l2.is_finite() && f32_l2 > 0.0);
-    assert!(q8_l2.is_finite() && q8_l2 > 0.0);
-    assert!(q4_l2.is_finite() && q4_l2 > 0.0);
+    for (label, l2) in [("F32", f32_l2), ("Q8_0", q8_l2), ("Q4_0", q4_l2)] {
+        assert!(l2.is_finite() && l2 > 0.0, "{label} L2 norm invalid: {l2}");
+    }
 }
 
 // =============================================================================

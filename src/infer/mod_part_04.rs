@@ -1,12 +1,80 @@
 
+fn log_transformer_cpu_info(
+    config: &crate::apr_transformer::AprTransformerConfig,
+    load_ms: f64,
+) {
+    let thread_count = rayon::current_num_threads();
+    eprintln!(
+        "Architecture: {} ({} layers, vocab_size={})",
+        config.architecture, config.num_layers, config.vocab_size
+    );
+    eprintln!(
+        "Config: hidden_size={}, context_length={}, quant=F32, threads={}",
+        config.hidden_dim, config.context_length, thread_count
+    );
+    eprintln!("Model loaded in {:.1}ms", load_ms);
+    eprintln!("Backend: CPU (SIMD-accelerated)");
+}
+
+fn is_eos_token(token: u32) -> bool {
+    token == 151645 || token == 151643 || token == 2
+}
+
+fn greedy_argmax(logits: &[f32]) -> u32 {
+    logits
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map_or(0, |(i, _)| i as u32)
+}
+
+fn greedy_decode_with_transformer(
+    transformer: &crate::safetensors::ValidatedAprTransformer,
+    input_tokens: &[u32],
+    max_tokens: usize,
+) -> Result<Vec<u32>> {
+    use crate::apr_transformer::AprKVCache;
+
+    let mut cache = AprKVCache::new(&transformer.config);
+    let mut all_tokens = input_tokens.to_vec();
+
+    let mut logits = Vec::new();
+    for (pos, &token) in input_tokens.iter().enumerate() {
+        logits = transformer.forward_with_cache(token, &mut cache, pos)?;
+    }
+
+    for _ in 0..max_tokens.min(128) {
+        let next_token = greedy_argmax(&logits);
+        if is_eos_token(next_token) {
+            break;
+        }
+        all_tokens.push(next_token);
+        let pos = all_tokens.len() - 1;
+        logits = transformer.forward_with_cache(next_token, &mut cache, pos)?;
+    }
+
+    Ok(all_tokens)
+}
+
+fn decode_safetensors_output(model_path: &std::path::Path, generated_tokens: &[u32]) -> String {
+    use crate::apr::AprV2Model;
+
+    if let Some(tokenizer) = AprV2Model::load_tokenizer(model_path) {
+        clean_model_output(&tokenizer.decode(generated_tokens))
+    } else {
+        format!(
+            "[{} tokens generated, tokenizer not found]",
+            generated_tokens.len()
+        )
+    }
+}
+
 /// Run SafeTensors inference on CPU via AprTransformer conversion (PMAT-103)
 fn run_safetensors_cpu_inference(
     config: &InferenceConfig,
     input_tokens: &[u32],
     input_token_count: usize,
 ) -> Result<InferenceResult> {
-    use crate::apr::AprV2Model;
-    use crate::apr_transformer::AprKVCache;
     use crate::safetensors_infer::SafetensorsToAprConverter;
 
     let load_start = Instant::now();
@@ -14,59 +82,15 @@ fn run_safetensors_cpu_inference(
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
     if config.verbose {
-        let arch = &transformer.config.architecture;
-        let thread_count = rayon::current_num_threads();
-        eprintln!(
-            "Architecture: {} ({} layers, vocab_size={})",
-            arch, transformer.config.num_layers, transformer.config.vocab_size
-        );
-        eprintln!(
-            "Config: hidden_size={}, context_length={}, quant=F32, threads={}",
-            transformer.config.hidden_dim, transformer.config.context_length, thread_count
-        );
-        eprintln!("Model loaded in {:.1}ms", load_ms);
-        eprintln!("Backend: CPU (SIMD-accelerated)");
+        log_transformer_cpu_info(&transformer.config, load_ms);
     }
 
     let infer_start = Instant::now();
-    let mut cache = AprKVCache::new(&transformer.config);
-    let mut all_tokens = input_tokens.to_vec();
-
-    // Prefill phase
-    let mut logits = Vec::new();
-    for (pos, &token) in input_tokens.iter().enumerate() {
-        logits = transformer.forward_with_cache(token, &mut cache, pos)?;
-    }
-
-    // Decode phase: greedy sampling
-    for _ in 0..config.max_tokens.min(128) {
-        let next_token = logits
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map_or(0, |(i, _)| i as u32);
-
-        if next_token == 151645 || next_token == 151643 || next_token == 2 {
-            break;
-        }
-
-        all_tokens.push(next_token);
-        let pos = all_tokens.len() - 1;
-        logits = transformer.forward_with_cache(next_token, &mut cache, pos)?;
-    }
-
+    let all_tokens = greedy_decode_with_transformer(&transformer, input_tokens, config.max_tokens)?;
     let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
+
     let generated_tokens = &all_tokens[input_token_count..];
-
-    let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
-        clean_model_output(&tokenizer.decode(generated_tokens))
-    } else {
-        format!(
-            "[{} tokens generated, tokenizer not found]",
-            generated_tokens.len()
-        )
-    };
-
+    let text = decode_safetensors_output(&config.model_path, generated_tokens);
     let generated_token_count = generated_tokens.len();
 
     Ok(InferenceResult {
@@ -90,8 +114,6 @@ fn run_sharded_safetensors_inference(
     config: &InferenceConfig,
     prepared: &PreparedTokens,
 ) -> Result<InferenceResult> {
-    use crate::apr::AprV2Model;
-    use crate::apr_transformer::AprKVCache;
     use crate::safetensors::{SafetensorsConfig, ShardedSafeTensorsModel};
     use crate::safetensors_infer::SafetensorsToAprConverter;
 
@@ -104,7 +126,6 @@ fn run_sharded_safetensors_inference(
 
     let load_start = Instant::now();
 
-    // Load the sharded model from index.json
     let sharded = ShardedSafeTensorsModel::load_from_index(&config.model_path)?;
 
     if config.verbose {
@@ -115,7 +136,6 @@ fn run_sharded_safetensors_inference(
         );
     }
 
-    // Load config.json from the same directory
     let st_config = SafetensorsConfig::load_from_sibling(&config.model_path).ok_or_else(|| {
         RealizarError::UnsupportedOperation {
             operation: "sharded_safetensors_convert".to_string(),
@@ -123,68 +143,22 @@ fn run_sharded_safetensors_inference(
         }
     })?;
 
-    // Convert sharded model to AprTransformer
     let transformer = SafetensorsToAprConverter::convert_sharded(&sharded, &st_config)?;
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
     if config.verbose {
-        let arch = &transformer.config.architecture;
-        let thread_count = rayon::current_num_threads();
-        eprintln!(
-            "Architecture: {} ({} layers, vocab_size={})",
-            arch, transformer.config.num_layers, transformer.config.vocab_size
-        );
-        eprintln!(
-            "Config: hidden_size={}, context_length={}, quant=F32, threads={}",
-            transformer.config.hidden_dim, transformer.config.context_length, thread_count
-        );
-        eprintln!("Model loaded in {:.1}ms", load_ms);
-        eprintln!("Backend: CPU (SIMD-accelerated)");
+        log_transformer_cpu_info(&transformer.config, load_ms);
     }
 
-    // Inference loop (identical to run_safetensors_cpu_inference)
-    let input_tokens = prepared.tokens().to_vec();
+    let input_tokens = prepared.tokens();
     let input_token_count = prepared.input_count();
 
     let infer_start = Instant::now();
-    let mut cache = AprKVCache::new(&transformer.config);
-    let mut all_tokens = input_tokens.clone();
-
-    // Prefill phase
-    let mut logits = Vec::new();
-    for (pos, &token) in input_tokens.iter().enumerate() {
-        logits = transformer.forward_with_cache(token, &mut cache, pos)?;
-    }
-
-    // Decode phase: greedy sampling
-    for _ in 0..config.max_tokens.min(128) {
-        let next_token = logits
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map_or(0, |(i, _)| i as u32);
-
-        if next_token == 151645 || next_token == 151643 || next_token == 2 {
-            break;
-        }
-
-        all_tokens.push(next_token);
-        let pos = all_tokens.len() - 1;
-        logits = transformer.forward_with_cache(next_token, &mut cache, pos)?;
-    }
-
+    let all_tokens = greedy_decode_with_transformer(&transformer, input_tokens, config.max_tokens)?;
     let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
+
     let generated_tokens = &all_tokens[input_token_count..];
-
-    let text = if let Some(tokenizer) = AprV2Model::load_tokenizer(&config.model_path) {
-        clean_model_output(&tokenizer.decode(generated_tokens))
-    } else {
-        format!(
-            "[{} tokens generated, tokenizer not found]",
-            generated_tokens.len()
-        )
-    };
-
+    let text = decode_safetensors_output(&config.model_path, generated_tokens);
     let generated_token_count = generated_tokens.len();
 
     Ok(InferenceResult {

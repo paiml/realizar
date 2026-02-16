@@ -119,6 +119,72 @@ fn apr_arch_to_template_hint<'a>(apr_arch: &str, model_name: &'a str) -> &'a str
     }
 }
 
+/// Metadata captured from the model config before it is moved into CUDA.
+#[cfg(feature = "cuda")]
+struct AprCudaModelInfo {
+    arch: String,
+    num_layers: usize,
+    vocab_size: usize,
+    hidden_dim: usize,
+}
+
+/// Load an APR model and initialize it on CUDA, returning None on any failure.
+#[cfg(feature = "cuda")]
+fn load_apr_cuda_model(
+    model_path: &std::path::Path,
+    verbose: bool,
+) -> Option<(crate::gguf::OwnedQuantizedModelCuda, AprCudaModelInfo)> {
+    use crate::apr::MappedAprModel;
+    use crate::gguf::{OwnedQuantizedModel, OwnedQuantizedModelCuda};
+
+    let mapped = MappedAprModel::from_path(model_path).map_err(|e| {
+        if verbose { eprintln!("[APR-CUDA] MappedAprModel::from_path failed: {}", e); }
+    }).ok()?;
+
+    let model = OwnedQuantizedModel::from_apr(&mapped).map_err(|e| {
+        if verbose { eprintln!("[APR-CUDA] OwnedQuantizedModel::from_apr failed: {}", e); }
+    }).ok()?;
+
+    if model_has_legacy_quant(&model) {
+        return None;
+    }
+
+    let info = AprCudaModelInfo {
+        arch: model.config.architecture.clone(),
+        num_layers: model.config.num_layers,
+        vocab_size: model.config.vocab_size,
+        hidden_dim: model.config.hidden_dim,
+    };
+
+    let cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(model, 0, 2048).map_err(|e| {
+        if verbose { eprintln!("Backend: CPU (GPU unavailable: {})", e); }
+    }).ok()?;
+
+    Some((cuda_model, info))
+}
+
+#[cfg(feature = "cuda")]
+fn log_apr_cuda_info(
+    info: &AprCudaModelInfo,
+    cuda_model: &crate::gguf::OwnedQuantizedModelCuda,
+    load_ms: f64,
+) {
+    eprintln!(
+        "Architecture: {} ({} layers, vocab_size={})",
+        info.arch, info.num_layers, info.vocab_size
+    );
+    eprintln!(
+        "Config: hidden_size={}, quant=CUDA+KVCache, threads=1 (GPU)",
+        info.hidden_dim
+    );
+    eprintln!("Model loaded in {:.1}ms", load_ms);
+    eprintln!(
+        "Backend: GPU ({}, {} MB VRAM)",
+        cuda_model.device_name(),
+        cuda_model.vram_mb()
+    );
+}
+
 /// Try APR CUDA inference, returning None to fall through to CPU.
 ///
 /// Converts APR Q4K model to `OwnedQuantizedModel` and uses the proven GGUF CUDA
@@ -131,67 +197,14 @@ fn try_apr_cuda_inference(
     input_token_count: usize,
     load_start: Instant,
 ) -> Option<Result<InferenceResult>> {
-    use crate::apr::MappedAprModel;
-    use crate::gguf::{OwnedQuantizedModel, OwnedQuantizedModelCuda, QuantizedGenerateConfig};
+    use crate::gguf::QuantizedGenerateConfig;
 
-    // Load APR via memory-mapped model and convert to OwnedQuantizedModel.
-    // This reuses the proven GGUF CUDA pipeline for Q4K/Q6K models.
-    let mapped = match MappedAprModel::from_path(&config.model_path) {
-        Ok(m) => m,
-        Err(e) => {
-            if config.verbose {
-                eprintln!("[APR-CUDA] MappedAprModel::from_path failed: {}", e);
-            }
-            return None;
-        },
-    };
-    let model = match OwnedQuantizedModel::from_apr(&mapped) {
-        Ok(m) => m,
-        Err(e) => {
-            if config.verbose {
-                eprintln!("[APR-CUDA] OwnedQuantizedModel::from_apr failed: {}", e);
-            }
-            return None;
-        },
-    };
-
-    // Skip GPU for legacy quant types (Q4_0, Q5_0, Q8_0)
-    if model_has_legacy_quant(&model) {
-        return None;
-    }
-
-    let arch = model.config.architecture.clone();
-    let num_layers = model.config.num_layers;
-    let vocab_size = model.config.vocab_size;
-    let hidden_dim = model.config.hidden_dim;
-
-    let mut cuda_model = match OwnedQuantizedModelCuda::with_max_seq_len(model, 0, 2048) {
-        Ok(m) => m,
-        Err(e) => {
-            if config.verbose {
-                eprintln!("Backend: CPU (GPU unavailable: {})", e);
-            }
-            return None;
-        },
-    };
+    let (mut cuda_model, info) = load_apr_cuda_model(&config.model_path, config.verbose)?;
 
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
     if config.verbose {
-        eprintln!(
-            "Architecture: {} ({} layers, vocab_size={})",
-            arch, num_layers, vocab_size
-        );
-        eprintln!(
-            "Config: hidden_size={}, quant=CUDA+KVCache, threads=1 (GPU)",
-            hidden_dim
-        );
-        eprintln!("Model loaded in {:.1}ms", load_ms);
-        eprintln!(
-            "Backend: GPU ({}, {} MB VRAM)",
-            cuda_model.device_name(),
-            cuda_model.vram_mb()
-        );
+        log_apr_cuda_info(&info, &cuda_model, load_ms);
     }
 
     let gen_config = QuantizedGenerateConfig {
@@ -202,14 +215,12 @@ fn try_apr_cuda_inference(
         trace: false,
     };
 
-    // Validate GPU output against CPU (reuses GGUF validation gate)
     if !validate_gpu_first_token(&mut cuda_model, &gen_config) {
         return None;
     }
 
     let infer_start = Instant::now();
 
-    // generate_gpu_resident creates fresh KV cache + resets GPU positions
     let tokens = match cuda_model.generate_gpu_resident(input_tokens, &gen_config) {
         Ok(t) => t,
         Err(e) => {
