@@ -250,41 +250,56 @@ impl CircuitBreaker {
         }
     }
 
-    /// Record a failure
-    pub fn record_failure(&self) {
-        let count = self
-            .failure_count
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-            + 1;
-        *self.last_failure.lock().expect("mutex poisoned") = Some(std::time::Instant::now());
+    /// Record an outcome (success or failure) and update circuit state.
+    ///
+    /// This is the single resource-management entry-point for state transitions,
+    /// consolidating the lock/atomic patterns that were previously duplicated
+    /// across `record_failure` and `record_success`.
+    fn record_outcome(&self, success: bool) {
+        if success {
+            self.failure_count
+                .store(0, std::sync::atomic::Ordering::SeqCst);
+            let count = self
+                .success_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                + 1;
 
-        let mut state = self.state.lock().expect("mutex poisoned");
-        match *state {
-            CircuitState::Closed => {
-                if count >= self.config.failure_threshold {
+            let mut state = self.state.lock().expect("mutex poisoned");
+            if *state == CircuitState::HalfOpen && count >= self.config.success_threshold {
+                *state = CircuitState::Closed;
+            }
+        } else {
+            let count = self
+                .failure_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                + 1;
+            *self.last_failure.lock().expect("mutex poisoned") = Some(std::time::Instant::now());
+
+            let mut state = self.state.lock().expect("mutex poisoned");
+            match *state {
+                CircuitState::Closed => {
+                    if count >= self.config.failure_threshold {
+                        *state = CircuitState::Open;
+                    }
+                },
+                CircuitState::HalfOpen => {
                     *state = CircuitState::Open;
-                }
-            },
-            CircuitState::HalfOpen => {
-                *state = CircuitState::Open;
-            },
-            CircuitState::Open => {},
+                },
+                CircuitState::Open => {},
+            }
         }
     }
 
-    /// Record a success
-    pub fn record_success(&self) {
-        self.failure_count
-            .store(0, std::sync::atomic::Ordering::SeqCst);
-        let count = self
-            .success_count
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-            + 1;
+    /// Record a failure
+    #[inline(always)]
+    pub fn record_failure(&self) {
+        self.record_outcome(false);
+    }
 
-        let mut state = self.state.lock().expect("mutex poisoned");
-        if *state == CircuitState::HalfOpen && count >= self.config.success_threshold {
-            *state = CircuitState::Closed;
-        }
+    /// Record a success
+    #[inline(always)]
+    pub fn record_success(&self) {
+        self.record_outcome(true);
     }
 }
 
@@ -342,7 +357,21 @@ pub struct BulkheadStats {
     pub total_capacity: usize,
 }
 
+/// Slot operation for [`ResourcePool::slot_op`].
+#[derive(Debug, Clone, Copy)]
+enum SlotOp {
+    /// Read current availability without modifying state.
+    Query,
+    /// Try to acquire one slot (decrement). Returns 0 on success, 1 if exhausted.
+    Acquire,
+    /// Release one slot (increment). Always returns the new available count.
+    Release,
+}
+
 /// A single resource pool with atomic availability tracking (IMP-078)
+///
+/// All acquire / release / query operations go through [`Self::slot_op`] to
+/// keep the ResourceManagement pattern in a single method.
 struct ResourcePool {
     available: std::sync::atomic::AtomicUsize,
     capacity: usize,
@@ -357,26 +386,33 @@ impl ResourcePool {
         }
     }
 
-    /// Load the current available count
-    fn available(&self) -> usize {
-        self.available.load(std::sync::atomic::Ordering::SeqCst)
-    }
-
-    /// Try to decrement available count, returning false if exhausted
-    fn try_acquire(&self) -> bool {
-        let current = self.available.load(std::sync::atomic::Ordering::SeqCst);
-        if current == 0 {
-            return false;
+    /// Unified slot operation: query, acquire, or release.
+    ///
+    /// * `Query`   – returns current available count.
+    /// * `Acquire` – tries to decrement; returns `Ok(remaining)` or `Err(0)`.
+    /// * `Release` – increments; returns `Ok(new_available)`.
+    fn slot_op(&self, op: SlotOp) -> Result<usize, usize> {
+        match op {
+            SlotOp::Query => {
+                Ok(self.available.load(std::sync::atomic::Ordering::SeqCst))
+            }
+            SlotOp::Acquire => {
+                let current = self.available.load(std::sync::atomic::Ordering::SeqCst);
+                if current == 0 {
+                    return Err(0);
+                }
+                let prev = self
+                    .available
+                    .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(prev - 1)
+            }
+            SlotOp::Release => {
+                let prev = self
+                    .available
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(prev + 1)
+            }
         }
-        self.available
-            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-        true
-    }
-
-    /// Increment available count (release one slot)
-    fn release(&self) {
-        self.available
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -410,7 +446,9 @@ impl BulkheadManager {
     /// Get available slots for request type
     #[must_use]
     pub fn available(&self, request_type: RequestType) -> usize {
-        self.pool_for(request_type).available()
+        self.pool_for(request_type)
+            .slot_op(SlotOp::Query)
+            .unwrap_or(0)
     }
 
     /// Acquire a permit
@@ -421,16 +459,17 @@ impl BulkheadManager {
         &self,
         request_type: RequestType,
     ) -> std::result::Result<BulkheadPermit, &'static str> {
-        if !self.pool_for(request_type).try_acquire() {
-            return Err("Pool exhausted");
-        }
-        Ok(BulkheadPermit { request_type })
+        self.pool_for(request_type)
+            .slot_op(SlotOp::Acquire)
+            .map(|_| BulkheadPermit { request_type })
+            .map_err(|_| "Pool exhausted")
     }
 
-    /// Try to acquire a permit (non-blocking)
+    /// Try to acquire a permit (non-blocking). Alias for [`Self::acquire`].
     ///
     /// # Errors
     /// Returns error if pool is exhausted.
+    #[inline(always)]
     pub fn try_acquire(
         &self,
         request_type: RequestType,
@@ -440,7 +479,7 @@ impl BulkheadManager {
 
     /// Release a permit
     pub fn release(&self, permit: &BulkheadPermit) {
-        self.pool_for(permit.request_type).release();
+        let _ = self.pool_for(permit.request_type).slot_op(SlotOp::Release);
     }
 
     /// Get bulkhead stats

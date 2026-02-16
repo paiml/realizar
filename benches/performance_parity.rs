@@ -328,25 +328,58 @@ fn run_q4k_bench_entry(c: &mut Criterion, entry: &Q4kBenchEntry) {
     group.finish();
 }
 
-// Q4K benchmark table: each entry becomes a criterion group sub-benchmark
-static Q4K_DEQUANT_ENTRY: Q4kBenchEntry = Q4kBenchEntry {
-    group_name: "q4k_dequant_simd",
-    sample_size: 100,
-    cases: Q4kBenchCases::Dequant(&[1, 4, 16, 64, 256]),
-};
+// Q4K benchmark suite table: all Q4K entries driven by a single function
+static Q4K_BENCH_SUITE: &[Q4kBenchEntry] = &[
+    Q4kBenchEntry {
+        group_name: "q4k_dequant_simd",
+        sample_size: 100,
+        cases: Q4kBenchCases::Dequant(&[1, 4, 16, 64, 256]),
+    },
+    Q4kBenchEntry {
+        group_name: "fused_q4k_dot",
+        sample_size: 100,
+        cases: Q4kBenchCases::FusedDot(&[256, 1024, 4096, 16384]),
+    },
+    Q4kBenchEntry {
+        group_name: "imp_100c_quantized_vs_dequantized",
+        sample_size: 100,
+        cases: Q4kBenchCases::Matvec {
+            dimensions: &[
+                (1024, 1024, "square"),
+                (1536, 4096, "qwen_up"),
+                (4096, 1536, "qwen_down"),
+                (2560, 10240, "phi2_up"),
+            ],
+            include_dequant_baseline: true,
+        },
+    },
+    Q4kBenchEntry {
+        group_name: "imp_103_q4k_matvec_optimization",
+        sample_size: 50,
+        cases: Q4kBenchCases::Matvec {
+            dimensions: &[
+                (512, 512, "output_proj"),
+                (512, 1024, "ffn_up"),
+                (1024, 512, "ffn_down"),
+                (512, 1536, "qkv_proj"),
+                (512, 2000, "lm_head"),
+                (1024, 4096, "large_ffn"),
+            ],
+            include_dequant_baseline: false,
+        },
+    },
+    Q4kBenchEntry {
+        group_name: "imp_103_q4k_single_row_dot",
+        sample_size: 50,
+        cases: Q4kBenchCases::SingleRowDot(&[512, 4096]),
+    },
+];
 
-static Q4K_FUSED_DOT_ENTRY: Q4kBenchEntry = Q4kBenchEntry {
-    group_name: "fused_q4k_dot",
-    sample_size: 100,
-    cases: Q4kBenchCases::FusedDot(&[256, 1024, 4096, 16384]),
-};
-
-fn benchmark_q4k_dequant_simd(c: &mut Criterion) {
-    run_q4k_bench_entry(c, &Q4K_DEQUANT_ENTRY);
-}
-
-fn benchmark_fused_q4k_dot(c: &mut Criterion) {
-    run_q4k_bench_entry(c, &Q4K_FUSED_DOT_ENTRY);
+/// Run all Q4K benchmarks from the suite table (Kaizen: single entry point).
+fn benchmark_q4k_suite(c: &mut Criterion) {
+    for entry in Q4K_BENCH_SUITE {
+        run_q4k_bench_entry(c, entry);
+    }
 }
 
 // ============================================================================
@@ -730,31 +763,7 @@ mod tests {
     }
 }
 
-// ============================================================================
-// IMP-100c: Quantized vs Dequantized Throughput Benchmark
-// ============================================================================
-
-/// IMP-100c dimension table: (in_dim, out_dim, label)
-static IMP100C_DIMS: &[(usize, usize, &str)] = &[
-    (1024, 1024, "square"),    // Square baseline
-    (1536, 4096, "qwen_up"),   // Qwen-like FFN up
-    (4096, 1536, "qwen_down"), // Qwen-like FFN down
-    (2560, 10240, "phi2_up"),  // Phi-2-like FFN up
-];
-
-fn benchmark_quantized_vs_dequantized(c: &mut Criterion) {
-    run_q4k_bench_entry(
-        c,
-        &Q4kBenchEntry {
-            group_name: "imp_100c_quantized_vs_dequantized",
-            sample_size: 100,
-            cases: Q4kBenchCases::Matvec {
-                dimensions: IMP100C_DIMS,
-                include_dequant_baseline: true,
-            },
-        },
-    );
-}
+// IMP-100c: Quantized vs Dequantized Throughput — included in Q4K_BENCH_SUITE
 
 // ============================================================================
 // IMP-101d: KV Cache vs Full Recompute Benchmark
@@ -1366,54 +1375,7 @@ fn benchmark_component_profiling(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
-// IMP-103a: SIMD-Optimized Q4_K Matvec Benchmark
-// ============================================================================
-
-/// IMP-103 dimension table: (in_dim, out_dim, label)
-/// Dimensions from IMP-102c profiling (most time-consuming):
-/// LM head: 512 -> 2000 (21.4% of time)
-/// QKV: 512 -> 1536 (19.5% of time)
-/// FFN up: 512 -> 1024 (15.4% of time)
-static IMP103_DIMS: &[(usize, usize, &str)] = &[
-    (512, 512, "output_proj"),
-    (512, 1024, "ffn_up"),
-    (1024, 512, "ffn_down"),
-    (512, 1536, "qkv_proj"),
-    (512, 2000, "lm_head"),
-    (1024, 4096, "large_ffn"),
-];
-
-/// Benchmark for fused Q4_K matvec optimization (IMP-103)
-///
-/// Measures throughput of fused_q4k_parallel_matvec at different dimensions
-/// to identify optimization opportunities.
-///
-/// Target: 2x speedup via improved SIMD utilization
-fn benchmark_q4k_matvec_optimization(c: &mut Criterion) {
-    // Matvec benchmarks via shared dispatcher
-    run_q4k_bench_entry(
-        c,
-        &Q4kBenchEntry {
-            group_name: "imp_103_q4k_matvec_optimization",
-            sample_size: 50,
-            cases: Q4kBenchCases::Matvec {
-                dimensions: IMP103_DIMS,
-                include_dequant_baseline: false,
-            },
-        },
-    );
-
-    // Single-row dot benchmarks via shared dispatcher
-    run_q4k_bench_entry(
-        c,
-        &Q4kBenchEntry {
-            group_name: "imp_103_q4k_matvec_optimization",
-            sample_size: 50,
-            cases: Q4kBenchCases::SingleRowDot(&[512, 4096]),
-        },
-    );
-}
+// IMP-103a: SIMD-Optimized Q4_K Matvec — included in Q4K_BENCH_SUITE
 
 // ============================================================================
 // IMP-106: Batch Prefill Benchmarks
