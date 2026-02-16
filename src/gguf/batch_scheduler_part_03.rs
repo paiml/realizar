@@ -25,34 +25,70 @@ impl GpuBufferPool {
         }
     }
 
+    /// Pre-allocate buffers of a given size into a pool mutex.
+    fn warmup_pool(buffers: &std::sync::Mutex<Vec<Vec<f32>>>, count: usize, size: usize) {
+        let mut pool = buffers.lock().expect("mutex poisoned");
+        for _ in 0..count {
+            pool.push(vec![0.0f32; size]);
+        }
+    }
+
+    /// Borrow a buffer from a pool, allocating a new one if the pool is empty.
+    ///
+    /// Tracks borrow count and post-warmup allocations for diagnostics.
+    fn borrow_from_pool(
+        &self,
+        buffers: &std::sync::Mutex<Vec<Vec<f32>>>,
+        alloc_size: usize,
+    ) -> Vec<f32> {
+        self.borrows
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        let mut pool = buffers.lock().expect("mutex poisoned");
+        if let Some(buffer) = pool.pop() {
+            buffer
+        } else {
+            if self.warmed_up.load(std::sync::atomic::Ordering::Acquire) {
+                self.post_warmup_allocs
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            vec![0.0f32; alloc_size]
+        }
+    }
+
+    /// Return a buffer to a pool, zeroing it first for security and determinism.
+    ///
+    /// Drops the buffer if the pool is already at capacity.
+    fn return_to_pool(&self, buffers: &std::sync::Mutex<Vec<Vec<f32>>>, mut buffer: Vec<f32>) {
+        self.returns
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        // Zero out for security and determinism
+        buffer.fill(0.0);
+
+        let mut pool = buffers.lock().expect("mutex poisoned");
+        if pool.len() < self.pool_size {
+            pool.push(buffer);
+        }
+        // If pool is full, buffer is dropped
+    }
+
     /// Warmup: pre-allocate all buffers
     ///
     /// Call this once during model initialization to eliminate
     /// allocation overhead during inference.
     pub fn warmup(&self) {
-        // Pre-allocate hidden state buffers
-        {
-            let mut buffers = self.hidden_buffers.lock().expect("mutex poisoned");
-            for _ in 0..self.pool_size {
-                buffers.push(vec![0.0f32; self.hidden_dim]);
-            }
-        }
-
-        // Pre-allocate intermediate buffers (FFN)
-        {
-            let mut buffers = self.intermediate_buffers.lock().expect("mutex poisoned");
-            for _ in 0..self.pool_size {
-                buffers.push(vec![0.0f32; self.intermediate_dim]);
-            }
-        }
-
-        // Pre-allocate attention score buffers
-        {
-            let mut buffers = self.attention_buffers.lock().expect("mutex poisoned");
-            for _ in 0..self.pool_size {
-                buffers.push(vec![0.0f32; self.num_heads * self.max_seq_len]);
-            }
-        }
+        Self::warmup_pool(&self.hidden_buffers, self.pool_size, self.hidden_dim);
+        Self::warmup_pool(
+            &self.intermediate_buffers,
+            self.pool_size,
+            self.intermediate_dim,
+        );
+        Self::warmup_pool(
+            &self.attention_buffers,
+            self.pool_size,
+            self.num_heads * self.max_seq_len,
+        );
 
         self.warmed_up
             .store(true, std::sync::atomic::Ordering::Release);
@@ -62,93 +98,35 @@ impl GpuBufferPool {
     ///
     /// Returns a pre-allocated buffer if available, or allocates new if needed.
     pub fn borrow_hidden(&self) -> Vec<f32> {
-        self.borrows
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-        let mut buffers = self.hidden_buffers.lock().expect("mutex poisoned");
-        if let Some(buffer) = buffers.pop() {
-            buffer
-        } else {
-            // Need to allocate - track if after warmup
-            if self.warmed_up.load(std::sync::atomic::Ordering::Acquire) {
-                self.post_warmup_allocs
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-            vec![0.0f32; self.hidden_dim]
-        }
+        self.borrow_from_pool(&self.hidden_buffers, self.hidden_dim)
     }
 
     /// Return a hidden state buffer to the pool
-    pub fn return_hidden(&self, mut buffer: Vec<f32>) {
-        self.returns
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-        // Zero out for security and determinism
-        buffer.fill(0.0);
-
-        let mut buffers = self.hidden_buffers.lock().expect("mutex poisoned");
-        if buffers.len() < self.pool_size {
-            buffers.push(buffer);
-        }
-        // If pool is full, buffer is dropped
+    pub fn return_hidden(&self, buffer: Vec<f32>) {
+        self.return_to_pool(&self.hidden_buffers, buffer);
     }
 
     /// Borrow an intermediate buffer from the pool
     pub fn borrow_intermediate(&self) -> Vec<f32> {
-        self.borrows
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-        let mut buffers = self.intermediate_buffers.lock().expect("mutex poisoned");
-        if let Some(buffer) = buffers.pop() {
-            buffer
-        } else {
-            if self.warmed_up.load(std::sync::atomic::Ordering::Acquire) {
-                self.post_warmup_allocs
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-            vec![0.0f32; self.intermediate_dim]
-        }
+        self.borrow_from_pool(&self.intermediate_buffers, self.intermediate_dim)
     }
 
     /// Return an intermediate buffer to the pool
-    pub fn return_intermediate(&self, mut buffer: Vec<f32>) {
-        self.returns
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        buffer.fill(0.0);
-
-        let mut buffers = self.intermediate_buffers.lock().expect("mutex poisoned");
-        if buffers.len() < self.pool_size {
-            buffers.push(buffer);
-        }
+    pub fn return_intermediate(&self, buffer: Vec<f32>) {
+        self.return_to_pool(&self.intermediate_buffers, buffer);
     }
 
     /// Borrow an attention score buffer from the pool
     pub fn borrow_attention(&self) -> Vec<f32> {
-        self.borrows
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-        let mut buffers = self.attention_buffers.lock().expect("mutex poisoned");
-        if let Some(buffer) = buffers.pop() {
-            buffer
-        } else {
-            if self.warmed_up.load(std::sync::atomic::Ordering::Acquire) {
-                self.post_warmup_allocs
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-            vec![0.0f32; self.num_heads * self.max_seq_len]
-        }
+        self.borrow_from_pool(
+            &self.attention_buffers,
+            self.num_heads * self.max_seq_len,
+        )
     }
 
     /// Return an attention score buffer to the pool
-    pub fn return_attention(&self, mut buffer: Vec<f32>) {
-        self.returns
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        buffer.fill(0.0);
-
-        let mut buffers = self.attention_buffers.lock().expect("mutex poisoned");
-        if buffers.len() < self.pool_size {
-            buffers.push(buffer);
-        }
+    pub fn return_attention(&self, buffer: Vec<f32>) {
+        self.return_to_pool(&self.attention_buffers, buffer);
     }
 
     /// Check if pool has achieved zero-allocation after warmup
@@ -217,7 +195,7 @@ pub struct GpuBufferPoolStats {
 /// # Key Properties
 /// - Double-buffering: 2 command slots for overlap
 /// - Async submission: Non-blocking command enqueue
-/// - Pipeline stages: Prepare → Submit → Execute → Complete
+/// - Pipeline stages: Prepare -> Submit -> Execute -> Complete
 ///
 /// # GPU Utilization Target
 /// - Without pipelining: ~50% (waiting for results)
@@ -291,6 +269,11 @@ impl AsyncCommandQueue {
         }
     }
 
+    /// Load an atomic u64 counter with Relaxed ordering.
+    fn load_relaxed(counter: &std::sync::atomic::AtomicU64) -> u64 {
+        counter.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Submit a command for async execution
     ///
     /// Returns the slot index where the command was placed.
@@ -354,15 +337,9 @@ impl AsyncCommandQueue {
 
     /// Get queue statistics
     pub fn stats(&self) -> AsyncQueueStats {
-        let submitted = self
-            .commands_submitted
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let completed = self
-            .commands_completed
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let stalls = self
-            .pipeline_stalls
-            .load(std::sync::atomic::Ordering::Relaxed);
+        let submitted = Self::load_relaxed(&self.commands_submitted);
+        let completed = Self::load_relaxed(&self.commands_completed);
+        let stalls = Self::load_relaxed(&self.pipeline_stalls);
 
         // GPU utilization estimate: (1 - stalls/submitted) * 100
         let utilization = if submitted > 0 {
@@ -384,12 +361,8 @@ impl AsyncCommandQueue {
     ///
     /// Efficiency = commands without stall / total commands
     pub fn pipeline_efficiency(&self) -> f64 {
-        let submitted = self
-            .commands_submitted
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let stalls = self
-            .pipeline_stalls
-            .load(std::sync::atomic::Ordering::Relaxed);
+        let submitted = Self::load_relaxed(&self.commands_submitted);
+        let stalls = Self::load_relaxed(&self.pipeline_stalls);
         if submitted == 0 {
             return 1.0;
         }
@@ -436,7 +409,7 @@ pub struct AsyncQueueStats {
 /// - Chat history prefixes
 #[cfg(feature = "gpu")]
 pub struct PrefixCache {
-    /// Cached prefix entries (hash → entry)
+    /// Cached prefix entries (hash -> entry)
     entries: std::sync::Mutex<std::collections::HashMap<u64, PrefixCacheEntry>>,
     /// Maximum number of cached prefixes
     max_entries: usize,

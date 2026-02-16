@@ -313,7 +313,7 @@
     }
 
     // ========================================================================
-    // Additional Coverage Tests - Auto Select with Skew Disabled
+    // Auto-select with skew detection disabled
     // ========================================================================
 
     #[test]
