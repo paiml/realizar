@@ -43,7 +43,10 @@
 #![allow(clippy::cast_precision_loss)]
 #![allow(dead_code)] // Benchmark constants may not all be used
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::measurement::WallTime;
+use criterion::{
+    black_box, criterion_group, criterion_main, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
+};
 
 // Import realizar types
 use realizar::layers::{softmax, Attention, FusedQKVAttention, LayerNorm};
@@ -202,6 +205,110 @@ enum Q4kBenchCases {
     SingleRowDot(&'static [usize]),
 }
 
+/// Benchmark Q4K fused matvec over a set of dimension configurations.
+///
+/// For each (in_dim, out_dim, name) tuple, runs the `fused_q4k_parallel_matvec`
+/// benchmark and optionally the dequant-then-matvec baseline via
+/// `bench_dequant_then_matvec`.
+fn bench_q4k_matvec(
+    group: &mut BenchmarkGroup<WallTime>,
+    dimensions: &[(usize, usize, &str)],
+    include_dequant_baseline: bool,
+) {
+    for &(in_dim, out_dim, name) in dimensions {
+        let weights = make_q4k_weights(in_dim, out_dim);
+        let activations = make_activations(in_dim);
+        let weight_values = in_dim * out_dim;
+        let flops = 2 * in_dim * out_dim;
+
+        // Pick throughput metric: weight_values for IMP-100c, flops for IMP-103
+        let throughput = if include_dequant_baseline {
+            weight_values
+        } else {
+            flops
+        };
+        group.throughput(Throughput::Elements(throughput as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("fused_q4k_matvec", format!("{name}_{in_dim}x{out_dim}")),
+            &(&weights, &activations, in_dim, out_dim),
+            |b, (w, a, in_d, out_d)| {
+                b.iter(|| {
+                    let result = fused_q4k_parallel_matvec(
+                        black_box(*w),
+                        black_box(*a),
+                        *in_d,
+                        *out_d,
+                    )
+                    .expect("test");
+                    black_box(result)
+                });
+            },
+        );
+
+        if include_dequant_baseline {
+            bench_dequant_then_matvec(group, &weights, &activations, in_dim, out_dim, name);
+        }
+    }
+}
+
+/// Benchmark the dequant-then-matvec baseline for a single dimension pair.
+///
+/// Dequantizes the full weight matrix then performs a scalar matvec.
+/// Used as the "separate operations" baseline for IMP-100c comparisons.
+fn bench_dequant_then_matvec(
+    group: &mut BenchmarkGroup<WallTime>,
+    weights: &[u8],
+    activations: &[f32],
+    in_dim: usize,
+    out_dim: usize,
+    name: &str,
+) {
+    group.bench_with_input(
+        BenchmarkId::new(
+            "dequant_then_matvec",
+            format!("{name}_{in_dim}x{out_dim}"),
+        ),
+        &(weights, activations, in_dim, out_dim),
+        |b, (w, a, in_d, out_d)| {
+            b.iter(|| {
+                let dequantized = dequantize_q4_k_simd(black_box(*w)).expect("test");
+                let mut output = vec![0.0f32; *out_d];
+                for row in 0..*out_d {
+                    let row_start = row * *in_d;
+                    let row_end = row_start + *in_d;
+                    if row_end <= dequantized.len() {
+                        let row_slice = &dequantized[row_start..row_end];
+                        output[row] =
+                            row_slice.iter().zip(a.iter()).map(|(w, x)| w * x).sum();
+                    }
+                }
+                black_box(output)
+            });
+        },
+    );
+}
+
+/// Benchmark Q4K SIMD dequantization over a set of super-block counts.
+fn bench_q4k_dequant(group: &mut BenchmarkGroup<WallTime>, sb_counts: &[usize]) {
+    for &sb_count in sb_counts {
+        let num_values = sb_count * Q4K_SUPERBLOCK_SIZE;
+        let data = make_q4k_data(num_values);
+
+        group.throughput(Throughput::Elements(num_values as u64));
+        group.bench_with_input(
+            BenchmarkId::new("simd", format!("{num_values}_values")),
+            &data,
+            |b, d| {
+                b.iter(|| {
+                    let result = dequantize_q4_k_simd(black_box(d)).expect("test");
+                    black_box(result)
+                });
+            },
+        );
+    }
+}
+
 /// Run all Q4K-family benchmarks via a single table-driven dispatcher.
 fn run_q4k_bench_entry(c: &mut Criterion, entry: &Q4kBenchEntry) {
     let mut group = c.benchmark_group(entry.group_name);
@@ -209,22 +316,7 @@ fn run_q4k_bench_entry(c: &mut Criterion, entry: &Q4kBenchEntry) {
 
     match &entry.cases {
         Q4kBenchCases::Dequant(sb_counts) => {
-            for &sb_count in *sb_counts {
-                let num_values = sb_count * Q4K_SUPERBLOCK_SIZE;
-                let data = make_q4k_data(num_values);
-
-                group.throughput(Throughput::Elements(num_values as u64));
-                group.bench_with_input(
-                    BenchmarkId::new("simd", format!("{num_values}_values")),
-                    &data,
-                    |b, d| {
-                        b.iter(|| {
-                            let result = dequantize_q4_k_simd(black_box(d)).expect("test");
-                            black_box(result)
-                        });
-                    },
-                );
-            }
+            bench_q4k_dequant(&mut group, sb_counts);
         }
         Q4kBenchCases::FusedDot(sizes) => {
             for &size in *sizes {
@@ -249,64 +341,7 @@ fn run_q4k_bench_entry(c: &mut Criterion, entry: &Q4kBenchEntry) {
             dimensions,
             include_dequant_baseline,
         } => {
-            for &(in_dim, out_dim, name) in *dimensions {
-                let weights = make_q4k_weights(in_dim, out_dim);
-                let activations = make_activations(in_dim);
-                let weight_values = in_dim * out_dim;
-                let flops = 2 * in_dim * out_dim;
-
-                // Pick throughput metric: weight_values for IMP-100c, flops for IMP-103
-                let throughput = if *include_dequant_baseline {
-                    weight_values
-                } else {
-                    flops
-                };
-                group.throughput(Throughput::Elements(throughput as u64));
-
-                group.bench_with_input(
-                    BenchmarkId::new("fused_q4k_matvec", format!("{name}_{in_dim}x{out_dim}")),
-                    &(&weights, &activations, in_dim, out_dim),
-                    |b, (w, a, in_d, out_d)| {
-                        b.iter(|| {
-                            let result = fused_q4k_parallel_matvec(
-                                black_box(*w),
-                                black_box(*a),
-                                *in_d,
-                                *out_d,
-                            )
-                            .expect("test");
-                            black_box(result)
-                        });
-                    },
-                );
-
-                if *include_dequant_baseline {
-                    group.bench_with_input(
-                        BenchmarkId::new(
-                            "dequant_then_matvec",
-                            format!("{name}_{in_dim}x{out_dim}"),
-                        ),
-                        &(&weights, &activations, in_dim, out_dim),
-                        |b, (w, a, in_d, out_d)| {
-                            b.iter(|| {
-                                let dequantized =
-                                    dequantize_q4_k_simd(black_box(*w)).expect("test");
-                                let mut output = vec![0.0f32; *out_d];
-                                for row in 0..*out_d {
-                                    let row_start = row * *in_d;
-                                    let row_end = row_start + *in_d;
-                                    if row_end <= dequantized.len() {
-                                        let row_slice = &dequantized[row_start..row_end];
-                                        output[row] =
-                                            row_slice.iter().zip(a.iter()).map(|(w, x)| w * x).sum();
-                                    }
-                                }
-                                black_box(output)
-                            });
-                        },
-                    );
-                }
-            }
+            bench_q4k_matvec(&mut group, dimensions, *include_dequant_baseline);
         }
         Q4kBenchCases::SingleRowDot(sizes) => {
             for &size in *sizes {
@@ -1507,72 +1542,10 @@ fn create_bench_q4k_data(in_dim: usize, out_dim: usize) -> realizar::gguf::Owned
     make_q4k_tensor(in_dim, out_dim)
 }
 
+
 // ============================================================================
-// IMP-107: GPU Batch Matmul Benchmarks
+// IMP-107..120: Unified GPU Benchmark Suite (Kaizen: DRY DataTransformation)
 // ============================================================================
-
-/// Benchmark GPU vs CPU matmul crossover point (IMP-107c)
-///
-/// Measures when GPU batch matmul becomes faster than CPU.
-/// Per spec: GPU should win for batch_size > 1 and large matrices.
-#[cfg(feature = "gpu")]
-fn benchmark_gpu_batch_matmul(c: &mut Criterion) {
-    use realizar::gpu::HybridScheduler;
-
-    let mut group = c.benchmark_group("gpu_batch_matmul");
-    group.sample_size(50);
-
-    // Test various batch sizes and matrix dimensions
-    // Format: (batch_size, k_dim, n_dim)
-    let test_cases = [
-        (1, 256, 256),   // Single token - CPU should win
-        (1, 512, 512),   // Single token, larger - CPU should still win
-        (4, 256, 256),   // Small batch - crossover point
-        (8, 256, 512),   // Medium batch - GPU should start winning
-        (16, 512, 512),  // Large batch - GPU should dominate
-        (32, 512, 1024), // Very large batch - GPU territory
-    ];
-
-    for (batch_size, k, n) in test_cases {
-        let m = batch_size;
-        let ops = m * k * n;
-
-        // Create test matrices
-        let a: Vec<f32> = (0..m * k).map(|i| (i as f32) * 0.001).collect();
-        let b: Vec<f32> = (0..k * n).map(|i| (i as f32) * 0.001).collect();
-
-        group.throughput(Throughput::Elements(ops as u64));
-
-        // Benchmark CPU path
-        group.bench_with_input(
-            BenchmarkId::new("cpu", format!("{m}x{k}x{n}")),
-            &(&a, &b),
-            |bencher, (a, b)| {
-                bencher.iter(|| {
-                    let result = cpu_matmul_bench(black_box(a), black_box(b), m, k, n);
-                    black_box(result)
-                });
-            },
-        );
-
-        // Benchmark HybridScheduler (GPU when appropriate)
-        group.bench_with_input(
-            BenchmarkId::new("hybrid", format!("{m}x{k}x{n}")),
-            &(&a, &b),
-            |bencher, (a, b)| {
-                let mut scheduler = HybridScheduler::with_threshold(1000).expect("test");
-                bencher.iter(|| {
-                    let result = scheduler
-                        .matmul(black_box(a), black_box(b), m, k, n)
-                        .expect("test");
-                    black_box(result)
-                });
-            },
-        );
-    }
-
-    group.finish();
-}
 
 /// CPU reference matmul for benchmark comparison
 #[cfg(feature = "gpu")]
@@ -1588,78 +1561,6 @@ fn cpu_matmul_bench(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f
         }
     }
     c
-}
-
-// ============================================================================
-// IMP-108: Batched Causal Attention Benchmarks
-// ============================================================================
-
-/// Benchmark batched causal attention vs sequential (IMP-108c)
-///
-/// Measures the speedup of batched causal attention with GPU acceleration
-/// compared to sequential per-position attention.
-#[cfg(feature = "gpu")]
-fn benchmark_batched_causal_attention(c: &mut Criterion) {
-    let mut group = c.benchmark_group("batched_causal_attention");
-    group.sample_size(30);
-
-    // Test various sequence lengths
-    let seq_lengths = [4, 8, 16, 32, 64];
-
-    for seq_len in seq_lengths {
-        let config = make_bench_config(256, 512, 1, 8, 1000);
-
-        let model = create_bench_model_with_config(&config);
-
-        // Create test Q, K, V
-        let hidden_dim = config.hidden_dim;
-        let num_heads = config.num_heads;
-        let (q, k, v) = make_qkv_vecs(seq_len, hidden_dim);
-
-        group.throughput(Throughput::Elements(
-            (seq_len * seq_len * hidden_dim) as u64,
-        ));
-
-        // Benchmark CPU sequential causal attention (reference)
-        group.bench_with_input(
-            BenchmarkId::new("cpu_sequential", seq_len),
-            &(&q, &k, &v),
-            |bencher, (q, k, v)| {
-                bencher.iter(|| {
-                    let result = causal_attention_cpu_ref(
-                        black_box(q),
-                        black_box(k),
-                        black_box(v),
-                        seq_len,
-                        hidden_dim,
-                        num_heads,
-                    );
-                    black_box(result)
-                });
-            },
-        );
-
-        // Benchmark batched GPU causal attention
-        group.bench_with_input(
-            BenchmarkId::new("batched_gpu", seq_len),
-            &(&q, &k, &v),
-            |bencher, (q, k, v)| {
-                bencher.iter(|| {
-                    let result = model
-                        .batched_causal_attention_gpu(
-                            black_box(q),
-                            black_box(k),
-                            black_box(v),
-                            seq_len,
-                        )
-                        .expect("test");
-                    black_box(result)
-                });
-            },
-        );
-    }
-
-    group.finish();
 }
 
 /// CPU reference implementation of causal attention for benchmarking
@@ -1717,245 +1618,99 @@ fn causal_attention_cpu_ref(
     output
 }
 
-/// Benchmark fused batch matmul vs separate operations (IMP-109)
-///
-/// Measures the performance benefit of fusing dequantization with matmul
-/// for FFN projections in transformer layers.
+/// Create benchmark model with config
+/// NOTE: Disabled - new_for_benchmark method doesn't exist
 #[cfg(feature = "gpu")]
-fn benchmark_fused_batch_matmul(c: &mut Criterion) {
-    use realizar::gguf::GGUFConfig;
-    use realizar::gpu::HybridScheduler;
-    use realizar::quantize::{dequantize_q4_k_simd, QK_K};
-
-    let mut group = c.benchmark_group("fused_batch_matmul_imp109");
-    group.sample_size(30);
-
-    // Test various batch sizes and dimensions
-    let configs = [
-        (4, 256, 512, "small_4x256x512"),
-        (8, 256, 512, "small_8x256x512"),
-        (4, 512, 1024, "medium_4x512x1024"),
-        (8, 512, 1024, "medium_8x512x1024"),
-        (16, 256, 512, "batch_16x256x512"),
-        (32, 256, 512, "batch_32x256x512"),
-    ];
-
-    for (batch_size, hidden_dim, intermediate_dim, label) in configs {
-        let config = make_bench_config(hidden_dim, intermediate_dim, 1, 4, 100);
-
-        let model = create_bench_model_with_config(&config);
-
-        // Create input activations
-        let activations: Vec<f32> = (0..batch_size * hidden_dim)
-            .map(|i| ((i % 17) as f32 - 8.0) * 0.05)
-            .collect();
-
-        let weight = &model.layers[0].ffn_up_weight;
-
-        // Pre-dequantize weight for "separate" benchmark
-        let weight_f32 = {
-            let in_dim = weight.in_dim;
-            let out_dim = weight.out_dim;
-            let super_blocks_per_row = in_dim.div_ceil(QK_K);
-            let mut output = Vec::with_capacity(in_dim * out_dim);
-            for row in 0..out_dim {
-                let row_start = row * super_blocks_per_row * 144;
-                let row_end = row_start + super_blocks_per_row * 144;
-                let row_data = &weight.data[row_start..row_end];
-                let row_dequant = dequantize_q4_k_simd(row_data).expect("test");
-                output.extend_from_slice(&row_dequant[..in_dim.min(row_dequant.len())]);
-            }
-            output
-        };
-
-        group.throughput(Throughput::Elements(
-            (batch_size * hidden_dim * intermediate_dim) as u64,
-        ));
-
-        // Benchmark fused batch matmul (dequant + matmul combined)
-        group.bench_with_input(
-            BenchmarkId::new("fused", label),
-            &(&activations, weight),
-            |bencher, (act, w)| {
-                bencher.iter(|| {
-                    let result = model
-                        .fused_batch_matmul_gpu(black_box(act), black_box(w), batch_size)
-                        .expect("test");
-                    black_box(result)
-                });
-            },
-        );
-
-        // Benchmark separate: pre-dequantized weight + matmul
-        let weight_clone = weight_f32.clone();
-        group.bench_with_input(
-            BenchmarkId::new("separate_predequant", label),
-            &(&activations, &weight_clone),
-            |bencher, (act, w)| {
-                bencher.iter(|| {
-                    let mut scheduler = HybridScheduler::with_threshold(1000).expect("test");
-                    let result = scheduler
-                        .matmul(
-                            black_box(act),
-                            black_box(w),
-                            batch_size,
-                            hidden_dim,
-                            intermediate_dim,
-                        )
-                        .expect("test");
-                    black_box(result)
-                });
-            },
-        );
-
-        // Benchmark separate: dequant each time + matmul (worst case)
-        group.bench_with_input(
-            BenchmarkId::new("separate_redequant", label),
-            &(&activations, weight),
-            |bencher, (act, w)| {
-                bencher.iter(|| {
-                    // Dequantize weight each time (simulates no caching)
-                    let in_dim = w.in_dim;
-                    let out_dim = w.out_dim;
-                    let super_blocks_per_row = in_dim.div_ceil(QK_K);
-                    let mut w_f32 = Vec::with_capacity(in_dim * out_dim);
-                    for row in 0..out_dim {
-                        let row_start = row * super_blocks_per_row * 144;
-                        let row_end = row_start + super_blocks_per_row * 144;
-                        let row_data = &w.data[row_start..row_end];
-                        let row_dequant = dequantize_q4_k_simd(row_data).expect("test");
-                        w_f32.extend_from_slice(&row_dequant[..in_dim.min(row_dequant.len())]);
-                    }
-
-                    let mut scheduler = HybridScheduler::with_threshold(1000).expect("test");
-                    let result = scheduler
-                        .matmul(black_box(act), &w_f32, batch_size, in_dim, out_dim)
-                        .expect("test");
-                    black_box(result)
-                });
-            },
-        );
-    }
-
-    group.finish();
+#[allow(dead_code)]
+fn create_bench_model_with_config(
+    _config: &realizar::gguf::GGUFConfig,
+) -> realizar::gguf::OwnedQuantizedModel {
+    unimplemented!("TODO: Update to use OwnedQuantizedModel struct constructor")
 }
 
-/// Benchmark parallel multi-head attention vs sequential (IMP-110)
+/// GPU benchmark variant descriptor for table-driven dispatch.
 ///
-/// Measures the performance of processing all attention heads in parallel
-/// vs the sequential head-by-head approach.
+/// Each variant captures a distinct GPU benchmark pattern (IMP-107 through IMP-120).
+/// The dispatcher `run_gpu_bench` eliminates the repeated DataTransformation pattern:
+/// create data -> configure group -> run benchmark -> assert results.
 #[cfg(feature = "gpu")]
-fn benchmark_parallel_multihead_attention(c: &mut Criterion) {
-    use realizar::gguf::GGUFConfig;
-
-    let mut group = c.benchmark_group("parallel_multihead_attention_imp110");
-    group.sample_size(30);
-
-    // Test various sequence lengths and head counts
-    let configs = [
-        (4, 64, 4, "seq4_h4"),
-        (8, 64, 4, "seq8_h4"),
-        (16, 64, 4, "seq16_h4"),
-        (4, 128, 8, "seq4_h8"),
-        (8, 128, 8, "seq8_h8"),
-        (16, 128, 8, "seq16_h8"),
-        (32, 256, 8, "seq32_h8"),
-    ];
-
-    for (seq_len, hidden_dim, num_heads, label) in configs {
-        let config = make_bench_config(hidden_dim, hidden_dim * 2, 1, num_heads, 100);
-
-        let model = create_bench_model_with_config(&config);
-
-        // Create Q, K, V tensors [seq_len, hidden_dim]
-        let (q, k, v) = make_qkv_vecs(seq_len, hidden_dim);
-
-        let head_dim = hidden_dim / num_heads;
-        // Ops: num_heads * (QK^T: seq*seq*head_dim + softmax: seq*seq + AV: seq*seq*head_dim)
-        let ops = num_heads * seq_len * seq_len * head_dim * 2;
-        group.throughput(Throughput::Elements(ops as u64));
-
-        // Benchmark sequential multi-head attention (existing implementation)
-        group.bench_with_input(
-            BenchmarkId::new("sequential", label),
-            &(&q, &k, &v),
-            |bencher, (q, k, v)| {
-                bencher.iter(|| {
-                    let result = model
-                        .batched_causal_attention_gpu(
-                            black_box(q),
-                            black_box(k),
-                            black_box(v),
-                            seq_len,
-                        )
-                        .expect("test");
-                    black_box(result)
-                });
-            },
-        );
-
-        // Benchmark parallel multi-head attention (IMP-110)
-        group.bench_with_input(
-            BenchmarkId::new("parallel", label),
-            &(&q, &k, &v),
-            |bencher, (q, k, v)| {
-                bencher.iter(|| {
-                    let result = model
-                        .parallel_multihead_attention_gpu(
-                            black_box(q),
-                            black_box(k),
-                            black_box(v),
-                            seq_len,
-                        )
-                        .expect("test");
-                    black_box(result)
-                });
-            },
-        );
-    }
-
-    group.finish();
+enum GpuBenchOp {
+    /// IMP-107: GPU vs CPU matmul crossover (cpu vs hybrid scheduler).
+    /// Configs: (batch_size/m, k, n).
+    BatchMatmul {
+        cases: &'static [(usize, usize, usize)],
+    },
+    /// IMP-108: Batched causal attention vs sequential CPU reference.
+    /// Configs: seq_lengths to iterate; uses fixed hidden_dim=256, num_heads=8.
+    BatchedCausalAttention {
+        seq_lengths: &'static [usize],
+    },
+    /// IMP-109: Fused dequant+matmul vs separate operations.
+    /// Configs: (batch_size, hidden_dim, intermediate_dim, label).
+    FusedBatchMatmul {
+        cases: &'static [(usize, usize, usize, &'static str)],
+    },
+    /// IMP-110: Parallel vs sequential multi-head attention.
+    /// Configs: (seq_len, hidden_dim, num_heads, label).
+    ParallelMultiheadAttention {
+        cases: &'static [(usize, usize, usize, &'static str)],
+    },
+    /// IMP-111: Tiled vs standard single-head attention.
+    /// Configs: (seq_len, hidden_dim, num_heads, tile_size, label).
+    TiledAttention {
+        cases: &'static [(usize, usize, usize, usize, &'static str)],
+    },
+    /// IMP-112: Scheduler caching vs uncached forward pass.
+    SchedulerCaching,
+    /// IMP-113: Single-dispatch vs multi-dispatch multi-head attention.
+    /// Configs: (seq_len, hidden_dim, num_heads, label).
+    SingleDispatchAttention {
+        cases: &'static [(usize, usize, usize, &'static str)],
+    },
+    /// IMP-114: Flattened vs loop-based batched GEMM.
+    /// Configs: (batch_size, m, k, n, label).
+    FlattenedBatchedGemm {
+        cases: &'static [(usize, usize, usize, usize, &'static str)],
+    },
+    /// IMP-115: Fused kernel attention vs separate matmul+softmax+matmul.
+    /// Configs: (num_heads, seq_len, head_dim, label).
+    FusedKernelAttention {
+        cases: &'static [(usize, usize, usize, &'static str)],
+    },
+    /// IMP-120: GPU vs CPU fused attention crossover point.
+    /// Configs: seq_lengths to iterate; fixed head_dim=64, num_heads=8.
+    GpuCpuCrossover {
+        seq_lengths: &'static [usize],
+    },
 }
 
-/// Benchmark tiled attention vs standard attention (IMP-111)
-///
-/// Measures the performance and memory efficiency of Flash Attention-style
-/// tiled computation vs full materialization of attention matrix.
-///
-/// Key insight: Tiled attention uses O(tile_size) memory per row vs O(seq_len).
-/// For long sequences, this enables processing without OOM.
+/// Table-driven GPU benchmark entry.
 #[cfg(feature = "gpu")]
-fn benchmark_tiled_attention(c: &mut Criterion) {
-    use realizar::gguf::GGUFConfig;
+struct GpuBenchEntry {
+    group_name: &'static str,
+    sample_size: usize,
+    op: GpuBenchOp,
+}
 
-    let mut group = c.benchmark_group("tiled_attention_imp111");
-    group.sample_size(30);
-
-    // Test various sequence lengths to show memory vs speed tradeoff
-    let configs = [
-        (32, 64, 4, 8, "seq32_tile8"),
-        (64, 64, 4, 8, "seq64_tile8"),
-        (64, 64, 4, 16, "seq64_tile16"),
-        (128, 64, 4, 16, "seq128_tile16"),
-        (128, 64, 4, 32, "seq128_tile32"),
-        (256, 64, 4, 32, "seq256_tile32"),
-    ];
-
-    for (seq_len, hidden_dim, num_heads, tile_size, label) in configs {
+/// Benchmark tiled vs standard single-head attention (IMP-111).
+///
+/// For each (seq_len, hidden_dim, num_heads, tile_size, label) case, runs three
+/// variants: standard, tiled, and tiled_causal attention.
+#[cfg(feature = "gpu")]
+fn bench_tiled_attention(
+    group: &mut BenchmarkGroup<WallTime>,
+    cases: &[(usize, usize, usize, usize, &str)],
+) {
+    for &(seq_len, hidden_dim, num_heads, tile_size, label) in cases {
         let config = make_bench_config(hidden_dim, hidden_dim * 2, 1, num_heads, 100);
-
         let model = create_bench_model_with_config(&config);
         let head_dim = hidden_dim / num_heads;
         let scale = 1.0 / (head_dim as f32).sqrt();
-
-        // Create single-head Q, K, V for fair comparison
         let (q, k, v) = make_qkv_vecs(seq_len, head_dim);
 
-        // Ops: QK^T: seq*seq*head_dim + softmax: seq*seq + AV: seq*seq*head_dim
         let ops = seq_len * seq_len * head_dim * 2;
         group.throughput(Throughput::Elements(ops as u64));
 
-        // Benchmark standard attention (full materialization)
         group.bench_with_input(
             BenchmarkId::new("standard", label),
             &(&q, &k, &v),
@@ -1976,7 +1731,6 @@ fn benchmark_tiled_attention(c: &mut Criterion) {
             },
         );
 
-        // Benchmark tiled attention (O(tile_size) memory)
         group.bench_with_input(
             BenchmarkId::new("tiled", label),
             &(&q, &k, &v),
@@ -1998,7 +1752,6 @@ fn benchmark_tiled_attention(c: &mut Criterion) {
             },
         );
 
-        // Benchmark tiled causal attention (autoregressive inference)
         group.bench_with_input(
             BenchmarkId::new("tiled_causal", label),
             &(&q, &k, &v),
@@ -2020,26 +1773,18 @@ fn benchmark_tiled_attention(c: &mut Criterion) {
             },
         );
     }
-
-    group.finish();
 }
 
-/// Benchmark scheduler caching vs uncached (IMP-112)
+/// Benchmark scheduler caching vs uncached forward pass (IMP-112).
 ///
-/// Measures the performance benefit of caching the HybridScheduler
-/// across multiple forward passes instead of recreating it each time.
+/// Compares uncached, cached, and 5x-cached forward passes using a small model.
 #[cfg(feature = "gpu")]
-fn benchmark_scheduler_caching(c: &mut Criterion) {
+fn bench_scheduler_caching(group: &mut BenchmarkGroup<WallTime>) {
     use realizar::gguf::OwnedQuantizedModelCached;
 
-    let mut group = c.benchmark_group("scheduler_caching_imp112");
-    group.sample_size(20); // Fewer samples since operations are slow
-
     let config = make_bench_config(64, 128, 1, 4, 100);
-
     let model = create_bench_model_with_config(&config);
     let cached_model = OwnedQuantizedModelCached::new(model.clone());
-
     let tokens = vec![1u32, 5, 10, 20];
 
     group.throughput(Throughput::Elements(
@@ -2051,7 +1796,6 @@ fn benchmark_scheduler_caching(c: &mut Criterion) {
         .forward_batch_gpu_cached(&tokens)
         .expect("test");
 
-    // Benchmark uncached (creates new scheduler each call - ~300ms overhead)
     group.bench_function("uncached_forward", |bencher| {
         bencher.iter(|| {
             let result = model.forward_batch_gpu(black_box(&tokens)).expect("test");
@@ -2059,7 +1803,6 @@ fn benchmark_scheduler_caching(c: &mut Criterion) {
         });
     });
 
-    // Benchmark cached (reuses scheduler - ~0ms overhead)
     group.bench_function("cached_forward", |bencher| {
         bencher.iter(|| {
             let result = cached_model
@@ -2069,7 +1812,6 @@ fn benchmark_scheduler_caching(c: &mut Criterion) {
         });
     });
 
-    // Multiple calls to show amortization benefit
     group.bench_function("cached_5x_forward", |bencher| {
         bencher.iter(|| {
             for _ in 0..5 {
@@ -2080,274 +1822,28 @@ fn benchmark_scheduler_caching(c: &mut Criterion) {
             }
         });
     });
-
-    group.finish();
 }
 
-/// Benchmark single-dispatch vs multi-dispatch attention (IMP-113)
+/// Benchmark GPU vs CPU fused attention crossover (IMP-120).
 ///
-/// Compares the performance of processing all attention heads with:
-/// - Multi-dispatch: Loop over heads, one matmul dispatch per head
-/// - Single-dispatch: Batched operations with cached scheduler
+/// For each sequence length, benchmarks cpu_fused, gpu_fused, and adaptive
+/// attention to find the crossover point.
 #[cfg(feature = "gpu")]
-fn benchmark_single_dispatch_attention(c: &mut Criterion) {
+fn bench_gpu_cpu_crossover(
+    group: &mut BenchmarkGroup<WallTime>,
+    seq_lengths: &[usize],
+) {
     use realizar::gguf::OwnedQuantizedModelCached;
 
-    let mut group = c.benchmark_group("single_dispatch_attention_imp113");
-    group.sample_size(30);
-
-    // Test various configurations
-    let configs = [
-        (8, 64, 4, "seq8_h4"),
-        (16, 64, 4, "seq16_h4"),
-        (16, 128, 8, "seq16_h8"),
-        (32, 128, 8, "seq32_h8"),
-        (32, 256, 8, "seq32_h8_hd256"),
-    ];
-
-    for (seq_len, hidden_dim, num_heads, label) in configs {
-        let config = make_bench_config(hidden_dim, hidden_dim * 2, 1, num_heads, 100);
-
-        let model = create_bench_model_with_config(&config);
-        let cached_model = OwnedQuantizedModelCached::new(model.clone());
-
-        // Create Q, K, V tensors [seq_len, hidden_dim]
-        let (q, k, v) = make_qkv_vecs(seq_len, hidden_dim);
-
-        let head_dim = hidden_dim / num_heads;
-        let ops = num_heads * seq_len * seq_len * head_dim * 2;
-        group.throughput(Throughput::Elements(ops as u64));
-
-        // Warm up cached model
-        let _ = cached_model.parallel_multihead_attention_gpu_cached(&q, &k, &v, seq_len);
-
-        // Benchmark multi-dispatch (existing implementation)
-        group.bench_with_input(
-            BenchmarkId::new("multi_dispatch", label),
-            &(&q, &k, &v),
-            |bencher, (q, k, v)| {
-                bencher.iter(|| {
-                    let result = cached_model
-                        .parallel_multihead_attention_gpu_cached(
-                            black_box(q),
-                            black_box(k),
-                            black_box(v),
-                            seq_len,
-                        )
-                        .expect("test");
-                    black_box(result)
-                });
-            },
-        );
-
-        // Benchmark single-dispatch (IMP-113)
-        group.bench_with_input(
-            BenchmarkId::new("single_dispatch", label),
-            &(&q, &k, &v),
-            |bencher, (q, k, v)| {
-                bencher.iter(|| {
-                    let result = cached_model
-                        .single_dispatch_multihead_attention(
-                            black_box(q),
-                            black_box(k),
-                            black_box(v),
-                            seq_len,
-                        )
-                        .expect("test");
-                    black_box(result)
-                });
-            },
-        );
-    }
-
-    group.finish();
-}
-
-/// Benchmark flattened vs loop-based batched GEMM (IMP-114)
-///
-/// Compares the flattened batched GEMM approach against the loop-based
-/// approach from IMP-113.
-#[cfg(feature = "gpu")]
-fn benchmark_flattened_batched_gemm(c: &mut Criterion) {
-    use realizar::gguf::OwnedQuantizedModelCached;
-
-    let mut group = c.benchmark_group("flattened_batched_gemm_imp114");
-    group.sample_size(30);
-
-    // Test various batch sizes and matrix dimensions
-    let configs = [
-        (4, 8, 16, 8, "b4_m8_k16_n8"),
-        (8, 16, 8, 16, "b8_m16_k8_n16"),
-        (8, 32, 16, 32, "b8_m32_k16_n32"),
-        (16, 16, 8, 16, "b16_m16_k8_n16"),
-        (16, 8, 8, 8, "b16_m8_k8_n8"),
-    ];
-
-    for (batch_size, m, k, n, label) in configs {
-        let config = make_bench_config(64, 128, 1, 4, 100);
-
-        let model = create_bench_model_with_config(&config);
-        let cached_model = OwnedQuantizedModelCached::new(model);
-
-        // Create batched matrices
-        let batched_a: Vec<f32> = (0..batch_size * m * k)
-            .map(|i| ((i % 13) as f32 - 6.0) * 0.1)
-            .collect();
-        let batched_b: Vec<f32> = (0..batch_size * k * n)
-            .map(|i| ((i % 11) as f32 - 5.0) * 0.1)
-            .collect();
-
-        let ops = batch_size * m * k * n * 2;
-        group.throughput(Throughput::Elements(ops as u64));
-
-        // Warm up
-        let _ =
-            cached_model.batched_gemm_single_dispatch(&batched_a, &batched_b, batch_size, m, k, n);
-
-        // Benchmark loop-based (IMP-113)
-        group.bench_with_input(
-            BenchmarkId::new("loop_based", label),
-            &(&batched_a, &batched_b),
-            |bencher, (a, b)| {
-                bencher.iter(|| {
-                    let result = cached_model
-                        .batched_gemm_single_dispatch(
-                            black_box(a),
-                            black_box(b),
-                            batch_size,
-                            m,
-                            k,
-                            n,
-                        )
-                        .expect("test");
-                    black_box(result)
-                });
-            },
-        );
-
-        // Benchmark flattened (IMP-114)
-        group.bench_with_input(
-            BenchmarkId::new("flattened", label),
-            &(&batched_a, &batched_b),
-            |bencher, (a, b)| {
-                bencher.iter(|| {
-                    let result = cached_model
-                        .flattened_batched_gemm(black_box(a), black_box(b), batch_size, m, k, n)
-                        .expect("test");
-                    black_box(result)
-                });
-            },
-        );
-    }
-
-    group.finish();
-}
-
-/// IMP-115: Benchmark fused kernel attention vs separate operations
-#[cfg(feature = "gpu")]
-fn benchmark_fused_kernel_attention(c: &mut Criterion) {
-    use realizar::gguf::OwnedQuantizedModelCached;
-
-    let mut group = c.benchmark_group("fused_kernel_attention_imp115");
-    group.sample_size(30);
-
-    // Test various configurations
-    let configs = [
-        (4, 8, 16, "h4_seq8_d16"),   // 4 heads, seq 8, dim 16
-        (8, 8, 16, "h8_seq8_d16"),   // 8 heads, seq 8, dim 16
-        (8, 16, 16, "h8_seq16_d16"), // 8 heads, seq 16, dim 16
-        (8, 32, 16, "h8_seq32_d16"), // 8 heads, seq 32, dim 16
-    ];
-
-    for (num_heads, seq_len, head_dim, label) in configs {
-        let hidden_dim = num_heads * head_dim;
-        let config = make_bench_config(hidden_dim, hidden_dim * 4, 1, num_heads, 100);
-
-        let model = create_bench_model_with_config(&config);
-        let cached_model = OwnedQuantizedModelCached::new(model);
-
-        // Create Q, K, V tensors
-        let (q, k, v) = make_qkv_vecs(seq_len, hidden_dim);
-
-        // Approximate ops: num_heads * (seq * seq * head_dim * 2 + seq * seq + seq * head_dim * seq)
-        let ops = num_heads * seq_len * seq_len * head_dim * 4;
-        group.throughput(Throughput::Elements(ops as u64));
-
-        // Warm up
-        let _ = cached_model.flattened_multihead_attention(&q, &k, &v, seq_len);
-
-        // Benchmark flattened (separate matmul + softmax + matmul)
-        group.bench_with_input(
-            BenchmarkId::new("separate_ops", label),
-            &(&q, &k, &v),
-            |bencher, (q, k, v)| {
-                bencher.iter(|| {
-                    let result = cached_model
-                        .flattened_multihead_attention(
-                            black_box(q),
-                            black_box(k),
-                            black_box(v),
-                            seq_len,
-                        )
-                        .expect("test");
-                    black_box(result)
-                });
-            },
-        );
-
-        // Benchmark fused kernel (IMP-115)
-        group.bench_with_input(
-            BenchmarkId::new("fused_kernel", label),
-            &(&q, &k, &v),
-            |bencher, (q, k, v)| {
-                bencher.iter(|| {
-                    let result = cached_model
-                        .fused_multihead_attention(
-                            black_box(q),
-                            black_box(k),
-                            black_box(v),
-                            seq_len,
-                        )
-                        .expect("test");
-                    black_box(result)
-                });
-            },
-        );
-    }
-
-    group.finish();
-}
-
-// ============================================================================
-// IMP-120: GPU vs CPU Fused Attention Crossover Benchmark
-// ============================================================================
-
-/// Benchmark GPU vs CPU fused attention to determine optimal crossover point
-///
-/// This benchmark measures:
-/// - CPU fused attention (IMP-115) latency across sequence lengths
-/// - GPU fused attention (IMP-119) latency across sequence lengths
-/// - Identifies the sequence length where GPU becomes faster
-#[cfg(feature = "gpu")]
-fn benchmark_gpu_cpu_crossover(c: &mut Criterion) {
-    use realizar::gguf::OwnedQuantizedModelCached;
-
-    let mut group = c.benchmark_group("gpu_cpu_crossover_imp120");
-    group.sample_size(20); // Fewer samples for longer benchmarks
-
-    // Test sequence lengths around expected crossover (~64 tokens)
-    let seq_lengths = [8, 16, 32, 64, 128, 256];
     let head_dim = 64;
     let num_heads = 8;
     let hidden_dim = num_heads * head_dim;
 
     let config = make_bench_config(hidden_dim, hidden_dim * 4, 1, num_heads, 100);
-
     let model = create_bench_model_with_config(&config);
     let cached_model = OwnedQuantizedModelCached::new(model);
 
-    for seq_len in seq_lengths {
-        // Create single-head Q, K, V tensors for fair comparison
+    for &seq_len in seq_lengths {
         let q: Vec<f32> = (0..seq_len * head_dim)
             .map(|i| ((i % 17) as f32 - 8.0) * 0.05)
             .collect();
@@ -2359,16 +1855,15 @@ fn benchmark_gpu_cpu_crossover(c: &mut Criterion) {
             .collect();
 
         let scale = 1.0 / (head_dim as f32).sqrt();
-
-        // Ops: seq * seq * head_dim * 2 (Q@K^T) + seq * seq (softmax) + seq * seq * head_dim (attn@V)
         let ops = seq_len * seq_len * head_dim * 3 + seq_len * seq_len;
         group.throughput(Throughput::Elements(ops as u64));
 
         // Warm up both paths
-        let _ = cached_model.fused_causal_attention(&q, &k, &v, seq_len, head_dim, scale);
-        let _ = cached_model.gpu_fused_causal_attention(&q, &k, &v, seq_len, head_dim, scale);
+        let _ =
+            cached_model.fused_causal_attention(&q, &k, &v, seq_len, head_dim, scale);
+        let _ =
+            cached_model.gpu_fused_causal_attention(&q, &k, &v, seq_len, head_dim, scale);
 
-        // Benchmark CPU fused attention
         group.bench_with_input(
             BenchmarkId::new("cpu_fused", format!("seq{seq_len}")),
             &(&q, &k, &v),
@@ -2389,7 +1884,6 @@ fn benchmark_gpu_cpu_crossover(c: &mut Criterion) {
             },
         );
 
-        // Benchmark GPU fused attention
         group.bench_with_input(
             BenchmarkId::new("gpu_fused", format!("seq{seq_len}")),
             &(&q, &k, &v),
@@ -2410,7 +1904,6 @@ fn benchmark_gpu_cpu_crossover(c: &mut Criterion) {
             },
         );
 
-        // Benchmark adaptive (auto-selects based on seq_len)
         group.bench_with_input(
             BenchmarkId::new("adaptive", format!("seq{seq_len}")),
             &(&q, &k, &v),
@@ -2431,18 +1924,601 @@ fn benchmark_gpu_cpu_crossover(c: &mut Criterion) {
             },
         );
     }
+}
+
+/// Run a GPU benchmark from a `GpuBenchOp` descriptor.
+///
+/// This single dispatcher replaces 11 separate `benchmark_*` functions,
+/// eliminating the repeated DataTransformation pattern
+/// (create data -> configure group -> run benchmark -> assert results).
+#[cfg(feature = "gpu")]
+fn run_gpu_bench(c: &mut Criterion, entry: &GpuBenchEntry) {
+    use realizar::gguf::OwnedQuantizedModelCached;
+    use realizar::gpu::HybridScheduler;
+    use realizar::quantize::{dequantize_q4_k_simd as dequant_simd, QK_K};
+
+    let mut group = c.benchmark_group(entry.group_name);
+    group.sample_size(entry.sample_size);
+
+    match &entry.op {
+        // IMP-107: GPU vs CPU matmul crossover
+        GpuBenchOp::BatchMatmul { cases } => {
+            for &(batch_size, k, n) in *cases {
+                let m = batch_size;
+                let ops = m * k * n;
+                let a: Vec<f32> = (0..m * k).map(|i| (i as f32) * 0.001).collect();
+                let b: Vec<f32> = (0..k * n).map(|i| (i as f32) * 0.001).collect();
+
+                group.throughput(Throughput::Elements(ops as u64));
+
+                group.bench_with_input(
+                    BenchmarkId::new("cpu", format!("{m}x{k}x{n}")),
+                    &(&a, &b),
+                    |bencher, (a, b)| {
+                        bencher.iter(|| {
+                            let result = cpu_matmul_bench(black_box(a), black_box(b), m, k, n);
+                            black_box(result)
+                        });
+                    },
+                );
+
+                group.bench_with_input(
+                    BenchmarkId::new("hybrid", format!("{m}x{k}x{n}")),
+                    &(&a, &b),
+                    |bencher, (a, b)| {
+                        let mut scheduler = HybridScheduler::with_threshold(1000).expect("test");
+                        bencher.iter(|| {
+                            let result = scheduler
+                                .matmul(black_box(a), black_box(b), m, k, n)
+                                .expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+            }
+        }
+
+        // IMP-108: Batched causal attention vs sequential
+        GpuBenchOp::BatchedCausalAttention { seq_lengths } => {
+            for &seq_len in *seq_lengths {
+                let config = make_bench_config(256, 512, 1, 8, 1000);
+                let model = create_bench_model_with_config(&config);
+                let hidden_dim = config.hidden_dim;
+                let num_heads = config.num_heads;
+                let (q, k, v) = make_qkv_vecs(seq_len, hidden_dim);
+
+                group.throughput(Throughput::Elements(
+                    (seq_len * seq_len * hidden_dim) as u64,
+                ));
+
+                group.bench_with_input(
+                    BenchmarkId::new("cpu_sequential", seq_len),
+                    &(&q, &k, &v),
+                    |bencher, (q, k, v)| {
+                        bencher.iter(|| {
+                            let result = causal_attention_cpu_ref(
+                                black_box(q),
+                                black_box(k),
+                                black_box(v),
+                                seq_len,
+                                hidden_dim,
+                                num_heads,
+                            );
+                            black_box(result)
+                        });
+                    },
+                );
+
+                group.bench_with_input(
+                    BenchmarkId::new("batched_gpu", seq_len),
+                    &(&q, &k, &v),
+                    |bencher, (q, k, v)| {
+                        bencher.iter(|| {
+                            let result = model
+                                .batched_causal_attention_gpu(
+                                    black_box(q),
+                                    black_box(k),
+                                    black_box(v),
+                                    seq_len,
+                                )
+                                .expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+            }
+        }
+
+        // IMP-109: Fused dequant+matmul vs separate
+        GpuBenchOp::FusedBatchMatmul { cases } => {
+            for &(batch_size, hidden_dim, intermediate_dim, label) in *cases {
+                let config = make_bench_config(hidden_dim, intermediate_dim, 1, 4, 100);
+                let model = create_bench_model_with_config(&config);
+
+                let activations: Vec<f32> = (0..batch_size * hidden_dim)
+                    .map(|i| ((i % 17) as f32 - 8.0) * 0.05)
+                    .collect();
+
+                let weight = &model.layers[0].ffn_up_weight;
+
+                // Pre-dequantize weight for "separate" benchmark
+                let weight_f32 = {
+                    let in_dim = weight.in_dim;
+                    let out_dim = weight.out_dim;
+                    let super_blocks_per_row = in_dim.div_ceil(QK_K);
+                    let mut output = Vec::with_capacity(in_dim * out_dim);
+                    for row in 0..out_dim {
+                        let row_start = row * super_blocks_per_row * 144;
+                        let row_end = row_start + super_blocks_per_row * 144;
+                        let row_data = &weight.data[row_start..row_end];
+                        let row_dequant = dequant_simd(row_data).expect("test");
+                        output.extend_from_slice(&row_dequant[..in_dim.min(row_dequant.len())]);
+                    }
+                    output
+                };
+
+                group.throughput(Throughput::Elements(
+                    (batch_size * hidden_dim * intermediate_dim) as u64,
+                ));
+
+                group.bench_with_input(
+                    BenchmarkId::new("fused", label),
+                    &(&activations, weight),
+                    |bencher, (act, w)| {
+                        bencher.iter(|| {
+                            let result = model
+                                .fused_batch_matmul_gpu(black_box(act), black_box(w), batch_size)
+                                .expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+
+                let weight_clone = weight_f32.clone();
+                group.bench_with_input(
+                    BenchmarkId::new("separate_predequant", label),
+                    &(&activations, &weight_clone),
+                    |bencher, (act, w)| {
+                        bencher.iter(|| {
+                            let mut scheduler =
+                                HybridScheduler::with_threshold(1000).expect("test");
+                            let result = scheduler
+                                .matmul(
+                                    black_box(act),
+                                    black_box(w),
+                                    batch_size,
+                                    hidden_dim,
+                                    intermediate_dim,
+                                )
+                                .expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+
+                group.bench_with_input(
+                    BenchmarkId::new("separate_redequant", label),
+                    &(&activations, weight),
+                    |bencher, (act, w)| {
+                        bencher.iter(|| {
+                            let in_dim = w.in_dim;
+                            let out_dim = w.out_dim;
+                            let super_blocks_per_row = in_dim.div_ceil(QK_K);
+                            let mut w_f32 = Vec::with_capacity(in_dim * out_dim);
+                            for row in 0..out_dim {
+                                let row_start = row * super_blocks_per_row * 144;
+                                let row_end = row_start + super_blocks_per_row * 144;
+                                let row_data = &w.data[row_start..row_end];
+                                let row_dequant = dequant_simd(row_data).expect("test");
+                                w_f32.extend_from_slice(
+                                    &row_dequant[..in_dim.min(row_dequant.len())],
+                                );
+                            }
+
+                            let mut scheduler =
+                                HybridScheduler::with_threshold(1000).expect("test");
+                            let result = scheduler
+                                .matmul(black_box(act), &w_f32, batch_size, in_dim, out_dim)
+                                .expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+            }
+        }
+
+        // IMP-110: Parallel vs sequential multi-head attention
+        GpuBenchOp::ParallelMultiheadAttention { cases } => {
+            for &(seq_len, hidden_dim, num_heads, label) in *cases {
+                let config = make_bench_config(hidden_dim, hidden_dim * 2, 1, num_heads, 100);
+                let model = create_bench_model_with_config(&config);
+                let (q, k, v) = make_qkv_vecs(seq_len, hidden_dim);
+
+                let head_dim = hidden_dim / num_heads;
+                let ops = num_heads * seq_len * seq_len * head_dim * 2;
+                group.throughput(Throughput::Elements(ops as u64));
+
+                group.bench_with_input(
+                    BenchmarkId::new("sequential", label),
+                    &(&q, &k, &v),
+                    |bencher, (q, k, v)| {
+                        bencher.iter(|| {
+                            let result = model
+                                .batched_causal_attention_gpu(
+                                    black_box(q),
+                                    black_box(k),
+                                    black_box(v),
+                                    seq_len,
+                                )
+                                .expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+
+                group.bench_with_input(
+                    BenchmarkId::new("parallel", label),
+                    &(&q, &k, &v),
+                    |bencher, (q, k, v)| {
+                        bencher.iter(|| {
+                            let result = model
+                                .parallel_multihead_attention_gpu(
+                                    black_box(q),
+                                    black_box(k),
+                                    black_box(v),
+                                    seq_len,
+                                )
+                                .expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+            }
+        }
+
+        // IMP-111: Tiled vs standard single-head attention
+        GpuBenchOp::TiledAttention { cases } => {
+            bench_tiled_attention(&mut group, cases);
+        }
+
+        // IMP-112: Scheduler caching vs uncached
+        GpuBenchOp::SchedulerCaching => {
+            bench_scheduler_caching(&mut group);
+        }
+
+        // IMP-113: Single-dispatch vs multi-dispatch attention
+        GpuBenchOp::SingleDispatchAttention { cases } => {
+            for &(seq_len, hidden_dim, num_heads, label) in *cases {
+                let config = make_bench_config(hidden_dim, hidden_dim * 2, 1, num_heads, 100);
+                let model = create_bench_model_with_config(&config);
+                let cached_model = OwnedQuantizedModelCached::new(model.clone());
+                let (q, k, v) = make_qkv_vecs(seq_len, hidden_dim);
+
+                let head_dim = hidden_dim / num_heads;
+                let ops = num_heads * seq_len * seq_len * head_dim * 2;
+                group.throughput(Throughput::Elements(ops as u64));
+
+                // Warm up cached model
+                let _ =
+                    cached_model.parallel_multihead_attention_gpu_cached(&q, &k, &v, seq_len);
+
+                group.bench_with_input(
+                    BenchmarkId::new("multi_dispatch", label),
+                    &(&q, &k, &v),
+                    |bencher, (q, k, v)| {
+                        bencher.iter(|| {
+                            let result = cached_model
+                                .parallel_multihead_attention_gpu_cached(
+                                    black_box(q),
+                                    black_box(k),
+                                    black_box(v),
+                                    seq_len,
+                                )
+                                .expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+
+                group.bench_with_input(
+                    BenchmarkId::new("single_dispatch", label),
+                    &(&q, &k, &v),
+                    |bencher, (q, k, v)| {
+                        bencher.iter(|| {
+                            let result = cached_model
+                                .single_dispatch_multihead_attention(
+                                    black_box(q),
+                                    black_box(k),
+                                    black_box(v),
+                                    seq_len,
+                                )
+                                .expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+            }
+        }
+
+        // IMP-114: Flattened vs loop-based batched GEMM
+        GpuBenchOp::FlattenedBatchedGemm { cases } => {
+            for &(batch_size, m, k, n, label) in *cases {
+                let config = make_bench_config(64, 128, 1, 4, 100);
+                let model = create_bench_model_with_config(&config);
+                let cached_model = OwnedQuantizedModelCached::new(model);
+
+                let batched_a: Vec<f32> = (0..batch_size * m * k)
+                    .map(|i| ((i % 13) as f32 - 6.0) * 0.1)
+                    .collect();
+                let batched_b: Vec<f32> = (0..batch_size * k * n)
+                    .map(|i| ((i % 11) as f32 - 5.0) * 0.1)
+                    .collect();
+
+                let ops = batch_size * m * k * n * 2;
+                group.throughput(Throughput::Elements(ops as u64));
+
+                // Warm up
+                let _ = cached_model.batched_gemm_single_dispatch(
+                    &batched_a, &batched_b, batch_size, m, k, n,
+                );
+
+                group.bench_with_input(
+                    BenchmarkId::new("loop_based", label),
+                    &(&batched_a, &batched_b),
+                    |bencher, (a, b)| {
+                        bencher.iter(|| {
+                            let result = cached_model
+                                .batched_gemm_single_dispatch(
+                                    black_box(a),
+                                    black_box(b),
+                                    batch_size,
+                                    m,
+                                    k,
+                                    n,
+                                )
+                                .expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+
+                group.bench_with_input(
+                    BenchmarkId::new("flattened", label),
+                    &(&batched_a, &batched_b),
+                    |bencher, (a, b)| {
+                        bencher.iter(|| {
+                            let result = cached_model
+                                .flattened_batched_gemm(
+                                    black_box(a),
+                                    black_box(b),
+                                    batch_size,
+                                    m,
+                                    k,
+                                    n,
+                                )
+                                .expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+            }
+        }
+
+        // IMP-115: Fused kernel attention vs separate operations
+        GpuBenchOp::FusedKernelAttention { cases } => {
+            for &(num_heads, seq_len, head_dim, label) in *cases {
+                let hidden_dim = num_heads * head_dim;
+                let config = make_bench_config(hidden_dim, hidden_dim * 4, 1, num_heads, 100);
+                let model = create_bench_model_with_config(&config);
+                let cached_model = OwnedQuantizedModelCached::new(model);
+                let (q, k, v) = make_qkv_vecs(seq_len, hidden_dim);
+
+                let ops = num_heads * seq_len * seq_len * head_dim * 4;
+                group.throughput(Throughput::Elements(ops as u64));
+
+                // Warm up
+                let _ = cached_model.flattened_multihead_attention(&q, &k, &v, seq_len);
+
+                group.bench_with_input(
+                    BenchmarkId::new("separate_ops", label),
+                    &(&q, &k, &v),
+                    |bencher, (q, k, v)| {
+                        bencher.iter(|| {
+                            let result = cached_model
+                                .flattened_multihead_attention(
+                                    black_box(q),
+                                    black_box(k),
+                                    black_box(v),
+                                    seq_len,
+                                )
+                                .expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+
+                group.bench_with_input(
+                    BenchmarkId::new("fused_kernel", label),
+                    &(&q, &k, &v),
+                    |bencher, (q, k, v)| {
+                        bencher.iter(|| {
+                            let result = cached_model
+                                .fused_multihead_attention(
+                                    black_box(q),
+                                    black_box(k),
+                                    black_box(v),
+                                    seq_len,
+                                )
+                                .expect("test");
+                            black_box(result)
+                        });
+                    },
+                );
+            }
+        }
+
+        // IMP-120: GPU vs CPU fused attention crossover
+        GpuBenchOp::GpuCpuCrossover { seq_lengths } => {
+            bench_gpu_cpu_crossover(&mut group, seq_lengths);
+        }
+    }
 
     group.finish();
 }
 
-/// Create benchmark model with config
-/// NOTE: Disabled - new_for_benchmark method doesn't exist
+// Static config tables for GPU benchmark suite entries.
 #[cfg(feature = "gpu")]
-#[allow(dead_code)]
-fn create_bench_model_with_config(
-    _config: &realizar::gguf::GGUFConfig,
-) -> realizar::gguf::OwnedQuantizedModel {
-    unimplemented!("TODO: Update to use OwnedQuantizedModel struct constructor")
+static GPU_BATCH_MATMUL_CASES: &[(usize, usize, usize)] = &[
+    (1, 256, 256),
+    (1, 512, 512),
+    (4, 256, 256),
+    (8, 256, 512),
+    (16, 512, 512),
+    (32, 512, 1024),
+];
+
+#[cfg(feature = "gpu")]
+static GPU_BATCHED_CAUSAL_SEQ_LENGTHS: &[usize] = &[4, 8, 16, 32, 64];
+
+#[cfg(feature = "gpu")]
+static GPU_FUSED_BATCH_MATMUL_CASES: &[(usize, usize, usize, &str)] = &[
+    (4, 256, 512, "small_4x256x512"),
+    (8, 256, 512, "small_8x256x512"),
+    (4, 512, 1024, "medium_4x512x1024"),
+    (8, 512, 1024, "medium_8x512x1024"),
+    (16, 256, 512, "batch_16x256x512"),
+    (32, 256, 512, "batch_32x256x512"),
+];
+
+#[cfg(feature = "gpu")]
+static GPU_PARALLEL_MHA_CASES: &[(usize, usize, usize, &str)] = &[
+    (4, 64, 4, "seq4_h4"),
+    (8, 64, 4, "seq8_h4"),
+    (16, 64, 4, "seq16_h4"),
+    (4, 128, 8, "seq4_h8"),
+    (8, 128, 8, "seq8_h8"),
+    (16, 128, 8, "seq16_h8"),
+    (32, 256, 8, "seq32_h8"),
+];
+
+#[cfg(feature = "gpu")]
+static GPU_TILED_ATTENTION_CASES: &[(usize, usize, usize, usize, &str)] = &[
+    (32, 64, 4, 8, "seq32_tile8"),
+    (64, 64, 4, 8, "seq64_tile8"),
+    (64, 64, 4, 16, "seq64_tile16"),
+    (128, 64, 4, 16, "seq128_tile16"),
+    (128, 64, 4, 32, "seq128_tile32"),
+    (256, 64, 4, 32, "seq256_tile32"),
+];
+
+#[cfg(feature = "gpu")]
+static GPU_SINGLE_DISPATCH_CASES: &[(usize, usize, usize, &str)] = &[
+    (8, 64, 4, "seq8_h4"),
+    (16, 64, 4, "seq16_h4"),
+    (16, 128, 8, "seq16_h8"),
+    (32, 128, 8, "seq32_h8"),
+    (32, 256, 8, "seq32_h8_hd256"),
+];
+
+#[cfg(feature = "gpu")]
+static GPU_FLATTENED_GEMM_CASES: &[(usize, usize, usize, usize, &str)] = &[
+    (4, 8, 16, 8, "b4_m8_k16_n8"),
+    (8, 16, 8, 16, "b8_m16_k8_n16"),
+    (8, 32, 16, 32, "b8_m32_k16_n32"),
+    (16, 16, 8, 16, "b16_m16_k8_n16"),
+    (16, 8, 8, 8, "b16_m8_k8_n8"),
+];
+
+#[cfg(feature = "gpu")]
+static GPU_FUSED_KERNEL_ATTENTION_CASES: &[(usize, usize, usize, &str)] = &[
+    (4, 8, 16, "h4_seq8_d16"),
+    (8, 8, 16, "h8_seq8_d16"),
+    (8, 16, 16, "h8_seq16_d16"),
+    (8, 32, 16, "h8_seq32_d16"),
+];
+
+#[cfg(feature = "gpu")]
+static GPU_CPU_CROSSOVER_SEQ_LENGTHS: &[usize] = &[8, 16, 32, 64, 128, 256];
+
+/// GPU benchmark suite table: all GPU entries driven by `run_gpu_bench`.
+#[cfg(feature = "gpu")]
+static GPU_BENCH_SUITE: &[GpuBenchEntry] = &[
+    GpuBenchEntry {
+        group_name: "gpu_batch_matmul",
+        sample_size: 50,
+        op: GpuBenchOp::BatchMatmul {
+            cases: GPU_BATCH_MATMUL_CASES,
+        },
+    },
+    GpuBenchEntry {
+        group_name: "batched_causal_attention",
+        sample_size: 30,
+        op: GpuBenchOp::BatchedCausalAttention {
+            seq_lengths: GPU_BATCHED_CAUSAL_SEQ_LENGTHS,
+        },
+    },
+    GpuBenchEntry {
+        group_name: "fused_batch_matmul_imp109",
+        sample_size: 30,
+        op: GpuBenchOp::FusedBatchMatmul {
+            cases: GPU_FUSED_BATCH_MATMUL_CASES,
+        },
+    },
+    GpuBenchEntry {
+        group_name: "parallel_multihead_attention_imp110",
+        sample_size: 30,
+        op: GpuBenchOp::ParallelMultiheadAttention {
+            cases: GPU_PARALLEL_MHA_CASES,
+        },
+    },
+    GpuBenchEntry {
+        group_name: "tiled_attention_imp111",
+        sample_size: 30,
+        op: GpuBenchOp::TiledAttention {
+            cases: GPU_TILED_ATTENTION_CASES,
+        },
+    },
+    GpuBenchEntry {
+        group_name: "scheduler_caching_imp112",
+        sample_size: 20,
+        op: GpuBenchOp::SchedulerCaching,
+    },
+    GpuBenchEntry {
+        group_name: "single_dispatch_attention_imp113",
+        sample_size: 30,
+        op: GpuBenchOp::SingleDispatchAttention {
+            cases: GPU_SINGLE_DISPATCH_CASES,
+        },
+    },
+    GpuBenchEntry {
+        group_name: "flattened_batched_gemm_imp114",
+        sample_size: 30,
+        op: GpuBenchOp::FlattenedBatchedGemm {
+            cases: GPU_FLATTENED_GEMM_CASES,
+        },
+    },
+    GpuBenchEntry {
+        group_name: "fused_kernel_attention_imp115",
+        sample_size: 30,
+        op: GpuBenchOp::FusedKernelAttention {
+            cases: GPU_FUSED_KERNEL_ATTENTION_CASES,
+        },
+    },
+    GpuBenchEntry {
+        group_name: "gpu_cpu_crossover_imp120",
+        sample_size: 20,
+        op: GpuBenchOp::GpuCpuCrossover {
+            seq_lengths: GPU_CPU_CROSSOVER_SEQ_LENGTHS,
+        },
+    },
+];
+
+/// Run all GPU benchmarks from the suite table (Kaizen: single entry point).
+#[cfg(feature = "gpu")]
+fn benchmark_gpu_suite(c: &mut Criterion) {
+    for entry in GPU_BENCH_SUITE {
+        run_gpu_bench(c, entry);
+    }
 }
 
 // ============================================================================
@@ -2457,16 +2533,7 @@ criterion_group!(
     benchmark_cache_suite,
     benchmark_e2e_generation,
     benchmark_component_profiling,
-    benchmark_fused_batch_matmul,
-    benchmark_gpu_batch_matmul,
-    benchmark_batched_causal_attention,
-    benchmark_parallel_multihead_attention,
-    benchmark_tiled_attention,
-    benchmark_scheduler_caching,
-    benchmark_single_dispatch_attention,
-    benchmark_flattened_batched_gemm,
-    benchmark_fused_kernel_attention,
-    benchmark_gpu_cpu_crossover,
+    benchmark_gpu_suite,
 );
 
 #[cfg(not(feature = "gpu"))]
