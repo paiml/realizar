@@ -48,7 +48,7 @@ static STREAM_POOL: Mutex<Option<(CudaStream, CudaStream, CudaStream)>> = Mutex:
 static CONTEXT_POOL: Mutex<Option<CudaContext>> = Mutex::new(None);
 
 /// Lock a process-level Mutex, panicking with a descriptive message on poison.
-fn lock_pool<T>(pool: &Mutex<T>, name: &str, operation: &str) -> std::sync::MutexGuard<'_, T> {
+fn lock_pool<'a, T>(pool: &'a Mutex<T>, name: &str, operation: &str) -> std::sync::MutexGuard<'a, T> {
     pool.lock()
         .unwrap_or_else(|_| panic!("{name} mutex poisoned during {operation}"))
 }
