@@ -98,8 +98,8 @@ fn test_from_apr_bytes_valid_magic_minimal() {
                                                          // Metadata (empty JSON object)
     data[64..66].copy_from_slice(b"{}");
     let result = AprTransformer::from_apr_bytes(&data);
-    // Should succeed with default config values
-    assert!(result.is_ok());
+    // Should fail: no embedding tensor in minimal APR (fail-fast is correct)
+    assert!(result.is_err());
 }
 
 #[test]

@@ -276,6 +276,7 @@ fn test_to_apr_bytes_various_qtypes() {
         let model = OwnedQuantizedModel {
             config,
             token_embedding: vec![0.0f32; 80],
+            position_embedding: None,
             layers: vec![layer],
             output_norm_weight: vec![1.0; hidden_dim],
             output_norm_bias: None,

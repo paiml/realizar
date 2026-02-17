@@ -26,6 +26,7 @@ mod tests {
         let model = OwnedQuantizedModel {
             config,
             token_embedding: vec![0.0; 128000],
+            position_embedding: None,
             layers: vec![],
             output_norm_weight: vec![1.0; 128],
             output_norm_bias: None,
@@ -123,6 +124,7 @@ mod tests {
         let model = OwnedQuantizedModel {
             config,
             token_embedding: vec![0.1; 6400],
+            position_embedding: None,
             layers: vec![],
             output_norm_weight: vec![1.0; 64],
             output_norm_bias: None,

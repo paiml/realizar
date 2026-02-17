@@ -88,6 +88,7 @@ fn build_minimal_owned_quantized_model() -> OwnedQuantizedModel {
     OwnedQuantizedModel {
         config,
         token_embedding: embed_data,
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; hidden_dim],
         output_norm_bias: None,
@@ -170,6 +171,7 @@ fn build_fused_qkv_model() -> OwnedQuantizedModel {
     OwnedQuantizedModel {
         config,
         token_embedding: embed_data,
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; hidden_dim],
         output_norm_bias: None,
@@ -263,6 +265,7 @@ fn build_q4k_model() -> OwnedQuantizedModel {
     OwnedQuantizedModel {
         config,
         token_embedding: embed_data,
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; hidden_dim],
         output_norm_bias: None,

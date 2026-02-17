@@ -151,6 +151,7 @@ fn test_from_gguf_transformer_preserves_layer_biases() {
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.0; 80],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: Some(vec![0.07; 8]),
@@ -215,6 +216,7 @@ fn test_from_gguf_transformer_no_biases() {
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.0; 80],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -271,6 +273,7 @@ fn test_from_gguf_transformer_multi_layer() {
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.0; 80],
+        position_embedding: None,
         layers: vec![make_layer(), make_layer(), make_layer()],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -303,6 +306,7 @@ fn test_to_apr_bytes_header_offsets_consistent() {
             eps: 1e-5,
         },
         token_embedding: vec![0.1; 320],
+
         layers: vec![AprTransformerLayer::empty(16, 32)],
         output_norm_weight: vec![1.0; 16],
         output_norm_bias: None,
@@ -365,6 +369,7 @@ fn test_to_apr_bytes_metadata_padded_to_alignment() {
             eps: 1e-5,
         },
         token_embedding: vec![0.0; 8],
+
         layers: vec![],
         output_norm_weight: vec![1.0; 4],
         output_norm_bias: None,

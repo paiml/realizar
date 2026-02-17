@@ -289,6 +289,7 @@ fn create_f32_test_model(hidden_dim: usize, vocab_size: usize) -> OwnedQuantized
     OwnedQuantizedModel {
         config,
         token_embedding: vec![0.1f32; vocab_size * hidden_dim],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0f32; hidden_dim],
         output_norm_bias: None,

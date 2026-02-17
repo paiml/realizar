@@ -206,6 +206,8 @@ pub struct GGUFTransformer {
     pub config: GGUFConfig,
     /// Token embedding weights [vocab_size, hidden_dim]
     pub token_embedding: Vec<f32>,
+    /// GH-278: Position embedding weights [context_length, hidden_dim] (GPT-2 only)
+    pub position_embedding: Option<Vec<f32>>,
     /// Attention weights per layer
     pub layers: Vec<GGUFTransformerLayer>,
     /// Output norm weight
@@ -279,6 +281,8 @@ pub struct OwnedQuantizedModel {
     pub config: GGUFConfig,
     /// Token embedding (f32 for fast lookup)
     pub token_embedding: Vec<f32>,
+    /// GH-278: Position embedding [context_length, hidden_dim] (GPT-2 only)
+    pub position_embedding: Option<Vec<f32>>,
     /// Owned quantized layers
     pub layers: Vec<OwnedQuantizedLayer>,
     /// Output norm weight (f32)
@@ -310,6 +314,7 @@ impl std::fmt::Debug for OwnedQuantizedModel {
         let mut s = f.debug_struct("OwnedQuantizedModel");
         s.field("config", &self.config)
             .field("token_embedding_len", &self.token_embedding.len())
+            .field("has_position_embedding", &self.position_embedding.is_some())
             .field("layers_count", &self.layers.len())
             .field("output_norm_weight_len", &self.output_norm_weight.len())
             .field("has_output_norm_bias", &self.output_norm_bias.is_some())
@@ -343,6 +348,7 @@ impl Clone for OwnedQuantizedModel {
         Self {
             config: self.config.clone(),
             token_embedding: self.token_embedding.clone(),
+            position_embedding: self.position_embedding.clone(),
             layers: self.layers.clone(),
             output_norm_weight: self.output_norm_weight.clone(),
             output_norm_bias: self.output_norm_bias.clone(),

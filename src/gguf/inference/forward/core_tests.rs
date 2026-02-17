@@ -96,6 +96,7 @@ fn create_llama_style_model(
     OwnedQuantizedModel {
         config,
         token_embedding,
+        position_embedding: None,
         layers,
         output_norm_weight,
         output_norm_bias: None,
@@ -163,6 +164,7 @@ fn create_phi2_style_model(
     OwnedQuantizedModel {
         config,
         token_embedding,
+        position_embedding: None,
         layers,
         output_norm_weight,
         output_norm_bias: Some(vec![0.0f32; hidden_dim]),

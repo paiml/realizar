@@ -75,6 +75,8 @@ pub struct QuantizedGGUFTransformer<'a> {
     pub data: &'a [u8],
     /// Token embedding (kept as f32 for lookup)
     pub token_embedding: Vec<f32>,
+    /// GH-278: Position embedding [context_length, hidden_dim] (GPT-2 only)
+    pub position_embedding: Option<Vec<f32>>,
     /// Quantized layer weights
     pub layers: Vec<QuantizedGGUFTransformerLayer>,
     /// Output norm weight (f32)
@@ -103,6 +105,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
 
         // Token embedding - keep as f32 for efficient lookup
         let token_embedding = model.get_tensor_f32("token_embd.weight", data)?;
+        let position_embedding = model.get_tensor_f32("token_pos_embd.weight", data).ok();
 
         // Load layers with quantized weight references
         let mut layers = Vec::with_capacity(config.num_layers);
@@ -125,6 +128,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             config,
             data,
             token_embedding,
+            position_embedding,
             layers,
             output_norm_weight,
             output_norm_bias,

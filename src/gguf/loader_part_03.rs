@@ -15,6 +15,7 @@ impl GGUFTransformer {
 
         // Load token embedding
         let token_embedding = model.get_tensor_f32("token_embd.weight", file_data)?;
+        let position_embedding = model.get_tensor_f32("token_pos_embd.weight", file_data).ok();
 
         // Load layers
         let mut layers = Vec::with_capacity(config.num_layers);
@@ -37,6 +38,7 @@ impl GGUFTransformer {
         Ok(Self {
             config,
             token_embedding,
+            position_embedding,
             layers,
             output_norm_weight,
             output_norm_bias,

@@ -107,6 +107,7 @@ mod tests {
         let gguf = crate::gguf::GGUFTransformer {
             config,
             token_embedding: vec![0.1; vocab_size * hidden_dim],
+            position_embedding: None,
             layers,
             output_norm_weight: vec![1.0; hidden_dim],
             output_norm_bias: None,

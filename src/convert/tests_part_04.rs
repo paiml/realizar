@@ -319,6 +319,7 @@ fn test_from_gguf_transformer_preserves_config() {
             bos_token_id: None,
         },
         token_embedding: vec![0.0; 512 * 32000],
+        position_embedding: None,
         layers: vec![GGUFTransformerLayer {
             attn_norm_weight: vec![1.0; 512],
             attn_norm_bias: None,

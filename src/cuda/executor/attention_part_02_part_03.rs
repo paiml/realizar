@@ -1,65 +1,92 @@
 impl CudaExecutor {
 
-    #[allow(clippy::too_many_arguments)]
-    fn incremental_attention_into_inner(
+    /// PAR-052: Scatter K and V tensors into the KV cache for a given layer.
+    ///
+    /// Dispatches either indirect scatter (for graph capture mode, when `position_buf`
+    /// is present) or direct scatter (normal mode) kernels. Each path launches two
+    /// kernels: one for K, one for V.
+    ///
+    /// # Arguments
+    /// * `layer_idx` - Transformer layer index
+    /// * `k_gpu` - Key tensor on GPU
+    /// * `v_gpu` - Value tensor on GPU
+    /// * `cache_len` - Current cache length before this token
+    /// * `use_stateless` - CORRECTNESS-013: stateless mode writes to position 0
+    fn scatter_kv_to_cache(
         &mut self,
         layer_idx: usize,
-        q_gpu: &GpuBuffer<f32>,
         k_gpu: &GpuBuffer<f32>,
         v_gpu: &GpuBuffer<f32>,
-        out_gpu: &GpuBuffer<f32>,
-        skip_debug: bool,
-    ) -> Result<usize, GpuError> {
-        let num_heads = self.kv_num_heads;
+        cache_len: usize,
+        use_stateless: bool,
+    ) -> Result<(), GpuError> {
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+
+        let k_key = format!("kv_{}_k", layer_idx);
+        let v_key = format!("kv_{}_v", layer_idx);
+
+        // CORRECTNESS-001 FIX: Launch config must match kernel expectations:
+        // - Each block handles one KV head (head_idx = ctaid.x)
+        // - Each thread handles one element (elem_idx = tid.x)
+        // Grid: num_kv_heads blocks, Block: head_dim threads
+        let config = LaunchConfig {
+            grid: (num_kv_heads as u32, 1, 1),
+            block: (head_dim as u32, 1, 1),
+            shared_mem: 0,
+        };
+
+        // PAR-061: Use indirect scatter during graph capture to avoid baking position
+        // PAR-069: Use graph mode (indirect scatter) ONLY when position_buf is initialized
+        if let Some(ref pos_buf) = self.position_buf {
+            self.scatter_kv_indirect(layer_idx, k_gpu, v_gpu, &k_key, &v_key, &config, pos_buf.as_ptr())?;
+        } else {
+            // PAR-069: Normal mode (no graph capture) - use direct scatter kernel
+            // CORRECTNESS-013: In stateless mode, always write to position 0
+            let position_val = if use_stateless {
+                0u32
+            } else {
+                cache_len as u32
+            };
+            self.scatter_kv_direct(layer_idx, k_gpu, v_gpu, &k_key, &v_key, &config, position_val)?;
+        }
+
+        Ok(())
+    }
+
+    /// PAR-061: Indirect scatter path for graph capture mode.
+    /// Reads position from a device buffer pointer instead of a host value.
+    fn scatter_kv_indirect(
+        &mut self,
+        layer_idx: usize,
+        k_gpu: &GpuBuffer<f32>,
+        v_gpu: &GpuBuffer<f32>,
+        k_key: &str,
+        v_key: &str,
+        config: &LaunchConfig,
+        pos_buf_ptr: u64,
+    ) -> Result<(), GpuError> {
         let num_kv_heads = self.kv_num_kv_heads;
         let head_dim = self.kv_head_dim;
         let max_len = self.kv_cache_max_len;
 
-        // CORRECTNESS-013: Stateless GPU mode - disable KV cache to isolate cache bugs
-        // When STATELESS_GPU=1, attention only sees the current token (no history)
-        // If output becomes correct in stateless mode, the issue is in KV cache logic
-        static STATELESS_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let use_stateless = *STATELESS_MODE.get_or_init(|| {
-            let mode = std::env::var("STATELESS_GPU")
-                .map(|v| v == "1")
-                .unwrap_or(false);
-            if mode {
-                eprintln!("[CORRECTNESS-013] STATELESS_GPU mode ENABLED - attention only sees current token");
-            }
-            mode
-        });
+        let scatter_type = KernelType::KvCacheScatterIndirect {
+            num_kv_heads: num_kv_heads as u32,
+            head_dim: head_dim as u32,
+            max_len: max_len as u32,
+        };
+        let scatter_name = self.kernels.kernel_name(&scatter_type);
+        let scatter_ptx = self.kernels.generate_ptx(&scatter_type);
+        let scatter_key = format!("kv_scatter_indirect_{}_{}", num_kv_heads, head_dim);
 
-        // Get current cache length and check bounds
-        let cache_len = self.kv_cache_lengths.get(&layer_idx).copied().unwrap_or(0);
-        // CORRECTNESS-013: In stateless mode, always use seq_len=1 (only current token)
-        let new_len = if use_stateless { 1 } else { cache_len + 1 };
-        if !use_stateless && new_len > max_len {
-            return Err(GpuError::InvalidLaunchConfig(format!(
-                "PAR-051: KV cache overflow - max_len={}, trying to add position {}",
-                max_len, new_len
-            )));
+        if !self.modules.contains_key(&scatter_key) {
+            let module = self.compile_ptx(&scatter_ptx)?;
+            self.modules.insert(scatter_key.clone(), module);
         }
 
-        // Get cache buffer keys
-        let k_key = format!("kv_{}_k", layer_idx);
-        let v_key = format!("kv_{}_v", layer_idx);
-
-        // PAR-052: Use scatter kernel instead of per-head D2D copies
-        // Replaces 2 * num_kv_heads D2D copies with 2 kernel launches
-        // PAR-061: Use indirect scatter during graph capture to avoid baking position
+        // Scatter K
         {
-            // CORRECTNESS-001 FIX: Launch config must match kernel expectations:
-            // - Each block handles one KV head (head_idx = ctaid.x)
-            // - Each thread handles one element (elem_idx = tid.x)
-            // Grid: num_kv_heads blocks, Block: head_dim threads
-            let config = LaunchConfig {
-                grid: (num_kv_heads as u32, 1, 1),
-                block: (head_dim as u32, 1, 1),
-                shared_mem: 0,
-            };
-
-            // Get cache buffers
-            let k_buf = self.kv_cache_gpu.get_mut(&k_key).ok_or_else(|| {
+            let k_buf = self.kv_cache_gpu.get_mut(k_key).ok_or_else(|| {
                 GpuError::InvalidLaunchConfig(format!(
                     "PAR-052: KV cache not initialized for layer {}",
                     layer_idx
@@ -67,197 +94,195 @@ impl CudaExecutor {
             })?;
             let mut k_src_ptr = k_gpu.as_ptr();
             let mut k_dst_ptr = k_buf.as_ptr();
-            // CORRECTNESS-001 FIX: Kernel takes (src, cache, pos, head_dim, max_len)
-            // Removed num_heads_val which was erroneously passed
             let mut head_dim_val = head_dim as u32;
             let mut max_len_val = max_len as u32;
+            let mut pos_ptr = pos_buf_ptr;
 
-            // PAR-069: Use graph mode (indirect scatter) ONLY when position_buf is initialized
-            // Previously used skip_debug flag, which conflated "skip debug prints" with "graph mode"
-            // Root cause: CORRECTNESS-001 garbage output from GPU path
-            if let Some(ref pos_buf) = self.position_buf {
-                // PAR-061: Graph capture mode - use indirect scatter (reads position from device)
-                let scatter_type = KernelType::KvCacheScatterIndirect {
-                    num_kv_heads: num_kv_heads as u32,
-                    head_dim: head_dim as u32,
-                    max_len: max_len as u32,
-                };
-                let scatter_name = self.kernels.kernel_name(&scatter_type);
-                let scatter_ptx = self.kernels.generate_ptx(&scatter_type);
-                let scatter_key = format!("kv_scatter_indirect_{}_{}", num_kv_heads, head_dim);
+            let scatter_module = self.modules.get_mut(&scatter_key).expect("just inserted");
 
-                if !self.modules.contains_key(&scatter_key) {
-                    let module = self.compile_ptx(&scatter_ptx)?;
-                    self.modules.insert(scatter_key.clone(), module);
-                }
-                let scatter_module = self.modules.get_mut(&scatter_key).expect("just inserted");
-
-                // Indirect kernel takes position_ptr as 3rd argument
-                let mut pos_ptr = pos_buf.as_ptr();
-
-                // CORRECTNESS-001 FIX: Kernel expects (src, cache, pos_ptr, head_dim, max_len)
-                // CORRECTNESS-011: Use self.stream for graph capture (graph captures on stream, not compute_stream)
-                // SAFETY: Memory safety ensured by bounds checking and alignment
-                unsafe {
-                    self.stream.launch_kernel(
-                        scatter_module,
-                        scatter_name,
-                        &config,
-                        &mut [
-                            std::ptr::from_mut(&mut k_src_ptr) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut k_dst_ptr) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut pos_ptr) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
-                        ],
-                    )?;
-                }
-
-                // Re-get module and scatter V
-                let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
-                let v_buf = self.kv_cache_gpu.get_mut(&v_key).ok_or_else(|| {
-                    GpuError::InvalidLaunchConfig(format!(
-                        "PAR-052: KV cache not initialized for layer {}",
-                        layer_idx
-                    ))
-                })?;
-                let mut v_src_ptr = v_gpu.as_ptr();
-                let mut v_dst_ptr = v_buf.as_ptr();
-                let mut pos_ptr = pos_buf.as_ptr();
-
-                // CORRECTNESS-001 FIX: Same fix for V scatter
-                // CORRECTNESS-011: Use self.stream for graph capture
-                // SAFETY: Memory safety ensured by bounds checking and alignment
-                unsafe {
-                    self.stream.launch_kernel(
-                        scatter_module,
-                        scatter_name,
-                        &config,
-                        &mut [
-                            std::ptr::from_mut(&mut v_src_ptr) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut v_dst_ptr) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut pos_ptr) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
-                        ],
-                    )?;
-                }
-            } else {
-                // PAR-069: Normal mode (no graph capture) - use direct scatter kernel
-                let scatter_type = KernelType::KvCacheScatter {
-                    num_kv_heads: num_kv_heads as u32,
-                    head_dim: head_dim as u32,
-                    max_len: max_len as u32,
-                };
-                let scatter_name = self.kernels.kernel_name(&scatter_type);
-                let scatter_ptx = self.kernels.generate_ptx(&scatter_type);
-                let scatter_key = format!("kv_scatter_{}_{}", num_kv_heads, head_dim);
-
-                if !self.modules.contains_key(&scatter_key) {
-                    let module = self.compile_ptx(&scatter_ptx)?;
-                    self.modules.insert(scatter_key.clone(), module);
-                }
-                let scatter_module = self.modules.get_mut(&scatter_key).expect("just inserted");
-
-                // CORRECTNESS-013: In stateless mode, always write to position 0
-                let mut position_val = if use_stateless {
-                    0u32
-                } else {
-                    cache_len as u32
-                };
-
-                // CORRECTNESS-001 FIX: Kernel expects (src, cache, pos, head_dim, max_len)
-                // Fixed parameter order: pos is 3rd, removed extra num_heads_val
-                // CORRECTNESS-012: Use self.stream to match attention kernel stream
-                // SAFETY: Memory safety ensured by bounds checking and alignment
-                unsafe {
-                    self.stream.launch_kernel(
-                        scatter_module,
-                        scatter_name,
-                        &config,
-                        &mut [
-                            std::ptr::from_mut(&mut k_src_ptr) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut k_dst_ptr) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut position_val) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
-                        ],
-                    )?;
-                }
-
-                // Re-get module and scatter V
-                let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
-                let v_buf = self.kv_cache_gpu.get_mut(&v_key).ok_or_else(|| {
-                    GpuError::InvalidLaunchConfig(format!(
-                        "PAR-052: KV cache not initialized for layer {}",
-                        layer_idx
-                    ))
-                })?;
-                let mut v_src_ptr = v_gpu.as_ptr();
-                let mut v_dst_ptr = v_buf.as_ptr();
-
-                // CORRECTNESS-001 FIX: Same fix for V scatter
-                // CORRECTNESS-012: Use self.stream to match attention kernel stream
-                // SAFETY: Memory safety ensured by bounds checking and alignment
-                unsafe {
-                    self.stream.launch_kernel(
-                        scatter_module,
-                        scatter_name,
-                        &config,
-                        &mut [
-                            std::ptr::from_mut(&mut v_src_ptr) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut v_dst_ptr) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut position_val) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
-                            std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
-                        ],
-                    )?;
-                }
+            // CORRECTNESS-001 FIX: Kernel expects (src, cache, pos_ptr, head_dim, max_len)
+            // CORRECTNESS-011: Use self.stream for graph capture (graph captures on stream, not compute_stream)
+            // SAFETY: Memory safety ensured by bounds checking and alignment
+            unsafe {
+                self.stream.launch_kernel(
+                    scatter_module,
+                    scatter_name,
+                    config,
+                    &mut [
+                        std::ptr::from_mut(&mut k_src_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut k_dst_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut pos_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
             }
         }
 
-        // Update cache length
-        self.kv_cache_lengths.insert(layer_idx, new_len);
-
-        // PAR-058-DEBUG: Trace attention parameters for layer 0 (only first 3 tokens)
-        // PAR-054-FIX: Skip during graph capture to avoid sync breaking capture
-        if !skip_debug && layer_idx == 0 && new_len <= 3 {
-            self.debug_attention_trace(
-                layer_idx, num_heads, num_kv_heads, head_dim, max_len, new_len,
-                q_gpu, k_gpu, &k_key, &v_key,
-            )?;
-        }
-
-        // PAR-118: Flash Decoding for split-K attention parallelism.
-        // Five-Whys: Multi-warp uses only 28 blocks (one per head) = 22% SM occupancy on
-        // RTX 4090. Flash Decoding splits KV scan across max_chunks blocks per head,
-        // giving 28 × max_chunks = 224 blocks (8 chunks) = 175% more SM utilization.
-        //
-        // Set FLASH_DECODE=0 to disable (for debugging / A-B testing)
-        let use_graph_mode = self.seq_len_buf.is_some();
-
-        static FLASH_DECODE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let flash_enabled = *FLASH_DECODE_ENABLED.get_or_init(|| {
-            !std::env::var("FLASH_DECODE")
-                .map(|v| v == "0")
-                .unwrap_or(false)
-        });
-
-        if flash_enabled
-            && !self.is_capturing
-            && self.flash_decode_enabled
-            && self.flash_decode_k_ptrs.contains_key(&layer_idx)
+        // Scatter V
         {
-            // PAR-118: Flash Decoding for non-capture path.
-            // Skipped during graph capture because flash_decoding_graphed calls
-            // stream.synchronize() which is forbidden during capture (error 901).
-            return self
-                .flash_decoding_graphed(layer_idx, q_gpu, out_gpu, use_graph_mode, new_len as u32)
-                .map(|()| new_len);
+            let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
+            let v_buf = self.kv_cache_gpu.get_mut(v_key).ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-052: KV cache not initialized for layer {}",
+                    layer_idx
+                ))
+            })?;
+            let mut v_src_ptr = v_gpu.as_ptr();
+            let mut v_dst_ptr = v_buf.as_ptr();
+            let mut pos_ptr = pos_buf_ptr;
+            let mut head_dim_val = head_dim as u32;
+            let mut max_len_val = max_len as u32;
+
+            // CORRECTNESS-001 FIX: Same fix for V scatter
+            // CORRECTNESS-011: Use self.stream for graph capture
+            // SAFETY: Memory safety ensured by bounds checking and alignment
+            unsafe {
+                self.stream.launch_kernel(
+                    scatter_module,
+                    scatter_name,
+                    config,
+                    &mut [
+                        std::ptr::from_mut(&mut v_src_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut v_dst_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut pos_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
         }
+
+        Ok(())
+    }
+
+    /// PAR-069: Direct scatter path for normal (non-graph-capture) mode.
+    /// Passes position as a host u32 value baked into the kernel args.
+    fn scatter_kv_direct(
+        &mut self,
+        layer_idx: usize,
+        k_gpu: &GpuBuffer<f32>,
+        v_gpu: &GpuBuffer<f32>,
+        k_key: &str,
+        v_key: &str,
+        config: &LaunchConfig,
+        position_val: u32,
+    ) -> Result<(), GpuError> {
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let max_len = self.kv_cache_max_len;
+
+        let scatter_type = KernelType::KvCacheScatter {
+            num_kv_heads: num_kv_heads as u32,
+            head_dim: head_dim as u32,
+            max_len: max_len as u32,
+        };
+        let scatter_name = self.kernels.kernel_name(&scatter_type);
+        let scatter_ptx = self.kernels.generate_ptx(&scatter_type);
+        let scatter_key = format!("kv_scatter_{}_{}", num_kv_heads, head_dim);
+
+        if !self.modules.contains_key(&scatter_key) {
+            let module = self.compile_ptx(&scatter_ptx)?;
+            self.modules.insert(scatter_key.clone(), module);
+        }
+
+        // Scatter K
+        {
+            let k_buf = self.kv_cache_gpu.get_mut(k_key).ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-052: KV cache not initialized for layer {}",
+                    layer_idx
+                ))
+            })?;
+            let mut k_src_ptr = k_gpu.as_ptr();
+            let mut k_dst_ptr = k_buf.as_ptr();
+            let mut head_dim_val = head_dim as u32;
+            let mut max_len_val = max_len as u32;
+            let mut position_val = position_val;
+
+            let scatter_module = self.modules.get_mut(&scatter_key).expect("just inserted");
+
+            // CORRECTNESS-001 FIX: Kernel expects (src, cache, pos, head_dim, max_len)
+            // Fixed parameter order: pos is 3rd, removed extra num_heads_val
+            // CORRECTNESS-012: Use self.stream to match attention kernel stream
+            // SAFETY: Memory safety ensured by bounds checking and alignment
+            unsafe {
+                self.stream.launch_kernel(
+                    scatter_module,
+                    scatter_name,
+                    config,
+                    &mut [
+                        std::ptr::from_mut(&mut k_src_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut k_dst_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut position_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        }
+
+        // Scatter V
+        {
+            let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
+            let v_buf = self.kv_cache_gpu.get_mut(v_key).ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PAR-052: KV cache not initialized for layer {}",
+                    layer_idx
+                ))
+            })?;
+            let mut v_src_ptr = v_gpu.as_ptr();
+            let mut v_dst_ptr = v_buf.as_ptr();
+            let mut head_dim_val = head_dim as u32;
+            let mut max_len_val = max_len as u32;
+            let mut position_val = position_val;
+
+            // CORRECTNESS-001 FIX: Same fix for V scatter
+            // CORRECTNESS-012: Use self.stream to match attention kernel stream
+            // SAFETY: Memory safety ensured by bounds checking and alignment
+            unsafe {
+                self.stream.launch_kernel(
+                    scatter_module,
+                    scatter_name,
+                    config,
+                    &mut [
+                        std::ptr::from_mut(&mut v_src_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut v_dst_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut position_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// PAR-074: Select, compile, and launch the attention kernel.
+    ///
+    /// Handles adaptive kernel selection (single-warp vs multi-warp),
+    /// PTX compilation with module caching, and kernel launch with
+    /// either indirect (graph capture) or direct seq_len passing.
+    fn launch_attention_kernel(
+        &mut self,
+        layer_idx: usize,
+        q_gpu: &GpuBuffer<f32>,
+        out_gpu: &GpuBuffer<f32>,
+        new_len: usize,
+        use_graph_mode: bool,
+        skip_debug: bool,
+    ) -> Result<(), GpuError> {
+        let num_heads = self.kv_num_heads;
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let max_len = self.kv_cache_max_len;
+
+        let k_key = format!("kv_{}_k", layer_idx);
+        let v_key = format!("kv_{}_v", layer_idx);
 
         // PAR-074: Adaptive attention kernel selection based on sequence length
-        // - Short sequences (< 128): Use single-warp kernel (less overhead, ~1-2µs/token)
+        // - Short sequences (< 128): Use single-warp kernel (less overhead, ~1-2us/token)
         // - Long sequences (>= 128): Use multi-warp kernel (parallel processing)
         //
         // Five-Whys Root Cause: Multi-warp has 4x warp synchronization overhead
@@ -387,8 +412,8 @@ impl CudaExecutor {
             // Normal mode - pass seq_len value directly
             // CORRECTNESS-012: Use self.stream (NOT compute_stream) to ensure synchronization
             // with subsequent GEMV operations which also use self.stream.
-            // Five-Whys: GPU garbage output → race condition → attention on compute_stream,
-            // output projection on stream → no sync → data corruption
+            // Five-Whys: GPU garbage output -> race condition -> attention on compute_stream,
+            // output projection on stream -> no sync -> data corruption
             let mut seq_len_val = new_len as u32;
             // SAFETY: Memory safety ensured by bounds checking and alignment
             unsafe {
@@ -406,6 +431,98 @@ impl CudaExecutor {
                 )?;
             }
         }
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn incremental_attention_into_inner(
+        &mut self,
+        layer_idx: usize,
+        q_gpu: &GpuBuffer<f32>,
+        k_gpu: &GpuBuffer<f32>,
+        v_gpu: &GpuBuffer<f32>,
+        out_gpu: &GpuBuffer<f32>,
+        skip_debug: bool,
+    ) -> Result<usize, GpuError> {
+        let num_heads = self.kv_num_heads;
+        let head_dim = self.kv_head_dim;
+        let max_len = self.kv_cache_max_len;
+
+        // CORRECTNESS-013: Stateless GPU mode - disable KV cache to isolate cache bugs
+        // When STATELESS_GPU=1, attention only sees the current token (no history)
+        // If output becomes correct in stateless mode, the issue is in KV cache logic
+        static STATELESS_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let use_stateless = *STATELESS_MODE.get_or_init(|| {
+            let mode = std::env::var("STATELESS_GPU")
+                .map(|v| v == "1")
+                .unwrap_or(false);
+            if mode {
+                eprintln!("[CORRECTNESS-013] STATELESS_GPU mode ENABLED - attention only sees current token");
+            }
+            mode
+        });
+
+        // Get current cache length and check bounds
+        let cache_len = self.kv_cache_lengths.get(&layer_idx).copied().unwrap_or(0);
+        // CORRECTNESS-013: In stateless mode, always use seq_len=1 (only current token)
+        let new_len = if use_stateless { 1 } else { cache_len + 1 };
+        if !use_stateless && new_len > max_len {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "PAR-051: KV cache overflow - max_len={}, trying to add position {}",
+                max_len, new_len
+            )));
+        }
+
+        // PAR-052: Use scatter kernel instead of per-head D2D copies
+        // Replaces 2 * num_kv_heads D2D copies with 2 kernel launches
+        self.scatter_kv_to_cache(layer_idx, k_gpu, v_gpu, cache_len, use_stateless)?;
+
+        // Update cache length
+        self.kv_cache_lengths.insert(layer_idx, new_len);
+
+        // PAR-058-DEBUG: Trace attention parameters for layer 0 (only first 3 tokens)
+        // PAR-054-FIX: Skip during graph capture to avoid sync breaking capture
+        if !skip_debug && layer_idx == 0 && new_len <= 3 {
+            let k_key = format!("kv_{}_k", layer_idx);
+            let v_key = format!("kv_{}_v", layer_idx);
+            let num_kv_heads = self.kv_num_kv_heads;
+            self.debug_attention_trace(
+                layer_idx, num_heads, num_kv_heads, head_dim, max_len, new_len,
+                q_gpu, k_gpu, &k_key, &v_key,
+            )?;
+        }
+
+        // PAR-118: Flash Decoding for split-K attention parallelism.
+        // Five-Whys: Multi-warp uses only 28 blocks (one per head) = 22% SM occupancy on
+        // RTX 4090. Flash Decoding splits KV scan across max_chunks blocks per head,
+        // giving 28 * max_chunks = 224 blocks (8 chunks) = 175% more SM utilization.
+        //
+        // Set FLASH_DECODE=0 to disable (for debugging / A-B testing)
+        let use_graph_mode = self.seq_len_buf.is_some();
+
+        static FLASH_DECODE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let flash_enabled = *FLASH_DECODE_ENABLED.get_or_init(|| {
+            !std::env::var("FLASH_DECODE")
+                .map(|v| v == "0")
+                .unwrap_or(false)
+        });
+
+        if flash_enabled
+            && !self.is_capturing
+            && self.flash_decode_enabled
+            && self.flash_decode_k_ptrs.contains_key(&layer_idx)
+        {
+            // PAR-118: Flash Decoding for non-capture path.
+            // Skipped during graph capture because flash_decoding_graphed calls
+            // stream.synchronize() which is forbidden during capture (error 901).
+            return self
+                .flash_decoding_graphed(layer_idx, q_gpu, out_gpu, use_graph_mode, new_len as u32)
+                .map(|()| new_len);
+        }
+
+        // Launch the attention kernel (single-warp or multi-warp, direct or indirect)
+        self.launch_attention_kernel(layer_idx, q_gpu, out_gpu, new_len, use_graph_mode, skip_debug)?;
 
         // PAR-051: NO sync here - caller continues pipeline
 

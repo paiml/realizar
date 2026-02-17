@@ -256,6 +256,7 @@ fn test_from_apr_bytes_no_weights_tensor() {
             eps: 1e-5,
         },
         token_embedding: vec![0.1; 8],
+
         layers: vec![],
         output_norm_weight: vec![1.0; 4],
         output_norm_bias: None,
@@ -327,6 +328,7 @@ fn test_from_apr_bytes_truncated_tensor_data() {
             eps: 1e-5,
         },
         token_embedding: vec![0.1; 8],
+
         layers: vec![],
         output_norm_weight: vec![1.0; 4],
         output_norm_bias: None,

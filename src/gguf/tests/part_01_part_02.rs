@@ -20,6 +20,7 @@ fn test_imp_101c_attention_with_cache_softmax_normalized() {
     let model = OwnedQuantizedModel {
         config,
         token_embedding: vec![],
+        position_embedding: None,
         layers: vec![],
         output_norm_weight: vec![],
         output_norm_bias: None,

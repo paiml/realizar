@@ -133,6 +133,7 @@ fn test_forward_with_separate_qkv() {
     let model = OwnedQuantizedModel {
         config,
         token_embedding: vec![0.1f32; 100 * hidden_dim],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0f32; hidden_dim],
         output_norm_bias: None,
@@ -263,6 +264,7 @@ fn test_forward_cached_separate_qkv() {
     let model = OwnedQuantizedModel {
         config: config.clone(),
         token_embedding: vec![0.1f32; 100 * hidden_dim],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0f32; hidden_dim],
         output_norm_bias: None,

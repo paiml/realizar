@@ -251,6 +251,7 @@
         let gguf = GGUFTransformer {
             config,
             token_embedding: vec![0.1; 128],
+            position_embedding: None,
             layers: vec![layer],
             output_norm_weight: vec![1.0; 8],
             output_norm_bias: None,
@@ -306,6 +307,7 @@
         let gguf = GGUFTransformer {
             config,
             token_embedding: vec![0.1; 128],
+            position_embedding: None,
             layers: vec![layer],
             output_norm_weight: vec![1.0; 8],
             output_norm_bias: None,

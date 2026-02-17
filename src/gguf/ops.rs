@@ -112,10 +112,11 @@ pub fn rms_norm_into(input: &[f32], weight: &[f32], eps: f32, output: &mut [f32]
     }
 }
 
-/// Layer normalization with optional bias
+/// True Layer Normalization with optional bias
 ///
-/// PMAT-094: This is actually RMSNorm for LLaMA-style models.
-/// Kept for API compatibility with models that expect layer_norm signature.
+/// GH-278: Implements real LayerNorm with mean subtraction.
+/// Formula: output = (x - mean(x)) / sqrt(var(x) + eps) * weight + bias
+/// Used by GPT-2 and phi-2 (models with attn_norm_bias).
 ///
 /// # Arguments
 /// * `input` - Input tensor [seq_len * hidden_dim]
@@ -126,18 +127,19 @@ pub fn layer_norm(input: &[f32], weight: &[f32], bias: Option<&[f32]>, eps: f32)
     let hidden_dim = weight.len();
     let seq_len = input.len() / hidden_dim;
     let mut output = Vec::with_capacity(input.len());
+    let n = hidden_dim as f32;
 
     for i in 0..seq_len {
         let start = i * hidden_dim;
         let end = start + hidden_dim;
         let x = &input[start..end];
 
-        // RMSNorm: compute root mean square (no mean subtraction!)
-        let sum_sq: f32 = x.iter().map(|v| v * v).sum();
-        let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
+        let mean: f32 = x.iter().sum::<f32>() / n;
+        let var: f32 = x.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / n;
+        let inv_std = 1.0 / (var + eps).sqrt();
 
         for j in 0..hidden_dim {
-            let normalized = x[j] / rms;
+            let normalized = (x[j] - mean) * inv_std;
             let mut val = normalized * weight[j];
             if let Some(b) = bias {
                 val += b[j];
@@ -150,6 +152,8 @@ pub fn layer_norm(input: &[f32], weight: &[f32], bias: Option<&[f32]>, eps: f32)
 }
 
 /// Layer normalization to pre-allocated buffer
+///
+/// GH-278: Implements real LayerNorm with mean subtraction.
 pub fn layer_norm_into(
     input: &[f32],
     weight: &[f32],
@@ -159,12 +163,14 @@ pub fn layer_norm_into(
 ) {
     let hidden_dim = weight.len();
     let x = &input[..hidden_dim];
+    let n = hidden_dim as f32;
 
-    let sum_sq: f32 = x.iter().map(|v| v * v).sum();
-    let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
+    let mean: f32 = x.iter().sum::<f32>() / n;
+    let var: f32 = x.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / n;
+    let inv_std = 1.0 / (var + eps).sqrt();
 
     for j in 0..hidden_dim {
-        let normalized = x[j] / rms;
+        let normalized = (x[j] - mean) * inv_std;
         output[j] = normalized * weight[j];
         if let Some(b) = bias {
             output[j] += b[j];

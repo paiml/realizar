@@ -132,6 +132,7 @@ fn make_pygmy_model_with_q4k_swiglu() -> AprTransformer {
     AprTransformer {
         config,
         token_embedding,
+
         layers: vec![layer],
         output_norm_weight: vec![1.0; hidden_dim],
         output_norm_bias: None,
@@ -227,6 +228,7 @@ fn make_pygmy_model_with_q4k_gelu() -> AprTransformer {
     AprTransformer {
         config,
         token_embedding,
+
         layers: vec![layer],
         output_norm_weight: vec![1.0; hidden_dim],
         output_norm_bias: Some(vec![0.0; hidden_dim]),
