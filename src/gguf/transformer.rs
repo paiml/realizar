@@ -109,9 +109,10 @@ impl<'a> QuantizedGGUFTransformer<'a> {
 
         // Token embedding - keep as f32 for efficient lookup
         let token_embedding = model.get_tensor_f32("token_embd.weight", data)?;
-        // GH-278: Position embedding — standard GGUF name + aprender export fallback
+        // GH-278: Position embedding — standard GGUF + legacy + aprender export fallback
         let position_embedding = model
-            .get_tensor_f32("token_pos_embd.weight", data)
+            .get_tensor_f32("position_embd.weight", data)
+            .or_else(|_| model.get_tensor_f32("token_pos_embd.weight", data))
             .or_else(|_| model.get_tensor_f32("model.position_embedding.weight", data))
             .ok();
 
@@ -149,6 +150,67 @@ impl<'a> QuantizedGGUFTransformer<'a> {
         })
     }
 
+    /// Calculate byte size for a quantized tensor based on its type and dimensions.
+    fn tensor_byte_size(qtype: u32, num_elements: usize, dims: &[u64]) -> Result<usize> {
+        /// Row-padded K-quant byte size: each row pads to super-block boundaries.
+        fn k_quant_bytes(dims: &[u64], super_block_bytes: usize) -> usize {
+            if dims.len() == 2 {
+                let rows = dims[0] as usize;
+                let cols = dims[1] as usize;
+                rows * cols.div_ceil(QK_K) * super_block_bytes
+            } else {
+                let n: usize = dims.iter().map(|&d| d as usize).product();
+                n.div_ceil(QK_K) * super_block_bytes
+            }
+        }
+
+        match qtype {
+            GGUF_TYPE_F32 => Ok(num_elements * 4),
+            GGUF_TYPE_Q4_0 => Ok(num_elements.div_ceil(32) * 18),
+            GGUF_TYPE_Q8_0 => Ok(num_elements.div_ceil(32) * 34),
+            GGUF_TYPE_Q2_K => Ok(num_elements.div_ceil(QK_K) * 84),
+            GGUF_TYPE_Q4_1 => Ok(num_elements.div_ceil(32) * 20),
+            GGUF_TYPE_Q5_0 => Ok(num_elements.div_ceil(32) * 22),
+            GGUF_TYPE_Q4_K => Ok(k_quant_bytes(dims, 144)),
+            GGUF_TYPE_Q5_K => Ok(k_quant_bytes(dims, 176)),
+            GGUF_TYPE_Q6_K => Ok(k_quant_bytes(dims, 210)),
+            _ => Err(RealizarError::UnsupportedOperation {
+                operation: "tensor_byte_size".to_string(),
+                reason: format!("Unsupported quantization type: {qtype}"),
+            }),
+        }
+    }
+
+    /// PAR-058: Auto-correct qtype when header claims wrong type.
+    fn resolve_qtype(
+        name: &str,
+        claimed_qtype: u32,
+        byte_size: usize,
+        num_elements: usize,
+        offset: usize,
+        data_len: usize,
+    ) -> (usize, u32) {
+        if offset + byte_size <= data_len {
+            return (byte_size, claimed_qtype);
+        }
+        let avail = data_len.saturating_sub(offset);
+        let q4_0_size = num_elements.div_ceil(32) * 18;
+        if q4_0_size <= avail && q4_0_size > 0 {
+            eprintln!(
+                "[PAR-058-RESOLVED] Tensor '{name}' qtype mismatch: header says {claimed_qtype} but byte size suggests Q4_0. Using Q4_0."
+            );
+            return (q4_0_size, GGUF_TYPE_Q4_0);
+        }
+        let q8_0_size = num_elements.div_ceil(32) * 34;
+        if q8_0_size <= avail && q8_0_size > 0 {
+            eprintln!(
+                "[PAR-058-RESOLVED] Tensor '{name}' qtype mismatch: header says {claimed_qtype} but byte size suggests Q8_0. Using Q8_0."
+            );
+            return (q8_0_size, GGUF_TYPE_Q8_0);
+        }
+        (byte_size, claimed_qtype)
+    }
+
     /// Get tensor reference (offset + size + qtype) without dequantization
     fn get_tensor_ref(model: &GGUFModel, data: &[u8], name: &str) -> Result<QuantizedTensorRef> {
         let tensor = model
@@ -161,147 +223,10 @@ impl<'a> QuantizedGGUFTransformer<'a> {
 
         let num_elements: usize = tensor.dims.iter().map(|&d| d as usize).product();
         let offset = model.tensor_data_start + tensor.offset as usize;
+        let byte_size = Self::tensor_byte_size(tensor.qtype, num_elements, &tensor.dims)?;
+        let (byte_size, actual_qtype) =
+            Self::resolve_qtype(name, tensor.qtype, byte_size, num_elements, offset, data.len());
 
-        // Calculate byte size based on quantization type
-        let byte_size = match tensor.qtype {
-            GGUF_TYPE_F32 => num_elements * 4,
-            GGUF_TYPE_Q4_0 => {
-                // Q4_0: 32 elements per block
-                // Layout: 1×f16 scale (2 bytes) + 16 bytes (32×4-bit values) = 18 bytes
-                const BLOCK_SIZE: usize = 32;
-                const BLOCK_BYTES: usize = 18;
-                let num_blocks = num_elements.div_ceil(BLOCK_SIZE);
-                num_blocks * BLOCK_BYTES
-            },
-            GGUF_TYPE_Q8_0 => {
-                const BLOCK_SIZE: usize = 32;
-                const BLOCK_BYTES: usize = 34; // 2 (f16 scale) + 32 (i8 quants)
-                let num_blocks = num_elements.div_ceil(BLOCK_SIZE);
-                num_blocks * BLOCK_BYTES
-            },
-            GGUF_TYPE_Q2_K => {
-                // Q2_K: 256 elements per super-block
-                // Layout: 16 bytes scales + 64 bytes quants + 2 bytes d + 2 bytes dmin = 84 bytes
-                const SUPER_BLOCK_BYTES: usize = 84;
-                let num_super_blocks = num_elements.div_ceil(QK_K);
-                num_super_blocks * SUPER_BLOCK_BYTES
-            },
-            GGUF_TYPE_Q4_1 => {
-                // Q4_1: 32 elements per block
-                // Layout: 1×f16 scale (2 bytes) + 1×f16 min (2 bytes) + 16 bytes (32×4-bit values) = 20 bytes
-                const BLOCK_SIZE: usize = 32;
-                const BLOCK_BYTES: usize = 20;
-                let num_blocks = num_elements.div_ceil(BLOCK_SIZE);
-                num_blocks * BLOCK_BYTES
-            },
-            GGUF_TYPE_Q5_0 => {
-                // Q5_0: 32 elements per block
-                // Layout: 1×f16 scale (2 bytes) + 4 bytes high bits + 16 bytes quants = 22 bytes
-                const BLOCK_SIZE: usize = 32;
-                const BLOCK_BYTES: usize = 22;
-                let num_blocks = num_elements.div_ceil(BLOCK_SIZE);
-                num_blocks * BLOCK_BYTES
-            },
-            GGUF_TYPE_Q4_K => {
-                const SUPER_BLOCK_BYTES: usize = 144;
-                // GH-191 FIX: Use row-padded layout for 2D tensors (matching aprender export)
-                // NOTE: tensor.dims are REVERSED from GGML order by loader.rs:323
-                // After reversal: dims = [rows, cols] in standard order
-                // Row-padded: each row has ceil(cols/256) super-blocks
-                // Flat: all elements treated as 1D
-                if tensor.dims.len() == 2 {
-                    let rows = tensor.dims[0] as usize; // out_dim (rows) - after reversal
-                    let cols = tensor.dims[1] as usize; // in_dim (cols) - after reversal
-                    let super_blocks_per_row = cols.div_ceil(QK_K);
-                    rows * super_blocks_per_row * SUPER_BLOCK_BYTES
-                } else {
-                    let num_super_blocks = num_elements.div_ceil(QK_K);
-                    num_super_blocks * SUPER_BLOCK_BYTES
-                }
-            },
-            GGUF_TYPE_Q5_K => {
-                const SUPER_BLOCK_BYTES: usize = 176;
-                // GH-191 FIX: Use row-padded layout for 2D tensors
-                // NOTE: tensor.dims are in standard [rows, cols] order (reversed from GGML)
-                if tensor.dims.len() == 2 {
-                    let rows = tensor.dims[0] as usize;
-                    let cols = tensor.dims[1] as usize;
-                    let super_blocks_per_row = cols.div_ceil(QK_K);
-                    rows * super_blocks_per_row * SUPER_BLOCK_BYTES
-                } else {
-                    let num_super_blocks = num_elements.div_ceil(QK_K);
-                    num_super_blocks * SUPER_BLOCK_BYTES
-                }
-            },
-            GGUF_TYPE_Q6_K => {
-                const SUPER_BLOCK_BYTES: usize = 210;
-                // GH-191 FIX: Use row-padded layout for 2D tensors
-                // NOTE: tensor.dims are in standard [rows, cols] order (reversed from GGML)
-                if tensor.dims.len() == 2 {
-                    let rows = tensor.dims[0] as usize;
-                    let cols = tensor.dims[1] as usize;
-                    let super_blocks_per_row = cols.div_ceil(QK_K);
-                    rows * super_blocks_per_row * SUPER_BLOCK_BYTES
-                } else {
-                    let num_super_blocks = num_elements.div_ceil(QK_K);
-                    num_super_blocks * SUPER_BLOCK_BYTES
-                }
-            },
-            _ => {
-                return Err(RealizarError::UnsupportedOperation {
-                    operation: "get_tensor_ref".to_string(),
-                    reason: format!("Unsupported quantization type: {}", tensor.qtype),
-                });
-            },
-        };
-
-        // PAR-058-RESOLVED: Validate byte size and auto-correct qtype if mismatch detected
-        // Some GGUF files have incorrect qtype in header (e.g., Q5_0 header but Q4_0 data)
-        // Detect this by checking if the calculated byte_size would exceed file bounds,
-        // and try alternative qtypes that match the actual data size.
-        let (byte_size, actual_qtype) = {
-            // Try the claimed qtype first
-            if offset + byte_size <= data.len() {
-                (byte_size, tensor.qtype)
-            } else {
-                // Mismatch! Try to infer correct qtype from available data
-                // This happens when GGUF header has wrong qtype (e.g., qwen2.5-coder-0.5b)
-                let avail = data.len().saturating_sub(offset);
-
-                // Try Q4_0 (18 bytes per 32 elements)
-                let q4_0_size = {
-                    const BLOCK_SIZE: usize = 32;
-                    const BLOCK_BYTES: usize = 18;
-                    num_elements.div_ceil(BLOCK_SIZE) * BLOCK_BYTES
-                };
-                if q4_0_size <= avail && q4_0_size > 0 {
-                    eprintln!(
-                        "[PAR-058-RESOLVED] Tensor '{}' qtype mismatch: header says {} but byte size suggests Q4_0. Using Q4_0.",
-                        name, tensor.qtype
-                    );
-                    (q4_0_size, GGUF_TYPE_Q4_0)
-                } else {
-                    // Try Q8_0 (34 bytes per 32 elements)
-                    let q8_0_size = {
-                        const BLOCK_SIZE: usize = 32;
-                        const BLOCK_BYTES: usize = 34;
-                        num_elements.div_ceil(BLOCK_SIZE) * BLOCK_BYTES
-                    };
-                    if q8_0_size <= avail && q8_0_size > 0 {
-                        eprintln!(
-                            "[PAR-058-RESOLVED] Tensor '{}' qtype mismatch: header says {} but byte size suggests Q8_0. Using Q8_0.",
-                            name, tensor.qtype
-                        );
-                        (q8_0_size, GGUF_TYPE_Q8_0)
-                    } else {
-                        // Fallback to original (will fail bounds check below)
-                        (byte_size, tensor.qtype)
-                    }
-                }
-            }
-        };
-
-        // Validate bounds
         if offset + byte_size > data.len() {
             return Err(RealizarError::InvalidShape {
                 reason: format!(
@@ -318,7 +243,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             offset,
             byte_size,
             num_elements,
-            qtype: actual_qtype, // PAR-058-RESOLVED: Use auto-corrected qtype
+            qtype: actual_qtype,
         })
     }
 
@@ -336,9 +261,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
         // GH-278: Attention norm bias — standard GGUF + aprender fallback
         let attn_norm_bias = model
             .get_tensor_f32(&format!("{}.attn_norm.bias", prefix), data)
-            .or_else(|_| {
-                model.get_tensor_f32(&format!("{}.input_layernorm.bias", prefix), data)
-            })
+            .or_else(|_| model.get_tensor_f32(&format!("{}.input_layernorm.bias", prefix), data))
             .ok();
 
         // QKV - large, keep quantized
@@ -395,17 +318,13 @@ impl<'a> QuantizedGGUFTransformer<'a> {
         // GH-278: FFN biases — standard GGUF + aprender fallback
         let ffn_up_bias = model
             .get_tensor_f32(&format!("{}.ffn_up.bias", prefix), data)
-            .or_else(|_| {
-                model.get_tensor_f32(&format!("{}.mlp.up_proj.bias", prefix), data)
-            })
+            .or_else(|_| model.get_tensor_f32(&format!("{}.mlp.up_proj.bias", prefix), data))
             .ok();
         let ffn_down_weight =
             Self::get_tensor_ref(model, data, &format!("{}.ffn_down.weight", prefix))?;
         let ffn_down_bias = model
             .get_tensor_f32(&format!("{}.ffn_down.bias", prefix), data)
-            .or_else(|_| {
-                model.get_tensor_f32(&format!("{}.mlp.down_proj.bias", prefix), data)
-            })
+            .or_else(|_| model.get_tensor_f32(&format!("{}.mlp.down_proj.bias", prefix), data))
             .ok();
 
         // FFN gate - SwiGLU models like LLaMA have this
@@ -423,10 +342,7 @@ impl<'a> QuantizedGGUFTransformer<'a> {
         let ffn_norm_bias = model
             .get_tensor_f32(&format!("{}.ffn_norm.bias", prefix), data)
             .or_else(|_| {
-                model.get_tensor_f32(
-                    &format!("{}.post_attention_layernorm.bias", prefix),
-                    data,
-                )
+                model.get_tensor_f32(&format!("{}.post_attention_layernorm.bias", prefix), data)
             })
             .ok();
 
