@@ -95,14 +95,24 @@ impl GGUFConfig {
             .find(|t| t.name == "token_embd.weight")
             .map_or(32000, |t| t.dims.first().copied().unwrap_or(32000) as usize);
 
-        // Infer intermediate_dim from ffn_up tensor
-        // After dims.reverse(), shape is [intermediate_dim, hidden_dim] - intermediate is at index 0
+        // GH-278: Infer intermediate_dim from ffn_up tensor shape.
+        // After dims.reverse() in the GGUF parser:
+        //   - LLaMA (Linear): [intermediate_dim, hidden_dim] → dims[0] = intermediate
+        //   - GPT-2 (Conv1D): [hidden_dim, intermediate_dim] → dims[0] = hidden
+        // Fix: use whichever dimension differs from hidden_dim.
+        // Per gpt2.yaml contract: intermediate_dim=3072 for GPT-2 small.
         let intermediate_dim = model
             .tensors
             .iter()
             .find(|t| t.name == "blk.0.ffn_up.weight")
             .map_or(hidden_dim * 4, |t| {
-                t.dims.first().copied().unwrap_or(hidden_dim as u64 * 4) as usize
+                let d0 = t.dims.first().copied().unwrap_or(hidden_dim as u64 * 4) as usize;
+                let d1 = t.dims.get(1).copied().unwrap_or(hidden_dim as u64) as usize;
+                if d0 == hidden_dim && d1 != hidden_dim {
+                    d1 // Conv1D layout: [hidden_dim, intermediate_dim]
+                } else {
+                    d0 // Linear layout: [intermediate_dim, hidden_dim]
+                }
             });
 
         let context_length = model.context_length().unwrap_or(2048);

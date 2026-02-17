@@ -15,7 +15,11 @@ impl GGUFTransformer {
 
         // Load token embedding
         let token_embedding = model.get_tensor_f32("token_embd.weight", file_data)?;
-        let position_embedding = model.get_tensor_f32("token_pos_embd.weight", file_data).ok();
+        // GH-278: Position embedding — standard GGUF name + aprender export fallback
+        let position_embedding = model
+            .get_tensor_f32("token_pos_embd.weight", file_data)
+            .or_else(|_| model.get_tensor_f32("model.position_embedding.weight", file_data))
+            .ok();
 
         // Load layers
         let mut layers = Vec::with_capacity(config.num_layers);
@@ -26,7 +30,11 @@ impl GGUFTransformer {
 
         // Load output norm (raw gamma values - no delta transformation needed)
         let output_norm_weight = model.get_tensor_f32("output_norm.weight", file_data)?;
-        let output_norm_bias = model.get_tensor_f32("output_norm.bias", file_data).ok();
+        // GH-278: Output norm bias — standard + aprender fallback
+        let output_norm_bias = model
+            .get_tensor_f32("output_norm.bias", file_data)
+            .or_else(|_| model.get_tensor_f32("model.norm.bias", file_data))
+            .ok();
 
         // Load LM head (output projection)
         // Fall back to token_embd.weight for tied embeddings (Qwen2, some LLaMA variants)
@@ -62,8 +70,12 @@ impl GGUFTransformer {
         // Attention norm weights
         let attn_norm_weight =
             model.get_tensor_f32(&format!("{}.attn_norm.weight", prefix), file_data)?;
+        // GH-278: Attention norm bias — standard GGUF + aprender fallback
         let attn_norm_bias = model
             .get_tensor_f32(&format!("{}.attn_norm.bias", prefix), file_data)
+            .or_else(|_| {
+                model.get_tensor_f32(&format!("{}.input_layernorm.bias", prefix), file_data)
+            })
             .ok();
 
         // QKV weights - try combined first (phi-2), fall back to separate (llama)
@@ -130,21 +142,35 @@ impl GGUFTransformer {
         // FFN up/down projections
         let ffn_up_weight =
             model.get_tensor_f32(&format!("{}.ffn_up.weight", prefix), file_data)?;
+        // GH-278: FFN biases — standard GGUF + aprender fallback
         let ffn_up_bias = model
             .get_tensor_f32(&format!("{}.ffn_up.bias", prefix), file_data)
+            .or_else(|_| {
+                model.get_tensor_f32(&format!("{}.mlp.up_proj.bias", prefix), file_data)
+            })
             .ok();
         let ffn_down_weight =
             model.get_tensor_f32(&format!("{}.ffn_down.weight", prefix), file_data)?;
         let ffn_down_bias = model
             .get_tensor_f32(&format!("{}.ffn_down.bias", prefix), file_data)
+            .or_else(|_| {
+                model.get_tensor_f32(&format!("{}.mlp.down_proj.bias", prefix), file_data)
+            })
             .ok();
 
         // FFN norm (models with separate FFN normalization)
         let ffn_norm_weight = model
             .get_tensor_f32(&format!("{}.ffn_norm.weight", prefix), file_data)
             .ok();
+        // GH-278: FFN norm bias — standard GGUF + aprender fallback
         let ffn_norm_bias = model
             .get_tensor_f32(&format!("{}.ffn_norm.bias", prefix), file_data)
+            .or_else(|_| {
+                model.get_tensor_f32(
+                    &format!("{}.post_attention_layernorm.bias", prefix),
+                    file_data,
+                )
+            })
             .ok();
 
         Ok(GGUFTransformerLayer {

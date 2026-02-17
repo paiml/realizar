@@ -12,6 +12,65 @@ fn transpose_f32_matrix(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
     result
 }
 
+/// GH-278: Transpose an owned F32 quantized tensor in-place.
+///
+/// Converts the raw byte data from [rows × cols] to [cols × rows] layout.
+/// The in_dim and out_dim fields are NOT changed — they already represent
+/// the correct semantic meaning (in_dim = input features, out_dim = output features).
+/// Only valid for qtype=0 (F32) tensors.
+fn transpose_owned_f32_tensor(tensor: &mut OwnedQuantizedTensor, rows: usize, cols: usize) {
+    let f32_data: Vec<f32> = tensor
+        .data
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    let transposed = transpose_f32_matrix(&f32_data, rows, cols);
+    tensor.data = transposed.iter().flat_map(|v| v.to_le_bytes()).collect();
+}
+
+/// GH-278: Transpose Conv1D layer weights from [in,out] to [out,in] layout.
+///
+/// GPT-2 Conv1D weights are stored as `[in_dim, out_dim]` but `fused_matmul`
+/// expects `[out_dim, in_dim]`. Only F32 (qtype=0) tensors are transposed.
+fn transpose_conv1d_layer(
+    layer: &mut OwnedQuantizedLayer,
+    hidden_dim: usize,
+    kv_dim: usize,
+    intermediate_dim: usize,
+) {
+    match &mut layer.qkv_weight {
+        OwnedQKVWeights::Separate {
+            ref mut q,
+            ref mut k,
+            ref mut v,
+        } => {
+            if q.qtype == 0 {
+                transpose_owned_f32_tensor(q, hidden_dim, hidden_dim);
+            }
+            if k.qtype == 0 {
+                transpose_owned_f32_tensor(k, hidden_dim, kv_dim);
+            }
+            if v.qtype == 0 {
+                transpose_owned_f32_tensor(v, hidden_dim, kv_dim);
+            }
+        },
+        OwnedQKVWeights::Fused(ref mut t) => {
+            if t.qtype == 0 {
+                transpose_owned_f32_tensor(t, hidden_dim, t.out_dim);
+            }
+        },
+    }
+    if layer.attn_output_weight.qtype == 0 {
+        transpose_owned_f32_tensor(&mut layer.attn_output_weight, hidden_dim, hidden_dim);
+    }
+    if layer.ffn_up_weight.qtype == 0 {
+        transpose_owned_f32_tensor(&mut layer.ffn_up_weight, hidden_dim, intermediate_dim);
+    }
+    if layer.ffn_down_weight.qtype == 0 {
+        transpose_owned_f32_tensor(&mut layer.ffn_down_weight, intermediate_dim, hidden_dim);
+    }
+}
+
 impl OwnedQuantizedModel {
     /// Create owned model from memory-mapped GGUF file
     ///
@@ -28,11 +87,21 @@ impl OwnedQuantizedModel {
         let vocab_size = config.vocab_size;
 
         // Convert layers to owned (passing config for dimensions)
-        let layers: Vec<OwnedQuantizedLayer> = transformer
+        let mut layers: Vec<OwnedQuantizedLayer> = transformer
             .layers
             .iter()
             .map(|l| OwnedQuantizedLayer::from_borrowed(l, data, config))
             .collect();
+
+        // GH-278: GPT-2 Conv1D weights are stored as [in_dim, out_dim] in the GGUF
+        // (aprender export doesn't transpose). fused_matmul expects [out_dim, in_dim].
+        if config.architecture.to_lowercase().contains("gpt2") {
+            let head_dim = hidden_dim / config.num_heads;
+            let kv_dim = config.num_kv_heads * head_dim;
+            for layer in &mut layers {
+                transpose_conv1d_layer(layer, hidden_dim, kv_dim, config.intermediate_dim);
+            }
+        }
 
         Ok(Self {
             config: transformer.config.clone(),

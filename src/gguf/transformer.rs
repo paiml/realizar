@@ -105,7 +105,11 @@ impl<'a> QuantizedGGUFTransformer<'a> {
 
         // Token embedding - keep as f32 for efficient lookup
         let token_embedding = model.get_tensor_f32("token_embd.weight", data)?;
-        let position_embedding = model.get_tensor_f32("token_pos_embd.weight", data).ok();
+        // GH-278: Position embedding — standard GGUF name + aprender export fallback
+        let position_embedding = model
+            .get_tensor_f32("token_pos_embd.weight", data)
+            .or_else(|_| model.get_tensor_f32("model.position_embedding.weight", data))
+            .ok();
 
         // Load layers with quantized weight references
         let mut layers = Vec::with_capacity(config.num_layers);
@@ -116,7 +120,11 @@ impl<'a> QuantizedGGUFTransformer<'a> {
 
         // Output norm - small, keep as f32
         let output_norm_weight = model.get_tensor_f32("output_norm.weight", data)?;
-        let output_norm_bias = model.get_tensor_f32("output_norm.bias", data).ok();
+        // GH-278: Output norm bias — standard + aprender fallback
+        let output_norm_bias = model
+            .get_tensor_f32("output_norm.bias", data)
+            .or_else(|_| model.get_tensor_f32("model.norm.bias", data))
+            .ok();
 
         // LM head - large, keep quantized
         // Fall back to token_embd.weight for tied embeddings (Qwen2, some LLaMA variants)
@@ -321,8 +329,12 @@ impl<'a> QuantizedGGUFTransformer<'a> {
         // Attention norm - small, keep as f32
         let attn_norm_weight =
             model.get_tensor_f32(&format!("{}.attn_norm.weight", prefix), data)?;
+        // GH-278: Attention norm bias — standard GGUF + aprender fallback
         let attn_norm_bias = model
             .get_tensor_f32(&format!("{}.attn_norm.bias", prefix), data)
+            .or_else(|_| {
+                model.get_tensor_f32(&format!("{}.input_layernorm.bias", prefix), data)
+            })
             .ok();
 
         // QKV - large, keep quantized
@@ -376,13 +388,20 @@ impl<'a> QuantizedGGUFTransformer<'a> {
         // FFN - large, keep quantized
         let ffn_up_weight =
             Self::get_tensor_ref(model, data, &format!("{}.ffn_up.weight", prefix))?;
+        // GH-278: FFN biases — standard GGUF + aprender fallback
         let ffn_up_bias = model
             .get_tensor_f32(&format!("{}.ffn_up.bias", prefix), data)
+            .or_else(|_| {
+                model.get_tensor_f32(&format!("{}.mlp.up_proj.bias", prefix), data)
+            })
             .ok();
         let ffn_down_weight =
             Self::get_tensor_ref(model, data, &format!("{}.ffn_down.weight", prefix))?;
         let ffn_down_bias = model
             .get_tensor_f32(&format!("{}.ffn_down.bias", prefix), data)
+            .or_else(|_| {
+                model.get_tensor_f32(&format!("{}.mlp.down_proj.bias", prefix), data)
+            })
             .ok();
 
         // FFN gate - SwiGLU models like LLaMA have this
@@ -396,8 +415,15 @@ impl<'a> QuantizedGGUFTransformer<'a> {
         let ffn_norm_weight = model
             .get_tensor_f32(&format!("{}.ffn_norm.weight", prefix), data)
             .ok();
+        // GH-278: FFN norm bias — standard GGUF + aprender fallback
         let ffn_norm_bias = model
             .get_tensor_f32(&format!("{}.ffn_norm.bias", prefix), data)
+            .or_else(|_| {
+                model.get_tensor_f32(
+                    &format!("{}.post_attention_layernorm.bias", prefix),
+                    data,
+                )
+            })
             .ok();
 
         Ok(QuantizedGGUFTransformerLayer {
