@@ -146,6 +146,7 @@ fn make_bench_config(
 ) -> realizar::gguf::GGUFConfig {
     realizar::gguf::GGUFConfig {
         architecture: "test".to_string(),
+        constraints: realizar::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim,
         intermediate_dim,
         num_layers,
@@ -1158,6 +1159,8 @@ fn benchmark_e2e_generation(c: &mut Criterion) {
             ffn_gate_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         })
         .collect();
 

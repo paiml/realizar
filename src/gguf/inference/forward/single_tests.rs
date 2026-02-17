@@ -32,8 +32,8 @@ fn create_llama_style_config() -> GGUFConfig {
 /// Create a config for phi-2 style models (LayerNorm + GELU, no gate)
 fn create_phi_style_config() -> GGUFConfig {
     GGUFConfig {
-        architecture: "phi".to_string(),
-        constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
+        architecture: "phi2".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi2"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_heads: 4,

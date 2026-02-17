@@ -260,13 +260,13 @@ fn test_apr_transformer_new_output_norm_is_ones() {
 #[test]
 fn test_apr_transformer_config_accessor() {
     let config = AprTransformerConfig {
-        architecture: "phi".to_string(),
+        architecture: "phi2".to_string(),
         hidden_dim: 256,
         ..Default::default()
     };
     let model = AprTransformer::new(config);
     let cfg = model.config();
-    assert_eq!(cfg.architecture, "phi");
+    assert_eq!(cfg.architecture, "phi2");
     assert_eq!(cfg.hidden_dim, 256);
 }
 

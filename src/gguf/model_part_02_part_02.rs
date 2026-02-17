@@ -171,8 +171,8 @@
     #[test]
     fn test_gguf_transformer_with_biases() {
         let config = GGUFConfig {
-            architecture: "phi".to_string(),
-            constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
+            architecture: "phi2".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("phi2"),
             hidden_dim: 128,
             num_layers: 1,
             num_heads: 2,
@@ -336,8 +336,8 @@
         use super::super::types::GGUF_TYPE_Q4_K;
 
         let config = GGUFConfig {
-            architecture: "phi".to_string(),
-            constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
+            architecture: "phi2".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("phi2"),
             hidden_dim: 64,
             num_layers: 1,
             num_heads: 2,

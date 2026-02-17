@@ -22,16 +22,18 @@ impl OwnedQuantizedModel {
         // 1. Token embedding lookup (f32, fast)
         let mut hidden = self.embed(token_ids);
 
-        // GH-278: Add learned position embeddings (GPT-2 style)
-        if let Some(ref pos_emb) = self.position_embedding {
-            let hidden_dim = self.config.hidden_dim;
-            for (s, _) in token_ids.iter().enumerate() {
-                let pos_start = s * hidden_dim;
-                let pos_end = pos_start + hidden_dim;
-                if pos_end <= pos_emb.len() {
-                    let h_start = s * hidden_dim;
-                    for i in 0..hidden_dim {
-                        hidden[h_start + i] += pos_emb[pos_start + i];
+        // GH-278: Add learned position embeddings for absolute encoding (GPT-2, BERT, whisper)
+        if self.config.constraints.uses_absolute_positions() {
+            if let Some(ref pos_emb) = self.position_embedding {
+                let hidden_dim = self.config.hidden_dim;
+                for (s, _) in token_ids.iter().enumerate() {
+                    let pos_start = s * hidden_dim;
+                    let pos_end = pos_start + hidden_dim;
+                    if pos_end <= pos_emb.len() {
+                        let h_start = s * hidden_dim;
+                        for i in 0..hidden_dim {
+                            hidden[h_start + i] += pos_emb[pos_start + i];
+                        }
                     }
                 }
             }
@@ -205,10 +207,11 @@ impl OwnedQuantizedModel {
                 hidden.clone()
             };
 
-            // 2g. FFN with SwiGLU or GELU activation
-            let ffn_activated = if let Some(ref gate_weight) = layer.ffn_gate_weight {
+            // 2g. FFN with SwiGLU or GELU activation (contract-driven, GH-278)
+            let ffn_activated = if self.config.constraints.has_gate_ffn() {
                 // SwiGLU path (LLaMA, TinyLlama, Mistral, etc.)
-                // output = down(gate(x) * silu(up(x)))
+                let gate_weight = layer.ffn_gate_weight.as_ref()
+                    .expect("gated FFN contract requires gate weight");
                 let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
                 if let Some(ref bias) = layer.ffn_up_bias {
                     ops::add_bias(&mut ffn_up, bias);
@@ -220,17 +223,14 @@ impl OwnedQuantizedModel {
                 }
 
                 // SwiGLU: down(silu(gate(x)) * up(x))
-                // Apply SiLU to GATE projection, not up
                 ops::silu(&mut ffn_gate);
-
-                // Element-wise multiply: silu(gate) * up
                 for i in 0..ffn_gate.len() {
                     ffn_gate[i] *= ffn_up[i];
                 }
 
                 ffn_gate
             } else {
-                // GELU path (phi-2, GPT-2, etc.)
+                // GELU path (GPT-2, BERT, etc.)
                 let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
                 if let Some(ref bias) = layer.ffn_up_bias {
                     ops::add_bias(&mut ffn_hidden, bias);

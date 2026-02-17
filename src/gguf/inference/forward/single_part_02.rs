@@ -442,13 +442,15 @@ impl OwnedQuantizedModel {
         // 1. Token embedding lookup -> scratch.hidden
         self.embed_into(token_id, &mut scratch.hidden);
 
-        // GH-278: Add learned position embedding (GPT-2 style)
-        if let Some(ref pos_emb) = self.position_embedding {
-            let start = position * hidden_dim;
-            let end = start + hidden_dim;
-            if end <= pos_emb.len() {
-                for i in 0..hidden_dim {
-                    scratch.hidden[i] += pos_emb[start + i];
+        // GH-278: Add learned position embedding for absolute encoding (GPT-2, BERT, whisper)
+        if self.config.constraints.uses_absolute_positions() {
+            if let Some(ref pos_emb) = self.position_embedding {
+                let start = position * hidden_dim;
+                let end = start + hidden_dim;
+                if end <= pos_emb.len() {
+                    for i in 0..hidden_dim {
+                        scratch.hidden[i] += pos_emb[start + i];
+                    }
                 }
             }
         }
@@ -500,8 +502,8 @@ impl OwnedQuantizedModel {
                 scratch.normed[..hidden_dim].copy_from_slice(&scratch.hidden[..hidden_dim]);
             }
 
-            // 2g. FFN (delegated to helpers to reduce complexity)
-            if layer.ffn_gate_weight.is_some() {
+            // 2g. FFN (contract-driven activation selection, GH-278)
+            if self.config.constraints.has_gate_ffn() {
                 self.scratch_swiglu_ffn(layer_idx, scratch, use_q8k_path, hidden_dim, intermediate_dim)?;
             } else {
                 self.scratch_gelu_ffn(layer_idx, scratch, use_q8k_path, hidden_dim, intermediate_dim)?;

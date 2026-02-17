@@ -22,13 +22,15 @@ impl OwnedQuantizedModel {
         // 1. Token embedding lookup
         let mut hidden = self.embed(&[token_id]);
 
-        // GH-278: Add learned position embedding (GPT-2 style)
-        if let Some(ref pos_emb) = self.position_embedding {
-            let start = position * hidden_dim;
-            let end = start + hidden_dim;
-            if end <= pos_emb.len() {
-                for i in 0..hidden_dim {
-                    hidden[i] += pos_emb[start + i];
+        // GH-278: Add learned position embedding for absolute encoding (GPT-2, BERT, whisper)
+        if self.config.constraints.uses_absolute_positions() {
+            if let Some(ref pos_emb) = self.position_embedding {
+                let start = position * hidden_dim;
+                let end = start + hidden_dim;
+                if end <= pos_emb.len() {
+                    for i in 0..hidden_dim {
+                        hidden[i] += pos_emb[start + i];
+                    }
                 }
             }
         }
@@ -261,9 +263,11 @@ impl OwnedQuantizedModel {
             hidden.to_vec()
         };
 
-        // FFN with SwiGLU or GELU
-        if let Some(ref gate_weight) = layer.ffn_gate_weight {
-            // SwiGLU path (LLaMA)
+        // FFN with SwiGLU or GELU (contract-driven, GH-278)
+        if self.config.constraints.has_gate_ffn() {
+            // SwiGLU path (LLaMA, Qwen2, Mistral, etc.)
+            let gate_weight = layer.ffn_gate_weight.as_ref()
+                .expect("gated FFN contract requires gate weight");
             let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
             if let Some(ref bias) = layer.ffn_up_bias {
                 ops::add_bias(&mut ffn_up, bias);
@@ -274,7 +278,6 @@ impl OwnedQuantizedModel {
                 ops::add_bias(&mut ffn_gate, bias);
             }
 
-            // SiLU on gate, then multiply with up
             ops::silu(&mut ffn_gate);
             for i in 0..ffn_gate.len() {
                 ffn_gate[i] *= ffn_up[i];
@@ -286,7 +289,7 @@ impl OwnedQuantizedModel {
             }
             Ok(output)
         } else {
-            // GELU path (phi-2)
+            // GELU path (GPT-2, BERT, etc.)
             let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
             if let Some(ref bias) = layer.ffn_up_bias {
                 ops::add_bias(&mut ffn_hidden, bias);

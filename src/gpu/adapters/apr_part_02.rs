@@ -144,7 +144,7 @@ mod tests {
     fn test_config_to_gpu_with_mha() {
         // Test Multi-Head Attention config (num_heads == num_kv_heads)
         let apr_config = AprTransformerConfig {
-            architecture: "phi".to_string(),
+            architecture: "phi2".to_string(),
             hidden_dim: 2560,
             num_layers: 32,
             num_heads: 32,

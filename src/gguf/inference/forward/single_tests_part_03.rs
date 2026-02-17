@@ -100,8 +100,8 @@ fn create_phi_256_model() -> crate::gguf::OwnedQuantizedModel {
     use crate::gguf::{OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedModel};
 
     let config = GGUFConfig {
-        architecture: "phi".to_string(),
-        constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
+        architecture: "phi2".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi2"),
         hidden_dim: 256,
         intermediate_dim: 512,
         num_heads: 4,

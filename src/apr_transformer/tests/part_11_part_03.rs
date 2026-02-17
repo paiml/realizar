@@ -49,7 +49,7 @@ fn test_fwc_q4k_gelu_no_gate() {
 
     let apr = AprTransformer {
         config: AprTransformerConfig {
-            architecture: "phi".to_string(),
+            architecture: "phi2".to_string(),
             hidden_dim: hidden,
             num_layers: 1,
             num_heads: heads,
@@ -121,7 +121,7 @@ fn test_forward_batch_q4k_gelu() {
 
     let apr = AprTransformer {
         config: AprTransformerConfig {
-            architecture: "phi".to_string(),
+            architecture: "phi2".to_string(),
             hidden_dim: hidden,
             num_layers: 1,
             num_heads: 4,
@@ -424,7 +424,7 @@ fn test_forward_batch_gelu_f32_no_q4k() {
 
     let apr = AprTransformer {
         config: AprTransformerConfig {
-            architecture: "phi".to_string(),
+            architecture: "phi2".to_string(),
             hidden_dim: hidden,
             num_layers: 1,
             num_heads: 4,

@@ -58,15 +58,15 @@ fn test_fixture_load_gqa_model() {
     assert_eq!(model.num_kv_heads(), Some(2));
 }
 
-/// Test loading a Phi-style model
+/// Test loading a Phi-2 style model (LayerNorm + GELU)
 #[test]
 fn test_fixture_load_phi_model() {
-    let fixture = ModelFixture::gguf("phi", ModelConfig::phi());
+    let fixture = ModelFixture::gguf("phi2", ModelConfig::phi());
     let bytes = fixture.read_bytes().expect("read fixture");
 
     let model = GGUFModel::from_bytes(&bytes).expect("parse GGUF");
 
-    assert_eq!(model.architecture(), Some("phi"));
+    assert_eq!(model.architecture(), Some("phi2"));
 }
 
 /// Test loading a Qwen-style model

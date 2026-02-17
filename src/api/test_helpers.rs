@@ -114,10 +114,29 @@ pub fn create_test_quantized_model(
         }
     }
 
+    let constraints = &config.constraints;
+
+    // GH-278: Contract-consistent model creation
+    let ffn_gate_weight = if constraints.has_gate_ffn() {
+        Some(create_q4k_data(hidden_dim, intermediate_dim))
+    } else {
+        None
+    };
+    let ffn_norm_weight = if constraints.uses_rmsnorm() || !constraints.has_gate_ffn() {
+        Some(vec![1.0f32; hidden_dim])
+    } else {
+        None
+    };
+    let attn_norm_bias = if !constraints.uses_rmsnorm() {
+        Some(vec![0.0f32; hidden_dim])
+    } else {
+        None
+    };
+
     let layers = (0..config.num_layers)
         .map(|_| OwnedQuantizedLayer {
             attn_norm_weight: vec![1.0f32; hidden_dim],
-            attn_norm_bias: None,
+            attn_norm_bias: attn_norm_bias.clone(),
             qkv_weight: OwnedQKVWeights::Fused(create_q4k_data(hidden_dim, hidden_dim * 3)),
             qkv_bias: None,
             attn_output_weight: create_q4k_data(hidden_dim, hidden_dim),
@@ -126,14 +145,20 @@ pub fn create_test_quantized_model(
             ffn_up_bias: None,
             ffn_down_weight: create_q4k_data(intermediate_dim, hidden_dim),
             ffn_down_bias: None,
-            ffn_gate_weight: None,
+            ffn_gate_weight: ffn_gate_weight.clone(),
             ffn_gate_bias: None,
-            ffn_norm_weight: None,
+            ffn_norm_weight: ffn_norm_weight.clone(),
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
         })
         .collect();
+
+    let output_norm_bias = if !constraints.uses_rmsnorm() {
+        Some(vec![0.0f32; hidden_dim])
+    } else {
+        None
+    };
 
     OwnedQuantizedModel {
         config: config.clone(),
@@ -141,7 +166,7 @@ pub fn create_test_quantized_model(
         position_embedding: None,
         layers,
         output_norm_weight: vec![1.0f32; hidden_dim],
-        output_norm_bias: None,
+        output_norm_bias,
         lm_head_weight: create_q4k_data(hidden_dim, vocab_size),
         lm_head_bias: None,
         #[cfg(feature = "cuda")]

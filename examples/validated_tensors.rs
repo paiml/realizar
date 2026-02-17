@@ -12,7 +12,7 @@
 //! ```
 
 use realizar::safetensors::{
-    ContractValidationError, ValidatedEmbedding, ValidatedVector, ValidatedWeight,
+    ContractValidationError, ValidatedEmbedding, ValidatedWeight,
 };
 
 fn main() {

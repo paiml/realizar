@@ -121,7 +121,7 @@ impl ModelConfig {
     #[must_use]
     pub fn phi() -> Self {
         Self {
-            architecture: "phi".to_string(),
+            architecture: "phi2".to_string(),
             hidden_dim: 64,
             intermediate_dim: 128,
             num_heads: 4,

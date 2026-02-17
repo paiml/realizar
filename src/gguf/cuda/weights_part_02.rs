@@ -373,23 +373,20 @@ impl OwnedQuantizedModelCuda {
     ///
     /// GPU-resident path requires:
     /// - Separate Q/K/V weights (not fused)
-    /// - SwiGLU activation (ffn_gate_weight present)
-    /// - RMSNorm (LLaMA-style architecture)
+    /// - Gated FFN (SwiGLU or GatedMLP, per contract)
+    /// - RMSNorm (per contract)
     #[must_use]
     pub fn supports_gpu_resident(&self) -> bool {
-        // Check first layer for architecture detection
-        if let Some(layer) = self.model.layers.first() {
-            // Must have separate Q/K/V
-            let has_separate_qkv = matches!(layer.qkv_weight, OwnedQKVWeights::Separate { .. });
-            // Must have SwiGLU (gate weight present)
-            let has_swiglu = layer.ffn_gate_weight.is_some();
-            // Must have FFN norm (RMSNorm for pre-FFN)
-            let has_ffn_norm = layer.ffn_norm_weight.is_some();
+        // Contract-driven architecture checks (GH-278)
+        let constraints = &self.model.config.constraints;
+        let has_gated_ffn = constraints.has_gate_ffn();
+        let has_rmsnorm = constraints.uses_rmsnorm();
 
-            has_separate_qkv && has_swiglu && has_ffn_norm
-        } else {
-            false
-        }
+        // Check first layer for QKV format (data-driven, not a heuristic)
+        let has_separate_qkv = self.model.layers.first()
+            .is_some_and(|l| matches!(l.qkv_weight, OwnedQKVWeights::Separate { .. }));
+
+        has_separate_qkv && has_gated_ffn && has_rmsnorm
     }
 }
 

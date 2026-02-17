@@ -6,8 +6,8 @@
 //! 3. GELU path (line 13720): no ffn_gate
 
 use realizar::gguf::{
-    GGUFConfig, OwnedQKVWeights, OwnedQuantizedKVCache, OwnedQuantizedLayer, OwnedQuantizedModel,
-    OwnedQuantizedTensor,
+    ArchConstraints, GGUFConfig, OwnedQKVWeights, OwnedQuantizedKVCache, OwnedQuantizedLayer,
+    OwnedQuantizedModel, OwnedQuantizedTensor,
 };
 
 const GGUF_TYPE_Q4_0: u32 = 2;
@@ -57,6 +57,7 @@ fn create_test_tensor(in_dim: usize, out_dim: usize) -> OwnedQuantizedTensor {
 fn test_config() -> GGUFConfig {
     GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -93,6 +94,8 @@ fn create_gelu_layer(config: &GGUFConfig) -> OwnedQuantizedLayer {
         ffn_gate_bias: None,
         ffn_norm_weight: None, // No FFN norm
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     }
 }
 
@@ -118,6 +121,8 @@ fn create_fused_swiglu_layer(config: &GGUFConfig) -> OwnedQuantizedLayer {
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0f32; hidden_dim]), // FFN norm for RMSNorm path
         ffn_norm_bias: None,                             // No bias = RMSNorm
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     }
 }
 
@@ -143,6 +148,8 @@ fn create_nonfused_swiglu_layer(config: &GGUFConfig) -> OwnedQuantizedLayer {
         ffn_gate_bias: None,
         ffn_norm_weight: None, // No FFN norm
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     }
 }
 
@@ -168,6 +175,8 @@ fn create_layernorm_swiglu_layer(config: &GGUFConfig) -> OwnedQuantizedLayer {
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0f32; hidden_dim]), // FFN norm
         ffn_norm_bias: Some(vec![0.0f32; hidden_dim]),   // Bias = LayerNorm
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     }
 }
 
