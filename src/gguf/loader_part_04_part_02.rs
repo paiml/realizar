@@ -1,3 +1,17 @@
+/// GH-278: Transpose a row-major f32 matrix from [rows × cols] to [cols × rows].
+///
+/// Used to convert GPT-2 Conv1D weights from [in_dim × out_dim] layout
+/// to [out_dim × in_dim] layout expected by fused_matmul.
+fn transpose_f32_matrix(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
+    let mut result = vec![0.0f32; rows * cols];
+    for r in 0..rows {
+        for c in 0..cols {
+            result[c * rows + r] = data[r * cols + c];
+        }
+    }
+    result
+}
+
 impl OwnedQuantizedModel {
     /// Create owned model from memory-mapped GGUF file
     ///
@@ -146,7 +160,15 @@ impl OwnedQuantizedModel {
             bos_token_id: apr.metadata.get_embedded_bos_token_id(),
         };
 
+        // GH-278: Detect GPT-2 Conv1D layout (weights stored as [in, out] not [out, in])
+        let is_conv1d_arch = config
+            .architecture
+            .to_lowercase()
+            .contains("gpt2");
+
         // Helper to make OwnedQuantizedTensor (tries multiple names for GGUF/HF compat)
+        // Handles APR native q8/q4 formats by dequantizing to f32.
+        // For GPT-2 Conv1D architectures, transposes weights to [out, in] layout.
         let make_tensor =
             |names: &[&str], in_dim: usize, out_dim: usize| -> Result<OwnedQuantizedTensor> {
                 let (tensor, found_name) = names
@@ -162,13 +184,62 @@ impl OwnedQuantizedModel {
                         reason: format!("APR: tensor {found_name} extends past EOF"),
                     });
                 }
-                let qtype = MappedAprModel::dtype_to_qtype(&tensor.dtype);
-                Ok(OwnedQuantizedTensor {
-                    data: data[start..end].to_vec(),
-                    in_dim,
-                    out_dim,
-                    qtype,
-                })
+                let raw = &data[start..end];
+                let dtype = tensor.dtype.as_str();
+                let num_elements = in_dim * out_dim;
+
+                // GH-278: Handle APR native quantization formats
+                match dtype {
+                    "q8" => {
+                        // APR Q8: [f32 scale (4B)] + [i8 × N] — dequantize to f32
+                        let mut f32_data =
+                            crate::apr::dequant::dequantize_apr_q8(raw, num_elements);
+                        // GPT-2 Conv1D: transpose [in_dim × out_dim] → [out_dim × in_dim]
+                        if is_conv1d_arch {
+                            f32_data =
+                                transpose_f32_matrix(&f32_data, in_dim, out_dim);
+                        }
+                        let f32_bytes: Vec<u8> = f32_data
+                            .iter()
+                            .flat_map(|v| v.to_le_bytes())
+                            .collect();
+                        Ok(OwnedQuantizedTensor {
+                            data: f32_bytes,
+                            in_dim,
+                            out_dim,
+                            qtype: 0, // F32
+                        })
+                    },
+                    "q4" => {
+                        // APR Q4: per-block [f16 scale (2B)] + [nibbles (16B)] — dequantize
+                        let mut f32_data =
+                            crate::apr::dequant::dequantize_apr_q4(raw, num_elements);
+                        if is_conv1d_arch {
+                            f32_data =
+                                transpose_f32_matrix(&f32_data, in_dim, out_dim);
+                        }
+                        let f32_bytes: Vec<u8> = f32_data
+                            .iter()
+                            .flat_map(|v| v.to_le_bytes())
+                            .collect();
+                        Ok(OwnedQuantizedTensor {
+                            data: f32_bytes,
+                            in_dim,
+                            out_dim,
+                            qtype: 0, // F32
+                        })
+                    },
+                    _ => {
+                        // GGML block formats (Q4_K, Q8_0, etc.) or f32 — pass through
+                        let qtype = MappedAprModel::dtype_to_qtype(dtype);
+                        Ok(OwnedQuantizedTensor {
+                            data: raw.to_vec(),
+                            in_dim,
+                            out_dim,
+                            qtype,
+                        })
+                    },
+                }
             };
 
         // Helper to get F32 tensor data (tries multiple names)
@@ -236,14 +307,23 @@ impl OwnedQuantizedModel {
         }
         let embed_data = &data[embed_start..embed_end];
         let embed_dtype = Some(embed_tensor.dtype.as_str());
+        let num_embed_elements = vocab_size * hidden_dim;
         let token_embedding: Vec<f32> = match embed_dtype {
-            Some("F32") => embed_data
+            Some("F32" | "f32") => embed_data
                 .chunks_exact(4)
                 .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                 .collect(),
             Some("Q4_K") => {
                 // Dequantize Q4_K embeddings
                 crate::quantize::dequantize_q4_k(embed_data)?
+            },
+            Some("q8") => {
+                // APR native Q8 embeddings
+                crate::apr::dequant::dequantize_apr_q8(embed_data, num_embed_elements)
+            },
+            Some("q4") => {
+                // APR native Q4 embeddings
+                crate::apr::dequant::dequantize_apr_q4(embed_data, num_embed_elements)
             },
             Some(dtype) => {
                 return Err(RealizarError::FormatError {
@@ -314,51 +394,62 @@ impl OwnedQuantizedModel {
             // O projection
             let o_weight = make_tensor(&[&hf_o, &gguf_o], hidden_dim, hidden_dim)?;
 
-            // FFN weights
-            let ffn_gate_weight =
-                make_tensor(&[&hf_gate, &gguf_gate], hidden_dim, intermediate_dim)?;
+            // FFN weights (gate is optional — GPT-2 has no SwiGLU gate)
+            let ffn_gate_weight = make_tensor(&[&hf_gate, &gguf_gate], hidden_dim, intermediate_dim).ok();
             let ffn_up_weight = make_tensor(&[&hf_up, &gguf_up], hidden_dim, intermediate_dim)?;
             let ffn_down_weight =
                 make_tensor(&[&hf_down, &gguf_down], intermediate_dim, hidden_dim)?;
 
             // Norm weights (F32)
             let attn_norm_weight = get_f32_tensor(&[&hf_attn_norm, &gguf_attn_norm])?;
-            let ffn_norm_weight = get_f32_tensor(&[&hf_ffn_norm, &gguf_ffn_norm])?;
+            let ffn_norm_weight = get_f32_tensor(&[&hf_ffn_norm, &gguf_ffn_norm]).ok();
+
+            // GH-278: Load biases (GPT-2/phi-2 style models have biases on all projections)
+            let hf_attn_norm_bias = format!("model.layers.{layer_idx}.input_layernorm.bias");
+            let hf_ffn_norm_bias = format!("model.layers.{layer_idx}.post_attention_layernorm.bias");
+            let hf_o_bias = format!("model.layers.{layer_idx}.self_attn.o_proj.bias");
+            let hf_up_bias = format!("model.layers.{layer_idx}.mlp.up_proj.bias");
+            let hf_down_bias = format!("model.layers.{layer_idx}.mlp.down_proj.bias");
 
             layers.push(OwnedQuantizedLayer {
                 attn_norm_weight,
-                attn_norm_bias: None,
+                attn_norm_bias: try_get_f32(&hf_attn_norm_bias),
                 qkv_weight,
                 qkv_bias,
                 attn_output_weight: o_weight,
-                attn_output_bias: None,
-                ffn_norm_weight: Some(ffn_norm_weight),
-                ffn_norm_bias: None,
-                ffn_gate_weight: Some(ffn_gate_weight),
+                attn_output_bias: try_get_f32(&hf_o_bias),
+                ffn_norm_weight,
+                ffn_norm_bias: try_get_f32(&hf_ffn_norm_bias),
+                ffn_gate_weight,
                 ffn_gate_bias: None,
                 ffn_up_weight,
-                ffn_up_bias: None,
+                ffn_up_bias: try_get_f32(&hf_up_bias),
                 ffn_down_weight,
-                ffn_down_bias: None,
+                ffn_down_bias: try_get_f32(&hf_down_bias),
             });
         }
 
         // Output norm
         let output_norm_weight = get_f32_tensor(&["model.norm.weight", "output_norm.weight"])?;
+        let output_norm_bias = try_get_f32("model.norm.bias");
 
         // LM head (try HF name first, then GGUF)
         let lm_head_weight =
             make_tensor(&["lm_head.weight", "output.weight"], hidden_dim, vocab_size)?;
+        let lm_head_bias = try_get_f32("lm_head.bias");
+
+        // GH-278: Load learned position embeddings (GPT-2 style)
+        let position_embedding = try_get_f32("model.position_embedding.weight");
 
         Ok(Self {
             config,
             token_embedding,
-            position_embedding: None, // APR models don't have learned position embeddings
+            position_embedding,
             layers,
             output_norm_weight,
-            output_norm_bias: None,
+            output_norm_bias,
             lm_head_weight,
-            lm_head_bias: None,
+            lm_head_bias,
             #[cfg(feature = "cuda")]
             cuda_executor: None,
             #[cfg(feature = "cuda")]

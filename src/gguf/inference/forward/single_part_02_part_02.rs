@@ -442,6 +442,17 @@ impl OwnedQuantizedModel {
         // 1. Token embedding lookup
         let mut hidden = self.embed(&[token_id]);
 
+        // GH-278: Add learned position embedding (GPT-2 style)
+        if let Some(ref pos_emb) = self.position_embedding {
+            let start = position * hidden_dim;
+            let end = start + hidden_dim;
+            if end <= pos_emb.len() {
+                for i in 0..hidden_dim {
+                    hidden[i] += pos_emb[start + i];
+                }
+            }
+        }
+
         // Detect if model uses RMSNorm (LLaMA-style) or LayerNorm (phi-2 style)
         // LLaMA models have ffn_gate_weight (SwiGLU) and no bias in norms
         let use_rmsnorm = self
@@ -496,13 +507,15 @@ impl OwnedQuantizedModel {
             // PMAT-114: Trace QKV after bias for layer 0 (PMAT-260)
             self.debug_trace_qkv_after_bias(&qkv, layer, layer_idx, hidden_dim);
 
-            // Apply RoPE in-place to Q and K within QKV buffer
-            self.apply_rope(&mut qkv[0..hidden_dim], position, self.config.num_heads);
-            self.apply_rope(
-                &mut qkv[hidden_dim..hidden_dim + kv_dim],
-                position,
-                num_kv_heads,
-            );
+            // GH-278: Skip RoPE for models with learned position embeddings (GPT-2)
+            if self.position_embedding.is_none() {
+                self.apply_rope(&mut qkv[0..hidden_dim], position, self.config.num_heads);
+                self.apply_rope(
+                    &mut qkv[hidden_dim..hidden_dim + kv_dim],
+                    position,
+                    num_kv_heads,
+                );
+            }
 
             // Use slices to avoid copies (only copy K for cache storage)
             let q = &qkv[0..hidden_dim];
