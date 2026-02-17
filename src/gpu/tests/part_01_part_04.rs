@@ -22,6 +22,11 @@ fn test_imp_1001d_gpu_model_with_cuda_backend() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     // Create model
@@ -272,6 +277,11 @@ fn test_imp_1003a_gpu_model_with_cuda_scheduler() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     // Create model with CUDA scheduler
@@ -310,6 +320,11 @@ fn test_imp_1003b_cuda_scheduler_used_for_forward() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -347,6 +362,11 @@ fn test_imp_1003c_cuda_scheduler_vs_hybrid_single_token() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     // Create both models
@@ -409,6 +429,11 @@ fn test_imp_1003d_cuda_scheduler_matmul_dispatch() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");

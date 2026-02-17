@@ -249,6 +249,11 @@ pub fn load_gguf_to_gpu(
         rope_theta: 10000.0, // Standard RoPE base frequency
         explicit_head_dim: None,
         layer_types: None,
+        linear_key_head_dim: None,
+        linear_value_head_dim: None,
+        linear_num_key_heads: None,
+        linear_num_value_heads: None,
+        linear_conv_kernel_dim: None,
     };
 
     // Create GPU model

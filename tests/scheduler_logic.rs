@@ -99,6 +99,11 @@ fn create_test_config(hidden_dim: usize, num_heads: usize, num_kv_heads: usize) 
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     }
 }
 

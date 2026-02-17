@@ -32,6 +32,11 @@ mod tests {
             rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
         };
         assert_eq!(config.head_dim(), 32);
     }
@@ -49,6 +54,11 @@ mod tests {
             rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
         };
         // kv_dim = num_kv_heads * head_dim = 4 * 32 = 128
         assert_eq!(config.kv_dim(), 128);
@@ -68,6 +78,11 @@ mod tests {
             rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
         };
         // MHA: qkv_dim = hidden_dim + 2 * kv_dim = 256 + 2 * 256 = 768
         assert_eq!(config.qkv_dim(), 768);
@@ -87,6 +102,11 @@ mod tests {
             rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
         };
         // GQA: qkv_dim = hidden_dim + 2 * kv_dim = 256 + 2 * 64 = 384
         assert_eq!(config.qkv_dim(), 384);
@@ -106,6 +126,11 @@ mod tests {
             rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
         };
         assert!(!mha_config.is_gqa());
 
@@ -121,6 +146,11 @@ mod tests {
             rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
         };
         assert!(gqa_config.is_gqa());
     }
@@ -138,6 +168,11 @@ mod tests {
             rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
         };
         let cloned = config.clone();
         assert_eq!(cloned.vocab_size, 32000);
@@ -157,6 +192,11 @@ mod tests {
             rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
         };
         let debug_str = format!("{:?}", config);
         assert!(debug_str.contains("GpuModelConfig"));
@@ -230,6 +270,11 @@ mod tests {
             rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
         };
         let buffers = AttentionBuffers::new(&model_config, 512);
         assert_eq!(buffers.q_buffer.len(), 64); // hidden_dim
@@ -253,6 +298,11 @@ mod tests {
             rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
         };
         let mut buffers = AttentionBuffers::new(&model_config, 128);
 
@@ -287,6 +337,11 @@ mod tests {
             rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
         };
         let buffers = AttentionBuffers::new(&model_config, 128);
         let debug_str = format!("{:?}", buffers);
@@ -417,6 +472,7 @@ mod tests {
             ffn_fc2_weight: vec![0.01; 256 * 64],
             ffn_fc2_bias: vec![0.0; 64],
             ffn_gate_weight: None,
+            linear_attn: None,
         };
 
         assert_eq!(block.attn_norm_weight.len(), 64);
@@ -439,6 +495,7 @@ mod tests {
             ffn_fc2_weight: vec![0.01; 256 * 64],
             ffn_fc2_bias: vec![0.0; 64],
             ffn_gate_weight: Some(vec![0.01; 64 * 256]), // SwiGLU gate
+            linear_attn: None,
         };
 
         assert!(block.ffn_gate_weight.is_some());

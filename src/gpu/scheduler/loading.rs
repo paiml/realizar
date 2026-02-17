@@ -42,6 +42,11 @@ pub fn load_weights_from_gguf(mapped: &crate::gguf::MappedGGUFModel) -> Result<G
         rope_theta: gguf_config.rope_theta, // Phase 21: RoPE support
         explicit_head_dim: None,
         layer_types: None,
+        linear_key_head_dim: None,
+        linear_value_head_dim: None,
+        linear_num_key_heads: None,
+        linear_num_value_heads: None,
+        linear_conv_kernel_dim: None,
     };
 
     let data = mapped.data();
@@ -158,6 +163,8 @@ fn load_block_weights(
             ffn_fc2_weight,
             ffn_fc2_bias,
             ffn_gate_weight,
+            // GH-278: No linear attention in GGUF loader
+            linear_attn: None,
         });
     }
 

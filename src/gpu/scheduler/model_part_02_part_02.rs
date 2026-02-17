@@ -26,6 +26,8 @@ impl GpuModel {
                 ffn_fc2_weight: vec![0.01f32; config.intermediate_dim * config.hidden_dim],
                 ffn_fc2_bias: vec![0.0f32; config.hidden_dim],
                 ffn_gate_weight: None, // No SwiGLU in test models
+                // GH-278: No linear attention in test models
+                linear_attn: None,
             });
         }
 
@@ -53,6 +55,7 @@ impl GpuModel {
             config,
             attention_buffers: None,
             test_executor: None,
+            linear_attn_state: None,
         })
     }
 
@@ -88,6 +91,8 @@ impl GpuModel {
                 ffn_fc2_weight: vec![0.01f32; config.intermediate_dim * config.hidden_dim],
                 ffn_fc2_bias: vec![0.0f32; config.hidden_dim],
                 ffn_gate_weight: None, // No SwiGLU in test models
+                // GH-278: No linear attention in test models
+                linear_attn: None,
             });
         }
 
@@ -112,6 +117,7 @@ impl GpuModel {
             config,
             attention_buffers: None,
             test_executor: None,
+            linear_attn_state: None,
         })
     }
 

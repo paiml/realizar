@@ -17,6 +17,11 @@ fn test_imp_029_text_generation() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::from_gguf_config(config).expect("IMP-029: Should create model");
@@ -49,6 +54,11 @@ fn test_imp_029_text_generation() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     })
     .expect("IMP-029: Should create second model");
 
@@ -114,6 +124,11 @@ fn test_imp_030_benchmark_harness() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::from_gguf_config(config).expect("IMP-030: Should create model");
@@ -175,6 +190,11 @@ fn test_imp_030_benchmark_harness() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     })
     .expect("IMP-030: Should create model");
 
@@ -255,6 +275,11 @@ fn test_imp_031_forward_with_cache() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model =
@@ -319,6 +344,11 @@ fn test_imp_032_forward_incremental() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model =

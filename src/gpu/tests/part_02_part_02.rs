@@ -25,6 +25,11 @@ fn test_imp_1005a_do_matmul_uses_cuda_scheduler() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut cuda_model =
@@ -79,6 +84,11 @@ fn test_imp_1005b_forward_gpu_speedup_with_cuda() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut cuda_model =
@@ -157,6 +167,11 @@ fn test_imp_1005c_token_generation_with_cuda_forward() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut cuda_model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -217,6 +232,11 @@ fn test_imp_1005d_forward_block_uses_do_matmul() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut cuda_model =
@@ -294,6 +314,11 @@ fn test_imp_1006a_incremental_forward_uses_cuda() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut cuda_model =

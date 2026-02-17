@@ -4,6 +4,8 @@
 //! Contains KV cache forward pass and generation logic.
 
 use super::super::{cpu_matmul_transposed_simd, exceeds_gpu_buffer_limit, StreamingKVCache};
+use super::linear_attn;
+use super::linear_attn::LinearAttnState;
 use super::model::GpuModel;
 use super::types::GpuGenerateConfig;
 use crate::error::{RealizarError, Result};
@@ -88,8 +90,26 @@ pub fn forward_gpu_with_cache(
     }
 
     // Step 2: Pass through transformer blocks with KV cache population
+    // GH-278: Hybrid attention dispatch — linear layers use model.linear_attn_state,
+    // standard layers use KV cache.
+    // Lazy-init linear state if model has hybrid attention
+    if model.linear_attn_state.is_none() && model.config.layer_types.is_some() {
+        model.linear_attn_state = Some(LinearAttnState::new(&model.config));
+    }
+
     for block_idx in 0..model.block_weights.len() {
-        hidden = forward_block_with_cache(model, &hidden, seq_len, block_idx, kv_cache)?;
+        if model.config.is_linear_layer(block_idx) {
+            // Split borrow: take state out, forward, put back
+            if let Some(mut ls) = model.linear_attn_state.take() {
+                let result = linear_attn::forward_linear_block_with_cache(
+                    model, &hidden, seq_len, block_idx, &mut ls,
+                );
+                model.linear_attn_state = Some(ls);
+                hidden = result?;
+            }
+        } else {
+            hidden = forward_block_with_cache(model, &hidden, seq_len, block_idx, kv_cache)?;
+        }
     }
 
     // Step 3: Final layer norm
@@ -146,8 +166,23 @@ pub fn forward_gpu_incremental(
     let mut hidden = model.embedding_weights[offset..offset + hidden_dim].to_vec();
 
     // Step 2: Pass through transformer blocks using KV cache
+    // GH-278: Hybrid attention dispatch (state persists on model)
+    if model.linear_attn_state.is_none() && model.config.layer_types.is_some() {
+        model.linear_attn_state = Some(LinearAttnState::new(&model.config));
+    }
+
     for block_idx in 0..model.block_weights.len() {
-        hidden = forward_block_incremental(model, &hidden, block_idx, kv_cache)?;
+        if model.config.is_linear_layer(block_idx) {
+            if let Some(mut ls) = model.linear_attn_state.take() {
+                let result = linear_attn::forward_linear_block_incremental(
+                    model, &hidden, block_idx, &mut ls,
+                );
+                model.linear_attn_state = Some(ls);
+                hidden = result?;
+            }
+        } else {
+            hidden = forward_block_incremental(model, &hidden, block_idx, kv_cache)?;
+        }
     }
 
     // Step 3: Final layer norm

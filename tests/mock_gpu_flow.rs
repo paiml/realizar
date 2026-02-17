@@ -208,6 +208,11 @@ fn test_gpu_model_config() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     assert_eq!(config.head_dim(), 64); // 2048/32
@@ -229,6 +234,11 @@ fn test_gpu_model_config_mha() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     assert!(!config.is_gqa());
@@ -291,6 +301,11 @@ fn test_attention_buffers_creation() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let buffers = AttentionBuffers::new(&config, 512);
@@ -316,6 +331,11 @@ fn test_attention_buffers_reset() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut buffers = AttentionBuffers::new(&config, 128);
@@ -358,6 +378,7 @@ fn test_block_weights_structure() {
         ffn_fc2_weight: vec![0.01; intermediate_dim * hidden_dim],
         ffn_fc2_bias: vec![0.0; hidden_dim],
         ffn_gate_weight: None,
+        linear_attn: None,
     };
 
     assert_eq!(block.attn_norm_weight.len(), hidden_dim);
@@ -385,6 +406,7 @@ fn test_block_weights_with_gate() {
         ffn_fc2_weight: vec![0.01; intermediate_dim * hidden_dim],
         ffn_fc2_bias: vec![0.0; hidden_dim],
         ffn_gate_weight: Some(vec![0.01; hidden_dim * intermediate_dim]), // SwiGLU
+        linear_attn: None,
     };
 
     assert!(block.ffn_gate_weight.is_some());
@@ -411,6 +433,11 @@ fn test_gpu_model_creation() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let model = GpuModel::new(config);
@@ -622,6 +649,11 @@ fn test_gpu_model_with_test_executor() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();
@@ -651,6 +683,11 @@ fn test_gpu_model_do_matmul_with_mock() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();
@@ -683,6 +720,11 @@ fn test_gpu_model_clear_test_executor() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();
@@ -710,6 +752,11 @@ fn test_gpu_model_mock_failure() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();

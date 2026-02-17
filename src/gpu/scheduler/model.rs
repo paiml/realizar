@@ -8,6 +8,7 @@ use super::super::{
 };
 #[cfg(feature = "cuda")]
 use super::core::CudaScheduler;
+use super::linear_attn::LinearAttnState;
 use super::types::{AttentionBuffers, BlockWeights, GpuGenerateConfig, GpuModelConfig, WeightType};
 use crate::apr_transformer::{ActivationStats, ForwardTrace, LayerActivation};
 use crate::error::{RealizarError, Result};
@@ -55,6 +56,12 @@ pub struct GpuModel {
     /// The trait already requires Send + Sync, but trait objects need explicit bounds.
     pub(crate) test_executor:
         Option<Box<dyn super::super::executor::GpuExecutorTrait + Send + Sync>>,
+    /// GH-278: Persistent linear attention state for hybrid models (Qwen3.5)
+    ///
+    /// Holds recurrent state and conv buffers for Gated Delta Net layers.
+    /// Initialized lazily on first forward pass when `config.layer_types` has
+    /// "linear" entries. Reset when starting a new sequence.
+    pub(crate) linear_attn_state: Option<LinearAttnState>,
 }
 
 include!("model_part_02.rs");

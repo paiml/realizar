@@ -6,6 +6,7 @@
 pub mod batch;
 mod core;
 mod kv;
+pub mod linear_attn;
 mod loading;
 mod model;
 mod ops;
@@ -14,7 +15,13 @@ mod types;
 #[cfg(feature = "cuda")]
 pub use core::CudaScheduler;
 pub use model::GpuModel;
-pub use types::{AttentionBuffers, BlockWeights, GpuGenerateConfig, GpuModelConfig, WeightType};
+pub use types::{
+    AttentionBuffers, BlockWeights, GpuGenerateConfig, GpuModelConfig, LinearAttnWeights,
+    WeightType,
+};
+
+// Re-export linear attention state
+pub use linear_attn::LinearAttnState;
 
 // Re-export KV cache functions for external use (public API)
 #[allow(unused_imports)]

@@ -18,6 +18,7 @@ fn test_block_weights_with_gate() {
         ffn_fc2_weight: vec![0.01; intermediate_dim * hidden_dim],
         ffn_fc2_bias: vec![0.0; hidden_dim],
         ffn_gate_weight: Some(vec![0.01; hidden_dim * intermediate_dim]),
+        linear_attn: None,
     };
 
     assert!(block.ffn_gate_weight.is_some());
