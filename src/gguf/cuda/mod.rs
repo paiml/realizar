@@ -205,6 +205,7 @@ impl OwnedQuantizedModelCuda {
         Ok(self)
     }
 
+    /// Create a GPU-accelerated inference engine with a custom maximum sequence length.
     pub fn with_max_seq_len(
         model: OwnedQuantizedModel,
         device_ordinal: i32,
