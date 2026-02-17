@@ -278,13 +278,13 @@ fn test_gpu_model_config_derived() {
         intermediate_dim: 11008,
         eps: 1e-6,
         rope_theta: 10000.0,
-            explicit_head_dim: None,
-            layer_types: None,
-            linear_key_head_dim: None,
-            linear_value_head_dim: None,
-            linear_num_key_heads: None,
-            linear_num_value_heads: None,
-            linear_conv_kernel_dim: None,
+        explicit_head_dim: None,
+        layer_types: None,
+        linear_key_head_dim: None,
+        linear_value_head_dim: None,
+        linear_num_key_heads: None,
+        linear_num_value_heads: None,
+        linear_conv_kernel_dim: None,
     };
 
     // Test derived dimensions
@@ -304,13 +304,13 @@ fn test_gpu_model_config_mha() {
         intermediate_dim: 3072,
         eps: 1e-5,
         rope_theta: 10000.0,
-            explicit_head_dim: None,
-            layer_types: None,
-            linear_key_head_dim: None,
-            linear_value_head_dim: None,
-            linear_num_key_heads: None,
-            linear_num_value_heads: None,
-            linear_conv_kernel_dim: None,
+        explicit_head_dim: None,
+        layer_types: None,
+        linear_key_head_dim: None,
+        linear_value_head_dim: None,
+        linear_num_key_heads: None,
+        linear_num_value_heads: None,
+        linear_conv_kernel_dim: None,
     };
 
     assert_eq!(config.head_dim(), 64);

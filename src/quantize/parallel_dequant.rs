@@ -71,7 +71,11 @@ pub fn dequantize_q4_k_parallel(data: &[u8]) -> Result<Vec<f32>> {
 /// Exposed as `pub(crate)` for direct testing.
 #[inline]
 pub(crate) fn dequantize_q4_k_superblock(sb_data: &[u8]) -> Vec<f32> {
-    debug_assert!(sb_data.len() >= 144, "Q4_K superblock requires 144 bytes, got {}", sb_data.len());
+    debug_assert!(
+        sb_data.len() >= 144,
+        "Q4_K superblock requires 144 bytes, got {}",
+        sb_data.len()
+    );
     let mut result = vec![0.0f32; QK_K];
 
     // Read d (f16 -> f32)
@@ -217,7 +221,11 @@ unsafe fn dequantize_q4_k_superblock_avx2(sb_data: &[u8]) -> Vec<f32> {
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
 
-    debug_assert!(sb_data.len() >= 144, "Q4_K superblock requires 144 bytes, got {}", sb_data.len());
+    debug_assert!(
+        sb_data.len() >= 144,
+        "Q4_K superblock requires 144 bytes, got {}",
+        sb_data.len()
+    );
     let mut result = vec![0.0f32; QK_K];
 
     // Read d and dmin
@@ -352,7 +360,11 @@ pub fn dequantize_q8_0_parallel(data: &[u8]) -> Result<Vec<f32>> {
 /// Exposed as `pub(crate)` for direct testing.
 #[inline]
 pub(crate) fn dequantize_q8_0_block(block_data: &[u8]) -> Vec<f32> {
-    debug_assert!(block_data.len() >= 34, "Q8_0 block requires 34 bytes, got {}", block_data.len());
+    debug_assert!(
+        block_data.len() >= 34,
+        "Q8_0 block requires 34 bytes, got {}",
+        block_data.len()
+    );
     let mut result = Vec::with_capacity(32);
 
     // Read scale (f16 -> f32)

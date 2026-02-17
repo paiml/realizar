@@ -69,21 +69,14 @@ fn main() {
     );
 }
 
-fn run_pipeline_tests() {
-    use realizar::{
-        generate::{GenerationConfig, SamplingStrategy},
-        layers::{Model, ModelConfig},
-    };
+fn bench_model_configs() {
+    use realizar::layers::{Model, ModelConfig};
 
-    // =========================================================================
-    // MODEL CONFIGURATIONS
-    // =========================================================================
     println!("{BOLD}{CYAN}\u{25b6} MODEL CONFIGURATIONS{RESET}");
     println!(
         "{DIM}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}{RESET}"
     );
 
-    // Test model configurations
     let configs = [
         (
             "Tiny",
@@ -144,21 +137,9 @@ fn run_pipeline_tests() {
             color
         );
     }
+}
 
-    // Use small model for remaining tests
-    let config = ModelConfig {
-        vocab_size: 1000,
-        hidden_dim: 128,
-        num_heads: 4,
-        num_layers: 4,
-        intermediate_dim: 512,
-        eps: 1e-5,
-    };
-    let model = Model::new(config.clone()).expect("model");
-
-    // =========================================================================
-    // FORWARD PASS
-    // =========================================================================
+fn bench_forward_pass(model: &realizar::layers::Model, _config: &realizar::layers::ModelConfig) {
     println!("\n{BOLD}{CYAN}\u{25b6} FORWARD PASS{RESET}");
     println!(
         "{DIM}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}{RESET}"
@@ -191,10 +172,11 @@ fn run_pipeline_tests() {
             color
         );
     }
+}
 
-    // =========================================================================
-    // TEXT GENERATION
-    // =========================================================================
+fn bench_text_generation(model: &realizar::layers::Model, _config: &realizar::layers::ModelConfig) {
+    use realizar::generate::{GenerationConfig, SamplingStrategy};
+
     println!("\n{BOLD}{CYAN}\u{25b6} TEXT GENERATION{RESET}");
     println!(
         "{DIM}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}{RESET}"
@@ -250,16 +232,15 @@ fn run_pipeline_tests() {
             color
         );
     }
+}
 
-    // =========================================================================
-    // TRUENO MATRIX OPERATIONS
-    // =========================================================================
+fn bench_matrix_ops() {
+    use trueno::{Matrix, Vector};
+
     println!("\n{BOLD}{CYAN}\u{25b6} TRUENO MATRIX OPERATIONS{RESET}");
     println!(
         "{DIM}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}{RESET}"
     );
-
-    use trueno::{Matrix, Vector};
 
     // Test vector operations
     let sizes = [1024, 4096, 16384, 65536];
@@ -338,10 +319,11 @@ fn run_pipeline_tests() {
             color
         );
     }
+}
 
-    // =========================================================================
-    // ACTIVATION FUNCTIONS
-    // =========================================================================
+fn bench_activations() {
+    use trueno::Vector;
+
     println!("\n{BOLD}{CYAN}\u{25b6} ACTIVATION FUNCTIONS{RESET}");
     println!(
         "{DIM}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}{RESET}"
@@ -396,10 +378,12 @@ fn run_pipeline_tests() {
             color
         );
     }
+}
 
-    // =========================================================================
-    // CORRECTNESS CHECKS
-    // =========================================================================
+fn bench_correctness(model: &realizar::layers::Model, config: &realizar::layers::ModelConfig) {
+    use realizar::generate::GenerationConfig;
+    use trueno::{Matrix, Vector};
+
     println!("\n{BOLD}{CYAN}\u{25b6} CORRECTNESS CHECKS{RESET}");
     println!(
         "{DIM}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}{RESET}"
@@ -477,14 +461,20 @@ fn run_pipeline_tests() {
         m3.cols(),
         if dims_ok { GREEN } else { RED }
     );
+}
 
-    // =========================================================================
-    // THROUGHPUT SUMMARY
-    // =========================================================================
+fn bench_throughput_summary(
+    model: &realizar::layers::Model,
+    _config: &realizar::layers::ModelConfig,
+) {
+    use realizar::generate::GenerationConfig;
+
     println!("\n{BOLD}{CYAN}\u{25b6} THROUGHPUT SUMMARY{RESET}");
     println!(
         "{DIM}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}{RESET}"
     );
+
+    let tokens: Vec<usize> = vec![1, 5, 10];
 
     // Measure sustained generation throughput
     let gen_config = GenerationConfig {
@@ -520,4 +510,28 @@ fn run_pipeline_tests() {
         "  Model size              {:>6.1}MB   ({} params)",
         params_mb, params
     );
+}
+
+fn run_pipeline_tests() {
+    use realizar::layers::{Model, ModelConfig};
+
+    bench_model_configs();
+
+    // Use small model for remaining tests
+    let config = ModelConfig {
+        vocab_size: 1000,
+        hidden_dim: 128,
+        num_heads: 4,
+        num_layers: 4,
+        intermediate_dim: 512,
+        eps: 1e-5,
+    };
+    let model = Model::new(config.clone()).expect("model");
+
+    bench_forward_pass(&model, &config);
+    bench_text_generation(&model, &config);
+    bench_matrix_ops();
+    bench_activations();
+    bench_correctness(&model, &config);
+    bench_throughput_summary(&model, &config);
 }

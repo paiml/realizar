@@ -111,7 +111,10 @@ const APR_VERSIONS: [u8; 4] = [b'N', b'1', b'2', 0];
 /// Try to detect APR format from magic bytes
 #[inline]
 fn try_detect_apr(data: &[u8]) -> Option<ModelFormat> {
-    if data.len() >= 4 && data.get(0..3).expect("length checked >= 4") == APR_MAGIC && APR_VERSIONS.contains(&data[3]) {
+    if data.len() >= 4
+        && data.get(0..3).expect("length checked >= 4") == APR_MAGIC
+        && APR_VERSIONS.contains(&data[3])
+    {
         return Some(ModelFormat::Apr);
     }
     None

@@ -171,13 +171,13 @@ fn test_simplified_attention_single_token() {
         intermediate_dim: 16,
         eps: 1e-5,
         rope_theta: 10000.0,
-            explicit_head_dim: None,
-            layer_types: None,
-            linear_key_head_dim: None,
-            linear_value_head_dim: None,
-            linear_num_key_heads: None,
-            linear_num_value_heads: None,
-            linear_conv_kernel_dim: None,
+        explicit_head_dim: None,
+        layer_types: None,
+        linear_key_head_dim: None,
+        linear_value_head_dim: None,
+        linear_num_key_heads: None,
+        linear_num_value_heads: None,
+        linear_conv_kernel_dim: None,
     };
 
     // Single token, seq_len=1
@@ -209,13 +209,13 @@ fn test_simplified_attention_two_tokens() {
         intermediate_dim: 8,
         eps: 1e-5,
         rope_theta: 10000.0,
-            explicit_head_dim: None,
-            layer_types: None,
-            linear_key_head_dim: None,
-            linear_value_head_dim: None,
-            linear_num_key_heads: None,
-            linear_num_value_heads: None,
-            linear_conv_kernel_dim: None,
+        explicit_head_dim: None,
+        layer_types: None,
+        linear_key_head_dim: None,
+        linear_value_head_dim: None,
+        linear_num_key_heads: None,
+        linear_num_value_heads: None,
+        linear_conv_kernel_dim: None,
     };
 
     // Two tokens, seq_len=2
@@ -251,13 +251,13 @@ fn test_gpu_model_config_helpers() {
         intermediate_dim: 11008,
         eps: 1e-5,
         rope_theta: 10000.0,
-            explicit_head_dim: None,
-            layer_types: None,
-            linear_key_head_dim: None,
-            linear_value_head_dim: None,
-            linear_num_key_heads: None,
-            linear_num_value_heads: None,
-            linear_conv_kernel_dim: None,
+        explicit_head_dim: None,
+        layer_types: None,
+        linear_key_head_dim: None,
+        linear_value_head_dim: None,
+        linear_num_key_heads: None,
+        linear_num_value_heads: None,
+        linear_conv_kernel_dim: None,
     };
 
     // Test head_dim
@@ -285,13 +285,13 @@ fn test_gpu_model_config_mha() {
         intermediate_dim: 3072,
         eps: 1e-5,
         rope_theta: 10000.0,
-            explicit_head_dim: None,
-            layer_types: None,
-            linear_key_head_dim: None,
-            linear_value_head_dim: None,
-            linear_num_key_heads: None,
-            linear_num_value_heads: None,
-            linear_conv_kernel_dim: None,
+        explicit_head_dim: None,
+        layer_types: None,
+        linear_key_head_dim: None,
+        linear_value_head_dim: None,
+        linear_num_key_heads: None,
+        linear_num_value_heads: None,
+        linear_conv_kernel_dim: None,
     };
 
     // Test is_gqa returns false for MHA

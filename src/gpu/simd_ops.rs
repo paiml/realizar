@@ -111,10 +111,7 @@ fn rope_frequency_table(half_head: usize, head_dim: usize, theta: f32) -> Vec<f3
 }
 
 /// Compute cos and sin trueno vectors for a given position and frequency table.
-fn rope_trig_vectors(
-    pos: usize,
-    freqs: &[f32],
-) -> (trueno::Vector<f32>, trueno::Vector<f32>) {
+fn rope_trig_vectors(pos: usize, freqs: &[f32]) -> (trueno::Vector<f32>, trueno::Vector<f32>) {
     let angles: Vec<f32> = freqs.iter().map(|&f| pos as f32 * f).collect();
     let cos_vals: Vec<f32> = angles.iter().map(|&a| a.cos()).collect();
     let sin_vals: Vec<f32> = angles.iter().map(|&a| a.sin()).collect();
@@ -174,7 +171,13 @@ pub fn simd_rope(input: &[f32], seq_len: usize, head_dim: usize, theta: f32) -> 
             // BUG-HUNTER-FIX: If any SIMD op fails, fall back to scalar_rope
             // (returning unrotated input silently corrupts position embeddings)
             if let Err(e) = rope_rotate_head(
-                input, &mut output, head_start, half_head, head_dim, &cos_vec, &sin_vec,
+                input,
+                &mut output,
+                head_start,
+                half_head,
+                head_dim,
+                &cos_vec,
+                &sin_vec,
             ) {
                 eprintln!("[WARN] SIMD RoPE failed ({e}), falling back to scalar");
                 return scalar_rope(input, seq_len, head_dim, theta);

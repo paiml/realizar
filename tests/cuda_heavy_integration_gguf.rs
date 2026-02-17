@@ -940,8 +940,7 @@ fn test_tqa017_gguf_cached_forward_single_token() {
         },
     };
 
-    let mut kv_cache =
-        realizar::gguf::OwnedQuantizedKVCache::from_config(&config, 32);
+    let mut kv_cache = realizar::gguf::OwnedQuantizedKVCache::from_config(&config, 32);
 
     let start = Instant::now();
     let logits = match cuda_model.forward_single_full_cuda_with_cache(1, &mut kv_cache, 0) {
@@ -992,17 +991,15 @@ fn test_tqa017_gguf_cached_forward_sequential() {
         },
     };
 
-    let mut kv_cache =
-        realizar::gguf::OwnedQuantizedKVCache::from_config(&config, 32);
+    let mut kv_cache = realizar::gguf::OwnedQuantizedKVCache::from_config(&config, 32);
 
     let tokens = [1u32, 15496, 1917, 284, 345]; // BOS + sequence
     let mut all_logits = Vec::new();
 
     let start = Instant::now();
     for (pos, &token) in tokens.iter().enumerate() {
-        let logits = match cuda_model.forward_single_full_cuda_with_cache(
-            token, &mut kv_cache, pos,
-        ) {
+        let logits = match cuda_model.forward_single_full_cuda_with_cache(token, &mut kv_cache, pos)
+        {
             Ok(l) => l,
             Err(e) => {
                 eprintln!(
@@ -1071,8 +1068,7 @@ fn test_tqa017_gguf_cached_forward_determinism() {
     };
 
     // First run
-    let mut kv_cache1 =
-        realizar::gguf::OwnedQuantizedKVCache::from_config(&config, 32);
+    let mut kv_cache1 = realizar::gguf::OwnedQuantizedKVCache::from_config(&config, 32);
     let logits1 = match cuda_model.forward_single_full_cuda_with_cache(1, &mut kv_cache1, 0) {
         Ok(l) => l,
         Err(e) => {
@@ -1082,8 +1078,7 @@ fn test_tqa017_gguf_cached_forward_determinism() {
     };
 
     // Second run with fresh cache (same input → same output)
-    let mut kv_cache2 =
-        realizar::gguf::OwnedQuantizedKVCache::from_config(&config, 32);
+    let mut kv_cache2 = realizar::gguf::OwnedQuantizedKVCache::from_config(&config, 32);
     let logits2 = match cuda_model.forward_single_full_cuda_with_cache(1, &mut kv_cache2, 0) {
         Ok(l) => l,
         Err(e) => {
@@ -1106,5 +1101,8 @@ fn test_tqa017_gguf_cached_forward_determinism() {
         max_diff
     );
 
-    eprintln!("T-QA-017-GGUF-G3: PASS - Deterministic (max_diff={:.2e})", max_diff);
+    eprintln!(
+        "T-QA-017-GGUF-G3: PASS - Deterministic (max_diff={:.2e})",
+        max_diff
+    );
 }

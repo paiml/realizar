@@ -300,8 +300,16 @@ fn test_gqa_workspace_allocation() {
     let q_buf = executor.workspace.q_buf.as_ref().expect("q_buf");
     let k_buf = executor.workspace.k_buf.as_ref().expect("k_buf");
 
-    assert_eq!(q_buf.len(), pad256(expected_q_dim), "q_buf size mismatch (padded to 256)");
-    assert_eq!(k_buf.len(), pad256(expected_kv_dim), "k_buf size mismatch (padded to 256)");
+    assert_eq!(
+        q_buf.len(),
+        pad256(expected_q_dim),
+        "q_buf size mismatch (padded to 256)"
+    );
+    assert_eq!(
+        k_buf.len(),
+        pad256(expected_kv_dim),
+        "k_buf size mismatch (padded to 256)"
+    );
 
     println!("Workspace buffers VERIFIED for GQA");
 }

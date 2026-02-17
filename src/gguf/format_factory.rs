@@ -403,8 +403,15 @@ impl FormatType {
 
         // SafeTensors: u64 header length followed by '{"'
         if data.len() >= 10 {
-            let header_len = u64::from_le_bytes(data.get(0..8).expect("len >= 10 checked above").try_into().unwrap_or([0; 8]));
-            if header_len < 100_000_000 && data.get(8..10).expect("len >= 10 checked above") == b"{\"" {
+            let header_len = u64::from_le_bytes(
+                data.get(0..8)
+                    .expect("len >= 10 checked above")
+                    .try_into()
+                    .unwrap_or([0; 8]),
+            );
+            if header_len < 100_000_000
+                && data.get(8..10).expect("len >= 10 checked above") == b"{\""
+            {
                 return Self::SafeTensors;
             }
         }

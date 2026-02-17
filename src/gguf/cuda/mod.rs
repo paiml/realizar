@@ -170,9 +170,7 @@ impl OwnedQuantizedModelCuda {
 
     /// GH-199/PARITY-GATE: Preload GPU weights and verify correctness.
     /// Extracted to reduce cognitive complexity of `with_max_seq_len`.
-    fn preload_and_verify(
-        mut self,
-    ) -> std::result::Result<Self, CudaInitError> {
+    fn preload_and_verify(mut self) -> std::result::Result<Self, CudaInitError> {
         if !self.supports_gpu_resident() {
             return Ok(self);
         }

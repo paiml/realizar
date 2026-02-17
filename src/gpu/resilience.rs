@@ -403,9 +403,7 @@ impl ResourcePool {
     /// * `Release` – increments; returns `Ok(new_available)`.
     fn slot_op(&self, op: SlotOp) -> Result<usize, usize> {
         match op {
-            SlotOp::Query => {
-                Ok(self.available.load(std::sync::atomic::Ordering::SeqCst))
-            }
+            SlotOp::Query => Ok(self.available.load(std::sync::atomic::Ordering::SeqCst)),
             SlotOp::Acquire => {
                 let current = self.available.load(std::sync::atomic::Ordering::SeqCst);
                 if current == 0 {
@@ -415,13 +413,13 @@ impl ResourcePool {
                     .available
                     .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                 Ok(prev - 1)
-            }
+            },
             SlotOp::Release => {
                 let prev = self
                     .available
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 Ok(prev + 1)
-            }
+            },
         }
     }
 }
@@ -497,9 +495,7 @@ impl BulkheadManager {
     pub fn stats(&self) -> BulkheadStats {
         BulkheadStats {
             pool_count: 3,
-            total_capacity: self.inference.capacity
-                + self.embedding.capacity
-                + self.batch.capacity,
+            total_capacity: self.inference.capacity + self.embedding.capacity + self.batch.capacity,
         }
     }
 }

@@ -247,7 +247,10 @@ impl LambdaHandler {
             if magic != APR_MAGIC {
                 return Err(LambdaError::InvalidMagic {
                     expected: "APR".to_string(),
-                    found: format!("{:?}", model_bytes.get(0..4.min(model_bytes.len())).unwrap_or(&[])),
+                    found: format!(
+                        "{:?}",
+                        model_bytes.get(0..4.min(model_bytes.len())).unwrap_or(&[])
+                    ),
                 });
             }
         }

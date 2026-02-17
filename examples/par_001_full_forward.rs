@@ -39,19 +39,25 @@ fn print_position_summary(vocab: &[String], logits: &[f32], pos: usize, token: u
 
     println!(
         "\nPosition {}: token {} ('{}')",
-        pos, token, tok_str(vocab, token as usize)
+        pos,
+        token,
+        tok_str(vocab, token as usize)
     );
     println!("  Logits: L2={:.2}, min={:.4}, max={:.4}", l2, min, max);
     println!("  Top 5 next tokens:");
     for (rank, &(idx, score)) in ranked.iter().take(5).enumerate() {
         println!(
             "    {}: token {} = {:.4} ('{}')",
-            rank + 1, idx, score, tok_str(vocab, idx)
+            rank + 1,
+            idx,
+            score,
+            tok_str(vocab, idx)
         );
     }
     println!(
         "  \u{2192} Greedy next: {} ('{}')",
-        ranked[0].0, tok_str(vocab, ranked[0].0)
+        ranked[0].0,
+        tok_str(vocab, ranked[0].0)
     );
 }
 
