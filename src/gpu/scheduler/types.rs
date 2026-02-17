@@ -42,6 +42,56 @@ pub struct BlockWeights {
     /// When present, FFN uses SwiGLU: down(SiLU(gate(x)) * up(x))
     /// When None, FFN uses GELU: down(GELU(up(x)))
     pub ffn_gate_weight: Option<Vec<f32>>,
+    /// GH-278: Gated Delta Net weights for linear attention layers (Qwen3.5)
+    ///
+    /// When `Some`, this block uses the Gated Delta Net recurrent mechanism
+    /// instead of standard softmax attention. The `qkv_weight` field stores
+    /// `in_proj_qkv` and `out_weight` stores `out_proj`.
+    ///
+    /// Contract: `linear_attn.is_some()` ⟺ `config.is_linear_layer(block_idx)`
+    pub linear_attn: Option<LinearAttnWeights>,
+}
+
+// =============================================================================
+// GH-278: Gated Delta Net Types (Qwen3.5 Linear Attention)
+// =============================================================================
+
+/// Weights for a Gated Delta Net linear attention layer (GH-278)
+///
+/// Implements the recurrence from Qwen3.5 `Qwen3_5GatedDeltaNet`:
+///
+/// ```text
+/// Equation (GDN-1): state_t = exp(g_t) · state_{t-1} + k_t ⊗ δ_t
+/// Equation (GDN-2): δ_t = β_t · (v_t − state_{t-1}^T k_t)
+/// Equation (GDN-3): output_t = state_t^T q_t
+/// ```
+///
+/// where `g_t = −exp(A_log) · softplus(a_t + dt_bias)` is the decay factor,
+/// `β_t = σ(b_t)` is the update gate, and Q/K are L2-normalized.
+#[derive(Debug, Clone)]
+pub struct LinearAttnWeights {
+    /// Gate projection weight: [value_dim, hidden_dim]
+    /// Projects input to gating signal z for output normalization
+    pub z_weight: Vec<f32>,
+    /// Beta gate projection weight: [num_v_heads, hidden_dim]
+    /// Projects input to β = σ(b), controlling state update magnitude
+    pub b_weight: Vec<f32>,
+    /// Decay projection weight: [num_v_heads, hidden_dim]
+    /// Projects input to a, used in decay g = −exp(A_log) · softplus(a + dt_bias)
+    pub a_weight: Vec<f32>,
+    /// Depthwise causal Conv1D weight: [conv_dim, kernel_size]
+    /// Applied to concatenated QKV before SiLU activation.
+    /// conv_dim = 2 * key_dim + value_dim. Depthwise: each channel independent.
+    pub conv1d_weight: Vec<f32>,
+    /// Logged decay base: [num_v_heads]
+    /// A_log = log(A), where A controls exponential state decay rate
+    pub a_log: Vec<f32>,
+    /// Time-step bias: [num_v_heads]
+    /// Added to decay projection before softplus: softplus(a + dt_bias)
+    pub dt_bias: Vec<f32>,
+    /// Gated RMSNorm weight: [head_v_dim]
+    /// Applied as: RMSNorm(output) * SiLU(z)
+    pub norm_weight: Vec<f32>,
 }
 
 // =============================================================================
@@ -132,6 +182,16 @@ pub struct GpuModelConfig {
     /// None = all layers use standard attention
     /// Some(vec) = "attention" or "linear" per layer
     pub layer_types: Option<Vec<String>>,
+    /// GH-278: Linear attention key head dimension (Qwen3.5: 128)
+    pub linear_key_head_dim: Option<usize>,
+    /// GH-278: Linear attention value head dimension (Qwen3.5: 128)
+    pub linear_value_head_dim: Option<usize>,
+    /// GH-278: Number of key heads in linear attention (Qwen3.5: 16)
+    pub linear_num_key_heads: Option<usize>,
+    /// GH-278: Number of value heads in linear attention (Qwen3.5: 32)
+    pub linear_num_value_heads: Option<usize>,
+    /// GH-278: Conv1D kernel size for linear attention (Qwen3.5: 4)
+    pub linear_conv_kernel_dim: Option<usize>,
 }
 
 impl GpuModelConfig {
@@ -160,6 +220,33 @@ impl GpuModelConfig {
     #[inline]
     pub fn is_gqa(&self) -> bool {
         self.num_kv_heads < self.num_heads
+    }
+
+    /// GH-278: Whether a specific layer uses linear attention
+    #[inline]
+    pub fn is_linear_layer(&self, block_idx: usize) -> bool {
+        self.layer_types
+            .as_ref()
+            .and_then(|lt| lt.get(block_idx))
+            .is_some_and(|t| t == "linear")
+    }
+
+    /// GH-278: Linear attention key dimension (num_key_heads * key_head_dim)
+    #[inline]
+    pub fn linear_key_dim(&self) -> usize {
+        self.linear_num_key_heads.unwrap_or(0) * self.linear_key_head_dim.unwrap_or(0)
+    }
+
+    /// GH-278: Linear attention value dimension (num_value_heads * value_head_dim)
+    #[inline]
+    pub fn linear_value_dim(&self) -> usize {
+        self.linear_num_value_heads.unwrap_or(0) * self.linear_value_head_dim.unwrap_or(0)
+    }
+
+    /// GH-278: Linear attention conv dimension (2 * key_dim + value_dim)
+    #[inline]
+    pub fn linear_conv_dim(&self) -> usize {
+        2 * self.linear_key_dim() + self.linear_value_dim()
     }
 }
 

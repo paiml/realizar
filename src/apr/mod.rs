@@ -50,7 +50,7 @@ use crate::safetensors::find_sibling_file;
 mod cuda;
 #[cfg(all(test, feature = "cuda"))]
 mod cuda_tests;
-mod dequant;
+pub mod dequant;
 mod helpers;
 mod model_data;
 mod tokenizer;

@@ -31,6 +31,11 @@ fn create_small_config() -> GpuModelConfig {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     }
 }
 
@@ -359,6 +364,11 @@ fn test_large_vocab_uses_cpu_path() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::new(config).expect("Failed to create model");
@@ -698,6 +708,11 @@ fn test_model_config_is_gqa() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
     assert!(gqa_config.is_gqa());
 }
@@ -769,6 +784,11 @@ fn test_generate_gpu_large_vocab_uses_greedy_path() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::new(config).expect("Failed to create model");
@@ -804,6 +824,11 @@ fn test_forward_single_token_large_vocab_cpu_path() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::new(config).expect("Failed to create model");
@@ -835,6 +860,11 @@ fn test_forward_block_single_gqa_head_repetition() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::new(config).expect("Failed to create model");
@@ -865,6 +895,11 @@ fn test_optimized_gqa_attention_gqa_config() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::new(config).expect("Failed to create model");

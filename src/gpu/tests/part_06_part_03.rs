@@ -12,6 +12,11 @@ fn test_gpu_model_config_edge_case_single_head() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     assert_eq!(config.head_dim(), 64);
@@ -41,6 +46,7 @@ fn test_block_weights_construction() {
         ffn_fc2_weight: vec![0.01; 256 * 64],
         ffn_fc2_bias: vec![0.0; 64],
         ffn_gate_weight: None,
+        linear_attn: None,
     };
 
     assert_eq!(weights.attn_norm_weight.len(), 64);
@@ -63,6 +69,7 @@ fn test_block_weights_with_gate() {
         ffn_fc2_weight: vec![0.01; 128 * 32],
         ffn_fc2_bias: vec![0.0; 32],
         ffn_gate_weight: Some(vec![0.01; 32 * 128]), // SwiGLU gate
+        linear_attn: None,
     };
 
     assert!(weights.ffn_gate_weight.is_some());

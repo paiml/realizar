@@ -224,10 +224,18 @@ fn try_apr_cuda_inference(
     let tokens = match cuda_model.generate_gpu_resident(input_tokens, &gen_config) {
         Ok(t) => t,
         Err(e) => {
+            let msg = e.to_string();
+            // GH-278: Fall back to CPU for unsupported architectures (GPT-2 has no SwiGLU/RMSNorm)
+            if msg.contains("not supported") || msg.contains("architecture") {
+                if config.verbose {
+                    eprintln!("[APR-CUDA] GPU-resident not supported, falling back to CPU: {msg}");
+                }
+                return None;
+            }
             return Some(Err(RealizarError::InferenceError(format!(
                 "GPU generation failed: {}",
                 e
-            ))))
+            ))));
         },
     };
 
@@ -258,7 +266,22 @@ fn run_apr_cpu_inference(
 ) -> Result<InferenceResult> {
     use crate::apr_transformer::AprTransformer;
 
-    let validated = AprTransformer::from_apr_file_validated(&config.model_path)?;
+    // GH-278: AprTransformer only supports LLaMA-style models (RoPE + SwiGLU).
+    // For GPT-2 and other architectures, use OwnedQuantizedModel which supports
+    // learned position embeddings, LayerNorm, GELU, etc.
+    let validated = match AprTransformer::from_apr_file_validated(&config.model_path) {
+        Ok(t) => {
+            // Check if architecture needs OwnedQuantizedModel (GPT-2, etc.)
+            let arch = t.config.architecture.to_lowercase();
+            if arch.contains("gpt2") || arch.contains("gpt-2") {
+                return run_apr_quantized_cpu_inference(config, input_tokens, input_token_count, load_start);
+            }
+            t
+        },
+        Err(_) => {
+            return run_apr_quantized_cpu_inference(config, input_tokens, input_token_count, load_start);
+        }
+    };
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
     if config.verbose {
@@ -314,6 +337,65 @@ fn run_apr_cpu_inference(
     Ok(InferenceResult {
         text,
         tokens: all_tokens,
+        input_token_count,
+        generated_token_count,
+        inference_ms,
+        tok_per_sec: tok_per_sec(generated_token_count, inference_ms),
+        load_ms,
+        format: "APR".to_string(),
+        used_gpu: false,
+    })
+}
+
+/// GH-278: CPU inference for APR models using OwnedQuantizedModel
+///
+/// Used for architectures not supported by AprTransformer (GPT-2, etc.).
+/// AprTransformer only supports LLaMA-style (RoPE + SwiGLU).
+fn run_apr_quantized_cpu_inference(
+    config: &InferenceConfig,
+    input_tokens: &[u32],
+    input_token_count: usize,
+    load_start: Instant,
+) -> Result<InferenceResult> {
+    use crate::apr::MappedAprModel;
+    use crate::gguf::{OwnedQuantizedModel, QuantizedGenerateConfig};
+
+    let mapped = MappedAprModel::from_path(&config.model_path)?;
+    let model = OwnedQuantizedModel::from_apr(&mapped)?;
+    let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+
+    if config.verbose {
+        eprintln!(
+            "Architecture: {} ({} layers, vocab_size={})",
+            model.config.architecture, model.config.num_layers, model.config.vocab_size
+        );
+        eprintln!(
+            "Config: hidden_size={}, quant=Q4_K (OwnedQuantizedModel CPU), threads={}",
+            model.config.hidden_dim,
+            rayon::current_num_threads()
+        );
+        eprintln!("Model loaded in {:.1}ms", load_ms);
+        eprintln!("Backend: CPU (OwnedQuantizedModel fallback for non-LLaMA arch)");
+    }
+
+    let gen_config = QuantizedGenerateConfig {
+        max_tokens: config.max_tokens.min(128),
+        temperature: config.temperature,
+        top_k: config.top_k,
+        trace: config.trace,
+        ..Default::default()
+    };
+
+    let infer_start = Instant::now();
+    let tokens = model.generate_with_cache(input_tokens, &gen_config)?;
+    let inference_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
+    let generated_tokens = &tokens[input_token_count..];
+    let text = decode_apr_tokens(&config.model_path, generated_tokens);
+    let generated_token_count = generated_tokens.len();
+
+    Ok(InferenceResult {
+        text,
+        tokens,
         input_token_count,
         generated_token_count,
         inference_ms,

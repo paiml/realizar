@@ -31,6 +31,11 @@ fn test_generation_config_from_model() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let gen_config = GenerationConfig::from_model(&model_config, 50);
@@ -52,6 +57,11 @@ fn test_generation_config_from_model() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
     let small_gen = GenerationConfig::from_model(&small_config, 100);
     assert_eq!(small_gen.vocab_size, 1000);
@@ -194,6 +204,11 @@ fn test_block_forward_plan_attention_output_size() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
     let plan = BlockForwardPlan::from_config(&config, 0, true);
     assert_eq!(plan.attention_output_size(), 2048);
@@ -212,6 +227,11 @@ fn test_block_forward_plan_all_fields() {
         rope_theta: 500000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
     let plan = BlockForwardPlan::from_config(&config, 10, true);
 
@@ -240,6 +260,11 @@ fn test_block_forward_plan_mqa() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
     let plan = BlockForwardPlan::from_config(&config, 0, false);
     assert!(plan.is_gqa());
@@ -260,6 +285,11 @@ fn test_block_forward_plan_clone_eq() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
     let p1 = BlockForwardPlan::from_config(&config, 0, true);
     let p2 = BlockForwardPlan::from_config(&config, 0, true);

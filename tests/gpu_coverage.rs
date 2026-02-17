@@ -1402,6 +1402,11 @@ fn test_gpu_model_config_derived_values() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     assert_eq!(config.head_dim(), 128);
@@ -1425,6 +1430,11 @@ fn test_gpu_model_config_non_gqa() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     assert!(!config.is_gqa());
@@ -3035,6 +3045,11 @@ fn test_gpu_model_config_small_model() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     assert_eq!(config.head_dim(), 64); // 256/4
@@ -3057,6 +3072,11 @@ fn test_gpu_model_config_gqa_ratios() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     assert!(config2to1.is_gqa());
@@ -3103,6 +3123,11 @@ fn test_gpu_model_creation() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let model = realizar::gpu::GpuModel::new(config);
@@ -3122,6 +3147,11 @@ fn test_gpu_model_config_accessor() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3601,6 +3631,11 @@ fn test_attention_buffers_creation() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let buffers = realizar::gpu::AttentionBuffers::new(&config, 512);
@@ -3626,6 +3661,11 @@ fn test_attention_buffers_reset() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut buffers = realizar::gpu::AttentionBuffers::new(&config, 256);
@@ -3661,6 +3701,11 @@ fn test_attention_buffers_debug() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let buffers = realizar::gpu::AttentionBuffers::new(&config, 64);
@@ -3685,6 +3730,11 @@ fn test_gpu_model_with_attention_buffers() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let model = realizar::gpu::GpuModel::with_attention_buffers(config, 128).unwrap();
@@ -3704,6 +3754,11 @@ fn test_gpu_model_without_attention_buffers() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3727,6 +3782,11 @@ fn test_gpu_model_forward_gpu_single_token() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3750,6 +3810,11 @@ fn test_gpu_model_forward_gpu_multiple_tokens() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3774,6 +3839,11 @@ fn test_gpu_model_forward_gpu_empty_input_error() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3795,6 +3865,11 @@ fn test_gpu_model_forward_gpu_out_of_bounds_token() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3816,6 +3891,11 @@ fn test_gpu_model_has_gpu() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3836,6 +3916,11 @@ fn test_gpu_model_from_gguf_config() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let model = realizar::gpu::GpuModel::from_gguf_config(config);
@@ -3859,6 +3944,11 @@ fn test_gpu_model_generate_with_cache() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3884,6 +3974,11 @@ fn test_gpu_model_generate_with_cache_empty_prompt_error() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3907,6 +4002,11 @@ fn test_gpu_model_generate_optimized() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = realizar::gpu::GpuModel::with_attention_buffers(config, 128).unwrap();
@@ -3930,6 +4030,11 @@ fn test_gpu_model_generate_optimized_empty_prompt_error() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = realizar::gpu::GpuModel::with_attention_buffers(config, 128).unwrap();
@@ -3953,6 +4058,11 @@ fn test_gpu_model_generate_with_stop_token() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -4189,6 +4299,11 @@ fn test_gpu_model_config_mha() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     assert!(!config.is_gqa());
@@ -4210,6 +4325,11 @@ fn test_gpu_model_config_gqa_4to1() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     assert!(config.is_gqa());

@@ -30,6 +30,11 @@ fn create_large_vocab_greedy_config() -> GpuModelConfig {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     }
 }
 
@@ -46,6 +51,11 @@ fn create_cpu_fallback_config() -> GpuModelConfig {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     }
 }
 
@@ -62,6 +72,11 @@ fn create_small_config() -> GpuModelConfig {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     }
 }
 
@@ -78,6 +93,11 @@ fn create_gqa_4_to_1_config() -> GpuModelConfig {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     }
 }
 
@@ -385,6 +405,7 @@ fn test_block_weights_swiglu_gate_construction() {
         ffn_fc2_weight: vec![0.01; 64 * 32],
         ffn_fc2_bias: vec![0.0; 32],
         ffn_gate_weight: Some(vec![0.01; 32 * 64]),
+        linear_attn: None,
     };
     assert!(weights.ffn_gate_weight.is_some());
     assert_eq!(weights.ffn_gate_weight.as_ref().unwrap().len(), 32 * 64);

@@ -323,6 +323,11 @@ async fn test_gpu_model_chat_completions_routing() {
         rope_theta: 10000.0,
         explicit_head_dim: None,
         layer_types: None,
+        linear_key_head_dim: None,
+        linear_value_head_dim: None,
+        linear_num_key_heads: None,
+        linear_num_value_heads: None,
+        linear_conv_kernel_dim: None,
     };
 
     let gpu_model = GpuModel::new(config).expect("Failed to create GPU model");
@@ -375,6 +380,11 @@ async fn test_gpu_model_streaming_path() {
         rope_theta: 10000.0,
         explicit_head_dim: None,
         layer_types: None,
+        linear_key_head_dim: None,
+        linear_value_head_dim: None,
+        linear_num_key_heads: None,
+        linear_num_value_heads: None,
+        linear_conv_kernel_dim: None,
     };
 
     let gpu_model = GpuModel::new(config).expect("create GPU model");

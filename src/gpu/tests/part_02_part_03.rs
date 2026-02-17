@@ -22,6 +22,11 @@ fn test_imp_1006b_block_incremental_uses_cuda() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut cuda_model =
@@ -118,6 +123,11 @@ fn test_imp_1006c_generate_throughput_improved() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut cuda_model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -178,6 +188,11 @@ fn test_imp_1006d_all_matmuls_routed_to_cuda() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut cuda_model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -234,6 +249,11 @@ fn test_imp_1007a_no_clone_matmul() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::new_with_cuda(config).expect("Failed to create model");
@@ -271,6 +291,11 @@ fn test_imp_1007b_incremental_no_clone_speedup() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::new_with_cuda(config.clone()).expect("Failed to create model");
@@ -345,6 +370,11 @@ fn test_imp_1007c_generate_throughput_improved() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let mut model = GpuModel::new_with_cuda(config).expect("Failed to create model");
@@ -403,6 +433,11 @@ fn test_imp_1008a_refcell_scheduler_matmul() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
     };
 
     let model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");

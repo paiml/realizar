@@ -193,6 +193,8 @@ impl AprF32ToGpuAdapter {
                 .unwrap_or_else(|| vec![0.0; hidden_dim]),
             // SwiGLU gate weight - critical for Qwen/LLaMA models
             ffn_gate_weight: gate_weight_t,
+            // GH-278: No linear attention in F32 APR adapter
+            linear_attn: None,
         }
     }
 }
@@ -215,6 +217,11 @@ impl AprToGpuAdapter {
             rope_theta: apr_config.rope_theta,
             explicit_head_dim: None,
             layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
         }
     }
 
@@ -374,6 +381,8 @@ impl AprToGpuAdapter {
                 ffn_fc2_weight: fc2_weight_t,
                 ffn_fc2_bias: vec![0.0; hidden_dim],
                 ffn_gate_weight: gate_weight_t,
+                // GH-278: No linear attention in Q4 APR adapter
+                linear_attn: None,
             });
         }
 
