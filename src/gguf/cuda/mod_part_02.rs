@@ -8,17 +8,9 @@
 ///
 /// Returns `RealizarError` if GPU and CPU produce divergent logits.
 fn parity_gate(cuda_model: &mut OwnedQuantizedModelCuda) -> Result<()> {
-    // GH-279: Skip parity gate for architectures with QK norm.
-    // The GPU kernel (trueno forward_all_layers_gpu_to_logits_graphed) does not
-    // yet support per-head QK RMSNorm. CPU inference works correctly for these
-    // models; GPU support requires trueno kernel changes (tracked as GH-280).
-    if cuda_model.model.config.constraints.has_qk_norm {
-        eprintln!(
-            "[PARITY-GATE] SKIP: architecture '{}' uses QK norm (not yet in GPU kernel)",
-            cuda_model.model.config.architecture
-        );
-        return Ok(());
-    }
+    // GH-280: The capability gate in with_max_seq_len() now prevents models
+    // with unsupported ops (e.g., QkNorm) from reaching this point.
+    // If parity gate runs, the model MUST be fully supported by GPU.
 
     // Extract config values before any mutable borrows
     let hidden_dim = cuda_model.model.config.hidden_dim;
