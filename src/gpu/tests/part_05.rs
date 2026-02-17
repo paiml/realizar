@@ -262,6 +262,8 @@ fn test_simplified_attention_single_token() {
         intermediate_dim: 256,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let seq_len = 1;
@@ -303,6 +305,8 @@ fn test_simplified_attention_two_tokens() {
         intermediate_dim: 16,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let seq_len = 2;
@@ -369,6 +373,8 @@ fn test_simplified_attention_causal_mask() {
         intermediate_dim: 32,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let seq_len = 3;

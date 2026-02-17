@@ -124,6 +124,7 @@ fn test_cov_safetensors_config_architecture_empty_list() {
         bos_token_id: None,
         eos_token_id: None,
         tie_word_embeddings: None,
+        ..Default::default()
     };
 
     // Should fall back to model_type when architectures is empty

@@ -213,6 +213,8 @@ impl AprToGpuAdapter {
             intermediate_dim: apr_config.intermediate_dim,
             eps: apr_config.eps,
             rope_theta: apr_config.rope_theta,
+            explicit_head_dim: None,
+            layer_types: None,
         }
     }
 

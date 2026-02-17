@@ -321,6 +321,8 @@ async fn test_gpu_model_chat_completions_routing() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+        explicit_head_dim: None,
+        layer_types: None,
     };
 
     let gpu_model = GpuModel::new(config).expect("Failed to create GPU model");
@@ -371,6 +373,8 @@ async fn test_gpu_model_streaming_path() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+        explicit_head_dim: None,
+        layer_types: None,
     };
 
     let gpu_model = GpuModel::new(config).expect("create GPU model");

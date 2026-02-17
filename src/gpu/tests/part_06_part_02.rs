@@ -51,6 +51,8 @@ fn test_simplified_attention_multiple_heads() {
         num_layers: 1,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let seq_len = 4;

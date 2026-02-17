@@ -128,6 +128,8 @@ fn test_imp_1004c_full_forward_benchmark() {
         intermediate_dim: 1024,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut cuda_model =
@@ -196,6 +198,8 @@ fn test_imp_1004d_token_generation_throughput() {
         intermediate_dim: 1024,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut cuda_model =

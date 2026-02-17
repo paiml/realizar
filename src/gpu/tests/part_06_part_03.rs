@@ -10,6 +10,8 @@ fn test_gpu_model_config_edge_case_single_head() {
         vocab_size: 1000,
         eps: 1e-6,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     assert_eq!(config.head_dim(), 64);

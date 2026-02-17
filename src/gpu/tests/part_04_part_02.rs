@@ -119,6 +119,8 @@ fn test_gpu_model_config_head_dim_ext_cov() {
         intermediate_dim: 512,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
     assert_eq!(config.head_dim(), 32); // 256 / 8
 }
@@ -134,6 +136,8 @@ fn test_gpu_model_config_kv_dim_ext_cov() {
         intermediate_dim: 512,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
     assert_eq!(config.kv_dim(), 128); // 4 * 32 (num_kv_heads * head_dim)
 }
@@ -149,6 +153,8 @@ fn test_gpu_model_config_qkv_dim_ext_cov() {
         intermediate_dim: 512,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
     // qkv_dim = hidden_dim + 2 * kv_dim = 256 + 2 * 128 = 512
     assert_eq!(config.qkv_dim(), 512);
@@ -165,6 +171,8 @@ fn test_gpu_model_config_is_gqa_true_ext_cov() {
         intermediate_dim: 512,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
     assert!(config.is_gqa());
 }
@@ -180,6 +188,8 @@ fn test_gpu_model_config_is_gqa_false_ext_cov() {
         intermediate_dim: 512,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
     assert!(!config.is_gqa());
 }
@@ -239,6 +249,8 @@ fn test_attention_buffers_new_ext_cov() {
         intermediate_dim: 512,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
     let buffers = AttentionBuffers::new(&config, 100);
 
@@ -261,6 +273,8 @@ fn test_attention_buffers_reset_ext_cov() {
         intermediate_dim: 512,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
     let mut buffers = AttentionBuffers::new(&config, 100);
 

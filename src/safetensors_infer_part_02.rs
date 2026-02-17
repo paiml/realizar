@@ -80,6 +80,21 @@ impl SafetensorsToAprConverter {
         let eps = config.rms_norm_eps.unwrap_or(1e-6);
         let architecture = config.architecture();
 
+        // GH-278: Log Qwen3.5 detection with hybrid attention info
+        if config.is_hybrid_attention() {
+            let layer_count = config.layer_types.as_ref().map_or(0, Vec::len);
+            let linear_count = config
+                .layer_types
+                .as_ref()
+                .map_or(0, |t| t.iter().filter(|l| *l == "linear").count());
+            eprintln!(
+                "[GH-278] Hybrid attention model detected: {}/{} linear layers, head_dim={:?}",
+                linear_count,
+                layer_count,
+                config.head_dim,
+            );
+        }
+
         // Build transformer config
         let apr_config = AprTransformerConfig {
             architecture,

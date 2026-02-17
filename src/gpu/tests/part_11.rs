@@ -28,6 +28,8 @@ fn create_large_vocab_greedy_config() -> GpuModelConfig {
         vocab_size: 10000,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     }
 }
 
@@ -42,6 +44,8 @@ fn create_cpu_fallback_config() -> GpuModelConfig {
         vocab_size: 50000, // 2048 * 50000 * 4 > 256MB
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     }
 }
 
@@ -56,6 +60,8 @@ fn create_small_config() -> GpuModelConfig {
         vocab_size: 100,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     }
 }
 
@@ -70,6 +76,8 @@ fn create_gqa_4_to_1_config() -> GpuModelConfig {
         vocab_size: 100,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     }
 }
 

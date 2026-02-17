@@ -275,6 +275,7 @@ fn test_cov_safetensors_config_num_kv_heads() {
         bos_token_id: None,
         eos_token_id: None,
         tie_word_embeddings: None,
+        ..Default::default()
     };
 
     assert_eq!(config.num_kv_heads(), 4);
@@ -297,6 +298,7 @@ fn test_cov_safetensors_config_num_kv_heads_default() {
         bos_token_id: None,
         eos_token_id: None,
         tie_word_embeddings: None,
+        ..Default::default()
     };
 
     assert_eq!(config.num_kv_heads(), 12);
@@ -319,6 +321,7 @@ fn test_cov_safetensors_config_num_kv_heads_fallback() {
         bos_token_id: None,
         eos_token_id: None,
         tie_word_embeddings: None,
+        ..Default::default()
     };
 
     assert_eq!(config.num_kv_heads(), 1); // Fallback to 1
@@ -341,6 +344,7 @@ fn test_cov_safetensors_config_architecture_from_architectures() {
         bos_token_id: None,
         eos_token_id: None,
         tie_word_embeddings: None,
+        ..Default::default()
     };
 
     assert_eq!(config.architecture(), "LlamaForCausalLM");
@@ -363,6 +367,7 @@ fn test_cov_safetensors_config_architecture_from_model_type() {
         bos_token_id: None,
         eos_token_id: None,
         tie_word_embeddings: None,
+        ..Default::default()
     };
 
     assert_eq!(config.architecture(), "llama");
@@ -385,6 +390,7 @@ fn test_cov_safetensors_config_architecture_unknown() {
         bos_token_id: None,
         eos_token_id: None,
         tie_word_embeddings: None,
+        ..Default::default()
     };
 
     assert_eq!(config.architecture(), "unknown");

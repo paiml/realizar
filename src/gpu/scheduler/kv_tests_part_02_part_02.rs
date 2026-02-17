@@ -165,6 +165,8 @@ fn test_forward_multi_layer_model() {
         vocab_size: 50,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut model = GpuModel::new(config.clone()).unwrap();

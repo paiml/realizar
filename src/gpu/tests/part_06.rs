@@ -31,6 +31,8 @@ fn create_test_config() -> GpuModelConfig {
         vocab_size: 100,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     }
 }
 
@@ -45,6 +47,8 @@ fn create_gqa_config() -> GpuModelConfig {
         vocab_size: 100,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     }
 }
 
@@ -59,6 +63,8 @@ fn create_small_vocab_config() -> GpuModelConfig {
         vocab_size: 50, // Small vocab triggers GPU path
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     }
 }
 
@@ -73,6 +79,8 @@ fn create_large_vocab_config() -> GpuModelConfig {
         vocab_size: 10000, // Large vocab triggers CPU path
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     }
 }
 

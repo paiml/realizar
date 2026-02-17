@@ -124,13 +124,22 @@ pub struct GpuModelConfig {
     /// RoPE theta for rotary position embeddings (Phase 21)
     /// Default: 10000.0 (standard LLaMA)
     pub rope_theta: f32,
+    /// GH-278: Explicit head dimension override
+    /// Qwen3.5 uses head_dim=256 (vs Qwen2's computed 128).
+    /// When None, computed as hidden_dim / num_heads.
+    pub explicit_head_dim: Option<usize>,
+    /// GH-278: Per-layer attention type for hybrid models (Qwen3.5)
+    /// None = all layers use standard attention
+    /// Some(vec) = "attention" or "linear" per layer
+    pub layer_types: Option<Vec<String>>,
 }
 
 impl GpuModelConfig {
-    /// Head dimension (hidden_dim / num_heads)
+    /// Head dimension — uses explicit override if set, otherwise hidden_dim / num_heads
     #[inline]
     pub fn head_dim(&self) -> usize {
-        self.hidden_dim / self.num_heads
+        self.explicit_head_dim
+            .unwrap_or_else(|| self.hidden_dim / self.num_heads)
     }
 
     /// K/V dimension for GQA (num_kv_heads * head_dim)

@@ -206,6 +206,8 @@ fn test_gpu_model_config() {
         intermediate_dim: 5632,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     assert_eq!(config.head_dim(), 64); // 2048/32
@@ -225,6 +227,8 @@ fn test_gpu_model_config_mha() {
         intermediate_dim: 3072,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     assert!(!config.is_gqa());
@@ -285,6 +289,8 @@ fn test_attention_buffers_creation() {
         intermediate_dim: 512,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let buffers = AttentionBuffers::new(&config, 512);
@@ -308,6 +314,8 @@ fn test_attention_buffers_reset() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut buffers = AttentionBuffers::new(&config, 128);
@@ -401,6 +409,8 @@ fn test_gpu_model_creation() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let model = GpuModel::new(config);
@@ -610,6 +620,8 @@ fn test_gpu_model_with_test_executor() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();
@@ -637,6 +649,8 @@ fn test_gpu_model_do_matmul_with_mock() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();
@@ -667,6 +681,8 @@ fn test_gpu_model_clear_test_executor() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();
@@ -692,6 +708,8 @@ fn test_gpu_model_mock_failure() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();

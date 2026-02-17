@@ -146,6 +146,8 @@ fn test_imp_084_app_state_with_gpu_model() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+        explicit_head_dim: None,
+        layer_types: None,
     };
     let gpu_model = GpuModel::new(config).expect("Failed to create GPU model");
 
@@ -175,6 +177,8 @@ async fn test_imp_085_completions_uses_gpu_model() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+        explicit_head_dim: None,
+        layer_types: None,
     };
     let gpu_model = GpuModel::new(config).expect("Failed to create GPU model");
 

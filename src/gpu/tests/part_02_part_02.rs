@@ -23,6 +23,8 @@ fn test_imp_1005a_do_matmul_uses_cuda_scheduler() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut cuda_model =
@@ -75,6 +77,8 @@ fn test_imp_1005b_forward_gpu_speedup_with_cuda() {
         intermediate_dim: 1024,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut cuda_model =
@@ -151,6 +155,8 @@ fn test_imp_1005c_token_generation_with_cuda_forward() {
         intermediate_dim: 1024,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut cuda_model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -209,6 +215,8 @@ fn test_imp_1005d_forward_block_uses_do_matmul() {
         intermediate_dim: 512,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut cuda_model =
@@ -284,6 +292,8 @@ fn test_imp_1006a_incremental_forward_uses_cuda() {
         intermediate_dim: 512,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut cuda_model =
