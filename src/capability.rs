@@ -77,31 +77,31 @@ pub fn required_ops(constraints: &ArchConstraints) -> HashSet<RequiredOp> {
     match constraints.positional_encoding {
         PositionalEncoding::Rope => {
             ops.insert(RequiredOp::RoPE);
-        }
+        },
         PositionalEncoding::Absolute => {
             ops.insert(RequiredOp::AbsolutePos);
-        }
-        PositionalEncoding::None => {}
+        },
+        PositionalEncoding::None => {},
     }
 
     // Normalization
     match constraints.norm_type {
         NormType::RmsNorm => {
             ops.insert(RequiredOp::RMSNorm);
-        }
+        },
         NormType::LayerNorm => {
             ops.insert(RequiredOp::LayerNorm);
-        }
+        },
     }
 
     // MLP type
     match constraints.mlp_type {
         MlpType::SwiGlu | MlpType::GatedMlp => {
             ops.insert(RequiredOp::SwiGLU);
-        }
+        },
         MlpType::GeluMlp => {
             ops.insert(RequiredOp::GeluMlp);
-        }
+        },
     }
 
     // Bias

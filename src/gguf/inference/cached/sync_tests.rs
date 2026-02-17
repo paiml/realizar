@@ -67,5 +67,5 @@ mod tests {
         assert!(debug_str.contains("gpu_cache_ready"));
         assert!(debug_str.contains("16"));
     }
-include!("sync_tests_part_02.rs");
+    include!("sync_tests_part_02.rs");
 }

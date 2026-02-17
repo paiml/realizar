@@ -260,13 +260,13 @@ pub fn dequantize_q6_k(bytes: &[u8], num_elements: usize) -> Vec<f32> {
 pub fn dtype_to_ggml_qtype(dtype: &str) -> Option<u32> {
     match dtype {
         // GGML-compatible formats (passthrough from GGUF import)
-        "Q4_K" | "q4_k" => Some(12),  // GGML_TYPE_Q4_K
-        "Q5_K" | "q5_k" => Some(13),  // GGML_TYPE_Q5_K
-        "Q6_K" | "q6_k" => Some(14),  // GGML_TYPE_Q6_K
-        "Q8_0" | "q8_0" => Some(8),   // GGML_TYPE_Q8_0
-        "Q4_0" | "q4_0" => Some(2),   // GGML_TYPE_Q4_0
-        "Q4_1" | "q4_1" => Some(3),   // GGML_TYPE_Q4_1
-        "Q5_0" | "q5_0" => Some(6),   // GGML_TYPE_Q5_0
+        "Q4_K" | "q4_k" => Some(12), // GGML_TYPE_Q4_K
+        "Q5_K" | "q5_k" => Some(13), // GGML_TYPE_Q5_K
+        "Q6_K" | "q6_k" => Some(14), // GGML_TYPE_Q6_K
+        "Q8_0" | "q8_0" => Some(8),  // GGML_TYPE_Q8_0
+        "Q4_0" | "q4_0" => Some(2),  // GGML_TYPE_Q4_0
+        "Q4_1" | "q4_1" => Some(3),  // GGML_TYPE_Q4_1
+        "Q5_0" | "q5_0" => Some(6),  // GGML_TYPE_Q5_0
         // APR-native Q8/Q4 are NOT GGML — different binary layout
         // "q8" | "Q8" => None (APR Q8: single f32 scale + N × i8)
         // "q4" | "Q4" => None (APR Q4: block f16 scale + packed nibbles)
@@ -296,7 +296,9 @@ pub fn dequantize_apr_q8(bytes: &[u8], num_elements: usize) -> Vec<f32> {
     }
 
     let scale = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-    let quant_bytes = bytes.get(4..).expect("APR Q8 buffer validated to have at least 4 bytes above");
+    let quant_bytes = bytes
+        .get(4..)
+        .expect("APR Q8 buffer validated to have at least 4 bytes above");
 
     let mut result = Vec::with_capacity(num_elements);
     for i in 0..num_elements.min(quant_bytes.len()) {

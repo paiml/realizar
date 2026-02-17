@@ -11,9 +11,7 @@
 //! cargo run --example validated_tensors
 //! ```
 
-use realizar::safetensors::{
-    ContractValidationError, ValidatedEmbedding, ValidatedWeight,
-};
+use realizar::safetensors::{ContractValidationError, ValidatedEmbedding, ValidatedWeight};
 
 fn main() {
     println!("═══════════════════════════════════════════════════════════════════");

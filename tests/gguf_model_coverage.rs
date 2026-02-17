@@ -14,8 +14,8 @@ use std::io::Write as _;
 use realizar::gguf::{
     ArchConstraints, GGUFConfig, GGUFHeader, GGUFModel, GGUFValue, MappedGGUFModel, TensorInfo,
     GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1,
-    GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K,
-    GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
+    GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0,
+    GGUF_VERSION_V3,
 };
 use tempfile::NamedTempFile;
 

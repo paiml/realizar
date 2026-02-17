@@ -306,20 +306,23 @@ fn prepare_tokens_gguf(config: &InferenceConfig, prompt: &str) -> Result<Prepare
     };
 
     if config.verbose {
-        eprintln!("[DEBUG] has_chat_template={}, filename_instruct={}", has_chat_template, filename_instruct);
-        eprintln!("[DEBUG] formatted_prompt={:?}", &formatted_prompt[..formatted_prompt.len().min(200)]);
+        eprintln!(
+            "[DEBUG] has_chat_template={}, filename_instruct={}",
+            has_chat_template, filename_instruct
+        );
+        eprintln!(
+            "[DEBUG] formatted_prompt={:?}",
+            &formatted_prompt[..formatted_prompt.len().min(200)]
+        );
     }
 
-    let mut tokens = mapped
-        .model
-        .encode(&formatted_prompt)
-        .ok_or_else(|| {
-            RealizarError::InferenceError(format!(
-                "Tokenizer encode failed for GGUF model (no tokenizer data in GGUF file?). \
+    let mut tokens = mapped.model.encode(&formatted_prompt).ok_or_else(|| {
+        RealizarError::InferenceError(format!(
+            "Tokenizer encode failed for GGUF model (no tokenizer data in GGUF file?). \
                  Prompt length: {} chars",
-                formatted_prompt.len()
-            ))
-        })?;
+            formatted_prompt.len()
+        ))
+    })?;
 
     // GH-278: Prepend BOS token to match llama.cpp behavior.
     // llama.cpp adds BOS when add_bos_token is true (default for LLaMA-family).
@@ -332,10 +335,16 @@ fn prepare_tokens_gguf(config: &InferenceConfig, prompt: &str) -> Result<Prepare
                 .model
                 .metadata
                 .get("tokenizer.ggml.model")
-                .and_then(|v| if let GGUFValue::String(s) = v { Some(s.as_str()) } else { None })
+                .and_then(|v| {
+                    if let GGUFValue::String(s) = v {
+                        Some(s.as_str())
+                    } else {
+                        None
+                    }
+                })
                 .unwrap_or("llama");
             model_type != "gpt2"
-        }
+        },
     };
 
     if add_bos {
@@ -347,7 +356,12 @@ fn prepare_tokens_gguf(config: &InferenceConfig, prompt: &str) -> Result<Prepare
     }
 
     if config.verbose {
-        eprintln!("[DEBUG] add_bos={}, encoded {} tokens: {:?}", add_bos, tokens.len(), &tokens[..tokens.len().min(30)]);
+        eprintln!(
+            "[DEBUG] add_bos={}, encoded {} tokens: {:?}",
+            add_bos,
+            tokens.len(),
+            &tokens[..tokens.len().min(30)]
+        );
     }
 
     Ok(PreparedTokens {
@@ -392,8 +406,8 @@ fn prepare_tokens_safetensors(config: &InferenceConfig, prompt: &str) -> Result<
         prompt.to_string()
     };
 
-    let tokens = AprV2Model::encode_text(&config.model_path, &formatted_prompt)
-        .ok_or_else(|| {
+    let tokens =
+        AprV2Model::encode_text(&config.model_path, &formatted_prompt).ok_or_else(|| {
             RealizarError::InferenceError(format!(
                 "Tokenizer encode failed for SafeTensors model (no tokenizer.json sibling?). \
                  Prompt length: {} chars",
@@ -453,8 +467,8 @@ fn prepare_tokens_apr(config: &InferenceConfig, prompt: &str) -> Result<Prepared
         prompt.to_string()
     };
 
-    let tokens = AprV2Model::encode_text(&config.model_path, &formatted_prompt)
-        .ok_or_else(|| {
+    let tokens =
+        AprV2Model::encode_text(&config.model_path, &formatted_prompt).ok_or_else(|| {
             RealizarError::InferenceError(format!(
                 "Tokenizer encode failed for APR model (no tokenizer in APR metadata?). \
                  Prompt length: {} chars",

@@ -105,8 +105,11 @@ pub fn validate_all_kernel_pairs(dims: &KernelDimensions) -> PtxParityReport {
         name: &str,
         dispatch_strategy: &str,
     ) -> KernelParityResult {
-        let mut violations: Vec<String> =
-            parity.violations.iter().map(|v| v.message.clone()).collect();
+        let mut violations: Vec<String> = parity
+            .violations
+            .iter()
+            .map(|v| v.message.clone())
+            .collect();
         let had_extra = if let Some(p) = ptx {
             if let Some(v) = check_u64_shared_mem(p) {
                 violations.push(v);
@@ -126,8 +129,7 @@ pub fn validate_all_kernel_pairs(dims: &KernelDimensions) -> PtxParityReport {
     }
 
     // Kernel pairs: (name, dispatch_strategy, parity, optional ptx for u64 check)
-    let k1 =
-        BatchedVectorizedRmsNormKernel::new(dims.hidden_dim, 1).with_epsilon(dims.epsilon);
+    let k1 = BatchedVectorizedRmsNormKernel::new(dims.hidden_dim, 1).with_epsilon(dims.epsilon);
     let k2 = BatchedQ4KGemvKernel::new(dims.hidden_dim, dims.hidden_dim, 1);
     let k3 = BatchedQ6KGemvKernel::new(dims.hidden_dim, dims.hidden_dim, 1);
     let k4 = BatchedResidualAddKernel::new(dims.hidden_dim, 1);
@@ -140,18 +142,42 @@ pub fn validate_all_kernel_pairs(dims: &KernelDimensions) -> PtxParityReport {
     let ptx3 = k3.emit_ptx();
 
     let results = vec![
-        build_result(&k1.validate_batch_dispatch(), Some(&ptx1),
-            "BatchedRmsNorm \u{2194} RmsNorm", "grid_y"),
-        build_result(&k2.validate_batch_dispatch(), Some(&ptx2),
-            "BatchedQ4KGemv \u{2194} Q4KGemv", "register_unroll"),
-        build_result(&k3.validate_batch_dispatch(), Some(&ptx3),
-            "BatchedQ6KGemv \u{2194} Q6KGemv", "register_unroll"),
-        build_result(&k4.validate_batch_dispatch(), None,
-            "BatchedResidualAdd \u{2194} ResidualAdd", "grid_y"),
-        build_result(&k5.validate_batch_dispatch(), None,
-            "BatchedRoPE \u{2194} RoPE", "grid_y"),
-        build_result(&k6.validate_batch_dispatch(), None,
-            "BatchedSwiGLU \u{2194} SwiGLU", "grid_y"),
+        build_result(
+            &k1.validate_batch_dispatch(),
+            Some(&ptx1),
+            "BatchedRmsNorm \u{2194} RmsNorm",
+            "grid_y",
+        ),
+        build_result(
+            &k2.validate_batch_dispatch(),
+            Some(&ptx2),
+            "BatchedQ4KGemv \u{2194} Q4KGemv",
+            "register_unroll",
+        ),
+        build_result(
+            &k3.validate_batch_dispatch(),
+            Some(&ptx3),
+            "BatchedQ6KGemv \u{2194} Q6KGemv",
+            "register_unroll",
+        ),
+        build_result(
+            &k4.validate_batch_dispatch(),
+            None,
+            "BatchedResidualAdd \u{2194} ResidualAdd",
+            "grid_y",
+        ),
+        build_result(
+            &k5.validate_batch_dispatch(),
+            None,
+            "BatchedRoPE \u{2194} RoPE",
+            "grid_y",
+        ),
+        build_result(
+            &k6.validate_batch_dispatch(),
+            None,
+            "BatchedSwiGLU \u{2194} SwiGLU",
+            "grid_y",
+        ),
     ];
 
     let total = results.len();
@@ -202,9 +228,9 @@ pub fn generate_named_kernel_ptx(
 ) -> Result<(String, String), String> {
     use trueno_gpu::kernels::{
         ArgMaxKernel, BatchedQ4KGemvKernel, BatchedQ6KGemvKernel, BatchedResidualAddKernel,
-        BatchedRopeKernel, BatchedSwigluKernel, BatchedVectorizedRmsNormKernel,
-        FusedSwigluKernel, GemmKernel, Kernel, Q4KGemvKernel, Q5KGemvKernel, Q6KGemvKernel,
-        ResidualAddKernel, RmsNormKernel, RopeKernel, SoftmaxKernel, VectorizedRmsNormKernel,
+        BatchedRopeKernel, BatchedSwigluKernel, BatchedVectorizedRmsNormKernel, FusedSwigluKernel,
+        GemmKernel, Kernel, Q4KGemvKernel, Q5KGemvKernel, Q6KGemvKernel, ResidualAddKernel,
+        RmsNormKernel, RopeKernel, SoftmaxKernel, VectorizedRmsNormKernel,
     };
 
     let name_lower = name.to_lowercase().replace('-', "").replace('_', "");
@@ -212,86 +238,99 @@ pub fn generate_named_kernel_ptx(
         "q4kgemvkernel" | "q4kgemv" | "q4k" => {
             let k = Q4KGemvKernel::new(dims.hidden_dim, dims.hidden_dim);
             ("Q4KGemvKernel".to_string(), k.emit_ptx())
-        }
+        },
         "q6kgemvkernel" | "q6kgemv" | "q6k" => {
             let k = Q6KGemvKernel::new(dims.hidden_dim, dims.hidden_dim);
             ("Q6KGemvKernel".to_string(), k.emit_ptx())
-        }
+        },
         "q5kgemvkernel" | "q5kgemv" | "q5k" => {
             let k = Q5KGemvKernel::new(dims.hidden_dim, dims.hidden_dim);
             ("Q5KGemvKernel".to_string(), k.emit_ptx())
-        }
+        },
         "rmsnormkernel" | "rmsnorm" => {
             let k = RmsNormKernel::new(dims.hidden_dim);
             ("RmsNormKernel".to_string(), k.emit_ptx())
-        }
+        },
         "vectorizedrmsnormkernel" | "vectorizedrmsnorm" | "vecrmsnorm" => {
             let k = VectorizedRmsNormKernel::new(dims.hidden_dim);
             ("VectorizedRmsNormKernel".to_string(), k.emit_ptx())
-        }
+        },
         "softmaxkernel" | "softmax" => {
             let k = SoftmaxKernel::new(dims.hidden_dim);
             ("SoftmaxKernel".to_string(), k.emit_ptx())
-        }
+        },
         "argmaxkernel" | "argmax" => {
             let k = ArgMaxKernel::new(dims.hidden_dim);
             ("ArgMaxKernel".to_string(), k.emit_ptx())
-        }
+        },
         "residualaddkernel" | "residualadd" | "residual" => {
             let k = ResidualAddKernel::new(dims.hidden_dim);
             ("ResidualAddKernel".to_string(), k.emit_ptx())
-        }
+        },
         "ropekernel" | "rope" => {
             let k = RopeKernel::new(dims.num_heads, dims.head_dim, dims.rope_theta);
             ("RopeKernel".to_string(), k.emit_ptx())
-        }
+        },
         "swiglukernel" | "swiglu" | "fusedswiglu" => {
             let k = FusedSwigluKernel::new(dims.intermediate_dim);
             ("FusedSwigluKernel".to_string(), k.emit_ptx())
-        }
+        },
         "gemmkernel" | "gemm" => {
             let k = GemmKernel::naive(dims.hidden_dim, dims.hidden_dim, dims.hidden_dim);
             ("GemmKernel".to_string(), k.emit_ptx())
-        }
+        },
         // Batched variants
         "batchedrmsnorm" | "batchedvectorizedrmsnorm" => {
-            let k = BatchedVectorizedRmsNormKernel::new(dims.hidden_dim, 1)
-                .with_epsilon(dims.epsilon);
+            let k =
+                BatchedVectorizedRmsNormKernel::new(dims.hidden_dim, 1).with_epsilon(dims.epsilon);
             ("BatchedVectorizedRmsNormKernel".to_string(), k.emit_ptx())
-        }
+        },
         "batchedq4kgemv" | "batchedq4k" => {
             let k = BatchedQ4KGemvKernel::new(dims.hidden_dim, dims.hidden_dim, 1);
             ("BatchedQ4KGemvKernel".to_string(), k.emit_ptx())
-        }
+        },
         "batchedq6kgemv" | "batchedq6k" => {
             let k = BatchedQ6KGemvKernel::new(dims.hidden_dim, dims.hidden_dim, 1);
             ("BatchedQ6KGemvKernel".to_string(), k.emit_ptx())
-        }
+        },
         "batchedresidualadd" | "batchedresidual" => {
             let k = BatchedResidualAddKernel::new(dims.hidden_dim, 1);
             ("BatchedResidualAddKernel".to_string(), k.emit_ptx())
-        }
+        },
         "batchedrope" => {
             let k = BatchedRopeKernel::new(dims.num_heads, dims.head_dim, 1, dims.rope_theta);
             ("BatchedRopeKernel".to_string(), k.emit_ptx())
-        }
+        },
         "batchedswiglu" => {
             let k = BatchedSwigluKernel::new(dims.intermediate_dim, 1);
             ("BatchedSwigluKernel".to_string(), k.emit_ptx())
-        }
+        },
         _ => {
             let available = [
-                "Q4KGemv", "Q5KGemv", "Q6KGemv", "RmsNorm", "VectorizedRmsNorm",
-                "Softmax", "ArgMax", "ResidualAdd", "RoPE", "SwiGLU", "GEMM",
-                "BatchedRmsNorm", "BatchedQ4KGemv", "BatchedQ6KGemv",
-                "BatchedResidualAdd", "BatchedRoPE", "BatchedSwiGLU",
+                "Q4KGemv",
+                "Q5KGemv",
+                "Q6KGemv",
+                "RmsNorm",
+                "VectorizedRmsNorm",
+                "Softmax",
+                "ArgMax",
+                "ResidualAdd",
+                "RoPE",
+                "SwiGLU",
+                "GEMM",
+                "BatchedRmsNorm",
+                "BatchedQ4KGemv",
+                "BatchedQ6KGemv",
+                "BatchedResidualAdd",
+                "BatchedRoPE",
+                "BatchedSwiGLU",
             ];
             return Err(format!(
                 "Unknown kernel '{}'. Available: {}",
                 name,
                 available.join(", ")
             ));
-        }
+        },
     };
     Ok((label, ptx))
 }
@@ -341,7 +380,12 @@ mod tests {
     }
 
     /// Build a `KernelParityResult` from name, pass/fail, strategy, and violations
-    fn make_result(name: &str, passed: bool, strategy: &str, violations: Vec<&str>) -> KernelParityResult {
+    fn make_result(
+        name: &str,
+        passed: bool,
+        strategy: &str,
+        violations: Vec<&str>,
+    ) -> KernelParityResult {
         KernelParityResult {
             name: name.to_string(),
             passed,
@@ -354,7 +398,12 @@ mod tests {
     fn make_report(results: Vec<KernelParityResult>) -> PtxParityReport {
         let total = results.len();
         let passed = results.iter().filter(|r| r.passed).count();
-        PtxParityReport { results, total, passed, failed: total - passed }
+        PtxParityReport {
+            results,
+            total,
+            passed,
+            failed: total - passed,
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -416,7 +465,9 @@ mod tests {
     #[test]
     fn test_kernel_parity_result_failed_gh219() {
         let result = make_result(
-            "Broken \u{2194} Ref", false, "register_unroll",
+            "Broken \u{2194} Ref",
+            false,
+            "register_unroll",
             vec!["u64 shared memory addressing"],
         );
         assert!(!result.passed);
@@ -444,9 +495,7 @@ mod tests {
 
     #[test]
     fn test_ptx_parity_report_all_passed_false_gh219() {
-        let report = make_report(vec![
-            make_result("Broken", false, "grid_y", vec!["bad"]),
-        ]);
+        let report = make_report(vec![make_result("Broken", false, "grid_y", vec!["bad"])]);
         assert!(!report.all_passed());
     }
 
@@ -479,9 +528,12 @@ mod tests {
 
     #[test]
     fn test_ptx_parity_report_summary_single_failure_gh219() {
-        let report = make_report(vec![
-            make_result("FailedKernel", false, "register_unroll", vec!["violation"]),
-        ]);
+        let report = make_report(vec![make_result(
+            "FailedKernel",
+            false,
+            "register_unroll",
+            vec!["violation"],
+        )]);
         let summary = report.summary();
         assert!(summary.contains("1/1 failed"));
         assert!(summary.contains("FailedKernel"));
@@ -556,10 +608,23 @@ mod tests {
     fn test_generate_named_kernel_ptx_all_names_cuda_gh219() {
         let dims = dims_small();
         let names = [
-            "q4k", "q6k", "q5k", "rmsnorm", "vectorizedrmsnorm",
-            "softmax", "argmax", "residualadd", "rope", "swiglu", "gemm",
-            "batchedrmsnorm", "batchedq4k", "batchedq6k",
-            "batchedresidualadd", "batchedrope", "batchedswiglu",
+            "q4k",
+            "q6k",
+            "q5k",
+            "rmsnorm",
+            "vectorizedrmsnorm",
+            "softmax",
+            "argmax",
+            "residualadd",
+            "rope",
+            "swiglu",
+            "gemm",
+            "batchedrmsnorm",
+            "batchedq4k",
+            "batchedq6k",
+            "batchedresidualadd",
+            "batchedrope",
+            "batchedswiglu",
         ];
         for name in names {
             let result = generate_named_kernel_ptx(name, &dims);

@@ -57,43 +57,67 @@ fn main() {
     run_benchmark();
 }
 
+/// Parsed CLI arguments for the benchmark.
 #[cfg(feature = "cuda")]
-fn run_benchmark() {
+struct BenchArgs {
+    iterations: usize,
+    warmup: usize,
+    gen_tokens: usize,
+    model_path: Option<String>,
+    ollama_url: Option<String>,
+}
+
+/// GPU device information collected during setup.
+#[cfg(feature = "cuda")]
+struct GpuInfo {
+    device_name: String,
+    vram_gb: f64,
+}
+
+/// Parse CLI arguments into a `BenchArgs` struct.
+#[cfg(feature = "cuda")]
+fn parse_benchmark_args() -> BenchArgs {
     let args: Vec<String> = std::env::args().collect();
     let quick = args.iter().any(|a| a == "--quick");
-    let iterations = if quick { 5 } else { 10 };
-    let warmup = if quick { 2 } else { 3 };
-    let gen_tokens = 128;
 
-    // Parse model path
     let model_path = args
         .iter()
         .position(|a| a == "--model")
         .and_then(|i| args.get(i + 1))
-        .map(|s| s.as_str());
+        .cloned();
 
-    // Parse Ollama URL
     let ollama_url = args
         .iter()
         .position(|a| a == "--ollama")
         .and_then(|i| args.get(i + 1))
-        .map(|s| s.as_str());
+        .cloned();
 
-    // Check CUDA availability
+    BenchArgs {
+        iterations: if quick { 5 } else { 10 },
+        warmup: if quick { 2 } else { 3 },
+        gen_tokens: 128,
+        model_path,
+        ollama_url,
+    }
+}
+
+/// Check CUDA availability and return GPU device information.
+/// Returns `None` (and prints an error) if CUDA is unavailable.
+#[cfg(feature = "cuda")]
+fn setup_cuda_device() -> Option<GpuInfo> {
     if !CudaExecutor::is_available() {
         println!("❌ CUDA not available on this system");
-        return;
+        return None;
     }
 
     let num_devices = CudaExecutor::num_devices();
     println!("✅ CUDA available: {} device(s)", num_devices);
 
-    // Get GPU info
     let executor = match CudaExecutor::new(0) {
         Ok(e) => e,
         Err(err) => {
             println!("❌ Failed to create CUDA executor: {}", err);
-            return;
+            return None;
         },
     };
 
@@ -112,40 +136,44 @@ fn run_benchmark() {
     println!();
     drop(executor);
 
-    // Find model - prefer Q4_K_M format models for compatibility
-    let default_paths = [
-        "/home/noah/src/single-shot-eval/models/raw/deepseek-coder-1.3b-instruct-q4_k_m.gguf",
-        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
-        "/home/noah/src/single-shot-eval/models/raw/phi-2-q4_k_m.gguf",
-        "/home/noah/.cache/lm-studio/models/TheBloke/phi-2-GGUF/phi-2.Q4_K_M.gguf",
-    ];
+    Some(GpuInfo {
+        device_name,
+        vram_gb,
+    })
+}
 
-    let model_path = model_path.or_else(|| {
-        default_paths
-            .iter()
-            .find(|p| Path::new(p).exists())
-            .copied()
-    });
+const DEFAULT_MODEL_PATHS: &[&str] = &[
+    "/home/noah/src/single-shot-eval/models/raw/deepseek-coder-1.3b-instruct-q4_k_m.gguf",
+    "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+    "/home/noah/src/single-shot-eval/models/raw/phi-2-q4_k_m.gguf",
+    "/home/noah/.cache/lm-studio/models/TheBloke/phi-2-GGUF/phi-2.Q4_K_M.gguf",
+];
 
-    let model_path = match model_path {
-        Some(p) => p,
-        None => {
-            println!("❌ No model found. Specify with --model or place in default locations:");
-            for p in &default_paths {
-                println!("   - {}", p);
-            }
-            return;
-        },
-    };
+/// Resolve the model path: use explicit CLI arg, or search default locations.
+/// Returns `None` (and prints an error) if no model is found.
+#[cfg(feature = "cuda")]
+fn find_model_path(explicit: Option<&str>) -> Option<String> {
+    if let Some(p) = explicit {
+        return Some(p.to_string());
+    }
 
-    println!("═══════════════════════════════════════════════════════════════════════");
-    println!("  Model: {}", model_path);
-    println!("  Iterations: {} (warmup: {})", iterations, warmup);
-    println!("  Tokens: {}", gen_tokens);
-    println!("═══════════════════════════════════════════════════════════════════════");
-    println!();
+    if let Some(p) = DEFAULT_MODEL_PATHS.iter().find(|p| Path::new(p).exists()) {
+        return Some((*p).to_string());
+    }
 
-    // Load model
+    println!("❌ No model found. Specify with --model or place in default locations:");
+    for p in DEFAULT_MODEL_PATHS {
+        println!("   - {}", p);
+    }
+    None
+}
+
+/// Load a GGUF model from disk and create a CUDA-backed model.
+/// Returns the mapped model (for metadata), the CUDA model, model name, and layer count.
+#[cfg(feature = "cuda")]
+fn load_and_create_model(
+    model_path: &str,
+) -> Option<(MappedGGUFModel, OwnedQuantizedModelCuda, String, usize)> {
     println!("Loading model...");
     let load_start = Instant::now();
 
@@ -153,7 +181,7 @@ fn run_benchmark() {
         Ok(m) => m,
         Err(e) => {
             println!("❌ Failed to load model: {}", e);
-            return;
+            return None;
         },
     };
 
@@ -161,11 +189,10 @@ fn run_benchmark() {
         Ok(m) => m,
         Err(e) => {
             println!("❌ Failed to create owned model: {}", e);
-            return;
+            return None;
         },
     };
 
-    // Get model info from metadata
     let model_name = mapped
         .model
         .metadata
@@ -174,18 +201,18 @@ fn run_benchmark() {
             realizar::gguf::GGUFValue::String(s) => Some(s.as_str()),
             _ => None,
         })
-        .unwrap_or("Unknown");
+        .unwrap_or("Unknown")
+        .to_string();
     let n_layers = owned_model.layers.len();
 
     println!("  Model: {} ({} layers)", model_name, n_layers);
     println!("  Load time: {:.2}s", load_start.elapsed().as_secs_f64());
 
-    // Create CUDA model
-    let mut cuda_model = match OwnedQuantizedModelCuda::new(owned_model, 0) {
+    let cuda_model = match OwnedQuantizedModelCuda::new(owned_model, 0) {
         Ok(m) => m,
         Err(e) => {
             println!("❌ Failed to create CUDA model: {}", e);
-            return;
+            return None;
         },
     };
 
@@ -193,17 +220,19 @@ fn run_benchmark() {
     println!("  VRAM used: {} MB", cuda_model.vram_mb());
     println!();
 
-    // Benchmark config
-    let config = QuantizedGenerateConfig {
-        max_tokens: gen_tokens,
-        temperature: 0.0, // Greedy for reproducibility
-        top_k: 1,
-        stop_tokens: vec![],
-        trace: false,
-    };
+    Some((mapped, cuda_model, model_name, n_layers))
+}
 
-    let prompt_tokens: Vec<u32> = vec![1, 2, 3, 4, 5, 6, 7, 8]; // Simple prompt
-
+/// Run warmup iterations and the main benchmark loop.
+/// Returns the collected `BenchResult`s and the generation-path flags.
+#[cfg(feature = "cuda")]
+fn run_warmup_and_bench(
+    cuda_model: &mut OwnedQuantizedModelCuda,
+    prompt_tokens: &[u32],
+    config: &QuantizedGenerateConfig,
+    warmup: usize,
+    iterations: usize,
+) -> (Vec<BenchResult>, bool, bool) {
     // PAR-057: Try GPU-resident path first (optimized, ~3 syncs vs 176), fall back if unsupported
     println!("Warming up ({} iterations)...", warmup);
     let mut use_gpu_resident = cuda_model.supports_gpu_resident();
@@ -215,9 +244,9 @@ fn run_benchmark() {
 
     for i in 0..warmup {
         let result = if use_gpu_resident {
-            cuda_model.generate_gpu_resident(&prompt_tokens, &config)
+            cuda_model.generate_gpu_resident(prompt_tokens, config)
         } else {
-            cuda_model.generate_cuda_with_cache(&prompt_tokens, &config)
+            cuda_model.generate_cuda_with_cache(prompt_tokens, config)
         };
         if result.is_err() && i == 0 {
             if use_gpu_resident {
@@ -231,7 +260,7 @@ fn run_benchmark() {
                 );
             }
             use_full_cuda = true;
-            let _ = cuda_model.generate_full_cuda_with_cache(&prompt_tokens, &config);
+            let _ = cuda_model.generate_full_cuda_with_cache(prompt_tokens, config);
         }
     }
 
@@ -241,20 +270,19 @@ fn run_benchmark() {
 
     for i in 0..iterations {
         let start = Instant::now();
-        let first_token_time;
 
         let result = if use_gpu_resident {
-            cuda_model.generate_gpu_resident(&prompt_tokens, &config)
+            cuda_model.generate_gpu_resident(prompt_tokens, config)
         } else if use_full_cuda {
-            cuda_model.generate_full_cuda_with_cache(&prompt_tokens, &config)
+            cuda_model.generate_full_cuda_with_cache(prompt_tokens, config)
         } else {
-            cuda_model.generate_cuda_with_cache(&prompt_tokens, &config)
+            cuda_model.generate_cuda_with_cache(prompt_tokens, config)
         };
 
         match result {
             Ok(tokens) => {
                 let duration = start.elapsed();
-                first_token_time = duration.as_millis() as f64 / tokens.len().max(1) as f64;
+                let first_token_time = duration.as_millis() as f64 / tokens.len().max(1) as f64;
                 let throughput = tokens.len() as f64 / duration.as_secs_f64();
 
                 apr_results.push(BenchResult {
@@ -280,52 +308,16 @@ fn run_benchmark() {
     }
     println!();
 
-    // Calculate APR statistics
-    let apr_stats = calculate_stats(&apr_results);
+    (apr_results, use_gpu_resident, use_full_cuda)
+}
 
-    // Ollama comparison (if URL provided)
-    let ollama_stats = if let Some(url) = ollama_url {
-        println!("Running Ollama benchmark ({} iterations)...", iterations);
-        Some(benchmark_ollama(url, iterations, gen_tokens))
-    } else {
-        // Use default Ollama baseline from spec
-        println!("Using default Ollama baseline (318 tok/s from spec)");
-        Some(Stats {
-            mean_throughput: 318.0,
-            std_throughput: 10.0,
-            mean_ttft_ms: 50.0,
-            cv: 0.03,
-            ci_95: (308.0, 328.0),
-        })
-    };
-
-    // llama.cpp baseline from spec
-    let llamacpp_stats = Stats {
-        mean_throughput: 200.0,
-        std_throughput: 10.0,
-        mean_ttft_ms: 30.0,
-        cv: 0.05,
-        ci_95: (190.0, 210.0),
-    };
-
-    // Print results
-    println!();
-    println!("═══════════════════════════════════════════════════════════════════════");
-    println!("                         BENCHMARK RESULTS                              ");
-    println!("═══════════════════════════════════════════════════════════════════════");
-    println!();
-
-    // Rich visualization
-    print_results_grid(
-        &device_name,
-        vram_gb,
-        model_name,
-        &apr_stats,
-        &ollama_stats,
-        &llamacpp_stats,
-    );
-
-    // PMAT Verification
+/// Print the PMAT verification section comparing APR stats against baselines.
+#[cfg(feature = "cuda")]
+fn print_pmat_verification(
+    apr_stats: &Stats,
+    ollama_stats: &Option<Stats>,
+    llamacpp_stats: &Stats,
+) {
     println!();
     println!("═══════════════════════════════════════════════════════════════════════");
     println!("                       PMAT VERIFICATION                                ");
@@ -374,8 +366,10 @@ fn run_benchmark() {
         }
     );
     println!();
+}
 
-    // Profiling hotspot summary
+/// Print the static profiling hotspot summary.
+fn print_profiling_summary() {
     println!("═══════════════════════════════════════════════════════════════════════");
     println!("                       PROFILING SUMMARY                                ");
     println!("═══════════════════════════════════════════════════════════════════════");
@@ -393,6 +387,119 @@ fn run_benchmark() {
     println!("  ├─ PAR-038 Multi-stream:        ✓ Implemented");
     println!("  └─ PAR-039 Megakernel:          ✓ Implemented");
     println!();
+}
+
+/// Orchestrate all benchmark phases: parse args, setup CUDA, find model, load,
+/// warmup, bench, stats, results, PMAT verification, profiling summary.
+#[cfg(feature = "cuda")]
+fn run_benchmark() {
+    let bench_args = parse_benchmark_args();
+
+    // Phase 1: CUDA device setup
+    let gpu_info = match setup_cuda_device() {
+        Some(info) => info,
+        None => return,
+    };
+
+    // Phase 2: Resolve model path
+    let model_path = match find_model_path(bench_args.model_path.as_deref()) {
+        Some(p) => p,
+        None => return,
+    };
+
+    println!("═══════════════════════════════════════════════════════════════════════");
+    println!("  Model: {}", model_path);
+    println!(
+        "  Iterations: {} (warmup: {})",
+        bench_args.iterations, bench_args.warmup
+    );
+    println!("  Tokens: {}", bench_args.gen_tokens);
+    println!("═══════════════════════════════════════════════════════════════════════");
+    println!();
+
+    // Phase 3: Load model and create CUDA model
+    let (_mapped, mut cuda_model, model_name, _n_layers) = match load_and_create_model(&model_path)
+    {
+        Some(tuple) => tuple,
+        None => return,
+    };
+
+    // Benchmark config
+    let config = QuantizedGenerateConfig {
+        max_tokens: bench_args.gen_tokens,
+        temperature: 0.0, // Greedy for reproducibility
+        top_k: 1,
+        stop_tokens: vec![],
+        trace: false,
+    };
+
+    let prompt_tokens: Vec<u32> = vec![1, 2, 3, 4, 5, 6, 7, 8]; // Simple prompt
+
+    // Phase 4: Warmup and benchmark loop
+    let (apr_results, _use_gpu_resident, _use_full_cuda) = run_warmup_and_bench(
+        &mut cuda_model,
+        &prompt_tokens,
+        &config,
+        bench_args.warmup,
+        bench_args.iterations,
+    );
+
+    // Calculate APR statistics
+    let apr_stats = calculate_stats(&apr_results);
+
+    // Ollama comparison (if URL provided)
+    let ollama_stats = if let Some(url) = bench_args.ollama_url.as_deref() {
+        println!(
+            "Running Ollama benchmark ({} iterations)...",
+            bench_args.iterations
+        );
+        Some(benchmark_ollama(
+            url,
+            bench_args.iterations,
+            bench_args.gen_tokens,
+        ))
+    } else {
+        // Use default Ollama baseline from spec
+        println!("Using default Ollama baseline (318 tok/s from spec)");
+        Some(Stats {
+            mean_throughput: 318.0,
+            std_throughput: 10.0,
+            mean_ttft_ms: 50.0,
+            cv: 0.03,
+            ci_95: (308.0, 328.0),
+        })
+    };
+
+    // llama.cpp baseline from spec
+    let llamacpp_stats = Stats {
+        mean_throughput: 200.0,
+        std_throughput: 10.0,
+        mean_ttft_ms: 30.0,
+        cv: 0.05,
+        ci_95: (190.0, 210.0),
+    };
+
+    // Phase 5: Print results
+    println!();
+    println!("═══════════════════════════════════════════════════════════════════════");
+    println!("                         BENCHMARK RESULTS                              ");
+    println!("═══════════════════════════════════════════════════════════════════════");
+    println!();
+
+    print_results_grid(
+        &gpu_info.device_name,
+        gpu_info.vram_gb,
+        &model_name,
+        &apr_stats,
+        &ollama_stats,
+        &llamacpp_stats,
+    );
+
+    // Phase 6: PMAT verification
+    print_pmat_verification(&apr_stats, &ollama_stats, &llamacpp_stats);
+
+    // Phase 7: Profiling summary
+    print_profiling_summary();
 }
 
 #[derive(Debug, Clone)]

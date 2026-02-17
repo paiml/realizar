@@ -235,13 +235,9 @@ fn bench_q4k_matvec(
             &(&weights, &activations, in_dim, out_dim),
             |b, (w, a, in_d, out_d)| {
                 b.iter(|| {
-                    let result = fused_q4k_parallel_matvec(
-                        black_box(*w),
-                        black_box(*a),
-                        *in_d,
-                        *out_d,
-                    )
-                    .expect("test");
+                    let result =
+                        fused_q4k_parallel_matvec(black_box(*w), black_box(*a), *in_d, *out_d)
+                            .expect("test");
                     black_box(result)
                 });
             },
@@ -266,10 +262,7 @@ fn bench_dequant_then_matvec(
     name: &str,
 ) {
     group.bench_with_input(
-        BenchmarkId::new(
-            "dequant_then_matvec",
-            format!("{name}_{in_dim}x{out_dim}"),
-        ),
+        BenchmarkId::new("dequant_then_matvec", format!("{name}_{in_dim}x{out_dim}")),
         &(weights, activations, in_dim, out_dim),
         |b, (w, a, in_d, out_d)| {
             b.iter(|| {
@@ -280,8 +273,7 @@ fn bench_dequant_then_matvec(
                     let row_end = row_start + *in_d;
                     if row_end <= dequantized.len() {
                         let row_slice = &dequantized[row_start..row_end];
-                        output[row] =
-                            row_slice.iter().zip(a.iter()).map(|(w, x)| w * x).sum();
+                        output[row] = row_slice.iter().zip(a.iter()).map(|(w, x)| w * x).sum();
                     }
                 }
                 black_box(output)
@@ -318,7 +310,7 @@ fn run_q4k_bench_entry(c: &mut Criterion, entry: &Q4kBenchEntry) {
     match &entry.cases {
         Q4kBenchCases::Dequant(sb_counts) => {
             bench_q4k_dequant(&mut group, sb_counts);
-        }
+        },
         Q4kBenchCases::FusedDot(sizes) => {
             for &size in *sizes {
                 let weights = make_q4k_data(size);
@@ -337,13 +329,13 @@ fn run_q4k_bench_entry(c: &mut Criterion, entry: &Q4kBenchEntry) {
                     },
                 );
             }
-        }
+        },
         Q4kBenchCases::Matvec {
             dimensions,
             include_dequant_baseline,
         } => {
             bench_q4k_matvec(&mut group, dimensions, *include_dequant_baseline);
-        }
+        },
         Q4kBenchCases::SingleRowDot(sizes) => {
             for &size in *sizes {
                 let row_weights = make_q4k_data(size);
@@ -358,7 +350,7 @@ fn run_q4k_bench_entry(c: &mut Criterion, entry: &Q4kBenchEntry) {
                     });
                 });
             }
-        }
+        },
     }
 
     group.finish();
@@ -438,9 +430,7 @@ enum LayerBenchOp {
         seq_lengths: &'static [usize],
     },
     /// softmax over sequence lengths
-    Softmax {
-        seq_lengths: &'static [usize],
-    },
+    Softmax { seq_lengths: &'static [usize] },
     /// Linear::forward over (in_dim, out_dim) pairs
     Linear {
         dimensions: &'static [(usize, usize)],
@@ -500,14 +490,13 @@ fn run_layer_bench(c: &mut Criterion, group_name: &str, sample_size: usize, op: 
                     },
                 );
             }
-        }
+        },
         LayerBenchOp::LayerNorm {
             hidden_dim,
             seq_lengths,
         } => {
             for &seq_len in *seq_lengths {
-                let layer_norm =
-                    realizar::layers::LayerNorm::new(*hidden_dim, 1e-5).expect("test");
+                let layer_norm = realizar::layers::LayerNorm::new(*hidden_dim, 1e-5).expect("test");
                 let input = Tensor::from_vec(
                     vec![seq_len, *hidden_dim],
                     (0..(seq_len * *hidden_dim))
@@ -528,7 +517,7 @@ fn run_layer_bench(c: &mut Criterion, group_name: &str, sample_size: usize, op: 
                     },
                 );
             }
-        }
+        },
         LayerBenchOp::Softmax { seq_lengths } => {
             for &seq_len in *seq_lengths {
                 let input = Tensor::from_vec(
@@ -549,11 +538,10 @@ fn run_layer_bench(c: &mut Criterion, group_name: &str, sample_size: usize, op: 
                     },
                 );
             }
-        }
+        },
         LayerBenchOp::Linear { dimensions } => {
             for &(in_dim, out_dim) in *dimensions {
-                let linear =
-                    realizar::layers::Linear::new(in_dim, out_dim).expect("test");
+                let linear = realizar::layers::Linear::new(in_dim, out_dim).expect("test");
                 let input = Tensor::from_vec(
                     vec![1, in_dim],
                     (0..in_dim).map(|i| (i as f32 * 0.01).sin()).collect(),
@@ -573,7 +561,7 @@ fn run_layer_bench(c: &mut Criterion, group_name: &str, sample_size: usize, op: 
                     },
                 );
             }
-        }
+        },
         LayerBenchOp::FusedAttentionBatch {
             hidden_dim,
             head_dim,
@@ -600,7 +588,7 @@ fn run_layer_bench(c: &mut Criterion, group_name: &str, sample_size: usize, op: 
                     },
                 );
             }
-        }
+        },
         LayerBenchOp::AttentionComparison {
             hidden_dim,
             head_dim,
@@ -625,11 +613,8 @@ fn run_layer_bench(c: &mut Criterion, group_name: &str, sample_size: usize, op: 
 
             // Separate attention (baseline)
             let attention = Attention::new(*head_dim).expect("test");
-            let q = Tensor::from_vec(
-                vec![*seq_len, *head_dim],
-                vec![0.1; *seq_len * *head_dim],
-            )
-            .expect("test");
+            let q = Tensor::from_vec(vec![*seq_len, *head_dim], vec![0.1; *seq_len * *head_dim])
+                .expect("test");
             let k = q.clone();
             let v = q.clone();
 
@@ -641,7 +626,7 @@ fn run_layer_bench(c: &mut Criterion, group_name: &str, sample_size: usize, op: 
                     black_box(output)
                 });
             });
-        }
+        },
         LayerBenchOp::TtftPrefill {
             hidden_dim,
             head_dim,
@@ -664,20 +649,17 @@ fn run_layer_bench(c: &mut Criterion, group_name: &str, sample_size: usize, op: 
             .expect("test");
 
             group.throughput(Throughput::Elements(*prompt_len as u64));
-            group.bench_function(
-                format!("prefill_{num_layers}_layers"),
-                |b| {
-                    b.iter(|| {
-                        let mut hidden = input.clone();
-                        for layer_idx in 0..*num_layers {
-                            hidden = layer_norms[layer_idx].forward(&hidden).expect("test");
-                            hidden = fused_attns[layer_idx].forward(&hidden).expect("test");
-                        }
-                        black_box(hidden)
-                    });
-                },
-            );
-        }
+            group.bench_function(format!("prefill_{num_layers}_layers"), |b| {
+                b.iter(|| {
+                    let mut hidden = input.clone();
+                    for layer_idx in 0..*num_layers {
+                        hidden = layer_norms[layer_idx].forward(&hidden).expect("test");
+                        hidden = fused_attns[layer_idx].forward(&hidden).expect("test");
+                    }
+                    black_box(hidden)
+                });
+            });
+        },
     }
 
     group.finish();
@@ -841,9 +823,7 @@ enum CacheBenchOp {
         seq_lengths: &'static [usize],
     },
     /// Batch prefill vs sequential prefill (IMP-106c)
-    BatchPrefill {
-        prompt_lengths: &'static [usize],
-    },
+    BatchPrefill { prompt_lengths: &'static [usize] },
 }
 
 /// Table-driven cache benchmark entry.
@@ -870,8 +850,7 @@ fn run_cache_bench(c: &mut Criterion, entry: &CacheBenchEntry) {
             let head_dim = *hidden_dim / *num_heads;
 
             for &seq_len in *seq_lengths {
-                let mut cache =
-                    OwnedQuantizedKVCache::new(*num_layers, *hidden_dim, seq_len + 64);
+                let mut cache = OwnedQuantizedKVCache::new(*num_layers, *hidden_dim, seq_len + 64);
                 for pos in 0..(seq_len - 1) {
                     for layer in 0..*num_layers {
                         let k: Vec<f32> = (0..*hidden_dim)
@@ -885,8 +864,7 @@ fn run_cache_bench(c: &mut Criterion, entry: &CacheBenchEntry) {
                     cache.advance();
                 }
 
-                let q: Vec<f32> =
-                    (0..*hidden_dim).map(|i| (i as f32 * 0.003).sin()).collect();
+                let q: Vec<f32> = (0..*hidden_dim).map(|i| (i as f32 * 0.003).sin()).collect();
                 let current_k: Vec<f32> =
                     (0..*hidden_dim).map(|i| (i as f32 * 0.004).cos()).collect();
                 let current_v: Vec<f32> =
@@ -903,8 +881,7 @@ fn run_cache_bench(c: &mut Criterion, entry: &CacheBenchEntry) {
                             let v_cache = cache.get_v(0);
                             let cache_len = k_cache.len() / hd;
                             let output = bench_cached_attention(
-                                q, k_cache, v_cache, cur_k, cur_v, *n_heads, *h_dim, hd,
-                                cache_len,
+                                q, k_cache, v_cache, cur_k, cur_v, *n_heads, *h_dim, hd, cache_len,
                             );
                             black_box(output)
                         });
@@ -935,7 +912,7 @@ fn run_cache_bench(c: &mut Criterion, entry: &CacheBenchEntry) {
                     },
                 );
             }
-        }
+        },
         CacheBenchOp::BatchPrefill { prompt_lengths } => {
             for &prompt_len in *prompt_lengths {
                 let config = make_bench_config(256, 512, 2, 8, 1000);
@@ -946,8 +923,11 @@ fn run_cache_bench(c: &mut Criterion, entry: &CacheBenchEntry) {
                     b.iter(|| {
                         let mut cache = OwnedQuantizedKVCache::from_config(&config, 128);
                         for (pos, &token_id) in prompt.iter().enumerate() {
-                            let _ = model
-                                .forward_single_with_cache(black_box(token_id), &mut cache, pos);
+                            let _ = model.forward_single_with_cache(
+                                black_box(token_id),
+                                &mut cache,
+                                pos,
+                            );
                         }
                         black_box(cache.len())
                     });
@@ -961,7 +941,7 @@ fn run_cache_bench(c: &mut Criterion, entry: &CacheBenchEntry) {
                     });
                 });
             }
-        }
+        },
     }
 
     group.finish();
@@ -1132,7 +1112,13 @@ fn benchmark_e2e_generation(c: &mut Criterion) {
     let vocab_size = 1000;
     let _head_dim = hidden_dim / num_heads;
 
-    let config = make_bench_config(hidden_dim, intermediate_dim, num_layers, num_heads, vocab_size);
+    let config = make_bench_config(
+        hidden_dim,
+        intermediate_dim,
+        num_layers,
+        num_heads,
+        vocab_size,
+    );
 
     // Use shared Q4_K tensor factory (uses d=1.0; stable enough for benchmarking)
     let create_q4k_tensor = make_q4k_tensor;
@@ -1545,7 +1531,6 @@ fn create_bench_q4k_data(in_dim: usize, out_dim: usize) -> realizar::gguf::Owned
     make_q4k_tensor(in_dim, out_dim)
 }
 
-
 // ============================================================================
 // IMP-107..120: Unified GPU Benchmark Suite (Kaizen: DRY DataTransformation)
 // ============================================================================
@@ -1645,9 +1630,7 @@ enum GpuBenchOp {
     },
     /// IMP-108: Batched causal attention vs sequential CPU reference.
     /// Configs: seq_lengths to iterate; uses fixed hidden_dim=256, num_heads=8.
-    BatchedCausalAttention {
-        seq_lengths: &'static [usize],
-    },
+    BatchedCausalAttention { seq_lengths: &'static [usize] },
     /// IMP-109: Fused dequant+matmul vs separate operations.
     /// Configs: (batch_size, hidden_dim, intermediate_dim, label).
     FusedBatchMatmul {
@@ -1682,9 +1665,7 @@ enum GpuBenchOp {
     },
     /// IMP-120: GPU vs CPU fused attention crossover point.
     /// Configs: seq_lengths to iterate; fixed head_dim=64, num_heads=8.
-    GpuCpuCrossover {
-        seq_lengths: &'static [usize],
-    },
+    GpuCpuCrossover { seq_lengths: &'static [usize] },
 }
 
 /// Table-driven GPU benchmark entry.
@@ -1832,10 +1813,7 @@ fn bench_scheduler_caching(group: &mut BenchmarkGroup<WallTime>) {
 /// For each sequence length, benchmarks cpu_fused, gpu_fused, and adaptive
 /// attention to find the crossover point.
 #[cfg(feature = "gpu")]
-fn bench_gpu_cpu_crossover(
-    group: &mut BenchmarkGroup<WallTime>,
-    seq_lengths: &[usize],
-) {
+fn bench_gpu_cpu_crossover(group: &mut BenchmarkGroup<WallTime>, seq_lengths: &[usize]) {
     use realizar::gguf::OwnedQuantizedModelCached;
 
     let head_dim = 64;
@@ -1862,10 +1840,8 @@ fn bench_gpu_cpu_crossover(
         group.throughput(Throughput::Elements(ops as u64));
 
         // Warm up both paths
-        let _ =
-            cached_model.fused_causal_attention(&q, &k, &v, seq_len, head_dim, scale);
-        let _ =
-            cached_model.gpu_fused_causal_attention(&q, &k, &v, seq_len, head_dim, scale);
+        let _ = cached_model.fused_causal_attention(&q, &k, &v, seq_len, head_dim, scale);
+        let _ = cached_model.gpu_fused_causal_attention(&q, &k, &v, seq_len, head_dim, scale);
 
         group.bench_with_input(
             BenchmarkId::new("cpu_fused", format!("seq{seq_len}")),
@@ -1990,8 +1966,7 @@ fn bench_fused_batch_matmul(
             &(&activations, &weight_clone),
             |bencher, (act, w)| {
                 bencher.iter(|| {
-                    let mut scheduler =
-                        HybridScheduler::with_threshold(1000).expect("test");
+                    let mut scheduler = HybridScheduler::with_threshold(1000).expect("test");
                     let result = scheduler
                         .matmul(
                             black_box(act),
@@ -2020,13 +1995,10 @@ fn bench_fused_batch_matmul(
                         let row_end = row_start + super_blocks_per_row * 144;
                         let row_data = &w.data[row_start..row_end];
                         let row_dequant = dequant_simd(row_data).expect("test");
-                        w_f32.extend_from_slice(
-                            &row_dequant[..in_dim.min(row_dequant.len())],
-                        );
+                        w_f32.extend_from_slice(&row_dequant[..in_dim.min(row_dequant.len())]);
                     }
 
-                    let mut scheduler =
-                        HybridScheduler::with_threshold(1000).expect("test");
+                    let mut scheduler = HybridScheduler::with_threshold(1000).expect("test");
                     let result = scheduler
                         .matmul(black_box(act), &w_f32, batch_size, in_dim, out_dim)
                         .expect("test");
@@ -2059,8 +2031,7 @@ fn bench_single_dispatch_attention(
         group.throughput(Throughput::Elements(ops as u64));
 
         // Warm up cached model
-        let _ =
-            cached_model.parallel_multihead_attention_gpu_cached(&q, &k, &v, seq_len);
+        let _ = cached_model.parallel_multihead_attention_gpu_cached(&q, &k, &v, seq_len);
 
         group.bench_with_input(
             BenchmarkId::new("multi_dispatch", label),
@@ -2211,7 +2182,7 @@ fn run_gpu_bench(c: &mut Criterion, entry: &GpuBenchEntry) {
                     },
                 );
             }
-        }
+        },
 
         // IMP-108: Batched causal attention vs sequential
         GpuBenchOp::BatchedCausalAttention { seq_lengths } => {
@@ -2262,12 +2233,12 @@ fn run_gpu_bench(c: &mut Criterion, entry: &GpuBenchEntry) {
                     },
                 );
             }
-        }
+        },
 
         // IMP-109: Fused dequant+matmul vs separate
         GpuBenchOp::FusedBatchMatmul { cases } => {
             bench_fused_batch_matmul(&mut group, cases);
-        }
+        },
 
         // IMP-110: Parallel vs sequential multi-head attention
         GpuBenchOp::ParallelMultiheadAttention { cases } => {
@@ -2316,22 +2287,22 @@ fn run_gpu_bench(c: &mut Criterion, entry: &GpuBenchEntry) {
                     },
                 );
             }
-        }
+        },
 
         // IMP-111: Tiled vs standard single-head attention
         GpuBenchOp::TiledAttention { cases } => {
             bench_tiled_attention(&mut group, cases);
-        }
+        },
 
         // IMP-112: Scheduler caching vs uncached
         GpuBenchOp::SchedulerCaching => {
             bench_scheduler_caching(&mut group);
-        }
+        },
 
         // IMP-113: Single-dispatch vs multi-dispatch attention
         GpuBenchOp::SingleDispatchAttention { cases } => {
             bench_single_dispatch_attention(&mut group, cases);
-        }
+        },
 
         // IMP-114: Flattened vs loop-based batched GEMM
         GpuBenchOp::FlattenedBatchedGemm { cases } => {
@@ -2351,9 +2322,8 @@ fn run_gpu_bench(c: &mut Criterion, entry: &GpuBenchEntry) {
                 group.throughput(Throughput::Elements(ops as u64));
 
                 // Warm up
-                let _ = cached_model.batched_gemm_single_dispatch(
-                    &batched_a, &batched_b, batch_size, m, k, n,
-                );
+                let _ = cached_model
+                    .batched_gemm_single_dispatch(&batched_a, &batched_b, batch_size, m, k, n);
 
                 group.bench_with_input(
                     BenchmarkId::new("loop_based", label),
@@ -2395,17 +2365,17 @@ fn run_gpu_bench(c: &mut Criterion, entry: &GpuBenchEntry) {
                     },
                 );
             }
-        }
+        },
 
         // IMP-115: Fused kernel attention vs separate operations
         GpuBenchOp::FusedKernelAttention { cases } => {
             bench_fused_kernel_attention(&mut group, cases);
-        }
+        },
 
         // IMP-120: GPU vs CPU fused attention crossover
         GpuBenchOp::GpuCpuCrossover { seq_lengths } => {
             bench_gpu_cpu_crossover(&mut group, seq_lengths);
-        }
+        },
     }
 
     group.finish();

@@ -183,11 +183,7 @@ impl MockExecutor {
     ///
     /// Consolidates the record → check-failure → respond pattern
     /// shared by `matmul` and `matmul_transpose_b`.
-    fn record_call_and_respond(
-        &self,
-        call: ExecutorCall,
-        output_len: usize,
-    ) -> Result<Vec<f32>> {
+    fn record_call_and_respond(&self, call: ExecutorCall, output_len: usize) -> Result<Vec<f32>> {
         self.lock_calls().push(call);
         self.call_counter.fetch_add(1, Ordering::SeqCst);
 

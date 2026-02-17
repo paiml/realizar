@@ -48,7 +48,8 @@ impl CudaExecutor {
         self.workspace.k_buf = Some(GpuBuffer::new(&self.context, pad256(kv_dim))?);
         self.workspace.v_buf = Some(GpuBuffer::new(&self.context, pad256(kv_dim))?);
         self.workspace.attn_out_buf = Some(GpuBuffer::new(&self.context, pad256(q_dim))?); // PAR-051
-        self.workspace.ffn_gate_buf = Some(GpuBuffer::new(&self.context, pad256(intermediate_dim))?);
+        self.workspace.ffn_gate_buf =
+            Some(GpuBuffer::new(&self.context, pad256(intermediate_dim))?);
         self.workspace.ffn_up_buf = Some(GpuBuffer::new(&self.context, pad256(intermediate_dim))?);
         self.workspace.ffn_act_buf = Some(GpuBuffer::new(&self.context, pad256(intermediate_dim))?);
 

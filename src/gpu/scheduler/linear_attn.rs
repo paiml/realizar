@@ -164,9 +164,7 @@ pub fn forward_linear_block_incremental(
         .linear_attn
         .as_ref()
         .ok_or_else(|| RealizarError::InvalidShape {
-            reason: format!(
-                "GH-278: Block {block_idx} is linear but has no LinearAttnWeights"
-            ),
+            reason: format!("GH-278: Block {block_idx} is linear but has no LinearAttnWeights"),
         })?;
 
     // ── Step 1: Pre-norm ──
@@ -180,40 +178,24 @@ pub fn forward_linear_block_incremental(
 
     // ── Step 2: Projections ──
     // QKV: [hidden_dim] → [conv_dim] (conv_dim = 2*key_dim + value_dim)
-    let qkv = model.scheduler.matmul(
-        &normed,
-        &block.qkv_weight,
-        1,
-        hidden_dim,
-        conv_dim,
-    )?;
+    let qkv = model
+        .scheduler
+        .matmul(&normed, &block.qkv_weight, 1, hidden_dim, conv_dim)?;
 
     // Gate z: [hidden_dim] → [value_dim]
-    let z = model.scheduler.matmul(
-        &normed,
-        &linear.z_weight,
-        1,
-        hidden_dim,
-        value_dim,
-    )?;
+    let z = model
+        .scheduler
+        .matmul(&normed, &linear.z_weight, 1, hidden_dim, value_dim)?;
 
     // Beta gate b: [hidden_dim] → [num_v_heads]
-    let b = model.scheduler.matmul(
-        &normed,
-        &linear.b_weight,
-        1,
-        hidden_dim,
-        num_v_heads,
-    )?;
+    let b = model
+        .scheduler
+        .matmul(&normed, &linear.b_weight, 1, hidden_dim, num_v_heads)?;
 
     // Decay projection a: [hidden_dim] → [num_v_heads]
-    let a = model.scheduler.matmul(
-        &normed,
-        &linear.a_weight,
-        1,
-        hidden_dim,
-        num_v_heads,
-    )?;
+    let a = model
+        .scheduler
+        .matmul(&normed, &linear.a_weight, 1, hidden_dim, num_v_heads)?;
 
     // ── Step 3: Causal Conv1D update + SiLU ──
     let qkv_activated = causal_conv1d_update(
@@ -292,13 +274,10 @@ pub fn forward_linear_block_incremental(
     );
 
     // ── Step 9: Output projection ──
-    let projected = model.scheduler.matmul(
-        &normed_output,
-        &block.out_weight,
-        1,
-        value_dim,
-        hidden_dim,
-    )?;
+    let projected =
+        model
+            .scheduler
+            .matmul(&normed_output, &block.out_weight, 1, value_dim, hidden_dim)?;
 
     // ── Step 10: Residual 1 ──
     let mut residual1: Vec<f32> = input
@@ -412,9 +391,7 @@ pub fn forward_linear_block_with_cache(
         .linear_attn
         .as_ref()
         .ok_or_else(|| RealizarError::InvalidShape {
-            reason: format!(
-                "GH-278: Block {block_idx} is linear but has no LinearAttnWeights"
-            ),
+            reason: format!("GH-278: Block {block_idx} is linear but has no LinearAttnWeights"),
         })?;
 
     // ── Step 1: Pre-norm (full sequence) ──
@@ -427,37 +404,25 @@ pub fn forward_linear_block_with_cache(
     );
 
     // ── Step 2: Batch projections ──
-    let qkv_all = model.scheduler.matmul(
-        &normed,
-        &block.qkv_weight,
-        seq_len,
-        hidden_dim,
-        conv_dim,
-    )?;
+    let qkv_all =
+        model
+            .scheduler
+            .matmul(&normed, &block.qkv_weight, seq_len, hidden_dim, conv_dim)?;
 
-    let z_all = model.scheduler.matmul(
-        &normed,
-        &linear.z_weight,
-        seq_len,
-        hidden_dim,
-        value_dim,
-    )?;
+    let z_all =
+        model
+            .scheduler
+            .matmul(&normed, &linear.z_weight, seq_len, hidden_dim, value_dim)?;
 
-    let b_all = model.scheduler.matmul(
-        &normed,
-        &linear.b_weight,
-        seq_len,
-        hidden_dim,
-        num_v_heads,
-    )?;
+    let b_all =
+        model
+            .scheduler
+            .matmul(&normed, &linear.b_weight, seq_len, hidden_dim, num_v_heads)?;
 
-    let a_all = model.scheduler.matmul(
-        &normed,
-        &linear.a_weight,
-        seq_len,
-        hidden_dim,
-        num_v_heads,
-    )?;
+    let a_all =
+        model
+            .scheduler
+            .matmul(&normed, &linear.a_weight, seq_len, hidden_dim, num_v_heads)?;
 
     // ── Step 3: Causal Conv1D on full sequence + SiLU ──
     let qkv_activated = causal_conv1d_sequence(
@@ -554,9 +519,7 @@ pub fn forward_linear_block_with_cache(
         .iter()
         .zip(projected.iter())
         .enumerate()
-        .map(|(i, (&inp, &proj))| {
-            inp + proj + block.out_bias[i % hidden_dim]
-        })
+        .map(|(i, (&inp, &proj))| inp + proj + block.out_bias[i % hidden_dim])
         .collect();
 
     // ── Step 8: FFN (same as standard attention) ──
@@ -749,8 +712,16 @@ fn causal_conv1d_update(
     kernel_size: usize,
 ) -> Vec<f32> {
     debug_assert_eq!(input.len(), conv_dim, "Conv input dim mismatch");
-    debug_assert_eq!(conv_buf.len(), conv_dim * kernel_size, "Conv buf dim mismatch");
-    debug_assert_eq!(weight.len(), conv_dim * kernel_size, "Conv weight dim mismatch");
+    debug_assert_eq!(
+        conv_buf.len(),
+        conv_dim * kernel_size,
+        "Conv buf dim mismatch"
+    );
+    debug_assert_eq!(
+        weight.len(),
+        conv_dim * kernel_size,
+        "Conv weight dim mismatch"
+    );
 
     let current_step = *step;
 
