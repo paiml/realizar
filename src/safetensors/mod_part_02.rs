@@ -348,7 +348,7 @@ impl SafetensorsModel {
 // ============================================================================
 
 /// Model configuration from config.json
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct SafetensorsConfig {
     /// Hidden dimension
     #[serde(alias = "n_embd", alias = "d_model")]
@@ -383,6 +383,24 @@ pub struct SafetensorsConfig {
     pub eos_token_id: Option<u32>,
     /// Whether to tie input/output embeddings (lm_head = embed_tokens)
     pub tie_word_embeddings: Option<bool>,
+    /// GH-278: Explicit head dimension (Qwen3.5 uses 256 vs Qwen2's 128)
+    /// When present, overrides hidden_size / num_attention_heads calculation
+    pub head_dim: Option<usize>,
+    /// GH-278: Whether attention layers use bias (Qwen3.5=false, Qwen2=true)
+    pub attention_bias: Option<bool>,
+    /// GH-278: Per-layer attention type for hybrid models (Qwen3.5)
+    /// Values: "attention" (standard softmax) or "linear" (linear attention)
+    pub layer_types: Option<Vec<String>>,
+    /// GH-278: Conv1D kernel size for linear attention layers (Qwen3.5 default: 4)
+    pub linear_conv_kernel_dim: Option<usize>,
+    /// GH-278: Key head dimension for linear attention (Qwen3.5 default: 128)
+    pub linear_key_head_dim: Option<usize>,
+    /// GH-278: Value head dimension for linear attention (Qwen3.5 default: 128)
+    pub linear_value_head_dim: Option<usize>,
+    /// GH-278: Number of key heads for linear attention (Qwen3.5 default: 16)
+    pub linear_num_key_heads: Option<usize>,
+    /// GH-278: Number of value heads for linear attention (Qwen3.5 default: 32)
+    pub linear_num_value_heads: Option<usize>,
 }
 
 impl SafetensorsConfig {
@@ -421,5 +439,26 @@ impl SafetensorsConfig {
             .cloned()
             .or_else(|| self.model_type.clone())
             .unwrap_or_else(|| "unknown".to_string())
+    }
+
+    /// GH-278: Get effective head dimension
+    /// Uses explicit head_dim if present, otherwise computes from hidden_size / num_attention_heads
+    #[must_use]
+    pub fn effective_head_dim(&self) -> Option<usize> {
+        self.head_dim.or_else(|| {
+            let hidden = self.hidden_size?;
+            let heads = self.num_attention_heads?;
+            if heads > 0 { Some(hidden / heads) } else { None }
+        })
+    }
+
+    /// GH-278: Check if model uses hybrid attention (has layer_types with both types)
+    #[must_use]
+    pub fn is_hybrid_attention(&self) -> bool {
+        self.layer_types.as_ref().is_some_and(|types| {
+            let has_attn = types.iter().any(|t| t == "attention");
+            let has_linear = types.iter().any(|t| t == "linear");
+            has_attn && has_linear
+        })
     }
 }

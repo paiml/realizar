@@ -15,6 +15,8 @@ fn test_imp_029_text_generation() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut model = GpuModel::from_gguf_config(config).expect("IMP-029: Should create model");
@@ -45,6 +47,8 @@ fn test_imp_029_text_generation() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     })
     .expect("IMP-029: Should create second model");
 
@@ -108,6 +112,8 @@ fn test_imp_030_benchmark_harness() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut model = GpuModel::from_gguf_config(config).expect("IMP-030: Should create model");
@@ -167,6 +173,8 @@ fn test_imp_030_benchmark_harness() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     })
     .expect("IMP-030: Should create model");
 
@@ -245,6 +253,8 @@ fn test_imp_031_forward_with_cache() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut model =
@@ -307,6 +317,8 @@ fn test_imp_032_forward_incremental() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut model =

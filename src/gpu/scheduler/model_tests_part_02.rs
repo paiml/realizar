@@ -30,6 +30,8 @@ fn create_minimal_config() -> GpuModelConfig {
         vocab_size: 50,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     }
 }
 
@@ -44,6 +46,8 @@ fn create_gqa_config() -> GpuModelConfig {
         vocab_size: 100,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     }
 }
 
@@ -58,6 +62,8 @@ fn create_large_vocab_config() -> GpuModelConfig {
         vocab_size: 32000, // Large vocab triggers CPU fallback
         eps: 1e-6,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     }
 }
 

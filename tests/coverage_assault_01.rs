@@ -171,6 +171,8 @@ fn test_simplified_attention_single_token() {
         intermediate_dim: 16,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     // Single token, seq_len=1
@@ -202,6 +204,8 @@ fn test_simplified_attention_two_tokens() {
         intermediate_dim: 8,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     // Two tokens, seq_len=2
@@ -237,6 +241,8 @@ fn test_gpu_model_config_helpers() {
         intermediate_dim: 11008,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     // Test head_dim
@@ -264,6 +270,8 @@ fn test_gpu_model_config_mha() {
         intermediate_dim: 3072,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     // Test is_gqa returns false for MHA

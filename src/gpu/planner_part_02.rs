@@ -123,6 +123,8 @@ mod tests {
             intermediate_dim: 3072,
             eps: 1e-5,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         };
 
         let plan = BlockForwardPlan::from_config(&config, 0, false);
@@ -143,6 +145,8 @@ mod tests {
             intermediate_dim: 5632,
             eps: 1e-5,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         };
 
         let plan = BlockForwardPlan::from_config(&config, 5, true);

@@ -36,6 +36,8 @@ fn test_gpu_model_multi_layer_forward() {
         vocab_size: 50,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
     let mut model = GpuModel::new(config.clone()).unwrap();
 
@@ -59,6 +61,8 @@ fn test_gpu_model_all_blocks_forward_idx() {
         vocab_size: 50,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
     let mut model = GpuModel::new(config.clone()).unwrap();
 
@@ -90,6 +94,8 @@ fn test_gpu_model_gqa_multiple_q_per_kv() {
         vocab_size: 50,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
     let mut model = GpuModel::new(config.clone()).unwrap();
 
@@ -258,6 +264,8 @@ fn test_gpu_model_different_eps() {
             vocab_size: 50,
             eps,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         };
         let mut model = GpuModel::new(config.clone()).unwrap();
 
@@ -311,6 +319,8 @@ fn test_gpu_model_block_incremental_all_layers() {
         vocab_size: 50,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
     let mut model = GpuModel::new(config.clone()).unwrap();
 

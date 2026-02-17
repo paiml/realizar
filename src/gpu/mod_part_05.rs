@@ -247,6 +247,8 @@ pub fn load_gguf_to_gpu(
         intermediate_dim: hidden_dim * 4, // Standard FFN expansion
         eps: 1e-5,
         rope_theta: 10000.0, // Standard RoPE base frequency
+        explicit_head_dim: None,
+        layer_types: None,
     };
 
     // Create GPU model

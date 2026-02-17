@@ -19,6 +19,8 @@ async fn test_gpu_model_tokenizer_missing_error() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+        explicit_head_dim: None,
+        layer_types: None,
     };
 
     let gpu_model = GpuModel::new(config).expect("create GPU model");

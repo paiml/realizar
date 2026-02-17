@@ -30,6 +30,8 @@ mod tests {
             intermediate_dim: 512,
             eps: 1e-5,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         };
         assert_eq!(config.head_dim(), 32);
     }
@@ -45,6 +47,8 @@ mod tests {
             intermediate_dim: 512,
             eps: 1e-5,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         };
         // kv_dim = num_kv_heads * head_dim = 4 * 32 = 128
         assert_eq!(config.kv_dim(), 128);
@@ -62,6 +66,8 @@ mod tests {
             intermediate_dim: 512,
             eps: 1e-5,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         };
         // MHA: qkv_dim = hidden_dim + 2 * kv_dim = 256 + 2 * 256 = 768
         assert_eq!(config.qkv_dim(), 768);
@@ -79,6 +85,8 @@ mod tests {
             intermediate_dim: 512,
             eps: 1e-5,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         };
         // GQA: qkv_dim = hidden_dim + 2 * kv_dim = 256 + 2 * 64 = 384
         assert_eq!(config.qkv_dim(), 384);
@@ -96,6 +104,8 @@ mod tests {
             intermediate_dim: 512,
             eps: 1e-5,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         };
         assert!(!mha_config.is_gqa());
 
@@ -109,6 +119,8 @@ mod tests {
             intermediate_dim: 512,
             eps: 1e-5,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         };
         assert!(gqa_config.is_gqa());
     }
@@ -124,6 +136,8 @@ mod tests {
             intermediate_dim: 512,
             eps: 1e-5,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         };
         let cloned = config.clone();
         assert_eq!(cloned.vocab_size, 32000);
@@ -141,6 +155,8 @@ mod tests {
             intermediate_dim: 512,
             eps: 1e-5,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         };
         let debug_str = format!("{:?}", config);
         assert!(debug_str.contains("GpuModelConfig"));
@@ -212,6 +228,8 @@ mod tests {
             intermediate_dim: 128,
             eps: 1e-5,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         };
         let buffers = AttentionBuffers::new(&model_config, 512);
         assert_eq!(buffers.q_buffer.len(), 64); // hidden_dim
@@ -233,6 +251,8 @@ mod tests {
             intermediate_dim: 64,
             eps: 1e-5,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         };
         let mut buffers = AttentionBuffers::new(&model_config, 128);
 
@@ -265,6 +285,8 @@ mod tests {
             intermediate_dim: 64,
             eps: 1e-5,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         };
         let buffers = AttentionBuffers::new(&model_config, 128);
         let debug_str = format!("{:?}", buffers);

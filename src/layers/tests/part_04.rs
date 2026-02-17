@@ -122,6 +122,8 @@ fn test_imp_026_gguf_gpu_weight_loading() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     // Test 1: GpuModel::from_gguf_config creates model with correct dimensions
@@ -242,6 +244,8 @@ fn test_imp_027_gpu_text_generation() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut model = GpuModel::from_gguf_config(config).expect("IMP-027: Should create model");
@@ -330,6 +334,8 @@ fn test_imp_028_real_forward_pass() {
         intermediate_dim: 128,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut model =

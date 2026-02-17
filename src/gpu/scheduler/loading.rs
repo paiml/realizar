@@ -40,6 +40,8 @@ pub fn load_weights_from_gguf(mapped: &crate::gguf::MappedGGUFModel) -> Result<G
         intermediate_dim: gguf_config.intermediate_dim,
         eps: gguf_config.eps,
         rope_theta: gguf_config.rope_theta, // Phase 21: RoPE support
+        explicit_head_dim: None,
+        layer_types: None,
     };
 
     let data = mapped.data();

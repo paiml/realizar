@@ -38,6 +38,8 @@ fn test_apr_config_to_gpu_config() {
         intermediate_dim: 5632,
         context_length: 2048,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         eps: 1e-5,
     };
 
@@ -69,6 +71,8 @@ fn test_apr_config_mha_to_gpu() {
         intermediate_dim: 10240,
         context_length: 2048,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         eps: 1e-5,
     };
 
@@ -277,6 +281,8 @@ fn test_gpu_model_config_derived() {
         intermediate_dim: 11008,
         eps: 1e-6,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     // Test derived dimensions
@@ -296,6 +302,8 @@ fn test_gpu_model_config_mha() {
         intermediate_dim: 3072,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     assert_eq!(config.head_dim(), 64);
@@ -319,6 +327,8 @@ fn test_apr_inference_scratch_creation() {
         intermediate_dim: 2048,
         context_length: 1024,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         eps: 1e-5,
     };
 
@@ -344,6 +354,8 @@ fn test_apr_kv_cache_creation() {
         intermediate_dim: 512,
         context_length: 128,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         eps: 1e-5,
     };
 
@@ -368,6 +380,8 @@ fn test_apr_kv_cache_append() {
         intermediate_dim: 256,
         context_length: 32,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
         eps: 1e-5,
     };
 
@@ -533,6 +547,8 @@ fn test_f32_adapter_with_all_biases() {
             intermediate_dim,
             context_length: 128,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
             eps: 1e-5,
         },
         token_embedding: vec![0.0; vocab_size * hidden_dim],
@@ -585,6 +601,8 @@ fn test_f32_adapter_without_biases() {
             intermediate_dim,
             context_length: 128,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
             eps: 1e-5,
         },
         token_embedding: vec![0.0; vocab_size * hidden_dim],
@@ -642,6 +660,8 @@ fn test_f32_adapter_gqa_config() {
             intermediate_dim,
             context_length: 2048,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
             eps: 1e-5,
         },
         token_embedding: vec![0.0; vocab_size * hidden_dim],
@@ -700,6 +720,8 @@ fn create_f32_transformer(num_layers: usize) -> AprTransformer {
             intermediate_dim,
             context_length: 128,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
             eps: 1e-5,
         },
         token_embedding: vec![0.0; vocab_size * hidden_dim],
@@ -735,6 +757,8 @@ fn create_f32_transformer_large() -> AprTransformer {
             intermediate_dim,
             context_length: 2048,
             rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
             eps: 1e-5,
         },
         token_embedding: vec![0.0; vocab_size * hidden_dim],

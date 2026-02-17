@@ -16,6 +16,8 @@ fn test_imp_039_fused_attn_proj() {
         intermediate_dim: 256,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut model = GpuModel::with_attention_buffers(config.clone(), 256)
@@ -89,6 +91,8 @@ fn test_imp_040_contiguous_attention() {
         intermediate_dim: 256,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let max_seq_len = 256;
@@ -230,6 +234,8 @@ fn test_imp_042_fused_output_residual() {
         intermediate_dim: 256,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     let mut model = GpuModel::with_attention_buffers(config.clone(), 256)
@@ -317,6 +323,8 @@ fn test_imp_043_batch_embedding() {
         intermediate_dim: 512,
         eps: 1e-5,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
+            layer_types: None,
     };
 
     // Create embedding table

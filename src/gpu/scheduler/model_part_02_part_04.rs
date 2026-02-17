@@ -25,6 +25,8 @@ impl GpuModel {
     ///     intermediate_dim: 11008,
     ///     eps: 1e-5,
     ///     rope_theta: 10000.0,
+    ///     explicit_head_dim: None,
+    ///     layer_types: None,
     /// };
     /// let model = GpuModel::from_gguf_config(config)?;
     /// ```
