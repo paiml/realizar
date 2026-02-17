@@ -171,10 +171,17 @@ unsafe fn simd_add_weighted_avx2(out: &mut [f32], val: &[f32], weight: f32) {
 // F32 Compute Helpers (PMAT-COMPLY: extracted from mod.rs)
 // ============================================================================
 
+/// Parallel threshold for F32 matmul (GH-284: match Q4K path)
+const F32_PARALLEL_THRESHOLD: usize = 256;
+
+/// Chunk size for rayon work-stealing (GH-284)
+const F32_PARALLEL_CHUNK: usize = 64;
+
 /// F32 matrix-vector multiplication: output[out_dim] = weight[out_dim, in_dim] @ input[in_dim]
 ///
 /// PMAT-095: Weights stored in matvec-optimal [out_dim, in_dim] format.
 /// PMAT-103: 4-wide unrolled dot product for cache utilization.
+/// GH-284: Rayon parallelism for out_dim >= 256 (matching Q4K path).
 pub(crate) fn f32_matmul(input: &[f32], weight: &[f32], in_dim: usize, out_dim: usize) -> Vec<f32> {
     let seq_len = input.len() / in_dim;
     let expected_size = in_dim * out_dim;
@@ -190,48 +197,49 @@ pub(crate) fn f32_matmul(input: &[f32], weight: &[f32], in_dim: usize, out_dim: 
         let input_slice = &input[input_start..input_start + in_dim];
         let out_start = s * out_dim;
 
-        // PMAT-103: Unrolled dot product for better cache utilization
-        let out_chunks = out_dim / 4;
-        let out_remainder = out_dim % 4;
-
-        for o_chunk in 0..out_chunks {
-            let o_base = o_chunk * 4;
-            let mut sum0 = 0.0f32;
-            let mut sum1 = 0.0f32;
-            let mut sum2 = 0.0f32;
-            let mut sum3 = 0.0f32;
-
-            let w0_start = (o_base) * in_dim;
-            let w1_start = (o_base + 1) * in_dim;
-            let w2_start = (o_base + 2) * in_dim;
-            let w3_start = (o_base + 3) * in_dim;
-
-            for i in 0..in_dim {
-                let x = input_slice[i];
-                sum0 += x * weight[w0_start + i];
-                sum1 += x * weight[w1_start + i];
-                sum2 += x * weight[w2_start + i];
-                sum3 += x * weight[w3_start + i];
-            }
-
-            output[out_start + o_base] = sum0;
-            output[out_start + o_base + 1] = sum1;
-            output[out_start + o_base + 2] = sum2;
-            output[out_start + o_base + 3] = sum3;
-        }
-
-        // Handle remainder
-        for o in (out_dim - out_remainder)..out_dim {
-            let w_start = o * in_dim;
-            let mut sum = 0.0f32;
-            for i in 0..in_dim {
-                sum += input_slice[i] * weight[w_start + i];
-            }
-            output[out_start + o] = sum;
+        if out_dim >= F32_PARALLEL_THRESHOLD {
+            f32_matvec_parallel(input_slice, weight, in_dim, out_dim, &mut output[out_start..out_start + out_dim]);
+        } else {
+            f32_matvec_sequential(input_slice, weight, in_dim, out_dim, &mut output[out_start..out_start + out_dim]);
         }
     }
 
     output
+}
+
+/// Parallel F32 matvec using rayon work-stealing (GH-284)
+fn f32_matvec_parallel(
+    input: &[f32],
+    weight: &[f32],
+    in_dim: usize,
+    _out_dim: usize,
+    output: &mut [f32],
+) {
+    use rayon::prelude::*;
+
+    output
+        .par_chunks_mut(F32_PARALLEL_CHUNK)
+        .enumerate()
+        .for_each(|(chunk_idx, out_chunk)| {
+            let o_start = chunk_idx * F32_PARALLEL_CHUNK;
+            for (local_o, out_val) in out_chunk.iter_mut().enumerate() {
+                let o = o_start + local_o;
+                *out_val = simd_dot_f32(input, &weight[o * in_dim..(o + 1) * in_dim]);
+            }
+        });
+}
+
+/// Sequential F32 matvec with SIMD dot product (small out_dim)
+fn f32_matvec_sequential(
+    input: &[f32],
+    weight: &[f32],
+    in_dim: usize,
+    out_dim: usize,
+    output: &mut [f32],
+) {
+    for o in 0..out_dim {
+        output[o] = simd_dot_f32(input, &weight[o * in_dim..(o + 1) * in_dim]);
+    }
 }
 
 /// Scalar fallback for matmul (PMAT-095: weight is [out_dim, in_dim] row-major)
