@@ -37,12 +37,9 @@ impl OwnedQuantizedModel {
             }
         }
 
-        // Detect if model uses RMSNorm (LLaMA-style) or LayerNorm (phi-2 style)
-        // LLaMA models have ffn_gate_weight (SwiGLU) and no bias in norms
-        let use_rmsnorm = self
-            .layers
-            .first()
-            .is_some_and(|l| l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none());
+        // GH-278: Use contract-derived norm type instead of runtime heuristics.
+        // Source: ArchConstraints::from_architecture() ← aprender/contracts/model-families/*.yaml
+        let use_rmsnorm = self.config.constraints.uses_rmsnorm();
 
         // 2. Process through transformer layers with FUSED Q4_K ops
         let cpu_debug_layers = std::env::var("CPU_DEBUG_LAYERS").is_ok();
@@ -61,9 +58,10 @@ impl OwnedQuantizedModel {
 
             // CORRECTNESS-011: CPU intermediate debug at L0
             if cpu_debug_layers && layer_idx < 2 {
+                let norm_label = if use_rmsnorm { "RMSNorm" } else { "LayerNorm" };
                 eprintln!(
-                    "[CPU-L{}] RMSNorm: first 3 = [{:.4}, {:.4}, {:.4}]",
-                    layer_idx, normed[0], normed[1], normed[2]
+                    "[CPU-L{}] {}: first 3 = [{:.4}, {:.4}, {:.4}]",
+                    layer_idx, norm_label, normed[0], normed[1], normed[2]
                 );
             }
 
@@ -137,8 +135,9 @@ impl OwnedQuantizedModel {
                 let mut k = qkv[qkv_start + q_dim..qkv_start + q_dim + k_dim].to_vec();
                 let v = &qkv[qkv_start + q_dim + k_dim..qkv_start + q_dim + k_dim + v_dim];
 
-                // GH-278: Skip RoPE for models with learned position embeddings (GPT-2)
-                if self.position_embedding.is_none() {
+                // GH-278: Apply RoPE only for architectures that use it (contract-driven).
+                // GPT-2/BERT/whisper use absolute position embeddings — no RoPE.
+                if self.config.constraints.uses_rope() {
                     self.apply_rope(&mut q, s, self.config.num_heads);
                     self.apply_rope(&mut k, s, self.config.num_kv_heads);
                 }

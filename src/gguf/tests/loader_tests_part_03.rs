@@ -28,6 +28,7 @@ fn build_minimal_owned_quantized_model() -> OwnedQuantizedModel {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim,
         num_layers: 1,
         num_heads,
@@ -83,6 +84,8 @@ fn build_minimal_owned_quantized_model() -> OwnedQuantizedModel {
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0; hidden_dim]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     OwnedQuantizedModel {
@@ -113,6 +116,7 @@ fn build_fused_qkv_model() -> OwnedQuantizedModel {
 
     let config = GGUFConfig {
         architecture: "phi2".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi2"),
         hidden_dim,
         num_layers: 1,
         num_heads,
@@ -166,6 +170,8 @@ fn build_fused_qkv_model() -> OwnedQuantizedModel {
         ffn_gate_bias: None,
         ffn_norm_weight: None, // Some models skip FFN norm
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     OwnedQuantizedModel {
@@ -198,6 +204,7 @@ fn build_q4k_model() -> OwnedQuantizedModel {
 
     let config = GGUFConfig {
         architecture: "qwen2".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("qwen2"),
         hidden_dim,
         num_layers: 1,
         num_heads,
@@ -250,6 +257,8 @@ fn build_q4k_model() -> OwnedQuantizedModel {
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0; hidden_dim]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     // Q6_K lm_head: 210 bytes per 256 elements

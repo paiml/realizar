@@ -314,12 +314,8 @@ impl OwnedQuantizedModelCuda {
             self.model.lm_head_weight.data.as_ptr() as usize
         );
 
-        // PAR-050: Detect RMSNorm architecture (LLaMA uses RMSNorm and SwiGLU)
-        let use_rmsnorm = self
-            .model
-            .layers
-            .first()
-            .is_some_and(|l| l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none());
+        // GH-278: Use contract-derived norm type.
+        let use_rmsnorm = self.model.config.constraints.uses_rmsnorm();
 
         // 2. Process through transformer layers
         for layer_idx in 0..num_layers {

@@ -108,6 +108,8 @@ fn make_pygmy_model_with_q4k_swiglu() -> AprTransformer {
         ffn_down_bias: None,
         ffn_norm_weight: Some(vec![1.0; hidden_dim]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let lm_head_weight: Vec<f32> = (0..hidden_dim * vocab_size)
@@ -204,6 +206,8 @@ fn make_pygmy_model_with_q4k_gelu() -> AprTransformer {
         ffn_down_bias: Some(vec![0.01; hidden_dim]),
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let lm_head_weight: Vec<f32> = (0..hidden_dim * vocab_size)

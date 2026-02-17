@@ -355,6 +355,24 @@ impl AprTransformer {
                 let v_pos =
                     &qkv[qkv_start + hidden_dim + kv_dim..qkv_start + hidden_dim + 2 * kv_dim];
 
+                // GH-279: Per-head QK RMSNorm (Qwen3) — after bias, before RoPE
+                if let Some(ref q_norm) = layer.attn_q_norm_weight {
+                    crate::gguf::ops::apply_per_head_rms_norm(
+                        &mut q_pos,
+                        q_norm,
+                        self.config.num_heads,
+                        self.config.eps,
+                    );
+                }
+                if let Some(ref k_norm) = layer.attn_k_norm_weight {
+                    crate::gguf::ops::apply_per_head_rms_norm(
+                        &mut k_pos,
+                        k_norm,
+                        num_kv_heads,
+                        self.config.eps,
+                    );
+                }
+
                 // Apply RoPE to Q and K
                 self.apply_rope_f32(&mut q_pos, s, self.config.num_heads, head_dim);
                 self.apply_rope_f32(&mut k_pos, s, num_kv_heads, head_dim);

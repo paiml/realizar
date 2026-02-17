@@ -21,6 +21,7 @@ fn test_imp_121a_cached_sync_has_adaptive_attention() {
     // IMP-121a: OwnedQuantizedModelCachedSync should expose adaptive attention
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -69,6 +70,7 @@ fn test_imp_121b_cached_sync_adaptive_multihead() {
     // IMP-121b: OwnedQuantizedModelCachedSync should expose adaptive multihead attention
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -116,6 +118,7 @@ fn test_imp_121c_generate_with_adaptive_attention() {
     // IMP-121c: Cached model should have generate_with_adaptive_attention
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -161,6 +164,7 @@ fn test_imp_121d_thread_safe_adaptive_attention() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -229,6 +233,7 @@ fn test_imp_122a_adaptive_attention_with_cache() {
     // IMP-122a: Test attention_with_cache can use adaptive backend
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -284,6 +289,7 @@ fn test_imp_122b_adaptive_matches_standard() {
     // IMP-122b: Adaptive attention with cache should match standard implementation
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -340,6 +346,7 @@ fn test_imp_122c_long_sequence_uses_gpu() {
     // IMP-122c: Long sequence should automatically use GPU path
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 128,
         intermediate_dim: 256,
         num_layers: 1,

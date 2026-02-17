@@ -139,6 +139,8 @@
             ffn_down_bias: Some(vec![0.06; 8]), // With bias
             ffn_norm_weight: Some(vec![1.0; 8]),
             ffn_norm_bias: Some(vec![0.07; 8]), // With bias
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         };
 
         let original = AprTransformer {
@@ -197,6 +199,8 @@
                 ffn_down_bias: None,
                 ffn_norm_weight: None,
                 ffn_norm_bias: None,
+                attn_q_norm_weight: None,
+                attn_k_norm_weight: None,
             }],
             output_norm_weight: vec![1.0; 4],
             output_norm_bias: None,
@@ -218,6 +222,7 @@
 
         let config = GGUFConfig {
             architecture: "no_bias".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("no_bias"),
             hidden_dim: 8,
             num_layers: 1,
             num_heads: 2,
@@ -246,6 +251,8 @@
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         };
 
         let gguf = GGUFTransformer {
@@ -274,6 +281,7 @@
 
         let config = GGUFConfig {
             architecture: "swiglu".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("swiglu"),
             hidden_dim: 8,
             num_layers: 1,
             num_heads: 2,
@@ -302,6 +310,8 @@
             ffn_down_bias: None,
             ffn_norm_weight: Some(vec![1.0; 8]),
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         };
 
         let gguf = GGUFTransformer {

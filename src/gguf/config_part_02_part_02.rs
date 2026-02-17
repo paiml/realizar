@@ -3,6 +3,7 @@
     fn test_gguf_config_creation() {
         let config = GGUFConfig {
             architecture: "llama".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
             hidden_dim: 4096,
             num_layers: 32,
             num_heads: 32,
@@ -33,6 +34,7 @@
     fn test_gguf_config_clone() {
         let config = GGUFConfig {
             architecture: "qwen2".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("qwen2"),
             hidden_dim: 2048,
             num_layers: 24,
             num_heads: 16,
@@ -56,6 +58,7 @@
     fn test_gguf_config_debug() {
         let config = GGUFConfig {
             architecture: "phi2".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("phi2"),
             hidden_dim: 2560,
             num_layers: 32,
             num_heads: 32,
@@ -79,6 +82,7 @@
         // Test GQA config (4 Q heads per KV head)
         let config = GGUFConfig {
             architecture: "llama3".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama3"),
             hidden_dim: 4096,
             num_layers: 32,
             num_heads: 32,
@@ -100,6 +104,7 @@
         // Test MHA config (num_heads == num_kv_heads)
         let config = GGUFConfig {
             architecture: "phi".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
             hidden_dim: 2560,
             num_layers: 32,
             num_heads: 32,
@@ -121,6 +126,7 @@
         // Test NEOX-style RoPE (type 2)
         let config = GGUFConfig {
             architecture: "gpt-neox".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("gpt-neox"),
             hidden_dim: 6144,
             num_layers: 44,
             num_heads: 64,
@@ -142,6 +148,7 @@
         // Test Qwen-style high rope_theta
         let config = GGUFConfig {
             architecture: "qwen".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("qwen"),
             hidden_dim: 1536,
             num_layers: 28,
             num_heads: 12,
@@ -164,6 +171,7 @@
         // Test different epsilon values
         let config = GGUFConfig {
             architecture: "test".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("test"),
             hidden_dim: 512,
             num_layers: 6,
             num_heads: 8,
@@ -185,6 +193,7 @@
         // Verify head_dim calculation
         let config = GGUFConfig {
             architecture: "llama".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
             hidden_dim: 4096,
             num_layers: 32,
             num_heads: 32,
@@ -207,6 +216,7 @@
         // Verify kv_dim calculation for GQA
         let config = GGUFConfig {
             architecture: "llama".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
             hidden_dim: 4096,
             num_layers: 32,
             num_heads: 32,
@@ -230,6 +240,7 @@
         // Verify QKV output dimension calculation
         let config = GGUFConfig {
             architecture: "llama".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
             hidden_dim: 4096,
             num_layers: 32,
             num_heads: 32,
@@ -253,6 +264,7 @@
     fn test_gguf_config_debug_contains_all_fields() {
         let config = GGUFConfig {
             architecture: "mistral".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("mistral"),
             hidden_dim: 4096,
             num_layers: 32,
             num_heads: 32,
@@ -284,6 +296,7 @@
     fn test_gguf_config_clone_deep() {
         let original = GGUFConfig {
             architecture: "test_arch".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("test_arch"),
             hidden_dim: 768,
             num_layers: 12,
             num_heads: 12,
@@ -356,6 +369,7 @@
     fn valid_llama_config() -> GGUFConfig {
         GGUFConfig {
             architecture: "llama".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
             hidden_dim: 4096,
             num_layers: 32,
             num_heads: 32,

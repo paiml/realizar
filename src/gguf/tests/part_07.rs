@@ -295,6 +295,7 @@ fn test_parity005i_cache_performance_comparison() {
 fn test_parity006a_batch_generate_exists() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -347,6 +348,7 @@ fn test_parity006a_batch_generate_exists() {
 fn test_parity006b_single_prompt_optimization() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,

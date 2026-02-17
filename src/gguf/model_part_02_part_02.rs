@@ -3,6 +3,7 @@
     fn test_gguf_transformer_struct() {
         let config = GGUFConfig {
             architecture: "llama".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
             hidden_dim: 256,
             num_layers: 2,
             num_heads: 4,
@@ -49,6 +50,8 @@
             ffn_down_bias: None,
             ffn_norm_weight: Some(vec![1.0; 256]),
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         };
 
         assert_eq!(layer.attn_norm_weight.len(), 256);
@@ -63,6 +66,7 @@
 
         let config = GGUFConfig {
             architecture: "test".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("test"),
             hidden_dim: 64,
             num_layers: 1,
             num_heads: 2,
@@ -122,6 +126,7 @@
 
         let config = GGUFConfig {
             architecture: "debug_test".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("debug_test"),
             hidden_dim: 32,
             num_layers: 1,
             num_heads: 1,
@@ -167,6 +172,7 @@
     fn test_gguf_transformer_with_biases() {
         let config = GGUFConfig {
             architecture: "phi".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
             hidden_dim: 128,
             num_layers: 1,
             num_heads: 2,
@@ -200,6 +206,7 @@
     fn test_gguf_transformer_with_layers() {
         let config = GGUFConfig {
             architecture: "llama".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
             hidden_dim: 64,
             num_layers: 2,
             num_heads: 2,
@@ -228,6 +235,8 @@
             ffn_down_bias: None,
             ffn_norm_weight: Some(vec![1.0; 64]),
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         };
 
         let layer2 = GGUFTransformerLayer {
@@ -245,6 +254,8 @@
             ffn_down_bias: None,
             ffn_norm_weight: Some(vec![1.0; 64]),
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         };
 
         let transformer = GGUFTransformer {
@@ -280,6 +291,8 @@
             ffn_down_bias: Some(vec![0.0; 128]),
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         };
 
         assert!(layer.ffn_gate_weight.is_none());
@@ -304,6 +317,8 @@
             ffn_down_bias: Some(vec![0.0; 64]),
             ffn_norm_weight: Some(vec![1.0; 64]),
             ffn_norm_bias: Some(vec![0.0; 64]),
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         };
 
         assert!(layer.attn_norm_bias.is_some());
@@ -322,6 +337,7 @@
 
         let config = GGUFConfig {
             architecture: "phi".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
             hidden_dim: 64,
             num_layers: 1,
             num_heads: 2,
@@ -369,6 +385,7 @@
 
         let config = GGUFConfig {
             architecture: "test_clone".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("test_clone"),
             hidden_dim: 32,
             num_layers: 1,
             num_heads: 1,

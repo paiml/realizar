@@ -4,7 +4,8 @@
 fn test_imp_125b_adaptive_matches_standard() {
     // IMP-125b: Adaptive generate should match standard generate
     let config = GGUFConfig {
-        architecture: "test".to_string(),
+        architecture: "phi".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -50,7 +51,8 @@ fn test_imp_125b_adaptive_matches_standard() {
 fn test_imp_125c_tracks_metrics_during_generation() {
     // IMP-125c: Should track metrics during full generation
     let config = GGUFConfig {
-        architecture: "test".to_string(),
+        architecture: "phi".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -96,7 +98,8 @@ fn test_imp_125c_tracks_metrics_during_generation() {
 fn test_imp_125d_long_generation_uses_gpu() {
     // IMP-125d: Long generation should eventually use GPU
     let config = GGUFConfig {
-        architecture: "test".to_string(),
+        architecture: "phi".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -148,7 +151,8 @@ fn test_imp_125d_long_generation_uses_gpu() {
 #[cfg(feature = "gpu")]
 fn test_parity002a_forward_batch_with_cache_exists() {
     let config = GGUFConfig {
-        architecture: "test".to_string(),
+        architecture: "phi".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -188,7 +192,8 @@ fn test_parity002a_forward_batch_with_cache_exists() {
 #[cfg(feature = "gpu")]
 fn test_parity002b_batched_prefill_populates_cache() {
     let config = GGUFConfig {
-        architecture: "test".to_string(),
+        architecture: "phi".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -229,7 +234,8 @@ fn test_parity002b_batched_prefill_populates_cache() {
 #[cfg(feature = "gpu")]
 fn test_parity002c_batched_prefill_triggers_gpu() {
     let config = GGUFConfig {
-        architecture: "test".to_string(),
+        architecture: "phi".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
         hidden_dim: 256,
         intermediate_dim: 512,
         num_layers: 2,
@@ -272,7 +278,8 @@ fn test_parity002c_batched_prefill_triggers_gpu() {
 #[cfg(feature = "gpu")]
 fn test_parity002d_batched_matches_sequential() {
     let config = GGUFConfig {
-        architecture: "test".to_string(),
+        architecture: "phi".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -334,7 +341,8 @@ fn test_parity002d_batched_matches_sequential() {
 #[cfg(feature = "gpu")]
 fn test_parity002e_generate_with_batched_prefill() {
     let config = GGUFConfig {
-        architecture: "test".to_string(),
+        architecture: "phi".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,

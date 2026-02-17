@@ -12,6 +12,7 @@ fn test_from_gguf_separate_qkv() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim,
         intermediate_dim: 128,
         num_heads,
@@ -48,6 +49,8 @@ fn test_from_gguf_separate_qkv() {
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0f32; hidden_dim]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let model = OwnedQuantizedModel {
@@ -91,6 +94,7 @@ fn test_from_gguf_gqa_config() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 128,
         intermediate_dim: 256,
         num_heads: 8,
@@ -123,6 +127,7 @@ fn test_from_gguf_with_ffn_gate() {
     let hidden_dim = 64;
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim,
         intermediate_dim: 128,
         num_heads: 4,
@@ -154,6 +159,8 @@ fn test_from_gguf_with_ffn_gate() {
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0f32; hidden_dim]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let model = OwnedQuantizedModel {

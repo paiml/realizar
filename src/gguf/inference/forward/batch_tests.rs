@@ -16,6 +16,7 @@ use crate::gguf::{
 fn test_config() -> GGUFConfig {
     GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_heads: 4,

@@ -207,8 +207,26 @@ impl OwnedQuantizedModel {
             }
         }
 
+        // GH-279: Per-head QK RMSNorm (Qwen3) — after bias, before RoPE
+        if let Some(ref q_norm) = layer.attn_q_norm_weight {
+            ops::apply_per_head_rms_norm(
+                &mut scratch.q[..q_dim],
+                q_norm,
+                self.config.num_heads,
+                self.config.eps,
+            );
+        }
+        if let Some(ref k_norm) = layer.attn_k_norm_weight {
+            ops::apply_per_head_rms_norm(
+                &mut scratch.k[..k_dim],
+                k_norm,
+                self.config.num_kv_heads,
+                self.config.eps,
+            );
+        }
+
         // GH-278: Skip RoPE for models with learned position embeddings (GPT-2)
-        if self.position_embedding.is_none() {
+        if self.config.constraints.uses_rope() {
             self.apply_rope(&mut scratch.q[..q_dim], position, self.config.num_heads);
             self.apply_rope(&mut scratch.k[..k_dim], position, self.config.num_kv_heads);
         }
@@ -415,11 +433,8 @@ impl OwnedQuantizedModel {
         let hidden_dim = self.config.hidden_dim;
         let intermediate_dim = self.config.intermediate_dim;
 
-        // Detect architecture
-        let use_rmsnorm = self
-            .layers
-            .first()
-            .is_some_and(|l| l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none());
+        // GH-278: Use contract-derived norm type.
+        let use_rmsnorm = self.config.constraints.uses_rmsnorm();
 
         // Q8K requires hidden_dim to be multiple of 256; smaller models fall back to f32
         let use_q8k_path = hidden_dim.is_multiple_of(256);

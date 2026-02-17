@@ -22,6 +22,7 @@ use crate::gguf::OwnedQuantizedModelCachedSync;
 fn test_phase34_cached_sync_new() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -48,6 +49,7 @@ fn test_phase34_cached_sync_new() {
 fn test_phase34_cached_sync_model_accessor() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 128,
         intermediate_dim: 256,
         num_layers: 2,
@@ -79,6 +81,7 @@ fn test_phase34_cached_sync_concurrent_model_access() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -120,6 +123,7 @@ fn test_phase34_cached_sync_send_sync_bounds() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -160,6 +164,7 @@ fn test_phase34_cached_sync_multiple_configs() {
     for (arch, hidden, intermediate, layers, heads, kv_heads) in configs {
         let config = GGUFConfig {
             architecture: arch.to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
             hidden_dim: hidden,
             intermediate_dim: intermediate,
             num_layers: layers,
@@ -197,6 +202,7 @@ fn test_phase34_cached_sync_no_gpu_feature() {
     // This test just verifies compilation works without the feature
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -223,6 +229,7 @@ fn test_phase34_cached_sync_no_gpu_feature() {
 fn test_phase34_cached_sync_rapid_access() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -253,6 +260,7 @@ fn test_phase34_cached_sync_thread_stress() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,

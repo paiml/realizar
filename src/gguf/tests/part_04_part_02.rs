@@ -4,6 +4,7 @@ fn test_imp_111c_tiled_causal_attention() {
     // IMP-111c: Verify tiled attention respects causal mask
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 32,
         intermediate_dim: 64,
         num_layers: 1,
@@ -85,6 +86,7 @@ fn test_imp_111d_tiled_attention_various_tile_sizes() {
     // IMP-111d: Verify tiled attention works with various tile sizes
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 32,
         intermediate_dim: 64,
         num_layers: 1,
@@ -152,6 +154,7 @@ fn test_imp_113a_batched_gemm_single_dispatch() {
     // This is the foundation for efficient multi-head attention
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -232,6 +235,7 @@ fn test_imp_113b_single_dispatch_attention_correctness() {
     // IMP-113b: Verify single-dispatch attention matches multi-dispatch
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -294,6 +298,7 @@ fn test_imp_113c_single_dispatch_dispatch_count() {
     // This test validates the architectural improvement
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -350,6 +355,7 @@ fn test_imp_113d_batched_softmax_correctness() {
     // IMP-113d: Verify batched softmax with causal mask
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 32,
         intermediate_dim: 64,
         num_layers: 1,

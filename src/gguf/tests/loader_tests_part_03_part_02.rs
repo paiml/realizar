@@ -239,6 +239,7 @@ fn test_to_apr_bytes_various_qtypes() {
     for qtype in qtypes_to_test {
         let config = GGUFConfig {
             architecture: "test".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("test"),
             hidden_dim,
             num_layers: 1,
             num_heads: 2,
@@ -271,6 +272,8 @@ fn test_to_apr_bytes_various_qtypes() {
             ffn_gate_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         };
 
         let model = OwnedQuantizedModel {

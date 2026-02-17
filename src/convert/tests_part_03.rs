@@ -53,6 +53,8 @@ mod tests {
                 ffn_down_bias: Some(vec![0.0; hidden]),
                 ffn_norm_weight: Some(vec![1.0; hidden]),
                 ffn_norm_bias: Some(vec![0.0; hidden]),
+                attn_q_norm_weight: None,
+                attn_k_norm_weight: None,
             }],
             output_norm_weight: vec![1.0; hidden],
             output_norm_bias: Some(vec![0.0; hidden]),

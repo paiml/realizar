@@ -3,6 +3,7 @@
 fn test_phase34_fused_matmul_q4_1() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -36,6 +37,7 @@ fn test_phase34_fused_matmul_q4_1() {
 fn test_phase34_fused_matmul_q4_1_multi_seq() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -92,6 +94,7 @@ fn create_q5_0_weight(in_dim: usize, out_dim: usize) -> OwnedQuantizedTensor {
 fn test_phase34_fused_matmul_q5_0() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -125,6 +128,7 @@ fn test_phase34_fused_matmul_q5_0() {
 fn test_phase34_fused_matmul_q5_0_multi_seq() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -201,6 +205,7 @@ fn create_q6_k_weight(in_dim: usize, out_dim: usize) -> OwnedQuantizedTensor {
 fn test_phase34_fused_matmul_q4_k_single() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         intermediate_dim: 512,
         num_layers: 1,
@@ -234,6 +239,7 @@ fn test_phase34_fused_matmul_q4_k_single() {
 fn test_phase34_fused_matmul_q4_k_multi() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         intermediate_dim: 512,
         num_layers: 1,
@@ -264,6 +270,7 @@ fn test_phase34_fused_matmul_q4_k_multi() {
 fn test_phase34_fused_matmul_q5_k() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         intermediate_dim: 512,
         num_layers: 1,
@@ -296,6 +303,7 @@ fn test_phase34_fused_matmul_q5_k() {
 fn test_phase34_fused_matmul_q5_k_multi() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         intermediate_dim: 512,
         num_layers: 1,
@@ -326,6 +334,7 @@ fn test_phase34_fused_matmul_q5_k_multi() {
 fn test_phase34_fused_matmul_q6_k() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         intermediate_dim: 512,
         num_layers: 1,
@@ -358,6 +367,7 @@ fn test_phase34_fused_matmul_q6_k() {
 fn test_phase34_fused_matmul_q6_k_multi() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         intermediate_dim: 512,
         num_layers: 1,
@@ -391,6 +401,7 @@ fn test_phase34_fused_matmul_q6_k_multi() {
 fn test_phase34_fused_matmul_unsupported_qtype() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,

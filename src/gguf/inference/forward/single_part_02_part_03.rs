@@ -157,8 +157,16 @@ impl OwnedQuantizedModel {
         let mut k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
         let v = qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim].to_vec();
 
+        // GH-279: Per-head QK RMSNorm (Qwen3) — after bias, before RoPE
+        if let Some(ref q_norm) = layer.attn_q_norm_weight {
+            ops::apply_per_head_rms_norm(&mut q, q_norm, self.config.num_heads, self.config.eps);
+        }
+        if let Some(ref k_norm) = layer.attn_k_norm_weight {
+            ops::apply_per_head_rms_norm(&mut k, k_norm, num_kv_heads, self.config.eps);
+        }
+
         // GH-278: Skip RoPE for models with learned position embeddings (GPT-2)
-        if self.position_embedding.is_none() {
+        if self.config.constraints.uses_rope() {
             self.apply_rope(&mut q, position, self.config.num_heads);
             self.apply_rope(&mut k, position, num_kv_heads);
         }
@@ -245,8 +253,16 @@ impl OwnedQuantizedModel {
         let mut k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
         let v = qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim].to_vec();
 
+        // GH-279: Per-head QK RMSNorm (Qwen3) — after bias, before RoPE
+        if let Some(ref q_norm) = layer.attn_q_norm_weight {
+            ops::apply_per_head_rms_norm(&mut q, q_norm, self.config.num_heads, self.config.eps);
+        }
+        if let Some(ref k_norm) = layer.attn_k_norm_weight {
+            ops::apply_per_head_rms_norm(&mut k, k_norm, num_kv_heads, self.config.eps);
+        }
+
         // GH-278: Skip RoPE for models with learned position embeddings (GPT-2)
-        if self.position_embedding.is_none() {
+        if self.config.constraints.uses_rope() {
             self.apply_rope(&mut q, position, self.config.num_heads);
             self.apply_rope(&mut k, position, num_kv_heads);
         }
@@ -334,11 +350,8 @@ impl OwnedQuantizedModel {
             }
         }
 
-        // Detect if model uses RMSNorm (LLaMA-style) or LayerNorm (phi-2 style)
-        let use_rmsnorm = self
-            .layers
-            .first()
-            .is_some_and(|l| l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none());
+        // GH-278: Use contract-derived norm type.
+        let use_rmsnorm = self.config.constraints.uses_rmsnorm();
 
         // GQA dimensions
         let num_kv_heads = self.config.num_kv_heads;

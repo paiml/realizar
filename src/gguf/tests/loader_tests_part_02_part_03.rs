@@ -7,6 +7,7 @@
 fn test_loader_part02_config_clone() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 256,
         num_layers: 8,
         num_heads: 16,
@@ -39,6 +40,7 @@ fn test_loader_part02_config_clone() {
 fn test_loader_part02_config_debug() {
     let config = GGUFConfig {
         architecture: "debug_test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("debug_test"),
         hidden_dim: 512,
         num_layers: 4,
         num_heads: 8,

@@ -72,6 +72,7 @@ mod tests {
 
         let config = GGUFConfig {
             architecture: "qwen2".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("qwen2"),
             hidden_dim,
             num_layers,
             num_heads,
@@ -101,6 +102,8 @@ mod tests {
                 ffn_down_bias: None,
                 ffn_norm_weight: None,
                 ffn_norm_bias: None,
+                attn_q_norm_weight: None,
+                attn_k_norm_weight: None,
             })
             .collect();
 

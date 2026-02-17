@@ -291,6 +291,10 @@ pub struct AprTransformerLayer {
     pub ffn_norm_weight: Option<Vec<f32>>,
     /// FFN norm bias (optional) [hidden_dim]
     pub ffn_norm_bias: Option<Vec<f32>>,
+    /// GH-279: Per-head Q RMSNorm weight [head_dim] (Qwen3)
+    pub attn_q_norm_weight: Option<Vec<f32>>,
+    /// GH-279: Per-head K RMSNorm weight [head_dim] (Qwen3)
+    pub attn_k_norm_weight: Option<Vec<f32>>,
 }
 
 impl AprTransformerLayer {
@@ -311,6 +315,8 @@ impl AprTransformerLayer {
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         }
     }
 
@@ -347,6 +353,8 @@ impl AprTransformerLayer {
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         }
     }
 
@@ -368,6 +376,8 @@ impl AprTransformerLayer {
         count += self.ffn_down_bias.as_ref().map_or(0, Vec::len);
         count += self.ffn_norm_weight.as_ref().map_or(0, Vec::len);
         count += self.ffn_norm_bias.as_ref().map_or(0, Vec::len);
+        count += self.attn_q_norm_weight.as_ref().map_or(0, Vec::len);
+        count += self.attn_k_norm_weight.as_ref().map_or(0, Vec::len);
         count
     }
 }

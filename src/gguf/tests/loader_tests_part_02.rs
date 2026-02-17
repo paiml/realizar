@@ -374,6 +374,7 @@ fn test_loader_part02_config_qwen2_0_5b_dimensions() {
 fn test_loader_part02_owned_model_new_for_test() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 32,
         num_layers: 1,
         num_heads: 4,
@@ -423,6 +424,8 @@ fn test_loader_part02_owned_model_new_for_test() {
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0f32; 32]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     }];
     let output_norm_weight = vec![1.0f32; 32];
     let lm_head_weight = OwnedQuantizedTensor {

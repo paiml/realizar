@@ -165,6 +165,8 @@ mod tests {
                 ffn_down_bias: None,
                 ffn_norm_weight: Some(vec![1.0; hidden]),
                 ffn_norm_bias: None,
+                attn_q_norm_weight: None,
+                attn_k_norm_weight: None,
             }],
             output_norm_weight: vec![1.0; hidden],
             output_norm_bias: None,

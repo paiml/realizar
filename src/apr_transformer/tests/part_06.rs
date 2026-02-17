@@ -134,6 +134,8 @@ fn test_layer_minimal() {
         ffn_down_bias: None,
         ffn_norm_weight: Some(vec![1.0; 64]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     assert_eq!(layer.attn_norm_weight.len(), 64);
@@ -157,6 +159,8 @@ fn test_layer_without_gate() {
         ffn_down_bias: None,
         ffn_norm_weight: Some(vec![1.0; 64]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     assert!(layer.ffn_gate_weight.is_none());
@@ -179,6 +183,8 @@ fn test_layer_with_biases() {
         ffn_down_bias: Some(vec![0.0; 64]),
         ffn_norm_weight: Some(vec![1.0; 64]),
         ffn_norm_bias: Some(vec![0.0; 64]),
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     assert!(layer.attn_norm_bias.is_some());

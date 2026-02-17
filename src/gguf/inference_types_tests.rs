@@ -17,6 +17,7 @@ use std::time::Duration;
 fn test_config() -> GGUFConfig {
     GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 256,
         num_layers: 4,
         num_heads: 8,
@@ -74,6 +75,7 @@ fn test_inference_scratch_buffer_q8k_padding() {
     // Test padding for non-multiple-of-256 dimensions
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 300,
         num_layers: 2,
         num_heads: 4,

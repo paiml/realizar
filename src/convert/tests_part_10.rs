@@ -434,6 +434,8 @@ fn make_tiny_transformer(num_layers: usize) -> AprTransformer {
                 ffn_down_bias: None,
                 ffn_norm_weight: Some(vec![1.0; hidden_dim]),
                 ffn_norm_bias: None,
+                attn_q_norm_weight: None,
+                attn_k_norm_weight: None,
             })
             .collect(),
         output_norm_weight: vec![1.0; hidden_dim],

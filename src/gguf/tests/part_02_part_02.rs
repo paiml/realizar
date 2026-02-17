@@ -5,6 +5,7 @@ fn test_imp_108c_attention_softmax_normalized() {
     // IMP-108c: Verify attention weights sum to 1 for each position
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 16,
         intermediate_dim: 32,
         num_layers: 1,

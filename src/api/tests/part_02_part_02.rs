@@ -36,6 +36,7 @@ async fn test_imp_128a_prometheus_format_endpoint() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -91,6 +92,7 @@ async fn test_imp_128b_prometheus_format_structure() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -149,6 +151,7 @@ async fn test_imp_128c_default_format_is_json() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -198,6 +201,7 @@ async fn test_imp_128d_explicit_json_format() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -248,6 +252,7 @@ async fn test_imp_130a_prometheus_includes_cpu_latency_histogram() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -314,6 +319,7 @@ async fn test_imp_130b_prometheus_includes_gpu_latency_histogram() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -379,6 +385,7 @@ async fn test_imp_130c_prometheus_latency_buckets_have_correct_labels() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,

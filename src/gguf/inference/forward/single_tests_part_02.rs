@@ -10,6 +10,7 @@ fn test_forward_single_gqa_config() {
     // Test GQA: num_kv_heads < num_heads (e.g., 4 Q heads share 2 KV heads)
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_heads: 4,
@@ -43,6 +44,8 @@ fn test_forward_single_gqa_config() {
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0f32; hidden_dim]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let model = OwnedQuantizedModel {
@@ -87,6 +90,7 @@ fn test_forward_single_multiple_layers() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_heads: 4,
@@ -120,6 +124,8 @@ fn test_forward_single_multiple_layers() {
             ffn_gate_bias: None,
             ffn_norm_weight: Some(vec![1.0f32; hidden_dim]),
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         })
         .collect();
 

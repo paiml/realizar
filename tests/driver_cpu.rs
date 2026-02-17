@@ -9,8 +9,9 @@
 //! Strategy: Top-Down Illumination - exercise the full path rather than unit tests
 
 use realizar::gguf::{
-    GGUFConfig, GGUFModel, OwnedQKVWeights, OwnedQuantizedKVCache, OwnedQuantizedLayer,
-    OwnedQuantizedModel, OwnedQuantizedTensor, GGUF_MAGIC, GGUF_TYPE_Q4_K, GGUF_VERSION_V3,
+    ArchConstraints, GGUFConfig, GGUFModel, OwnedQKVWeights, OwnedQuantizedKVCache,
+    OwnedQuantizedLayer, OwnedQuantizedModel, OwnedQuantizedTensor, GGUF_MAGIC, GGUF_TYPE_Q4_K,
+    GGUF_VERSION_V3,
 };
 
 // =============================================================================
@@ -86,6 +87,8 @@ fn create_llama_style_test_model(config: &GGUFConfig) -> OwnedQuantizedModel {
             ffn_gate_bias: None,
             ffn_norm_weight: Some(ffn_norm_weight.clone()), // LLaMA has separate FFN norm
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         });
     }
 
@@ -141,6 +144,8 @@ fn create_phi2_style_test_model(config: &GGUFConfig) -> OwnedQuantizedModel {
             ffn_gate_bias: None,
             ffn_norm_weight: None, // phi-2 reuses attn norm
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         });
     }
 
@@ -180,6 +185,7 @@ fn test_driver_cpu_forward_llama_single_token() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        constraints: ArchConstraints::from_architecture("llama"),
     };
 
     let model = create_llama_style_test_model(&config);
@@ -216,6 +222,7 @@ fn test_driver_cpu_forward_llama_multi_token() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        constraints: ArchConstraints::from_architecture("llama"),
     };
 
     let model = create_llama_style_test_model(&config);
@@ -246,6 +253,7 @@ fn test_driver_cpu_forward_phi2_single_token() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        constraints: ArchConstraints::from_architecture("phi"),
     };
 
     let model = create_phi2_style_test_model(&config);
@@ -278,6 +286,7 @@ fn test_driver_cpu_forward_gqa_attention() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        constraints: ArchConstraints::from_architecture("llama"),
     };
 
     let model = create_llama_style_test_model(&config);
@@ -312,6 +321,7 @@ fn test_driver_cpu_forward_cached_single() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        constraints: ArchConstraints::from_architecture("llama"),
     };
 
     let model = create_llama_style_test_model(&config);
@@ -340,6 +350,7 @@ fn test_driver_cpu_forward_cached_sequence() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        constraints: ArchConstraints::from_architecture("llama"),
     };
 
     let model = create_llama_style_test_model(&config);
@@ -382,6 +393,7 @@ fn test_driver_cpu_forward_cached_gqa() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        constraints: ArchConstraints::from_architecture("llama"),
     };
 
     let model = create_llama_style_test_model(&config);
@@ -496,6 +508,7 @@ fn test_driver_cpu_forward_max_context() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        constraints: ArchConstraints::from_architecture("llama"),
     };
 
     let model = create_llama_style_test_model(&config);
@@ -525,6 +538,7 @@ fn test_driver_cpu_forward_cached_long_generation() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        constraints: ArchConstraints::from_architecture("llama"),
     };
 
     let model = create_llama_style_test_model(&config);
@@ -553,6 +567,7 @@ fn test_driver_cpu_neox_rope() {
         eps: 1e-5,
         rope_type: 2, // NEOX style
         bos_token_id: None,
+        constraints: ArchConstraints::from_architecture("llama"),
     };
 
     let model = create_llama_style_test_model(&config);

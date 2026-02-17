@@ -3,6 +3,7 @@
 fn test_loader_part02_owned_model_with_biases() {
     let config = GGUFConfig {
         architecture: "phi2".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi2"),
         hidden_dim: 32,
         num_layers: 1,
         num_heads: 4,
@@ -52,6 +53,8 @@ fn test_loader_part02_owned_model_with_biases() {
         ffn_gate_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     }];
     let output_norm_weight = vec![1.0f32; 32];
     let output_norm_bias = Some(vec![0.0f32; 32]);
@@ -83,6 +86,7 @@ fn test_loader_part02_owned_model_with_biases() {
 fn test_loader_part02_owned_qkv_separate() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 32,
         num_layers: 1,
         num_heads: 4,
@@ -152,6 +156,8 @@ fn test_loader_part02_owned_qkv_separate() {
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0f32; 32]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     }];
 
     let model = OwnedQuantizedModel::new_for_test(

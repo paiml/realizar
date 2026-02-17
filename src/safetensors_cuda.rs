@@ -164,6 +164,9 @@ pub struct SafeTensorsCudaModel {
     /// PMAT-120 FIX: Output projection bias cache
     /// Key format: "o_bias.{layer_idx}"
     o_bias_cache: std::collections::HashMap<String, Vec<f32>>,
+    /// GH-279: QK norm weight cache (Qwen3 per-head RMSNorm)
+    /// Key format: "q_norm.{layer_idx}" or "k_norm.{layer_idx}"
+    qk_norm_cache: std::collections::HashMap<String, Vec<f32>>,
     /// GH-201: Streaming mode (true = layer-by-layer, false = full cache)
     streaming_mode: bool,
     /// GH-201: Path to SafeTensors file (kept for streaming mode weight loading)

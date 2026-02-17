@@ -38,6 +38,7 @@ fn tensor_ref(
 fn test_config(hidden_dim: usize, intermediate_dim: usize) -> GGUFConfig {
     GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim,
         num_layers: 1,
         num_heads: 4,
@@ -164,6 +165,8 @@ fn test_owned_quantized_layer_from_borrowed_minimal() {
         ffn_gate_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let data = create_test_data(400);
@@ -213,6 +216,8 @@ fn test_owned_quantized_layer_from_borrowed_with_gate() {
         ffn_gate_bias: Some(vec![0.0; 128]),
         ffn_norm_weight: Some(vec![1.0; 64]),
         ffn_norm_bias: Some(vec![0.0; 64]),
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let data = create_test_data(450);
@@ -269,6 +274,8 @@ fn test_owned_quantized_layer_from_borrowed_separate_qkv() {
         ffn_gate_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let data = create_test_data(450);

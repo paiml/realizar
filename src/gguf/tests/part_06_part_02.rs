@@ -188,6 +188,7 @@ fn test_imp_124a_forward_single_with_cache_adaptive() {
     // IMP-124a: forward_single_with_cache_adaptive should exist and produce valid output
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -236,6 +237,7 @@ fn test_imp_124b_adaptive_matches_standard() {
     // IMP-124b: Adaptive forward should match standard forward
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -283,6 +285,7 @@ fn test_imp_124c_tracks_metrics_per_layer() {
     // IMP-124c: Each layer should record a dispatch decision
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -335,6 +338,7 @@ fn test_imp_124d_long_cache_uses_gpu() {
     // IMP-124d: Long cache (>= 64 tokens) should trigger GPU dispatch
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -386,6 +390,7 @@ fn test_imp_125a_generate_with_cache_adaptive() {
     // IMP-125a: generate_with_cache_adaptive should exist and produce valid tokens
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,

@@ -96,6 +96,7 @@ fn test_parity008e_benchmark_reproducibility() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,

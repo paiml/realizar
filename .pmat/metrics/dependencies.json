@@ -1,364 +1,499 @@
 {
   "direct_count": 18,
   "transitive_count": 270,
-  "timestamp": "2026-02-15T07:19:58.591147622+00:00",
+  "timestamp": "2026-02-17T15:09:36.938999724+00:00",
   "previous": {
     "direct_count": 18,
     "transitive_count": 270,
-    "timestamp": "2026-02-15T07:06:45.636394367+00:00",
+    "timestamp": "2026-02-17T14:12:48.960771201+00:00",
     "previous": {
       "direct_count": 18,
       "transitive_count": 270,
-      "timestamp": "2026-02-14T23:37:57.414110597+00:00",
+      "timestamp": "2026-02-17T14:12:25.528914260+00:00",
       "previous": {
         "direct_count": 18,
         "transitive_count": 270,
-        "timestamp": "2026-02-14T23:37:26.152778206+00:00",
+        "timestamp": "2026-02-17T13:51:25.968581326+00:00",
         "previous": {
           "direct_count": 18,
           "transitive_count": 270,
-          "timestamp": "2026-02-14T23:37:17.974961368+00:00",
+          "timestamp": "2026-02-17T12:50:34.218155746+00:00",
           "previous": {
             "direct_count": 18,
             "transitive_count": 270,
-            "timestamp": "2026-02-14T23:36:16.866631612+00:00",
+            "timestamp": "2026-02-17T12:50:09.183064448+00:00",
             "previous": {
               "direct_count": 18,
               "transitive_count": 270,
-              "timestamp": "2026-02-14T23:36:09.306013036+00:00",
+              "timestamp": "2026-02-17T11:18:16.149113454+00:00",
               "previous": {
                 "direct_count": 18,
                 "transitive_count": 270,
-                "timestamp": "2026-02-14T23:35:43.507143715+00:00",
+                "timestamp": "2026-02-17T11:18:08.725511179+00:00",
                 "previous": {
                   "direct_count": 18,
                   "transitive_count": 270,
-                  "timestamp": "2026-02-14T23:35:00.611924239+00:00",
+                  "timestamp": "2026-02-17T11:18:00.906704472+00:00",
                   "previous": {
                     "direct_count": 18,
                     "transitive_count": 270,
-                    "timestamp": "2026-02-14T23:34:56.180793305+00:00",
+                    "timestamp": "2026-02-17T11:09:38.494710101+00:00",
                     "previous": {
                       "direct_count": 18,
                       "transitive_count": 270,
-                      "timestamp": "2026-02-14T23:34:37.415559566+00:00",
+                      "timestamp": "2026-02-16T13:52:36.619695896+00:00",
                       "previous": {
                         "direct_count": 18,
                         "transitive_count": 270,
-                        "timestamp": "2026-02-14T23:33:49.593572201+00:00",
+                        "timestamp": "2026-02-16T13:11:05.031163685+00:00",
                         "previous": {
                           "direct_count": 18,
                           "transitive_count": 270,
-                          "timestamp": "2026-02-14T23:33:39.443760012+00:00",
+                          "timestamp": "2026-02-16T13:08:43.624832415+00:00",
                           "previous": {
                             "direct_count": 18,
                             "transitive_count": 270,
-                            "timestamp": "2026-02-14T23:29:16.469635191+00:00",
+                            "timestamp": "2026-02-16T12:59:53.417565800+00:00",
                             "previous": {
                               "direct_count": 18,
                               "transitive_count": 270,
-                              "timestamp": "2026-02-14T23:29:08.610916127+00:00",
+                              "timestamp": "2026-02-16T12:59:38.310145418+00:00",
                               "previous": {
                                 "direct_count": 18,
                                 "transitive_count": 270,
-                                "timestamp": "2026-02-14T23:28:51.424360350+00:00",
+                                "timestamp": "2026-02-16T12:45:19.324034740+00:00",
                                 "previous": {
                                   "direct_count": 18,
                                   "transitive_count": 270,
-                                  "timestamp": "2026-02-14T23:28:43.647563441+00:00",
+                                  "timestamp": "2026-02-16T12:33:36.005291774+00:00",
                                   "previous": {
                                     "direct_count": 18,
                                     "transitive_count": 270,
-                                    "timestamp": "2026-02-14T23:28:18.592170078+00:00",
+                                    "timestamp": "2026-02-16T12:30:42.575055972+00:00",
                                     "previous": {
                                       "direct_count": 18,
                                       "transitive_count": 270,
-                                      "timestamp": "2026-02-14T23:27:59.307452241+00:00",
+                                      "timestamp": "2026-02-16T12:11:20.404654241+00:00",
                                       "previous": {
                                         "direct_count": 18,
                                         "transitive_count": 270,
-                                        "timestamp": "2026-02-14T23:27:03.793783309+00:00",
+                                        "timestamp": "2026-02-16T07:51:46.581203561+00:00",
                                         "previous": {
                                           "direct_count": 18,
                                           "transitive_count": 270,
-                                          "timestamp": "2026-02-14T23:26:59.923128045+00:00",
+                                          "timestamp": "2026-02-16T07:45:40.551795528+00:00",
                                           "previous": {
                                             "direct_count": 18,
                                             "transitive_count": 270,
-                                            "timestamp": "2026-02-14T23:26:56.065272338+00:00",
+                                            "timestamp": "2026-02-16T07:44:16.627476118+00:00",
                                             "previous": {
                                               "direct_count": 18,
                                               "transitive_count": 270,
-                                              "timestamp": "2026-02-14T23:26:48.964111544+00:00",
+                                              "timestamp": "2026-02-15T22:53:17.275532412+00:00",
                                               "previous": {
                                                 "direct_count": 18,
                                                 "transitive_count": 270,
-                                                "timestamp": "2026-02-14T23:26:31.347709209+00:00",
+                                                "timestamp": "2026-02-15T22:21:18.935993224+00:00",
                                                 "previous": {
                                                   "direct_count": 18,
                                                   "transitive_count": 270,
-                                                  "timestamp": "2026-02-14T23:26:14.841726040+00:00",
+                                                  "timestamp": "2026-02-15T22:06:10.269645443+00:00",
                                                   "previous": {
                                                     "direct_count": 18,
                                                     "transitive_count": 270,
-                                                    "timestamp": "2026-02-14T23:25:59.430908591+00:00",
+                                                    "timestamp": "2026-02-15T22:01:46.116896376+00:00",
                                                     "previous": {
                                                       "direct_count": 18,
                                                       "transitive_count": 270,
-                                                      "timestamp": "2026-02-14T23:23:19.675646634+00:00",
+                                                      "timestamp": "2026-02-15T21:27:49.779990239+00:00",
                                                       "previous": {
                                                         "direct_count": 18,
                                                         "transitive_count": 270,
-                                                        "timestamp": "2026-02-14T23:23:12.696510957+00:00",
+                                                        "timestamp": "2026-02-15T07:19:58.591147622+00:00",
                                                         "previous": {
                                                           "direct_count": 18,
                                                           "transitive_count": 270,
-                                                          "timestamp": "2026-02-14T23:23:01.899357090+00:00",
+                                                          "timestamp": "2026-02-15T07:06:45.636394367+00:00",
                                                           "previous": {
                                                             "direct_count": 18,
                                                             "transitive_count": 270,
-                                                            "timestamp": "2026-02-14T23:22:44.515879984+00:00",
+                                                            "timestamp": "2026-02-14T23:37:57.414110597+00:00",
                                                             "previous": {
                                                               "direct_count": 18,
                                                               "transitive_count": 270,
-                                                              "timestamp": "2026-02-14T23:12:21.086820309+00:00",
+                                                              "timestamp": "2026-02-14T23:37:26.152778206+00:00",
                                                               "previous": {
                                                                 "direct_count": 18,
                                                                 "transitive_count": 270,
-                                                                "timestamp": "2026-02-14T23:07:05.716687570+00:00",
+                                                                "timestamp": "2026-02-14T23:37:17.974961368+00:00",
                                                                 "previous": {
                                                                   "direct_count": 18,
                                                                   "transitive_count": 270,
-                                                                  "timestamp": "2026-02-14T22:53:30.864668448+00:00",
+                                                                  "timestamp": "2026-02-14T23:36:16.866631612+00:00",
                                                                   "previous": {
                                                                     "direct_count": 18,
                                                                     "transitive_count": 270,
-                                                                    "timestamp": "2026-02-14T22:29:48.878645604+00:00",
+                                                                    "timestamp": "2026-02-14T23:36:09.306013036+00:00",
                                                                     "previous": {
                                                                       "direct_count": 18,
                                                                       "transitive_count": 270,
-                                                                      "timestamp": "2026-02-14T22:29:41.503924574+00:00",
+                                                                      "timestamp": "2026-02-14T23:35:43.507143715+00:00",
                                                                       "previous": {
                                                                         "direct_count": 18,
                                                                         "transitive_count": 270,
-                                                                        "timestamp": "2026-02-14T22:29:18.896853306+00:00",
+                                                                        "timestamp": "2026-02-14T23:35:00.611924239+00:00",
                                                                         "previous": {
                                                                           "direct_count": 18,
                                                                           "transitive_count": 270,
-                                                                          "timestamp": "2026-02-14T21:25:26.843774919+00:00",
+                                                                          "timestamp": "2026-02-14T23:34:56.180793305+00:00",
                                                                           "previous": {
                                                                             "direct_count": 18,
                                                                             "transitive_count": 270,
-                                                                            "timestamp": "2026-02-14T14:45:02.496515456+00:00",
+                                                                            "timestamp": "2026-02-14T23:34:37.415559566+00:00",
                                                                             "previous": {
                                                                               "direct_count": 18,
                                                                               "transitive_count": 270,
-                                                                              "timestamp": "2026-02-14T13:47:26.065219214+00:00",
+                                                                              "timestamp": "2026-02-14T23:33:49.593572201+00:00",
                                                                               "previous": {
                                                                                 "direct_count": 18,
                                                                                 "transitive_count": 270,
-                                                                                "timestamp": "2026-02-14T13:36:51.434903793+00:00",
+                                                                                "timestamp": "2026-02-14T23:33:39.443760012+00:00",
                                                                                 "previous": {
                                                                                   "direct_count": 18,
                                                                                   "transitive_count": 270,
-                                                                                  "timestamp": "2026-02-11T18:36:33.330847759+00:00",
+                                                                                  "timestamp": "2026-02-14T23:29:16.469635191+00:00",
                                                                                   "previous": {
                                                                                     "direct_count": 18,
                                                                                     "transitive_count": 270,
-                                                                                    "timestamp": "2026-02-11T06:43:59.082446816+00:00",
+                                                                                    "timestamp": "2026-02-14T23:29:08.610916127+00:00",
                                                                                     "previous": {
                                                                                       "direct_count": 18,
                                                                                       "transitive_count": 270,
-                                                                                      "timestamp": "2026-02-10T15:57:34.837168237+00:00",
+                                                                                      "timestamp": "2026-02-14T23:28:51.424360350+00:00",
                                                                                       "previous": {
                                                                                         "direct_count": 18,
                                                                                         "transitive_count": 270,
-                                                                                        "timestamp": "2026-02-10T11:02:24.761118539+00:00",
+                                                                                        "timestamp": "2026-02-14T23:28:43.647563441+00:00",
                                                                                         "previous": {
                                                                                           "direct_count": 18,
                                                                                           "transitive_count": 270,
-                                                                                          "timestamp": "2026-02-10T10:49:14.814147173+00:00",
+                                                                                          "timestamp": "2026-02-14T23:28:18.592170078+00:00",
                                                                                           "previous": {
                                                                                             "direct_count": 18,
                                                                                             "transitive_count": 270,
-                                                                                            "timestamp": "2026-02-10T10:18:47.915892260+00:00",
+                                                                                            "timestamp": "2026-02-14T23:27:59.307452241+00:00",
                                                                                             "previous": {
                                                                                               "direct_count": 18,
                                                                                               "transitive_count": 270,
-                                                                                              "timestamp": "2026-02-10T08:31:03.715673735+00:00",
+                                                                                              "timestamp": "2026-02-14T23:27:03.793783309+00:00",
                                                                                               "previous": {
                                                                                                 "direct_count": 18,
                                                                                                 "transitive_count": 270,
-                                                                                                "timestamp": "2026-02-09T16:15:13.406855307+00:00",
+                                                                                                "timestamp": "2026-02-14T23:26:59.923128045+00:00",
                                                                                                 "previous": {
                                                                                                   "direct_count": 18,
                                                                                                   "transitive_count": 270,
-                                                                                                  "timestamp": "2026-02-09T16:13:44.338508642+00:00",
+                                                                                                  "timestamp": "2026-02-14T23:26:56.065272338+00:00",
                                                                                                   "previous": {
                                                                                                     "direct_count": 18,
                                                                                                     "transitive_count": 270,
-                                                                                                    "timestamp": "2026-02-09T16:00:15.735355166+00:00",
+                                                                                                    "timestamp": "2026-02-14T23:26:48.964111544+00:00",
                                                                                                     "previous": {
                                                                                                       "direct_count": 18,
                                                                                                       "transitive_count": 270,
-                                                                                                      "timestamp": "2026-02-09T15:29:00.947335513+00:00",
+                                                                                                      "timestamp": "2026-02-14T23:26:31.347709209+00:00",
                                                                                                       "previous": {
                                                                                                         "direct_count": 18,
                                                                                                         "transitive_count": 270,
-                                                                                                        "timestamp": "2026-02-09T14:05:49.219671544+00:00",
+                                                                                                        "timestamp": "2026-02-14T23:26:14.841726040+00:00",
                                                                                                         "previous": {
                                                                                                           "direct_count": 18,
                                                                                                           "transitive_count": 270,
-                                                                                                          "timestamp": "2026-02-09T13:35:56.206140333+00:00",
+                                                                                                          "timestamp": "2026-02-14T23:25:59.430908591+00:00",
                                                                                                           "previous": {
                                                                                                             "direct_count": 18,
                                                                                                             "transitive_count": 270,
-                                                                                                            "timestamp": "2026-02-09T13:08:03.644746546+00:00",
+                                                                                                            "timestamp": "2026-02-14T23:23:19.675646634+00:00",
                                                                                                             "previous": {
                                                                                                               "direct_count": 18,
                                                                                                               "transitive_count": 270,
-                                                                                                              "timestamp": "2026-02-09T12:48:30.934658468+00:00",
+                                                                                                              "timestamp": "2026-02-14T23:23:12.696510957+00:00",
                                                                                                               "previous": {
                                                                                                                 "direct_count": 18,
                                                                                                                 "transitive_count": 270,
-                                                                                                                "timestamp": "2026-02-09T12:48:08.754587197+00:00",
+                                                                                                                "timestamp": "2026-02-14T23:23:01.899357090+00:00",
                                                                                                                 "previous": {
                                                                                                                   "direct_count": 18,
                                                                                                                   "transitive_count": 270,
-                                                                                                                  "timestamp": "2026-02-09T11:30:57.720047749+00:00",
+                                                                                                                  "timestamp": "2026-02-14T23:22:44.515879984+00:00",
                                                                                                                   "previous": {
                                                                                                                     "direct_count": 18,
                                                                                                                     "transitive_count": 270,
-                                                                                                                    "timestamp": "2026-02-09T08:56:10.952481588+00:00",
+                                                                                                                    "timestamp": "2026-02-14T23:12:21.086820309+00:00",
                                                                                                                     "previous": {
                                                                                                                       "direct_count": 18,
                                                                                                                       "transitive_count": 270,
-                                                                                                                      "timestamp": "2026-02-08T16:11:53.118565170+00:00",
+                                                                                                                      "timestamp": "2026-02-14T23:07:05.716687570+00:00",
                                                                                                                       "previous": {
                                                                                                                         "direct_count": 18,
                                                                                                                         "transitive_count": 270,
-                                                                                                                        "timestamp": "2026-02-08T14:22:39.215268010+00:00",
+                                                                                                                        "timestamp": "2026-02-14T22:53:30.864668448+00:00",
                                                                                                                         "previous": {
                                                                                                                           "direct_count": 18,
                                                                                                                           "transitive_count": 270,
-                                                                                                                          "timestamp": "2026-02-08T13:40:59.309030477+00:00",
+                                                                                                                          "timestamp": "2026-02-14T22:29:48.878645604+00:00",
                                                                                                                           "previous": {
                                                                                                                             "direct_count": 18,
                                                                                                                             "transitive_count": 270,
-                                                                                                                            "timestamp": "2026-02-08T13:30:57.666973137+00:00",
+                                                                                                                            "timestamp": "2026-02-14T22:29:41.503924574+00:00",
                                                                                                                             "previous": {
                                                                                                                               "direct_count": 18,
                                                                                                                               "transitive_count": 270,
-                                                                                                                              "timestamp": "2026-02-08T10:51:17.250540717+00:00",
+                                                                                                                              "timestamp": "2026-02-14T22:29:18.896853306+00:00",
                                                                                                                               "previous": {
                                                                                                                                 "direct_count": 18,
                                                                                                                                 "transitive_count": 270,
-                                                                                                                                "timestamp": "2026-02-08T09:38:30.102640254+00:00",
+                                                                                                                                "timestamp": "2026-02-14T21:25:26.843774919+00:00",
                                                                                                                                 "previous": {
                                                                                                                                   "direct_count": 18,
-                                                                                                                                  "transitive_count": 619,
-                                                                                                                                  "timestamp": "2026-02-07T19:41:49.273259823+00:00",
+                                                                                                                                  "transitive_count": 270,
+                                                                                                                                  "timestamp": "2026-02-14T14:45:02.496515456+00:00",
                                                                                                                                   "previous": {
                                                                                                                                     "direct_count": 18,
-                                                                                                                                    "transitive_count": 619,
-                                                                                                                                    "timestamp": "2026-02-06T10:43:04.649157012+00:00",
+                                                                                                                                    "transitive_count": 270,
+                                                                                                                                    "timestamp": "2026-02-14T13:47:26.065219214+00:00",
                                                                                                                                     "previous": {
                                                                                                                                       "direct_count": 18,
-                                                                                                                                      "transitive_count": 619,
-                                                                                                                                      "timestamp": "2026-02-06T10:23:03.080647220+00:00",
+                                                                                                                                      "transitive_count": 270,
+                                                                                                                                      "timestamp": "2026-02-14T13:36:51.434903793+00:00",
                                                                                                                                       "previous": {
                                                                                                                                         "direct_count": 18,
-                                                                                                                                        "transitive_count": 619,
-                                                                                                                                        "timestamp": "2026-02-06T10:09:54.755064604+00:00",
+                                                                                                                                        "transitive_count": 270,
+                                                                                                                                        "timestamp": "2026-02-11T18:36:33.330847759+00:00",
                                                                                                                                         "previous": {
                                                                                                                                           "direct_count": 18,
-                                                                                                                                          "transitive_count": 619,
-                                                                                                                                          "timestamp": "2026-02-06T08:58:22.016250431+00:00",
+                                                                                                                                          "transitive_count": 270,
+                                                                                                                                          "timestamp": "2026-02-11T06:43:59.082446816+00:00",
                                                                                                                                           "previous": {
                                                                                                                                             "direct_count": 18,
-                                                                                                                                            "transitive_count": 619,
-                                                                                                                                            "timestamp": "2026-02-06T08:58:15.482770949+00:00",
+                                                                                                                                            "transitive_count": 270,
+                                                                                                                                            "timestamp": "2026-02-10T15:57:34.837168237+00:00",
                                                                                                                                             "previous": {
                                                                                                                                               "direct_count": 18,
-                                                                                                                                              "transitive_count": 619,
-                                                                                                                                              "timestamp": "2026-02-06T08:58:10.943364337+00:00",
+                                                                                                                                              "transitive_count": 270,
+                                                                                                                                              "timestamp": "2026-02-10T11:02:24.761118539+00:00",
                                                                                                                                               "previous": {
                                                                                                                                                 "direct_count": 18,
-                                                                                                                                                "transitive_count": 619,
-                                                                                                                                                "timestamp": "2026-02-06T08:58:05.530409430+00:00",
+                                                                                                                                                "transitive_count": 270,
+                                                                                                                                                "timestamp": "2026-02-10T10:49:14.814147173+00:00",
                                                                                                                                                 "previous": {
                                                                                                                                                   "direct_count": 18,
-                                                                                                                                                  "transitive_count": 619,
-                                                                                                                                                  "timestamp": "2026-02-06T08:57:59.983662798+00:00",
+                                                                                                                                                  "transitive_count": 270,
+                                                                                                                                                  "timestamp": "2026-02-10T10:18:47.915892260+00:00",
                                                                                                                                                   "previous": {
                                                                                                                                                     "direct_count": 18,
-                                                                                                                                                    "transitive_count": 619,
-                                                                                                                                                    "timestamp": "2026-02-06T08:57:53.000333949+00:00",
+                                                                                                                                                    "transitive_count": 270,
+                                                                                                                                                    "timestamp": "2026-02-10T08:31:03.715673735+00:00",
                                                                                                                                                     "previous": {
                                                                                                                                                       "direct_count": 18,
-                                                                                                                                                      "transitive_count": 619,
-                                                                                                                                                      "timestamp": "2026-02-06T08:11:32.912410726+00:00",
+                                                                                                                                                      "transitive_count": 270,
+                                                                                                                                                      "timestamp": "2026-02-09T16:15:13.406855307+00:00",
                                                                                                                                                       "previous": {
                                                                                                                                                         "direct_count": 18,
-                                                                                                                                                        "transitive_count": 619,
-                                                                                                                                                        "timestamp": "2026-02-06T07:56:03.033476934+00:00",
+                                                                                                                                                        "transitive_count": 270,
+                                                                                                                                                        "timestamp": "2026-02-09T16:13:44.338508642+00:00",
                                                                                                                                                         "previous": {
                                                                                                                                                           "direct_count": 18,
-                                                                                                                                                          "transitive_count": 619,
-                                                                                                                                                          "timestamp": "2026-02-05T17:11:21.124838469+00:00",
+                                                                                                                                                          "transitive_count": 270,
+                                                                                                                                                          "timestamp": "2026-02-09T16:00:15.735355166+00:00",
                                                                                                                                                           "previous": {
                                                                                                                                                             "direct_count": 18,
-                                                                                                                                                            "transitive_count": 619,
-                                                                                                                                                            "timestamp": "2026-02-05T16:42:49.426304433+00:00",
+                                                                                                                                                            "transitive_count": 270,
+                                                                                                                                                            "timestamp": "2026-02-09T15:29:00.947335513+00:00",
                                                                                                                                                             "previous": {
                                                                                                                                                               "direct_count": 18,
-                                                                                                                                                              "transitive_count": 619,
-                                                                                                                                                              "timestamp": "2026-02-05T16:19:36.166691135+00:00",
+                                                                                                                                                              "transitive_count": 270,
+                                                                                                                                                              "timestamp": "2026-02-09T14:05:49.219671544+00:00",
                                                                                                                                                               "previous": {
                                                                                                                                                                 "direct_count": 18,
-                                                                                                                                                                "transitive_count": 619,
-                                                                                                                                                                "timestamp": "2026-02-05T16:07:00.838802667+00:00",
+                                                                                                                                                                "transitive_count": 270,
+                                                                                                                                                                "timestamp": "2026-02-09T13:35:56.206140333+00:00",
                                                                                                                                                                 "previous": {
                                                                                                                                                                   "direct_count": 18,
-                                                                                                                                                                  "transitive_count": 619,
-                                                                                                                                                                  "timestamp": "2026-02-05T16:05:13.715092493+00:00",
+                                                                                                                                                                  "transitive_count": 270,
+                                                                                                                                                                  "timestamp": "2026-02-09T13:08:03.644746546+00:00",
                                                                                                                                                                   "previous": {
                                                                                                                                                                     "direct_count": 18,
-                                                                                                                                                                    "transitive_count": 619,
-                                                                                                                                                                    "timestamp": "2026-02-05T16:04:52.844333468+00:00",
+                                                                                                                                                                    "transitive_count": 270,
+                                                                                                                                                                    "timestamp": "2026-02-09T12:48:30.934658468+00:00",
                                                                                                                                                                     "previous": {
                                                                                                                                                                       "direct_count": 18,
-                                                                                                                                                                      "transitive_count": 619,
-                                                                                                                                                                      "timestamp": "2026-02-05T16:03:13.552832502+00:00",
+                                                                                                                                                                      "transitive_count": 270,
+                                                                                                                                                                      "timestamp": "2026-02-09T12:48:08.754587197+00:00",
                                                                                                                                                                       "previous": {
                                                                                                                                                                         "direct_count": 18,
-                                                                                                                                                                        "transitive_count": 619,
-                                                                                                                                                                        "timestamp": "2026-02-05T15:59:59.897005689+00:00",
+                                                                                                                                                                        "transitive_count": 270,
+                                                                                                                                                                        "timestamp": "2026-02-09T11:30:57.720047749+00:00",
                                                                                                                                                                         "previous": {
                                                                                                                                                                           "direct_count": 18,
-                                                                                                                                                                          "transitive_count": 619,
-                                                                                                                                                                          "timestamp": "2026-02-05T15:47:46.629055137+00:00",
+                                                                                                                                                                          "transitive_count": 270,
+                                                                                                                                                                          "timestamp": "2026-02-09T08:56:10.952481588+00:00",
                                                                                                                                                                           "previous": {
                                                                                                                                                                             "direct_count": 18,
-                                                                                                                                                                            "transitive_count": 619,
-                                                                                                                                                                            "timestamp": "2026-02-05T15:47:21.699639227+00:00",
+                                                                                                                                                                            "transitive_count": 270,
+                                                                                                                                                                            "timestamp": "2026-02-08T16:11:53.118565170+00:00",
                                                                                                                                                                             "previous": {
                                                                                                                                                                               "direct_count": 18,
-                                                                                                                                                                              "transitive_count": 619,
-                                                                                                                                                                              "timestamp": "2026-02-05T15:14:36.651023486+00:00",
+                                                                                                                                                                              "transitive_count": 270,
+                                                                                                                                                                              "timestamp": "2026-02-08T14:22:39.215268010+00:00",
                                                                                                                                                                               "previous": {
                                                                                                                                                                                 "direct_count": 18,
-                                                                                                                                                                                "transitive_count": 619,
-                                                                                                                                                                                "timestamp": "2026-02-05T15:12:23.938978899+00:00",
+                                                                                                                                                                                "transitive_count": 270,
+                                                                                                                                                                                "timestamp": "2026-02-08T13:40:59.309030477+00:00",
                                                                                                                                                                                 "previous": {
                                                                                                                                                                                   "direct_count": 18,
-                                                                                                                                                                                  "transitive_count": 619,
-                                                                                                                                                                                  "timestamp": "2026-02-04T16:15:46.228438342+00:00",
+                                                                                                                                                                                  "transitive_count": 270,
+                                                                                                                                                                                  "timestamp": "2026-02-08T13:30:57.666973137+00:00",
                                                                                                                                                                                   "previous": {
                                                                                                                                                                                     "direct_count": 18,
-                                                                                                                                                                                    "transitive_count": 619,
-                                                                                                                                                                                    "timestamp": "2026-02-03T18:55:08.377594382+00:00",
-                                                                                                                                                                                    "previous": null
+                                                                                                                                                                                    "transitive_count": 270,
+                                                                                                                                                                                    "timestamp": "2026-02-08T10:51:17.250540717+00:00",
+                                                                                                                                                                                    "previous": {
+                                                                                                                                                                                      "direct_count": 18,
+                                                                                                                                                                                      "transitive_count": 270,
+                                                                                                                                                                                      "timestamp": "2026-02-08T09:38:30.102640254+00:00",
+                                                                                                                                                                                      "previous": {
+                                                                                                                                                                                        "direct_count": 18,
+                                                                                                                                                                                        "transitive_count": 619,
+                                                                                                                                                                                        "timestamp": "2026-02-07T19:41:49.273259823+00:00",
+                                                                                                                                                                                        "previous": {
+                                                                                                                                                                                          "direct_count": 18,
+                                                                                                                                                                                          "transitive_count": 619,
+                                                                                                                                                                                          "timestamp": "2026-02-06T10:43:04.649157012+00:00",
+                                                                                                                                                                                          "previous": {
+                                                                                                                                                                                            "direct_count": 18,
+                                                                                                                                                                                            "transitive_count": 619,
+                                                                                                                                                                                            "timestamp": "2026-02-06T10:23:03.080647220+00:00",
+                                                                                                                                                                                            "previous": {
+                                                                                                                                                                                              "direct_count": 18,
+                                                                                                                                                                                              "transitive_count": 619,
+                                                                                                                                                                                              "timestamp": "2026-02-06T10:09:54.755064604+00:00",
+                                                                                                                                                                                              "previous": {
+                                                                                                                                                                                                "direct_count": 18,
+                                                                                                                                                                                                "transitive_count": 619,
+                                                                                                                                                                                                "timestamp": "2026-02-06T08:58:22.016250431+00:00",
+                                                                                                                                                                                                "previous": {
+                                                                                                                                                                                                  "direct_count": 18,
+                                                                                                                                                                                                  "transitive_count": 619,
+                                                                                                                                                                                                  "timestamp": "2026-02-06T08:58:15.482770949+00:00",
+                                                                                                                                                                                                  "previous": {
+                                                                                                                                                                                                    "direct_count": 18,
+                                                                                                                                                                                                    "transitive_count": 619,
+                                                                                                                                                                                                    "timestamp": "2026-02-06T08:58:10.943364337+00:00",
+                                                                                                                                                                                                    "previous": {
+                                                                                                                                                                                                      "direct_count": 18,
+                                                                                                                                                                                                      "transitive_count": 619,
+                                                                                                                                                                                                      "timestamp": "2026-02-06T08:58:05.530409430+00:00",
+                                                                                                                                                                                                      "previous": {
+                                                                                                                                                                                                        "direct_count": 18,
+                                                                                                                                                                                                        "transitive_count": 619,
+                                                                                                                                                                                                        "timestamp": "2026-02-06T08:57:59.983662798+00:00",
+                                                                                                                                                                                                        "previous": {
+                                                                                                                                                                                                          "direct_count": 18,
+                                                                                                                                                                                                          "transitive_count": 619,
+                                                                                                                                                                                                          "timestamp": "2026-02-06T08:57:53.000333949+00:00",
+                                                                                                                                                                                                          "previous": {
+                                                                                                                                                                                                            "direct_count": 18,
+                                                                                                                                                                                                            "transitive_count": 619,
+                                                                                                                                                                                                            "timestamp": "2026-02-06T08:11:32.912410726+00:00",
+                                                                                                                                                                                                            "previous": {
+                                                                                                                                                                                                              "direct_count": 18,
+                                                                                                                                                                                                              "transitive_count": 619,
+                                                                                                                                                                                                              "timestamp": "2026-02-06T07:56:03.033476934+00:00",
+                                                                                                                                                                                                              "previous": {
+                                                                                                                                                                                                                "direct_count": 18,
+                                                                                                                                                                                                                "transitive_count": 619,
+                                                                                                                                                                                                                "timestamp": "2026-02-05T17:11:21.124838469+00:00",
+                                                                                                                                                                                                                "previous": {
+                                                                                                                                                                                                                  "direct_count": 18,
+                                                                                                                                                                                                                  "transitive_count": 619,
+                                                                                                                                                                                                                  "timestamp": "2026-02-05T16:42:49.426304433+00:00",
+                                                                                                                                                                                                                  "previous": {
+                                                                                                                                                                                                                    "direct_count": 18,
+                                                                                                                                                                                                                    "transitive_count": 619,
+                                                                                                                                                                                                                    "timestamp": "2026-02-05T16:19:36.166691135+00:00",
+                                                                                                                                                                                                                    "previous": {
+                                                                                                                                                                                                                      "direct_count": 18,
+                                                                                                                                                                                                                      "transitive_count": 619,
+                                                                                                                                                                                                                      "timestamp": "2026-02-05T16:07:00.838802667+00:00",
+                                                                                                                                                                                                                      "previous": {
+                                                                                                                                                                                                                        "direct_count": 18,
+                                                                                                                                                                                                                        "transitive_count": 619,
+                                                                                                                                                                                                                        "timestamp": "2026-02-05T16:05:13.715092493+00:00",
+                                                                                                                                                                                                                        "previous": {
+                                                                                                                                                                                                                          "direct_count": 18,
+                                                                                                                                                                                                                          "transitive_count": 619,
+                                                                                                                                                                                                                          "timestamp": "2026-02-05T16:04:52.844333468+00:00",
+                                                                                                                                                                                                                          "previous": {
+                                                                                                                                                                                                                            "direct_count": 18,
+                                                                                                                                                                                                                            "transitive_count": 619,
+                                                                                                                                                                                                                            "timestamp": "2026-02-05T16:03:13.552832502+00:00",
+                                                                                                                                                                                                                            "previous": {
+                                                                                                                                                                                                                              "direct_count": 18,
+                                                                                                                                                                                                                              "transitive_count": 619,
+                                                                                                                                                                                                                              "timestamp": "2026-02-05T15:59:59.897005689+00:00",
+                                                                                                                                                                                                                              "previous": {
+                                                                                                                                                                                                                                "direct_count": 18,
+                                                                                                                                                                                                                                "transitive_count": 619,
+                                                                                                                                                                                                                                "timestamp": "2026-02-05T15:47:46.629055137+00:00",
+                                                                                                                                                                                                                                "previous": {
+                                                                                                                                                                                                                                  "direct_count": 18,
+                                                                                                                                                                                                                                  "transitive_count": 619,
+                                                                                                                                                                                                                                  "timestamp": "2026-02-05T15:47:21.699639227+00:00",
+                                                                                                                                                                                                                                  "previous": {
+                                                                                                                                                                                                                                    "direct_count": 18,
+                                                                                                                                                                                                                                    "transitive_count": 619,
+                                                                                                                                                                                                                                    "timestamp": "2026-02-05T15:14:36.651023486+00:00",
+                                                                                                                                                                                                                                    "previous": {
+                                                                                                                                                                                                                                      "direct_count": 18,
+                                                                                                                                                                                                                                      "transitive_count": 619,
+                                                                                                                                                                                                                                      "timestamp": "2026-02-05T15:12:23.938978899+00:00",
+                                                                                                                                                                                                                                      "previous": {
+                                                                                                                                                                                                                                        "direct_count": 18,
+                                                                                                                                                                                                                                        "transitive_count": 619,
+                                                                                                                                                                                                                                        "timestamp": "2026-02-04T16:15:46.228438342+00:00",
+                                                                                                                                                                                                                                        "previous": {
+                                                                                                                                                                                                                                          "direct_count": 18,
+                                                                                                                                                                                                                                          "transitive_count": 619,
+                                                                                                                                                                                                                                          "timestamp": "2026-02-03T18:55:08.377594382+00:00",
+                                                                                                                                                                                                                                          "previous": null
+                                                                                                                                                                                                                                        }
+                                                                                                                                                                                                                                      }
+                                                                                                                                                                                                                                    }
+                                                                                                                                                                                                                                  }
+                                                                                                                                                                                                                                }
+                                                                                                                                                                                                                              }
+                                                                                                                                                                                                                            }
+                                                                                                                                                                                                                          }
+                                                                                                                                                                                                                        }
+                                                                                                                                                                                                                      }
+                                                                                                                                                                                                                    }
+                                                                                                                                                                                                                  }
+                                                                                                                                                                                                                }
+                                                                                                                                                                                                              }
+                                                                                                                                                                                                            }
+                                                                                                                                                                                                          }
+                                                                                                                                                                                                        }
+                                                                                                                                                                                                      }
+                                                                                                                                                                                                    }
+                                                                                                                                                                                                  }
+                                                                                                                                                                                                }
+                                                                                                                                                                                              }
+                                                                                                                                                                                            }
+                                                                                                                                                                                          }
+                                                                                                                                                                                        }
+                                                                                                                                                                                      }
+                                                                                                                                                                                    }
                                                                                                                                                                                   }
                                                                                                                                                                                 }
                                                                                                                                                                               }

@@ -71,6 +71,8 @@ fn test_owned_quantized_layer_clone() {
         ffn_gate_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let cloned = original.clone();

@@ -367,6 +367,7 @@ mod tests {
     fn test_kv_cache_from_config() {
         let config = GGUFConfig {
             architecture: "llama".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
             hidden_dim: 256,
             num_layers: 4,
             num_heads: 4,

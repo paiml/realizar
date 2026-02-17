@@ -24,6 +24,7 @@ async fn test_imp_116d_scheduler_reuse_across_requests() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -75,6 +76,7 @@ fn test_imp_126a_appstate_has_dispatch_metrics() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -123,6 +125,7 @@ fn test_imp_126b_cached_sync_has_generate_adaptive() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -169,6 +172,7 @@ fn test_imp_126c_dispatch_metrics_integration() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -216,6 +220,7 @@ fn test_imp_126d_handler_uses_adaptive_generation() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -276,6 +281,7 @@ async fn test_imp_127a_dispatch_metrics_endpoint_exists() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -331,6 +337,7 @@ async fn test_imp_127b_dispatch_metrics_response_structure() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -394,6 +401,7 @@ async fn test_imp_127c_dispatch_metrics_starts_zero() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,

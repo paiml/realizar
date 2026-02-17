@@ -67,6 +67,8 @@ pub(crate) fn create_test_model_with_config(config: &GGUFConfig) -> OwnedQuantiz
         ffn_gate_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let token_embedding = vec![0.1f32; vocab_size * hidden_dim];
@@ -161,6 +163,7 @@ mod tests {
     fn test_create_test_model_with_config_basic() {
         let config = GGUFConfig {
             architecture: "test".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("test"),
             hidden_dim: 64,
             intermediate_dim: 128,
             num_heads: 4,
@@ -222,6 +225,7 @@ mod tests {
         // Test with GQA (different num_heads and num_kv_heads)
         let config = GGUFConfig {
             architecture: "gqa_test".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("gqa_test"),
             hidden_dim: 128,
             intermediate_dim: 256,
             num_heads: 8,
@@ -244,6 +248,7 @@ mod tests {
     fn test_create_test_model_output_norm() {
         let config = GGUFConfig {
             architecture: "test".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("test"),
             hidden_dim: 32,
             intermediate_dim: 64,
             num_heads: 2,
@@ -270,6 +275,7 @@ mod tests {
     fn test_create_test_model_lm_head() {
         let config = GGUFConfig {
             architecture: "test".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("test"),
             hidden_dim: 64,
             intermediate_dim: 128,
             num_heads: 4,
@@ -293,6 +299,7 @@ mod tests {
     fn test_create_test_model_layer_attn_norm() {
         let config = GGUFConfig {
             architecture: "test".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("test"),
             hidden_dim: 48,
             intermediate_dim: 96,
             num_heads: 3,

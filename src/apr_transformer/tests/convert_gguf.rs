@@ -9,6 +9,7 @@ use crate::gguf::{GGUFConfig, GGUFTransformer, GGUFTransformerLayer};
 fn make_gguf_config(hidden: usize, layers: usize, heads: usize, kv_heads: usize) -> GGUFConfig {
     GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: hidden,
         num_layers: layers,
         num_heads: heads,
@@ -46,6 +47,8 @@ fn make_gguf_layer_swiglu(
         ffn_down_bias: None,
         ffn_norm_weight: Some(vec![1.0; hidden]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     }
 }
 
@@ -72,6 +75,8 @@ fn make_gguf_layer_gelu(
         ffn_down_bias: Some(vec![0.0; hidden]),
         ffn_norm_weight: Some(vec![1.0; hidden]),
         ffn_norm_bias: Some(vec![0.0; hidden]),
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     }
 }
 

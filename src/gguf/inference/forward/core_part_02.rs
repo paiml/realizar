@@ -16,11 +16,8 @@ impl OwnedQuantizedModel {
     ) -> Result<Vec<f32>> {
         let hidden_dim = self.config.hidden_dim;
 
-        // Detect architecture: LLaMA uses RMSNorm (no bias) and SwiGLU (has gate weight)
-        let use_rmsnorm = self
-            .layers
-            .first()
-            .is_some_and(|l| l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none());
+        // GH-278: Use contract-derived norm type instead of runtime heuristics.
+        let use_rmsnorm = self.config.constraints.uses_rmsnorm();
 
         // 1. Token embedding lookup
         let mut hidden = self.embed(&[token_id]);
@@ -192,7 +189,7 @@ impl OwnedQuantizedModel {
 
         // Apply RoPE with correct head counts for GQA
         // GH-278: Skip RoPE for models with learned position embeddings (GPT-2)
-        if self.position_embedding.is_none() {
+        if self.config.constraints.uses_rope() {
             self.apply_rope(&mut q, position, self.config.num_heads);
             self.apply_rope(&mut k, position, self.config.num_kv_heads);
         }

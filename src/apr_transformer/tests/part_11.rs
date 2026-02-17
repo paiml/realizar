@@ -49,6 +49,8 @@ fn build_apr_with_q4k_fused(
         ffn_down_bias: None,
         ffn_norm_weight: Some(vec![1.0; hidden]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     // Q4K layer with separate weights for fused kernel dispatch
@@ -113,6 +115,8 @@ fn build_apr_with_q6k_variants(hidden: usize, intermediate: usize, vocab: usize)
         ffn_down_bias: None,
         ffn_norm_weight: Some(vec![1.0; hidden]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     // Q4K layer with Q6K fallback variants

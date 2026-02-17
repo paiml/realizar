@@ -18,6 +18,7 @@ fn test_phase33_forward_basic() {
     // Illuminates: forward/core.rs:forward()
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -48,6 +49,7 @@ fn test_phase33_forward_multi_token() {
     // Illuminates: forward() with sequence
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -73,6 +75,7 @@ fn test_phase33_forward_multi_layer() {
     // Illuminates: forward() with multiple layers
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -101,6 +104,7 @@ fn test_phase33_forward_cached_single() {
     // Illuminates: forward_cached()
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -127,6 +131,7 @@ fn test_phase33_forward_cached_sequence() {
     // Illuminates: forward_cached() with accumulating cache
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -159,6 +164,7 @@ fn test_phase33_forward_cached_multi_layer() {
     // Illuminates: forward_cached() with multiple layers
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -190,6 +196,7 @@ fn test_phase33_forward_single_layer_single_head() {
     // Minimum viable model
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 32,
         intermediate_dim: 64,
         num_layers: 1,

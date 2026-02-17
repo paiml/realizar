@@ -28,6 +28,7 @@ use crate::gguf::types::{
 fn test_config(hidden_dim: usize, vocab_size: usize) -> GGUFConfig {
     GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim,
         num_layers: 1,
         num_heads: 4,
@@ -153,6 +154,8 @@ fn create_test_model(hidden_dim: usize, vocab_size: usize) -> OwnedQuantizedMode
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0f32; hidden_dim]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let lm_head_weight = create_q4k_test_data(hidden_dim, vocab_size);

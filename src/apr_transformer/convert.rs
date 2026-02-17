@@ -41,6 +41,8 @@ impl From<&crate::gguf::GGUFTransformer> for AprTransformer {
                 ffn_down_bias: l.ffn_down_bias.clone(),
                 ffn_norm_weight: l.ffn_norm_weight.clone(),
                 ffn_norm_bias: l.ffn_norm_bias.clone(),
+                attn_q_norm_weight: l.attn_q_norm_weight.clone(),
+                attn_k_norm_weight: l.attn_k_norm_weight.clone(),
             })
             .collect();
 
