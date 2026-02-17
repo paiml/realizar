@@ -198,9 +198,21 @@ pub(crate) fn f32_matmul(input: &[f32], weight: &[f32], in_dim: usize, out_dim: 
         let out_start = s * out_dim;
 
         if out_dim >= F32_PARALLEL_THRESHOLD {
-            f32_matvec_parallel(input_slice, weight, in_dim, out_dim, &mut output[out_start..out_start + out_dim]);
+            f32_matvec_parallel(
+                input_slice,
+                weight,
+                in_dim,
+                out_dim,
+                &mut output[out_start..out_start + out_dim],
+            );
         } else {
-            f32_matvec_sequential(input_slice, weight, in_dim, out_dim, &mut output[out_start..out_start + out_dim]);
+            f32_matvec_sequential(
+                input_slice,
+                weight,
+                in_dim,
+                out_dim,
+                &mut output[out_start..out_start + out_dim],
+            );
         }
     }
 
