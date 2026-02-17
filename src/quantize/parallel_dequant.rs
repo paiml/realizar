@@ -71,20 +71,21 @@ pub fn dequantize_q4_k_parallel(data: &[u8]) -> Result<Vec<f32>> {
 /// Exposed as `pub(crate)` for direct testing.
 #[inline]
 pub(crate) fn dequantize_q4_k_superblock(sb_data: &[u8]) -> Vec<f32> {
+    debug_assert!(sb_data.len() >= 144, "Q4_K superblock requires 144 bytes, got {}", sb_data.len());
     let mut result = vec![0.0f32; QK_K];
 
     // Read d (f16 -> f32)
-    let d = read_f16(sb_data.get(0..2).expect("Q4_K superblock: need ≥2 bytes for d"));
+    let d = read_f16(&sb_data[0..2]);
 
     // Read dmin (f16 -> f32)
-    let dmin = read_f16(sb_data.get(2..4).expect("Q4_K superblock: need ≥4 bytes for dmin"));
+    let dmin = read_f16(&sb_data[2..4]);
 
     // Read scales (12 bytes)
     let mut scales = [0u8; 12];
-    scales.copy_from_slice(sb_data.get(4..16).expect("Q4_K superblock: need ≥16 bytes for scales"));
+    scales.copy_from_slice(&sb_data[4..16]);
 
     // Read qs (128 bytes)
-    let qs = sb_data.get(16..144).expect("Q4_K superblock: need ≥144 bytes for qs");
+    let qs = &sb_data[16..144];
 
     // Dequantize following candle's layout:
     // For each 64-value chunk, output 32 low nibbles then 32 high nibbles
@@ -216,19 +217,20 @@ unsafe fn dequantize_q4_k_superblock_avx2(sb_data: &[u8]) -> Vec<f32> {
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
 
+    debug_assert!(sb_data.len() >= 144, "Q4_K superblock requires 144 bytes, got {}", sb_data.len());
     let mut result = vec![0.0f32; QK_K];
 
     // Read d and dmin
-    let d = read_f16(sb_data.get(0..2).expect("Q4_K superblock: need ≥2 bytes for d"));
-    let dmin = read_f16(sb_data.get(2..4).expect("Q4_K superblock: need ≥4 bytes for dmin"));
+    let d = read_f16(&sb_data[0..2]);
+    let dmin = read_f16(&sb_data[2..4]);
 
     // SAFETY: AVX2 availability verified by caller's target_feature
     unsafe {
         // Read scales
         let mut scales = [0u8; 12];
-        scales.copy_from_slice(sb_data.get(4..16).expect("Q4_K superblock: need ≥16 bytes for scales"));
+        scales.copy_from_slice(&sb_data[4..16]);
 
-        let qs = sb_data.get(16..144).expect("Q4_K superblock: need ≥144 bytes for qs");
+        let qs = &sb_data[16..144];
 
         // Dequantize following candle's layout:
         // For each 64-value chunk, output 32 low nibbles then 32 high nibbles
@@ -350,6 +352,7 @@ pub fn dequantize_q8_0_parallel(data: &[u8]) -> Result<Vec<f32>> {
 /// Exposed as `pub(crate)` for direct testing.
 #[inline]
 pub(crate) fn dequantize_q8_0_block(block_data: &[u8]) -> Vec<f32> {
+    debug_assert!(block_data.len() >= 34, "Q8_0 block requires 34 bytes, got {}", block_data.len());
     let mut result = Vec::with_capacity(32);
 
     // Read scale (f16 -> f32)
@@ -357,7 +360,7 @@ pub(crate) fn dequantize_q8_0_block(block_data: &[u8]) -> Vec<f32> {
     let scale = f16_to_f32(scale_bits);
 
     // Dequantize 32 int8 values
-    for &byte in block_data.get(2..34).expect("Q8_0 block requires 34 bytes") {
+    for &byte in &block_data[2..34] {
         let value = i8::from_le_bytes([byte]);
         result.push(scale * f32::from(value));
     }

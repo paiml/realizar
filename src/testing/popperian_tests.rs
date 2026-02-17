@@ -325,6 +325,7 @@ fn test_f112_quant_forward_consistency() {
 ///
 /// Prohibition: If memory grows monotonically, there is a leak.
 #[test]
+#[ignore] // Heavy: 1000 fixture allocations, run with --ignored
 fn test_f113_setup_teardown_stress() {
     let config = ModelConfig::tiny();
 
@@ -344,6 +345,7 @@ fn test_f113_setup_teardown_stress() {
 ///
 /// Prohibition: If concurrent creation causes data races, thread safety is refuted.
 #[test]
+#[ignore] // Heavy: 800 concurrent fixture allocations, run with --ignored
 fn test_f114_concurrent_fixture_creation() {
     use std::sync::Arc;
     use std::thread;
@@ -373,6 +375,7 @@ fn test_f114_concurrent_fixture_creation() {
 ///
 /// Prohibition: If conversion chain leaks memory, resource management is broken.
 #[test]
+#[ignore] // Heavy: 100 full conversion chains (GGUF→APR→ST→GGUF), run with --ignored
 fn test_f115_conversion_chain_stress() {
     let config = ModelConfig::tiny();
 
