@@ -167,6 +167,11 @@ pub mod bench_viz;
 /// - Genchi Genbutsu: Statistical benchmarking with CV < 5%
 /// - Mieruka: Visual progress via TUI integration
 pub mod brick;
+/// GH-280: Kernel capability gate — contract-driven GPU admission control.
+///
+/// Models declare required operations via `ArchConstraints`; GPU backends
+/// declare supported operations. Mismatch = refuse at load time.
+pub mod capability;
 pub mod cache;
 /// Chat template engine for model-specific message formatting
 ///

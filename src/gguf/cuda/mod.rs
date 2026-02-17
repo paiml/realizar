@@ -145,12 +145,75 @@ impl OwnedQuantizedModelCuda {
     ///
     /// Returns `CudaInitError` containing both the error and the unconsumed model,
     /// allowing callers to recover the model for CPU fallback without cloning.
+    /// GH-280: Check GPU capability before allocation.
+    /// Extracted to reduce cognitive complexity of `with_max_seq_len`.
+    fn check_gpu_capability(
+        model: OwnedQuantizedModel,
+    ) -> std::result::Result<OwnedQuantizedModel, CudaInitError> {
+        let required = crate::capability::required_ops(&model.config.constraints);
+        let supported = crate::capability::gpu_supported_ops();
+        if let Err(missing) = crate::capability::check_capability(&required, &supported) {
+            let missing_names: Vec<String> = missing.iter().map(ToString::to_string).collect();
+            return Err(CudaInitError {
+                error: RealizarError::CapabilityMismatch {
+                    architecture: model.config.architecture.clone(),
+                    missing_ops: missing_names.join(", "),
+                    suggestion: "Model will use CPU inference. To add GPU support, \
+                                 implement the missing kernels in trueno."
+                        .to_string(),
+                },
+                model,
+            });
+        }
+        Ok(model)
+    }
+
+    /// GH-199/PARITY-GATE: Preload GPU weights and verify correctness.
+    /// Extracted to reduce cognitive complexity of `with_max_seq_len`.
+    fn preload_and_verify(
+        mut self,
+    ) -> std::result::Result<Self, CudaInitError> {
+        if !self.supports_gpu_resident() {
+            return Ok(self);
+        }
+
+        // GH-199 ROOT CAUSE B: Eagerly preload weights for GPU-resident path.
+        if let Err(e) = self.preload_weights_gpu() {
+            return Err(CudaInitError {
+                error: e,
+                model: self.into_model(),
+            });
+        }
+
+        // PARITY-GATE: Jidoka — stop-the-line if GPU diverges from CPU.
+        // Run ONE token through both backends and compare logits.
+        // If cosine similarity < 0.99, refuse to construct.
+        // Skip gate if SKIP_PARITY_GATE=1 (for debugging the gate itself)
+        let skip_gate = std::env::var("SKIP_PARITY_GATE")
+            .map(|v| v == "1")
+            .unwrap_or(false);
+
+        if !skip_gate {
+            if let Err(e) = parity_gate(&mut self) {
+                return Err(CudaInitError {
+                    error: e,
+                    model: self.into_model(),
+                });
+            }
+        }
+
+        Ok(self)
+    }
+
     pub fn with_max_seq_len(
         model: OwnedQuantizedModel,
         device_ordinal: i32,
         max_seq_len: usize,
     ) -> std::result::Result<Self, CudaInitError> {
         use crate::cuda::CudaExecutor;
+
+        // GH-280: Capability gate — refuse GPU if model requires unsupported ops.
+        let model = Self::check_gpu_capability(model)?;
 
         let mut executor = match CudaExecutor::new(device_ordinal) {
             Ok(e) => e,
@@ -227,7 +290,7 @@ impl OwnedQuantizedModelCuda {
         // Five-Whys: embed() heap alloc per token → eliminated by reusing this buffer.
         let embed_buf = vec![0.0f32; model.config.hidden_dim];
 
-        let mut cuda_model = Self {
+        let cuda_model = Self {
             model,
             executor,
             device_name,
@@ -235,45 +298,8 @@ impl OwnedQuantizedModelCuda {
             embed_buf,
         };
 
-        // GH-199 ROOT CAUSE B: Eagerly preload weights for GPU-resident path.
-        // Makes constructor return a FULLY-READY model, so generate_gpu_resident()
-        // only contains per-generation state (fresh KV cache + position reset).
-        // Without this, preload_weights_gpu() inside generate_gpu_resident() looked like
-        // expensive one-time setup, misleading developers into creating duplicate models.
-        if cuda_model.supports_gpu_resident() {
-            if let Err(e) = cuda_model.preload_weights_gpu() {
-                return Err(CudaInitError {
-                    error: e,
-                    model: cuda_model.into_model(),
-                });
-            }
-
-            // PARITY-GATE: Jidoka — stop-the-line if GPU diverges from CPU.
-            //
-            // Run ONE token through both backends and compare logits.
-            // If cosine similarity < 0.99, GPU is computing a DIFFERENT function.
-            // Refuse to construct — inference that passes this gate is PROVEN correct.
-            //
-            // This is the inference equivalent of build.rs compile-time proofs:
-            //   build.rs proves: dimensions are mathematically valid
-            //   parity gate proves: GPU computes the SAME function as CPU
-            //
-            // Skip gate if SKIP_PARITY_GATE=1 (for debugging the gate itself)
-            let skip_gate = std::env::var("SKIP_PARITY_GATE")
-                .map(|v| v == "1")
-                .unwrap_or(false);
-
-            if !skip_gate {
-                if let Err(e) = parity_gate(&mut cuda_model) {
-                    return Err(CudaInitError {
-                        error: e,
-                        model: cuda_model.into_model(),
-                    });
-                }
-            }
-        }
-
-        Ok(cuda_model)
+        // GH-199 ROOT CAUSE B + PARITY-GATE: preload weights and verify GPU correctness.
+        cuda_model.preload_and_verify()
     }
 
     /// Check if CUDA is available

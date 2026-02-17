@@ -160,6 +160,17 @@ pub enum RealizarError {
         /// Maximum context length
         maximum: usize,
     },
+
+    /// GH-280: GPU capability mismatch — model requires ops the GPU backend lacks
+    #[error("Capability mismatch for '{architecture}': missing GPU support for [{missing_ops}]. {suggestion}")]
+    CapabilityMismatch {
+        /// Model architecture name
+        architecture: String,
+        /// Comma-separated list of missing operations
+        missing_ops: String,
+        /// Actionable suggestion (e.g., "Use CPU inference")
+        suggestion: String,
+    },
 }
 
 #[cfg(test)]
@@ -352,6 +363,20 @@ mod tests {
         };
         let cloned = err.clone();
         assert_eq!(err, cloned);
+    }
+
+    /// GH-280: Test CapabilityMismatch error formatting
+    #[test]
+    fn test_capability_mismatch_display() {
+        let err = RealizarError::CapabilityMismatch {
+            architecture: "qwen3".to_string(),
+            missing_ops: "QkNorm".to_string(),
+            suggestion: "Use CPU inference".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("qwen3"), "Should show architecture");
+        assert!(msg.contains("QkNorm"), "Should show missing ops");
+        assert!(msg.contains("CPU inference"), "Should show suggestion");
     }
 
     /// GH-167: Test ContextLimitExceeded error formatting
