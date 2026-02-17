@@ -136,6 +136,7 @@ pub fn create_test_quantized_model(
     OwnedQuantizedModel {
         config: config.clone(),
         token_embedding: vec![0.1f32; vocab_size * hidden_dim],
+        position_embedding: None,
         layers,
         output_norm_weight: vec![1.0f32; hidden_dim],
         output_norm_bias: None,

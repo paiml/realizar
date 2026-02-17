@@ -72,6 +72,7 @@ fn test_imp_101a_rope_preserves_norm() {
     let model = OwnedQuantizedModel {
         config,
         token_embedding: vec![],
+        position_embedding: None,
         layers: vec![],
         output_norm_weight: vec![],
         output_norm_bias: None,
@@ -129,6 +130,7 @@ fn test_imp_101a_rope_position_dependent() {
     let model = OwnedQuantizedModel {
         config,
         token_embedding: vec![],
+        position_embedding: None,
         layers: vec![],
         output_norm_weight: vec![],
         output_norm_bias: None,
@@ -201,6 +203,7 @@ fn test_imp_101b_causal_attention_mask() {
     let model = OwnedQuantizedModel {
         config,
         token_embedding: vec![],
+        position_embedding: None,
         layers: vec![],
         output_norm_weight: vec![],
         output_norm_bias: None,
@@ -271,6 +274,7 @@ fn test_imp_101b_causal_attention_softmax_normalized() {
     let model = OwnedQuantizedModel {
         config,
         token_embedding: vec![],
+        position_embedding: None,
         layers: vec![],
         output_norm_weight: vec![],
         output_norm_bias: None,

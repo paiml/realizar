@@ -76,6 +76,7 @@ pub(crate) fn create_test_model_with_config(config: &GGUFConfig) -> OwnedQuantiz
     OwnedQuantizedModel {
         config: config.clone(),
         token_embedding,
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight,
         output_norm_bias: None,

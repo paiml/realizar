@@ -48,6 +48,7 @@ fn test_forward_single_gqa_config() {
     let model = OwnedQuantizedModel {
         config: config.clone(),
         token_embedding: vec![0.1f32; config.vocab_size * hidden_dim],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0f32; hidden_dim],
         output_norm_bias: None,
@@ -125,6 +126,7 @@ fn test_forward_single_multiple_layers() {
     let model = OwnedQuantizedModel {
         config: config.clone(),
         token_embedding: vec![0.1f32; config.vocab_size * hidden_dim],
+        position_embedding: None,
         layers,
         output_norm_weight: vec![1.0f32; hidden_dim],
         output_norm_bias: None,

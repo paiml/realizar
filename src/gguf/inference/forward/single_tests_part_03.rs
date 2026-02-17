@@ -46,6 +46,7 @@ fn create_llama_256_model() -> crate::gguf::OwnedQuantizedModel {
     OwnedQuantizedModel {
         config: config.clone(),
         token_embedding: vec![0.1f32; config.vocab_size * hidden_dim],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0f32; hidden_dim],
         output_norm_bias: None,
@@ -134,6 +135,7 @@ fn create_phi_256_model() -> crate::gguf::OwnedQuantizedModel {
     OwnedQuantizedModel {
         config: config.clone(),
         token_embedding: vec![0.1f32; config.vocab_size * hidden_dim],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0f32; hidden_dim],
         output_norm_bias: Some(vec![0.0f32; hidden_dim]),
@@ -192,6 +194,7 @@ fn create_llama_256_gqa_model() -> crate::gguf::OwnedQuantizedModel {
     OwnedQuantizedModel {
         config: config.clone(),
         token_embedding: vec![0.1f32; config.vocab_size * hidden_dim],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0f32; hidden_dim],
         output_norm_bias: None,

@@ -319,8 +319,11 @@ fn test_parity002d_batched_matches_sequential() {
         .map(|(a, b)| (a - b).abs())
         .fold(0.0f32, f32::max);
 
+    // GH-278: True LayerNorm (with mean subtraction) produces slightly more numerical
+    // divergence between batched and sequential paths than old RMSNorm implementation.
+    // Relaxed from 1e-4 to 1e-3 which still validates correctness.
     assert!(
-        max_diff < 1e-4,
+        max_diff < 1e-3,
         "PARITY-002d: Batched and sequential should produce same logits (max_diff: {})",
         max_diff
     );

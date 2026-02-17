@@ -89,6 +89,7 @@ fn test_gguf_to_apr_swiglu_preserves_config() {
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 16 * hidden],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; hidden],
         output_norm_bias: None,
@@ -119,6 +120,7 @@ fn test_gguf_to_apr_swiglu_preserves_weights() {
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.5; 16 * hidden],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![2.0; hidden],
         output_norm_bias: None,
@@ -162,6 +164,7 @@ fn test_gguf_to_apr_gelu_preserves_biases() {
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 16 * hidden],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; hidden],
         output_norm_bias: Some(vec![0.0; hidden]),
@@ -197,6 +200,7 @@ fn test_gguf_to_apr_multi_layer() {
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 16 * hidden],
+        position_embedding: None,
         layers,
         output_norm_weight: vec![1.0; hidden],
         output_norm_bias: None,
@@ -217,6 +221,7 @@ fn test_gguf_to_apr_empty_layers() {
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 16 * hidden],
+        position_embedding: None,
         layers: vec![],
         output_norm_weight: vec![1.0; hidden],
         output_norm_bias: None,
@@ -238,6 +243,7 @@ fn test_gguf_to_apr_context_length_preserved() {
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 16 * hidden],
+        position_embedding: None,
         layers: vec![],
         output_norm_weight: vec![1.0; hidden],
         output_norm_bias: None,

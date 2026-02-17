@@ -264,26 +264,40 @@ pub fn prepare_tokens(config: &InferenceConfig, format: &ModelFormat) -> Result<
 }
 
 /// Prepare tokens for GGUF format (chat template from GGUF metadata)
+///
+/// GH-278: Only apply chat template when the GGUF actually contains one in its
+/// metadata (`tokenizer.chat_template`). Previously, ALL models with known
+/// architectures (llama, qwen2, etc.) got chat-template wrapping even if they
+/// were base completion models, causing complete output divergence vs llama.cpp.
+///
+/// BOS token: Prepend BOS when the model metadata says `add_bos_token = true`
+/// or when a BOS token ID exists and `add_bos_token` is not explicitly false.
+/// This matches llama.cpp behavior for LLaMA-family models.
 fn prepare_tokens_gguf(config: &InferenceConfig, prompt: &str) -> Result<PreparedTokens> {
     use crate::chat_template::{format_messages, ChatMessage};
-    use crate::gguf::MappedGGUFModel;
+    use crate::gguf::{GGUFValue, MappedGGUFModel};
 
     let mapped = MappedGGUFModel::from_path(&config.model_path)?;
     let gguf_arch = mapped.model.architecture().unwrap_or("transformer");
 
-    let is_instruct_arch = matches!(
-        gguf_arch.to_lowercase().as_str(),
-        "qwen2" | "qwen" | "llama" | "mistral" | "phi" | "phi3"
-    );
+    // GH-278: Check if model actually has a chat template in its GGUF metadata.
+    // Base models (SmolLM-135M, GPT-2) don't have one — only instruct/chat models do.
+    let has_chat_template = mapped
+        .model
+        .metadata
+        .get("tokenizer.chat_template")
+        .is_some_and(|v| matches!(v, GGUFValue::String(s) if !s.is_empty()));
 
     let model_name = config
         .model_path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("");
-    let filename_instruct = model_name.to_lowercase().contains("instruct");
+    let filename_instruct = model_name.to_lowercase().contains("instruct")
+        || model_name.to_lowercase().contains("-chat");
 
-    let formatted_prompt = if is_instruct_arch || filename_instruct {
+    // Only apply chat template if the model actually has one, or filename says instruct
+    let formatted_prompt = if has_chat_template || filename_instruct {
         let template_hint = apr_arch_to_template_hint(gguf_arch, model_name);
         let messages = vec![ChatMessage::user(prompt)];
         format_messages(&messages, Some(template_hint)).unwrap_or_else(|_| prompt.to_string())
@@ -292,11 +306,11 @@ fn prepare_tokens_gguf(config: &InferenceConfig, prompt: &str) -> Result<Prepare
     };
 
     if config.verbose {
-        eprintln!("[DEBUG] template_hint={}", apr_arch_to_template_hint(gguf_arch, model_name));
+        eprintln!("[DEBUG] has_chat_template={}, filename_instruct={}", has_chat_template, filename_instruct);
         eprintln!("[DEBUG] formatted_prompt={:?}", &formatted_prompt[..formatted_prompt.len().min(200)]);
     }
 
-    let tokens = mapped
+    let mut tokens = mapped
         .model
         .encode(&formatted_prompt)
         .ok_or_else(|| {
@@ -307,8 +321,33 @@ fn prepare_tokens_gguf(config: &InferenceConfig, prompt: &str) -> Result<Prepare
             ))
         })?;
 
+    // GH-278: Prepend BOS token to match llama.cpp behavior.
+    // llama.cpp adds BOS when add_bos_token is true (default for LLaMA-family).
+    // Only add if not already present AND model has a BOS token defined.
+    let add_bos = match mapped.model.metadata.get("tokenizer.ggml.add_bos_token") {
+        Some(GGUFValue::Bool(b)) => *b,
+        // Default: add BOS for SentencePiece models (llama), not for BPE (gpt2)
+        _ => {
+            let model_type = mapped
+                .model
+                .metadata
+                .get("tokenizer.ggml.model")
+                .and_then(|v| if let GGUFValue::String(s) = v { Some(s.as_str()) } else { None })
+                .unwrap_or("llama");
+            model_type != "gpt2"
+        }
+    };
+
+    if add_bos {
+        if let Some(bos_id) = mapped.model.bos_token_id() {
+            if tokens.first() != Some(&bos_id) {
+                tokens.insert(0, bos_id);
+            }
+        }
+    }
+
     if config.verbose {
-        eprintln!("[DEBUG] encoded {} tokens: {:?}", tokens.len(), &tokens[..tokens.len().min(30)]);
+        eprintln!("[DEBUG] add_bos={}, encoded {} tokens: {:?}", add_bos, tokens.len(), &tokens[..tokens.len().min(30)]);
     }
 
     Ok(PreparedTokens {

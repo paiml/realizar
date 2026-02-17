@@ -104,9 +104,10 @@ mod tests {
         let bias = vec![0.5, 0.5];
         let output = layer_norm(&input, &weight, Some(&bias), 1e-5);
         assert_eq!(output.len(), 2);
-        // Output should have bias added
-        assert!(output[0] > 0.0);
-        assert!(output[1] > 0.0);
+        // GH-278: True LayerNorm subtracts mean (1.5), so normalized = [-1.0, 1.0]
+        // After bias: [-0.5, 1.5]
+        assert!((output[0] - (-0.5)).abs() < 0.01, "output[0]={}", output[0]);
+        assert!((output[1] - 1.5).abs() < 0.01, "output[1]={}", output[1]);
     }
 
     // =========================================================================
@@ -473,13 +474,21 @@ mod tests {
 
     #[test]
     fn test_layer_norm_weight_scaling() {
-        let input = vec![1.0, 1.0, 1.0, 1.0];
-        let weight = vec![2.0, 0.5, 1.0, 3.0];
-        let output = layer_norm(&input, &weight, None, 1e-5);
+        // GH-278: True LayerNorm - verify weight scaling of normalized values
+        // Use unit weight first, then scaled weight, check ratio
+        let input = vec![1.0, 3.0, 2.0, 4.0];
+        let unit_weight = vec![1.0, 1.0, 1.0, 1.0];
+        let scaled_weight = vec![2.0, 0.5, 1.0, 3.0];
+        let unit_out = layer_norm(&input, &unit_weight, None, 1e-5);
+        let scaled_out = layer_norm(&input, &scaled_weight, None, 1e-5);
 
-        // Output ratio should match weight ratio
-        assert!((output[0] / output[2] - 2.0).abs() < 0.1);
-        assert!((output[1] / output[2] - 0.5).abs() < 0.1);
-        assert!((output[3] / output[2] - 3.0).abs() < 0.1);
+        // scaled_out[i] should equal unit_out[i] * scaled_weight[i]
+        for i in 0..4 {
+            let expected = unit_out[i] * scaled_weight[i];
+            assert!(
+                (scaled_out[i] - expected).abs() < 1e-5,
+                "index {}: expected {}, got {}", i, expected, scaled_out[i]
+            );
+        }
     }
 }

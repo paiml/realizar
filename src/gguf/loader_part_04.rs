@@ -1,4 +1,88 @@
 
+/// Convert GGML qtype to APR dtype string
+fn apr_qtype_to_dtype(qtype: u32) -> &'static str {
+    match qtype {
+        0 => "F32",
+        1 => "F16",
+        2 => "Q4_0",
+        3 => "Q4_1",
+        6 => "Q5_0",
+        7 => "Q5_1",
+        8 => "Q8_0",
+        9 => "Q8_1",
+        10 => "Q2_K",
+        11 => "Q3_K",
+        12 => "Q4_K",
+        13 => "Q5_K",
+        14 => "Q6_K",
+        16 => "IQ2_XXS",
+        17 => "IQ2_XS",
+        30 => "BF16",
+        _ => "F32",
+    }
+}
+
+/// Convert APR dtype string to byte for binary tensor entry
+/// GH-191 FIX: Use GGML dtype values directly so they match TensorEntry::from_binary reader.
+fn apr_dtype_to_byte(dtype: &str) -> u8 {
+    match dtype {
+        "F32" => 0,
+        "F16" => 1,
+        "BF16" => 30,    // GGML BF16 type
+        "Q4_0" => 2,     // GGML type 2
+        "Q4_1" => 3,     // GGML type 3
+        "Q5_0" => 6,     // GGML type 6
+        "Q5_1" => 7,     // GGML type 7
+        "Q8_0" => 8,     // GGML type 8
+        "Q8_1" => 9,     // GGML type 9
+        "Q2_K" => 10,    // GGML type 10
+        "Q3_K" => 11,    // GGML type 11
+        "Q4_K" => 12,    // GGML type 12
+        "Q5_K" => 13,    // GGML type 13
+        "Q6_K" => 14,    // GGML type 14
+        "IQ2_XXS" => 16, // GGML type 16
+        "IQ2_XS" => 17,  // GGML type 17
+        _ => {
+            eprintln!(
+                "WARN: Unknown dtype '{}' in dtype_to_byte, writing as F32",
+                dtype
+            );
+            0
+        },
+    }
+}
+
+/// Write a single tensor entry to APR binary index format
+fn write_apr_tensor_entry(
+    name: &str,
+    dtype: &str,
+    shape: &[usize],
+    offset: u64,
+    size: u64,
+) -> Vec<u8> {
+    let mut entry = Vec::new();
+
+    // Name: 2-byte length + bytes
+    let name_bytes = name.as_bytes();
+    entry.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+    entry.extend_from_slice(name_bytes);
+
+    // Dtype: 1 byte
+    entry.push(apr_dtype_to_byte(dtype));
+
+    // Shape: 1-byte ndim + 8-byte dims
+    entry.push(shape.len() as u8);
+    for &dim in shape {
+        entry.extend_from_slice(&(dim as u64).to_le_bytes());
+    }
+
+    // Offset and size: 8 bytes each
+    entry.extend_from_slice(&offset.to_le_bytes());
+    entry.extend_from_slice(&size.to_le_bytes());
+
+    entry
+}
+
 impl OwnedQuantizedModel {
 
     /// Serialize model to APR format with quantized weights preserved
@@ -19,230 +103,8 @@ impl OwnedQuantizedModel {
     pub fn to_apr_bytes(&self) -> Result<Vec<u8>> {
         use crate::apr::{ALIGNMENT, HEADER_SIZE, MAGIC};
 
-        // Helper to convert GGML qtype to APR dtype
-        fn qtype_to_dtype(qtype: u32) -> &'static str {
-            match qtype {
-                0 => "F32",
-                1 => "F16",
-                2 => "Q4_0",
-                3 => "Q4_1",
-                6 => "Q5_0",
-                7 => "Q5_1",
-                8 => "Q8_0",
-                9 => "Q8_1",
-                10 => "Q2_K",
-                11 => "Q3_K",
-                12 => "Q4_K",
-                13 => "Q5_K",
-                14 => "Q6_K",
-                16 => "IQ2_XXS",
-                17 => "IQ2_XS",
-                30 => "BF16",
-                _ => "F32",
-            }
-        }
-
-        // Helper to convert dtype string to byte for binary tensor entry
-        // GH-191 FIX: Use GGML dtype values directly so they match TensorEntry::from_binary reader.
-        // The reader maps these bytes back to dtype strings; mismatched values caused
-        // all quantized tensors to silently fall through to F32.
-        fn dtype_to_byte(dtype: &str) -> u8 {
-            match dtype {
-                "F32" => 0,
-                "F16" => 1,
-                "BF16" => 30,    // GGML BF16 type
-                "Q4_0" => 2,     // GGML type 2
-                "Q4_1" => 3,     // GGML type 3
-                "Q5_0" => 6,     // GGML type 6
-                "Q5_1" => 7,     // GGML type 7
-                "Q8_0" => 8,     // GGML type 8
-                "Q8_1" => 9,     // GGML type 9
-                "Q2_K" => 10,    // GGML type 10
-                "Q3_K" => 11,    // GGML type 11
-                "Q4_K" => 12,    // GGML type 12
-                "Q5_K" => 13,    // GGML type 13
-                "Q6_K" => 14,    // GGML type 14
-                "IQ2_XXS" => 16, // GGML type 16
-                "IQ2_XS" => 17,  // GGML type 17
-                _ => {
-                    eprintln!(
-                        "WARN: Unknown dtype '{}' in dtype_to_byte, writing as F32",
-                        dtype
-                    );
-                    0
-                },
-            }
-        }
-
-        // Helper to write tensor entry to binary format
-        fn write_tensor_entry(
-            name: &str,
-            dtype: &str,
-            shape: &[usize],
-            offset: u64,
-            size: u64,
-        ) -> Vec<u8> {
-            let mut entry = Vec::new();
-
-            // Name: 2-byte length + bytes
-            let name_bytes = name.as_bytes();
-            entry.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
-            entry.extend_from_slice(name_bytes);
-
-            // Dtype: 1 byte
-            entry.push(dtype_to_byte(dtype));
-
-            // Shape: 1-byte ndim + 8-byte dims
-            entry.push(shape.len() as u8);
-            for &dim in shape {
-                entry.extend_from_slice(&(dim as u64).to_le_bytes());
-            }
-
-            // Offset and size: 8 bytes each
-            entry.extend_from_slice(&offset.to_le_bytes());
-            entry.extend_from_slice(&size.to_le_bytes());
-
-            entry
-        }
-
         // Collect all tensors
-        struct TensorInfo {
-            name: String,
-            dtype: String,
-            shape: Vec<usize>,
-            data: Vec<u8>,
-        }
-
-        let mut tensors: Vec<TensorInfo> = Vec::new();
-
-        // Token embedding (F32)
-        let embed_bytes: Vec<u8> = self
-            .token_embedding
-            .iter()
-            .flat_map(|f| f.to_le_bytes())
-            .collect();
-        tensors.push(TensorInfo {
-            name: "token_embd.weight".to_string(),
-            dtype: "F32".to_string(),
-            shape: vec![self.config.vocab_size, self.config.hidden_dim],
-            data: embed_bytes,
-        });
-
-        // Layers
-        let head_dim = self.config.hidden_dim / self.config.num_heads;
-        let kv_dim = self.config.num_kv_heads * head_dim;
-
-        for (layer_idx, layer) in self.layers.iter().enumerate() {
-            // Attention norm (F32)
-            let norm_bytes: Vec<u8> = layer
-                .attn_norm_weight
-                .iter()
-                .flat_map(|f| f.to_le_bytes())
-                .collect();
-            tensors.push(TensorInfo {
-                name: format!("blk.{layer_idx}.attn_norm.weight"),
-                dtype: "F32".to_string(),
-                shape: vec![self.config.hidden_dim],
-                data: norm_bytes,
-            });
-
-            // QKV weights (quantized)
-            match &layer.qkv_weight {
-                OwnedQKVWeights::Separate { q, k, v } => {
-                    tensors.push(TensorInfo {
-                        name: format!("blk.{layer_idx}.attn_q.weight"),
-                        dtype: qtype_to_dtype(q.qtype).to_string(),
-                        shape: vec![self.config.hidden_dim, self.config.hidden_dim],
-                        data: q.data.clone(),
-                    });
-                    tensors.push(TensorInfo {
-                        name: format!("blk.{layer_idx}.attn_k.weight"),
-                        dtype: qtype_to_dtype(k.qtype).to_string(),
-                        shape: vec![kv_dim, self.config.hidden_dim],
-                        data: k.data.clone(),
-                    });
-                    tensors.push(TensorInfo {
-                        name: format!("blk.{layer_idx}.attn_v.weight"),
-                        dtype: qtype_to_dtype(v.qtype).to_string(),
-                        shape: vec![kv_dim, self.config.hidden_dim],
-                        data: v.data.clone(),
-                    });
-                },
-                OwnedQKVWeights::Fused(t) => {
-                    // Store as fused QKV tensor
-                    tensors.push(TensorInfo {
-                        name: format!("blk.{layer_idx}.attn_qkv.weight"),
-                        dtype: qtype_to_dtype(t.qtype).to_string(),
-                        shape: vec![t.out_dim, t.in_dim],
-                        data: t.data.clone(),
-                    });
-                },
-            }
-
-            // Output projection (quantized)
-            tensors.push(TensorInfo {
-                name: format!("blk.{layer_idx}.attn_output.weight"),
-                dtype: qtype_to_dtype(layer.attn_output_weight.qtype).to_string(),
-                shape: vec![self.config.hidden_dim, self.config.hidden_dim],
-                data: layer.attn_output_weight.data.clone(),
-            });
-
-            // FFN norm (F32)
-            if let Some(ref ffn_norm) = layer.ffn_norm_weight {
-                let norm_bytes: Vec<u8> = ffn_norm.iter().flat_map(|f| f.to_le_bytes()).collect();
-                tensors.push(TensorInfo {
-                    name: format!("blk.{layer_idx}.ffn_norm.weight"),
-                    dtype: "F32".to_string(),
-                    shape: vec![self.config.hidden_dim],
-                    data: norm_bytes,
-                });
-            }
-
-            // FFN weights (quantized)
-            if let Some(ref gate) = layer.ffn_gate_weight {
-                tensors.push(TensorInfo {
-                    name: format!("blk.{layer_idx}.ffn_gate.weight"),
-                    dtype: qtype_to_dtype(gate.qtype).to_string(),
-                    shape: vec![self.config.intermediate_dim, self.config.hidden_dim],
-                    data: gate.data.clone(),
-                });
-            }
-
-            tensors.push(TensorInfo {
-                name: format!("blk.{layer_idx}.ffn_up.weight"),
-                dtype: qtype_to_dtype(layer.ffn_up_weight.qtype).to_string(),
-                shape: vec![self.config.intermediate_dim, self.config.hidden_dim],
-                data: layer.ffn_up_weight.data.clone(),
-            });
-
-            tensors.push(TensorInfo {
-                name: format!("blk.{layer_idx}.ffn_down.weight"),
-                dtype: qtype_to_dtype(layer.ffn_down_weight.qtype).to_string(),
-                shape: vec![self.config.hidden_dim, self.config.intermediate_dim],
-                data: layer.ffn_down_weight.data.clone(),
-            });
-        }
-
-        // Output norm (F32)
-        let output_norm_bytes: Vec<u8> = self
-            .output_norm_weight
-            .iter()
-            .flat_map(|f| f.to_le_bytes())
-            .collect();
-        tensors.push(TensorInfo {
-            name: "output_norm.weight".to_string(),
-            dtype: "F32".to_string(),
-            shape: vec![self.config.hidden_dim],
-            data: output_norm_bytes,
-        });
-
-        // LM head (quantized)
-        tensors.push(TensorInfo {
-            name: "output.weight".to_string(),
-            dtype: qtype_to_dtype(self.lm_head_weight.qtype).to_string(),
-            shape: vec![self.config.vocab_size, self.config.hidden_dim],
-            data: self.lm_head_weight.data.clone(),
-        });
+        let tensors = self.collect_apr_model_tensors();
 
         // Build metadata JSON
         let metadata = serde_json::json!({
@@ -268,23 +130,19 @@ impl OwnedQuantizedModel {
         let mut tensor_index_bytes: Vec<u8> = Vec::new();
         let mut tensor_data_bytes: Vec<u8> = Vec::new();
 
-        for tensor in &tensors {
+        for (name, dtype, shape, data) in &tensors {
             // Align tensor data to 64 bytes
             let padding = (ALIGNMENT - (tensor_data_bytes.len() % ALIGNMENT)) % ALIGNMENT;
             tensor_data_bytes.extend(std::iter::repeat_n(0u8, padding));
 
             let offset = tensor_data_bytes.len() as u64;
-            let size = tensor.data.len() as u64;
+            let size = data.len() as u64;
 
-            tensor_index_bytes.extend(write_tensor_entry(
-                &tensor.name,
-                &tensor.dtype,
-                &tensor.shape,
-                offset,
-                size,
+            tensor_index_bytes.extend(write_apr_tensor_entry(
+                name, dtype, shape, offset, size,
             ));
 
-            tensor_data_bytes.extend_from_slice(&tensor.data);
+            tensor_data_bytes.extend_from_slice(data);
         }
 
         // Calculate offsets
@@ -316,6 +174,153 @@ impl OwnedQuantizedModel {
         result.extend_from_slice(&tensor_data_bytes);
 
         Ok(result)
+    }
+
+    /// Collect all model tensors as (name, dtype, shape, data) tuples for APR serialization
+    #[allow(clippy::cast_possible_truncation)]
+    fn collect_apr_model_tensors(&self) -> Vec<(String, String, Vec<usize>, Vec<u8>)> {
+        let mut tensors = Vec::new();
+
+        // Token embedding (F32)
+        let embed_bytes: Vec<u8> = self
+            .token_embedding
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        tensors.push((
+            "token_embd.weight".to_string(),
+            "F32".to_string(),
+            vec![self.config.vocab_size, self.config.hidden_dim],
+            embed_bytes,
+        ));
+
+        // Layers
+        let head_dim = self.config.hidden_dim / self.config.num_heads;
+        let kv_dim = self.config.num_kv_heads * head_dim;
+
+        for (layer_idx, layer) in self.layers.iter().enumerate() {
+            self.collect_apr_layer_tensors(&mut tensors, layer_idx, layer, kv_dim);
+        }
+
+        // Output norm (F32)
+        let output_norm_bytes: Vec<u8> = self
+            .output_norm_weight
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        tensors.push((
+            "output_norm.weight".to_string(),
+            "F32".to_string(),
+            vec![self.config.hidden_dim],
+            output_norm_bytes,
+        ));
+
+        // LM head (quantized)
+        tensors.push((
+            "output.weight".to_string(),
+            apr_qtype_to_dtype(self.lm_head_weight.qtype).to_string(),
+            vec![self.config.vocab_size, self.config.hidden_dim],
+            self.lm_head_weight.data.clone(),
+        ));
+
+        tensors
+    }
+
+    /// Collect tensors for a single transformer layer
+    fn collect_apr_layer_tensors(
+        &self,
+        tensors: &mut Vec<(String, String, Vec<usize>, Vec<u8>)>,
+        layer_idx: usize,
+        layer: &OwnedQuantizedLayer,
+        kv_dim: usize,
+    ) {
+        // Attention norm (F32)
+        let norm_bytes: Vec<u8> = layer
+            .attn_norm_weight
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        tensors.push((
+            format!("blk.{layer_idx}.attn_norm.weight"),
+            "F32".to_string(),
+            vec![self.config.hidden_dim],
+            norm_bytes,
+        ));
+
+        // QKV weights (quantized)
+        match &layer.qkv_weight {
+            OwnedQKVWeights::Separate { q, k, v } => {
+                tensors.push((
+                    format!("blk.{layer_idx}.attn_q.weight"),
+                    apr_qtype_to_dtype(q.qtype).to_string(),
+                    vec![self.config.hidden_dim, self.config.hidden_dim],
+                    q.data.clone(),
+                ));
+                tensors.push((
+                    format!("blk.{layer_idx}.attn_k.weight"),
+                    apr_qtype_to_dtype(k.qtype).to_string(),
+                    vec![kv_dim, self.config.hidden_dim],
+                    k.data.clone(),
+                ));
+                tensors.push((
+                    format!("blk.{layer_idx}.attn_v.weight"),
+                    apr_qtype_to_dtype(v.qtype).to_string(),
+                    vec![kv_dim, self.config.hidden_dim],
+                    v.data.clone(),
+                ));
+            },
+            OwnedQKVWeights::Fused(t) => {
+                tensors.push((
+                    format!("blk.{layer_idx}.attn_qkv.weight"),
+                    apr_qtype_to_dtype(t.qtype).to_string(),
+                    vec![t.out_dim, t.in_dim],
+                    t.data.clone(),
+                ));
+            },
+        }
+
+        // Output projection (quantized)
+        tensors.push((
+            format!("blk.{layer_idx}.attn_output.weight"),
+            apr_qtype_to_dtype(layer.attn_output_weight.qtype).to_string(),
+            vec![self.config.hidden_dim, self.config.hidden_dim],
+            layer.attn_output_weight.data.clone(),
+        ));
+
+        // FFN norm (F32)
+        if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+            let norm_bytes: Vec<u8> = ffn_norm.iter().flat_map(|f| f.to_le_bytes()).collect();
+            tensors.push((
+                format!("blk.{layer_idx}.ffn_norm.weight"),
+                "F32".to_string(),
+                vec![self.config.hidden_dim],
+                norm_bytes,
+            ));
+        }
+
+        // FFN weights (quantized)
+        if let Some(ref gate) = layer.ffn_gate_weight {
+            tensors.push((
+                format!("blk.{layer_idx}.ffn_gate.weight"),
+                apr_qtype_to_dtype(gate.qtype).to_string(),
+                vec![self.config.intermediate_dim, self.config.hidden_dim],
+                gate.data.clone(),
+            ));
+        }
+
+        tensors.push((
+            format!("blk.{layer_idx}.ffn_up.weight"),
+            apr_qtype_to_dtype(layer.ffn_up_weight.qtype).to_string(),
+            vec![self.config.intermediate_dim, self.config.hidden_dim],
+            layer.ffn_up_weight.data.clone(),
+        ));
+
+        tensors.push((
+            format!("blk.{layer_idx}.ffn_down.weight"),
+            apr_qtype_to_dtype(layer.ffn_down_weight.qtype).to_string(),
+            vec![self.config.hidden_dim, self.config.intermediate_dim],
+            layer.ffn_down_weight.data.clone(),
+        ));
     }
 }
 

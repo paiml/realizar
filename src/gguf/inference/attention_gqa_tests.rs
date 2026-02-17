@@ -99,6 +99,7 @@ fn create_gqa_model(
     OwnedQuantizedModel {
         config,
         token_embedding,
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight,
         output_norm_bias: None,

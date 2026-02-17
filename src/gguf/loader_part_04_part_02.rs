@@ -23,6 +23,7 @@ impl OwnedQuantizedModel {
         Ok(Self {
             config: transformer.config.clone(),
             token_embedding: transformer.token_embedding,
+            position_embedding: transformer.position_embedding,
             layers,
             output_norm_weight: transformer.output_norm_weight,
             output_norm_bias: transformer.output_norm_bias,
@@ -69,6 +70,7 @@ impl OwnedQuantizedModel {
         Self {
             config,
             token_embedding,
+            position_embedding: None,
             layers,
             output_norm_weight,
             output_norm_bias,
@@ -351,6 +353,7 @@ impl OwnedQuantizedModel {
         Ok(Self {
             config,
             token_embedding,
+            position_embedding: None, // APR models don't have learned position embeddings
             layers,
             output_norm_weight,
             output_norm_bias: None,

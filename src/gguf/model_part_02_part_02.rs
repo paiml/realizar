@@ -19,6 +19,7 @@
         let transformer = GGUFTransformer {
             config,
             token_embedding: vec![0.0; 256000], // 1000 vocab * 256 hidden
+            position_embedding: None,
             layers: vec![],
             output_norm_weight: vec![1.0; 256],
             output_norm_bias: None,
@@ -78,6 +79,7 @@
         let model = OwnedQuantizedModel {
             config,
             token_embedding: vec![0.1; 6400],
+            position_embedding: None,
             layers: vec![],
             output_norm_weight: vec![1.0; 64],
             output_norm_bias: None,
@@ -136,6 +138,7 @@
         let model = OwnedQuantizedModel {
             config,
             token_embedding: vec![0.0; 1600],
+            position_embedding: None,
             layers: vec![],
             output_norm_weight: vec![1.0; 32],
             output_norm_bias: Some(vec![0.0; 32]),
@@ -180,6 +183,7 @@
         let transformer = GGUFTransformer {
             config,
             token_embedding: vec![0.0; 64000],
+            position_embedding: None,
             layers: vec![],
             output_norm_weight: vec![1.0; 128],
             output_norm_bias: Some(vec![0.0; 128]),
@@ -246,6 +250,7 @@
         let transformer = GGUFTransformer {
             config,
             token_embedding: vec![0.0; 6400],
+            position_embedding: None,
             layers: vec![layer1, layer2],
             output_norm_weight: vec![1.0; 64],
             output_norm_bias: None,
@@ -333,6 +338,7 @@
         let model = OwnedQuantizedModel {
             config,
             token_embedding: vec![0.1; 6400],
+            position_embedding: None,
             layers: vec![],
             output_norm_weight: vec![1.0; 64],
             output_norm_bias: Some(vec![0.0; 64]),
@@ -379,6 +385,7 @@
         let model = OwnedQuantizedModel {
             config,
             token_embedding: vec![0.5, 0.6, 0.7, 0.8],
+            position_embedding: None,
             layers: vec![],
             output_norm_weight: vec![1.0, 1.0, 1.0],
             output_norm_bias: Some(vec![0.1, 0.2, 0.3]),

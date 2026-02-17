@@ -6,8 +6,8 @@
 use crate::error::Result;
 use crate::gguf::ops;
 use crate::gguf::{
-    DispatchMetrics, InferenceScratchBuffer, OwnedQuantizedKVCache, OwnedQuantizedModel,
-    GGUF_TYPE_Q4_K,
+    DispatchMetrics, InferenceScratchBuffer, OwnedQuantizedKVCache, OwnedQuantizedLayer,
+    OwnedQuantizedModel, GGUF_TYPE_Q4_K,
 };
 
 include!("single_part_02.rs");

@@ -1,16 +1,20 @@
 
 impl GGUFModel {
 
-    /// Get RMSNorm epsilon from metadata
+    /// Get normalization epsilon from metadata
     /// Different models use different values (LLaMA: 1e-5, Qwen2: 1e-6)
+    /// GH-278: Also checks `layer_norm_epsilon` for GPT-2/phi-2 style models
     pub fn rms_epsilon(&self) -> Option<f32> {
         let arch = self.architecture()?;
-        let key = format!("{}.attention.layer_norm_rms_epsilon", arch);
-        if let Some(GGUFValue::Float32(eps)) = self.metadata.get(&key) {
-            Some(*eps)
-        } else {
-            None
+        let rms_key = format!("{}.attention.layer_norm_rms_epsilon", arch);
+        if let Some(GGUFValue::Float32(eps)) = self.metadata.get(&rms_key) {
+            return Some(*eps);
         }
+        let ln_key = format!("{}.attention.layer_norm_epsilon", arch);
+        if let Some(GGUFValue::Float32(eps)) = self.metadata.get(&ln_key) {
+            return Some(*eps);
+        }
+        None
     }
 
     /// Get RoPE type from metadata or infer from architecture
