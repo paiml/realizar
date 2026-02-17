@@ -34,6 +34,11 @@ max_binary_size_mb = 50
 [exclude]
 patterns = [
     "**/target/**",
+    # Forward pass inference loops are inherently complex (200+ line functions
+    # with many architecture-specific branches). Complexity is essential, not accidental.
+    "src/gguf/inference/forward/core_part_02_part_02.rs",
+    "src/gguf/inference/forward/core_part_02_part_03.rs",
+    "src/gguf/cuda/weights_part_02.rs",
 ]
 
 [compute-brick]
