@@ -48,6 +48,14 @@ impl SafeTensorsCudaModel {
         let mut k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
         let v = qkv[hidden_dim + kv_dim..].to_vec();
 
+        // 3b. GH-279: Per-head QK RMSNorm (Qwen3) — after bias, before RoPE
+        if let Some(q_norm) = self.qk_norm_cache.get(&format!("q_norm.{layer_idx}")) {
+            crate::gguf::ops::apply_per_head_rms_norm(&mut q, q_norm, num_heads, self.epsilon);
+        }
+        if let Some(k_norm) = self.qk_norm_cache.get(&format!("k_norm.{layer_idx}")) {
+            crate::gguf::ops::apply_per_head_rms_norm(&mut k, k_norm, num_kv_heads, self.epsilon);
+        }
+
         // 4. PMAT-120 FIX: Apply RoPE to Q and K before attention
         // Position is kv_position (number of tokens already processed)
         let position = self.kv_position as usize;

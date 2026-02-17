@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "aprender"
-version = "0.25.7"
+version = "0.25.9"
 dependencies = [
  "bincode",
  "getrandom 0.2.17",
@@ -176,7 +176,7 @@ dependencies = [
  "rmp-serde",
  "serde",
  "serde_json",
- "trueno 0.14.5",
+ "trueno 0.14.6",
  "trueno-quant",
 ]
 
@@ -3943,7 +3943,7 @@ dependencies = [
 
 [[package]]
 name = "realizar"
-version = "0.6.13"
+version = "0.6.14"
 dependencies = [
  "alimentar",
  "anyhow",
@@ -3992,7 +3992,7 @@ dependencies = [
  "tokio-stream",
  "tower 0.4.13",
  "tracing",
- "trueno 0.14.5",
+ "trueno 0.14.6",
  "trueno-cuda-edge",
  "trueno-db",
  "trueno-gpu",
@@ -5164,7 +5164,7 @@ dependencies = [
 
 [[package]]
 name = "trueno"
-version = "0.14.5"
+version = "0.14.6"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -5232,7 +5232,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-viz"
-version = "0.1.23"
+version = "0.1.24"
 dependencies = [
  "base64 0.22.1",
  "libc",

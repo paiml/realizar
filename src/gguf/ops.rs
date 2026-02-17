@@ -277,4 +277,42 @@ pub fn softmax(logits: &mut [f32]) {
     }
 }
 
+/// Per-head RMSNorm for QK normalization (GH-279: Qwen3)
+///
+/// Applies RMSNorm independently to each attention head's Q or K projection.
+/// Weight shape is `[head_dim]` and is shared across all heads.
+///
+/// Formula per head: `head_out = RMSNorm(head_in, weight, eps)`
+///
+/// # Arguments
+/// * `qk` - Q or K tensor `[num_heads * head_dim]` (modified in-place)
+/// * `weight` - Norm weight `[head_dim]`
+/// * `num_heads` - Number of heads
+/// * `eps` - Epsilon for numerical stability
+pub fn apply_per_head_rms_norm(qk: &mut [f32], weight: &[f32], num_heads: usize, eps: f32) {
+    let head_dim = weight.len();
+    debug_assert_eq!(
+        qk.len(),
+        num_heads * head_dim,
+        "QK norm: expected {} elements, got {}",
+        num_heads * head_dim,
+        qk.len()
+    );
+
+    for h in 0..num_heads {
+        let start = h * head_dim;
+        let end = start + head_dim;
+        let head = &mut qk[start..end];
+
+        // RMSNorm: x / sqrt(mean(x^2) + eps) * weight
+        let sum_sq: f32 = head.iter().map(|v| v * v).sum();
+        let mean_sq = sum_sq / head_dim as f32;
+        let inv_rms = 1.0 / (mean_sq + eps).sqrt();
+
+        for (j, val) in head.iter_mut().enumerate() {
+            *val = *val * inv_rms * weight[j];
+        }
+    }
+}
+
 include!("ops_part_02.rs");

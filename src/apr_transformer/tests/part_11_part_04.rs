@@ -101,6 +101,8 @@ fn test_fwc_partial_q4k_f32_fallback_with_trace() {
         ffn_down_bias: None,
         ffn_norm_weight: Some(vec![1.0; hidden]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     // Partial Q4K: only Q and K populated, everything else None
@@ -199,6 +201,8 @@ fn test_fwc_gelu_f32_no_q4k_with_trace() {
         ffn_down_bias: Some(vec![0.0; hidden]),
         ffn_norm_weight: Some(vec![1.0; hidden]),
         ffn_norm_bias: Some(vec![0.0; hidden]),
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let apr = AprTransformer {
@@ -262,6 +266,8 @@ fn test_forward_batch_gelu_with_trace() {
         ffn_down_bias: Some(vec![0.0; hidden]),
         ffn_norm_weight: Some(vec![1.0; hidden]),
         ffn_norm_bias: Some(vec![0.0; hidden]),
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let apr = AprTransformer {
@@ -332,6 +338,8 @@ fn test_forward_batch_partial_q4k_with_trace() {
         ffn_down_bias: None,
         ffn_norm_weight: Some(vec![1.0; hidden]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     // Only attn_output Q4K populated — all others fall through to F32

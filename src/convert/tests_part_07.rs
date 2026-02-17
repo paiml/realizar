@@ -330,6 +330,8 @@ fn test_apr_roundtrip_minimal() {
         ffn_down_bias: None,
         ffn_norm_weight: Some(vec![1.0; 4]), // Optional
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let transformer = AprTransformer {

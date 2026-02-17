@@ -54,6 +54,8 @@ fn create_test_transformer(
                 ffn_down_bias: None,
                 ffn_norm_weight: Some(vec![1.0; hidden_dim]),
                 ffn_norm_bias: None,
+                attn_q_norm_weight: None,
+                attn_k_norm_weight: None,
             })
             .collect(),
         output_norm_weight: vec![1.0; hidden_dim],
@@ -221,6 +223,8 @@ fn test_layer_num_parameters_minimal() {
         ffn_down_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
     let params = layer.num_parameters();
     assert!(params > 0);
@@ -243,6 +247,8 @@ fn test_layer_num_parameters_with_all_biases() {
         ffn_down_bias: Some(vec![0.0; 64]),
         ffn_norm_weight: Some(vec![1.0; 64]),
         ffn_norm_bias: Some(vec![0.0; 64]),
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
     let params = layer.num_parameters();
     // Should include all weights and biases

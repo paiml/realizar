@@ -277,6 +277,8 @@ impl AprTransformer {
                 ffn_down_bias: None,
                 ffn_norm_weight: ffn_norm,
                 ffn_norm_bias: None,
+                attn_q_norm_weight: None,
+                attn_k_norm_weight: None,
             });
         }
 

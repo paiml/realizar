@@ -123,6 +123,7 @@ impl SafeTensorsCudaModel {
             gamma_cache,
             qkv_bias_cache,
             o_bias_cache,
+            qk_norm_cache: std::collections::HashMap::new(),
             streaming_mode,
             model_path,
         })

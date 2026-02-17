@@ -93,9 +93,9 @@ impl OwnedQuantizedModel {
             .map(|l| OwnedQuantizedLayer::from_borrowed(l, data, config))
             .collect();
 
-        // GH-278: GPT-2 Conv1D weights are stored as [in_dim, out_dim] in the GGUF
-        // (aprender export doesn't transpose). fused_matmul expects [out_dim, in_dim].
-        if config.architecture.to_lowercase().contains("gpt2") {
+        // GH-278: Conv1D weights (GPT-2) are stored as [in_dim, out_dim] in the GGUF.
+        // fused_matmul expects [out_dim, in_dim]. Contract determines layout.
+        if config.constraints.needs_transpose() {
             let head_dim = hidden_dim / config.num_heads;
             let kv_dim = config.num_kv_heads * head_dim;
             for layer in &mut layers {
@@ -210,12 +210,15 @@ impl OwnedQuantizedModel {
             },
         };
 
+        let architecture = apr
+            .metadata
+            .architecture
+            .clone()
+            .unwrap_or_else(|| "qwen2".to_string());
+        let constraints = crate::gguf::ArchConstraints::from_architecture(&architecture);
         let config = GGUFConfig {
-            architecture: apr
-                .metadata
-                .architecture
-                .clone()
-                .unwrap_or_else(|| "qwen2".to_string()),
+            architecture,
+            constraints,
             vocab_size,
             hidden_dim,
             num_layers,
@@ -229,11 +232,8 @@ impl OwnedQuantizedModel {
             bos_token_id: apr.metadata.get_embedded_bos_token_id(),
         };
 
-        // GH-278: Detect GPT-2 Conv1D layout (weights stored as [in, out] not [out, in])
-        let is_conv1d_arch = config
-            .architecture
-            .to_lowercase()
-            .contains("gpt2");
+        // GH-278: Detect Conv1D layout from contract (not string matching)
+        let is_conv1d_arch = config.constraints.needs_transpose();
 
         // Helper to make OwnedQuantizedTensor (tries multiple names for GGUF/HF compat)
         // Handles APR native q8/q4 formats by dequantizing to f32.
@@ -495,6 +495,8 @@ impl OwnedQuantizedModel {
                 ffn_up_bias: try_get_f32(&hf_up_bias),
                 ffn_down_weight,
                 ffn_down_bias: try_get_f32(&hf_down_bias),
+                attn_q_norm_weight: None,
+                attn_k_norm_weight: None,
             });
         }
 

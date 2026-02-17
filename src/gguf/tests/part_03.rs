@@ -27,6 +27,7 @@ fn test_imp_109a_fused_dequant_matmul_correctness() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 256, // Must be multiple of QK_K
         intermediate_dim: 512,
         num_layers: 1,
@@ -95,6 +96,7 @@ fn test_imp_109b_fused_batch_matmul_gpu() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 256, // Must be multiple of QK_K
         intermediate_dim: 512,
         num_layers: 1,
@@ -206,6 +208,7 @@ fn test_imp_109c_fused_vs_separate_performance_baseline() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 512, // 2x QK_K
         intermediate_dim: 1024,
         num_layers: 1,
@@ -281,6 +284,7 @@ fn test_imp_110a_parallel_heads_correctness() {
     // Process all heads in a single batch dispatch instead of iterating
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -347,6 +351,7 @@ fn test_imp_110b_batched_qkv_reshape() {
     // Input: [seq_len, hidden_dim] -> [num_heads, seq_len, head_dim]
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 32,
         intermediate_dim: 64,
         num_layers: 1,
@@ -411,6 +416,7 @@ fn test_imp_110c_parallel_batched_scores() {
     // Process all heads in single batched matmul
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 32,
         intermediate_dim: 64,
         num_layers: 1,

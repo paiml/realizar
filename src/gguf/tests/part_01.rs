@@ -56,6 +56,7 @@ fn test_generate_config_deterministic() {
 fn test_imp_101a_rope_preserves_norm() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 256,
         num_layers: 1,
@@ -114,6 +115,7 @@ fn test_imp_101a_rope_preserves_norm() {
 fn test_imp_101a_rope_position_dependent() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 256,
         num_layers: 1,
@@ -187,6 +189,7 @@ fn test_imp_101a_rope_position_dependent() {
 fn test_imp_101b_causal_attention_mask() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 8, // Small for testing
         intermediate_dim: 32,
         num_layers: 1,
@@ -258,6 +261,7 @@ fn test_imp_101b_causal_attention_mask() {
 fn test_imp_101b_causal_attention_softmax_normalized() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 4,
         intermediate_dim: 16,
         num_layers: 1,
@@ -338,6 +342,7 @@ fn test_imp_101c_kv_cache_initialization() {
 fn test_imp_101c_kv_cache_from_config() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 512,
         intermediate_dim: 2048,
         num_layers: 6,

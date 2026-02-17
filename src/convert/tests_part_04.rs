@@ -163,6 +163,8 @@ fn create_minimal_transformer() -> AprTransformer {
                 ffn_down_bias: None,
                 ffn_norm_weight: Some(vec![1.0; 64]),
                 ffn_norm_bias: None,
+                attn_q_norm_weight: None,
+                attn_k_norm_weight: None,
             },
             AprTransformerLayer {
                 attn_norm_weight: vec![1.0; 64],
@@ -179,6 +181,8 @@ fn create_minimal_transformer() -> AprTransformer {
                 ffn_down_bias: None,
                 ffn_norm_weight: Some(vec![1.0; 64]),
                 ffn_norm_bias: None,
+                attn_q_norm_weight: None,
+                attn_k_norm_weight: None,
             },
         ],
         output_norm_weight: vec![1.0; 64],
@@ -306,6 +310,7 @@ fn test_from_gguf_transformer_preserves_config() {
     let gguf = GGUFTransformer {
         config: GGUFConfig {
             architecture: "llama".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
             hidden_dim: 512,
             num_layers: 4,
             num_heads: 8,
@@ -335,6 +340,8 @@ fn test_from_gguf_transformer_preserves_config() {
             ffn_down_bias: None,
             ffn_norm_weight: Some(vec![1.0; 512]),
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 512],
         output_norm_bias: None,

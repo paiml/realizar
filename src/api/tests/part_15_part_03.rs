@@ -11,6 +11,7 @@ async fn test_quantized_multi_turn_conversation() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,

@@ -8,6 +8,7 @@ fn test_phase34_embed_different_dimensions() {
     for hidden_dim in [32, 64, 128, 256] {
         let config = GGUFConfig {
             architecture: "llama".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
             hidden_dim,
             intermediate_dim: hidden_dim * 2,
             num_layers: 1,
@@ -33,6 +34,7 @@ fn test_phase34_fused_matmul_all_qtypes_comprehensive() {
     // Comprehensive test covering all qtypes in a single test
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         intermediate_dim: 512,
         num_layers: 1,

@@ -27,6 +27,7 @@ fn test_imp_106a_batch_matmul_correctness() {
     // IMP-106a: Verify batch matmul produces same results as sequential
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 32,
         intermediate_dim: 64,
         num_layers: 1,
@@ -92,6 +93,7 @@ fn test_imp_106b_forward_batch_correctness() {
     // IMP-106b: Verify forward_batch produces correct output shape
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 32,
         intermediate_dim: 64,
         num_layers: 1,
@@ -138,6 +140,7 @@ fn test_imp_106c_prefill_with_batch() {
     // IMP-106c: Verify prefill_batch populates KV cache correctly
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 32,
         intermediate_dim: 64,
         num_layers: 1,
@@ -224,6 +227,7 @@ fn test_imp_107b_forward_batch_gpu() {
     // IMP-107b: Verify forward_batch_gpu uses GPU matmul for batch ops
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -330,6 +334,7 @@ fn test_imp_108a_batched_causal_attention_correctness() {
     // IMP-108a: Verify batched causal attention matches sequential computation
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 32,
         intermediate_dim: 64,
         num_layers: 1,
@@ -391,6 +396,7 @@ fn test_imp_108b_causal_mask_gpu() {
     // IMP-108b: Verify causal mask is correctly applied in GPU attention
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 16, // Small for easy verification
         intermediate_dim: 32,
         num_layers: 1,

@@ -33,10 +33,7 @@ impl OwnedQuantizedModel {
         }
         profiler.stop("Embedding");
 
-        let use_rmsnorm = self
-            .layers
-            .first()
-            .is_some_and(|l| l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none());
+        let use_rmsnorm = self.config.constraints.uses_rmsnorm();
 
         // 2. Transformer layers with per-operation instrumentation
         for (layer_idx, layer) in self.layers.iter().enumerate() {
@@ -94,7 +91,7 @@ impl OwnedQuantizedModel {
                 let v = &qkv[qkv_start + q_dim + k_dim..qkv_start + q_dim + k_dim + v_dim];
 
                 // GH-278: Skip RoPE for models with learned position embeddings (GPT-2)
-                if self.position_embedding.is_none() {
+                if self.config.constraints.uses_rope() {
                     self.apply_rope(&mut q, s, self.config.num_heads);
                     self.apply_rope(&mut k, s, self.config.num_kv_heads);
                 }

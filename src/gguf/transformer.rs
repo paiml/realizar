@@ -46,6 +46,10 @@ pub struct QuantizedGGUFTransformerLayer {
     pub ffn_norm_weight: Option<Vec<f32>>,
     /// FFN norm bias (optional, f32)
     pub ffn_norm_bias: Option<Vec<f32>>,
+    /// GH-279: Per-head Q RMSNorm weight [head_dim] (Qwen3)
+    pub attn_q_norm_weight: Option<Vec<f32>>,
+    /// GH-279: Per-head K RMSNorm weight [head_dim] (Qwen3)
+    pub attn_k_norm_weight: Option<Vec<f32>>,
 }
 
 /// Quantized GGUF Transformer for fused inference
@@ -426,6 +430,14 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             })
             .ok();
 
+        // GH-279: QK norm weights (Qwen3 per-head RMSNorm on Q and K)
+        let attn_q_norm_weight = model
+            .get_tensor_f32(&format!("{}.attn_q_norm.weight", prefix), data)
+            .ok();
+        let attn_k_norm_weight = model
+            .get_tensor_f32(&format!("{}.attn_k_norm.weight", prefix), data)
+            .ok();
+
         Ok(QuantizedGGUFTransformerLayer {
             attn_norm_weight,
             attn_norm_bias,
@@ -441,6 +453,8 @@ impl<'a> QuantizedGGUFTransformer<'a> {
             ffn_gate_bias,
             ffn_norm_weight,
             ffn_norm_bias,
+            attn_q_norm_weight,
+            attn_k_norm_weight,
         })
     }
 }

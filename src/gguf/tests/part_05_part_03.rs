@@ -5,6 +5,7 @@ fn test_imp_119c_gpu_fused_multihead_long_sequence() {
     // IMP-119c: GPU fused multi-head attention for long sequences
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 128,
         intermediate_dim: 256,
         num_layers: 1,
@@ -66,6 +67,7 @@ fn test_imp_119d_adaptive_cpu_gpu_dispatch() {
     // IMP-119d: Verify adaptive dispatch chooses CPU for short, GPU for long sequences
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,

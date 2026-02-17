@@ -51,6 +51,7 @@ fn create_llama_style_model(
 ) -> OwnedQuantizedModel {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim,
         num_layers,
         num_heads,
@@ -85,6 +86,8 @@ fn create_llama_style_model(
             ffn_gate_bias: None,
             ffn_norm_weight: Some(vec![1.0f32; hidden_dim]), // LLaMA has separate FFN norm
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         };
         layers.push(layer);
     }
@@ -121,6 +124,7 @@ fn create_phi2_style_model(
 ) -> OwnedQuantizedModel {
     let config = GGUFConfig {
         architecture: "phi2".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi2"),
         hidden_dim,
         num_layers,
         num_heads,
@@ -153,6 +157,8 @@ fn create_phi2_style_model(
             ffn_gate_bias: None,
             ffn_norm_weight: None, // phi-2 has no separate FFN norm
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         };
         layers.push(layer);
     }

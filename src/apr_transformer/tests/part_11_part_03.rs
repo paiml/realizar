@@ -28,6 +28,8 @@ fn test_fwc_q4k_gelu_no_gate() {
         ffn_down_bias: Some(vec![0.0; hidden]),
         ffn_norm_weight: Some(vec![1.0; hidden]),
         ffn_norm_bias: Some(vec![0.0; hidden]),
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     // Q4K layers for GELU model (no gate)
@@ -99,6 +101,8 @@ fn test_forward_batch_q4k_gelu() {
         ffn_down_bias: Some(vec![0.0; hidden]),
         ffn_norm_weight: Some(vec![1.0; hidden]),
         ffn_norm_bias: Some(vec![0.0; hidden]),
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let q4k = Q4KLayerWeights {
@@ -414,6 +418,8 @@ fn test_forward_batch_gelu_f32_no_q4k() {
         ffn_down_bias: Some(vec![0.0; hidden]),
         ffn_norm_weight: Some(vec![1.0; hidden]),
         ffn_norm_bias: Some(vec![0.0; hidden]),
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let apr = AprTransformer {

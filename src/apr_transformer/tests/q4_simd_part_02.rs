@@ -359,6 +359,7 @@ fn test_from_gguf_basic_fused_qkv() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_heads: 4,

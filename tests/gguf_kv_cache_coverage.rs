@@ -11,12 +11,13 @@
 //!   layer_stride, append, advance, get_k, get_v, get_k_mut, get_v_mut,
 //!   len, is_empty, reset, reset_and_zero, max_len, memory_bytes, prefetch_k, prefetch_v
 
-use realizar::gguf::{ContiguousKVCache, GGUFConfig, OwnedQuantizedKVCache};
+use realizar::gguf::{ArchConstraints, ContiguousKVCache, GGUFConfig, OwnedQuantizedKVCache};
 
 /// Helper function to create a test GGUFConfig with specified layers and hidden_dim
 fn make_test_config(num_layers: usize, hidden_dim: usize) -> GGUFConfig {
     GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim,
         num_layers,
         num_heads: 8,

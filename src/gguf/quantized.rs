@@ -298,6 +298,10 @@ pub struct OwnedQuantizedLayer {
     pub ffn_norm_weight: Option<Vec<f32>>,
     /// FFN norm bias (optional)
     pub ffn_norm_bias: Option<Vec<f32>>,
+    /// GH-279: Per-head Q RMSNorm weight [head_dim] (Qwen3)
+    pub attn_q_norm_weight: Option<Vec<f32>>,
+    /// GH-279: Per-head K RMSNorm weight [head_dim] (Qwen3)
+    pub attn_k_norm_weight: Option<Vec<f32>>,
 }
 
 impl OwnedQuantizedLayer {
@@ -348,6 +352,8 @@ impl OwnedQuantizedLayer {
             ffn_gate_bias: layer.ffn_gate_bias.clone(),
             ffn_norm_weight: layer.ffn_norm_weight.clone(),
             ffn_norm_bias: layer.ffn_norm_bias.clone(),
+            attn_q_norm_weight: layer.attn_q_norm_weight.clone(),
+            attn_k_norm_weight: layer.attn_k_norm_weight.clone(),
         }
     }
 }

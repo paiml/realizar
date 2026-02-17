@@ -10,6 +10,7 @@ mod tests {
 
         let config = GGUFConfig {
             architecture: "llama_debug".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama_debug"),
             hidden_dim: 128,
             num_layers: 4,
             num_heads: 4,
@@ -62,6 +63,7 @@ mod tests {
     fn test_gguf_config_fields() {
         let config = GGUFConfig {
             architecture: "mistral".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("mistral"),
             hidden_dim: 4096,
             num_layers: 32,
             num_heads: 32,
@@ -108,6 +110,7 @@ mod tests {
 
         let config = GGUFConfig {
             architecture: "gh40_test".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("gh40_test"),
             hidden_dim: 64,
             num_layers: 1,
             num_heads: 2,
@@ -173,6 +176,7 @@ mod tests {
     fn test_falsify_gh40_config_has_bos_token_id() {
         let config = GGUFConfig {
             architecture: "test".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("test"),
             hidden_dim: 64,
             num_layers: 1,
             num_heads: 1,

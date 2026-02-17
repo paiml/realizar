@@ -173,6 +173,14 @@ impl GGUFTransformer {
             })
             .ok();
 
+        // GH-279: QK norm weights (Qwen3 per-head RMSNorm on Q and K)
+        let attn_q_norm_weight = model
+            .get_tensor_f32(&format!("{prefix}.attn_q_norm.weight"), file_data)
+            .ok();
+        let attn_k_norm_weight = model
+            .get_tensor_f32(&format!("{prefix}.attn_k_norm.weight"), file_data)
+            .ok();
+
         Ok(GGUFTransformerLayer {
             attn_norm_weight,
             attn_norm_bias,
@@ -188,6 +196,8 @@ impl GGUFTransformer {
             ffn_down_bias,
             ffn_norm_weight,
             ffn_norm_bias,
+            attn_q_norm_weight,
+            attn_k_norm_weight,
         })
     }
 }

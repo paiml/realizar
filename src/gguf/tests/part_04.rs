@@ -25,6 +25,7 @@ fn test_imp_112a_cached_scheduler_initialization() {
     // This tests that OwnedQuantizedModelCached provides scheduler caching
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -87,6 +88,7 @@ fn test_imp_112b_cached_matches_uncached() {
     // Both cached (CUDA) and uncached (wgpu) paths now produce matching results.
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -143,6 +145,7 @@ fn test_imp_112b_cached_matches_uncached() {
 fn test_parity_114_cuda_gemm_correctness() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -189,6 +192,7 @@ fn test_imp_112c_multiple_operations_same_scheduler() {
     // IMP-112c: Verify multiple different operations share the same scheduler
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -237,6 +241,7 @@ fn test_imp_112d_cached_attention_matches_uncached() {
     // IMP-112d: Verify cached parallel attention matches uncached
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -300,6 +305,7 @@ fn test_imp_111a_online_softmax_correctness() {
     // Online softmax processes data in tiles, tracking running max and sum
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -359,6 +365,7 @@ fn test_imp_111b_tiled_attention_matches_standard() {
     // IMP-111b: Verify tiled attention produces same output as standard
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 32,
         intermediate_dim: 64,
         num_layers: 1,

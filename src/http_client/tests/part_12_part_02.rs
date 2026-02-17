@@ -29,6 +29,7 @@ fn test_imp_400d_full_e2e_comparison() {
 
     let gguf_config = GGUFConfig {
         architecture: "phi2_comparison".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi2_comparison"),
         hidden_dim,
         num_layers,
         num_heads: 32,
@@ -58,6 +59,8 @@ fn test_imp_400d_full_e2e_comparison() {
             ffn_up_bias: None,
             ffn_down_weight: vec![0.01; intermediate_dim * hidden_dim],
             ffn_down_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         })
         .collect();
 

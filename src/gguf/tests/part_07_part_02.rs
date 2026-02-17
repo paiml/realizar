@@ -4,6 +4,7 @@
 fn test_parity006c_batch_output_validity() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -91,6 +92,7 @@ fn test_parity006e_batch_performance_comparison() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -159,6 +161,7 @@ fn test_parity006e_batch_performance_comparison() {
 fn test_parity006f_empty_prompts_error() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -327,6 +330,7 @@ fn test_parity007f_realizar_benchmark() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,

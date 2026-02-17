@@ -8,6 +8,7 @@ use crate::gguf::GGUFConfig;
 fn small_config() -> GGUFConfig {
     GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_heads: 4,
@@ -151,6 +152,7 @@ fn test_flash_attention_tiled_large_cache() {
 fn test_flash_attention_tiled_gqa() {
     let gqa_config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_heads: 8,

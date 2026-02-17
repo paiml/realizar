@@ -288,6 +288,15 @@ impl SafetensorsToAprConverter {
             ffn_down_bias: None,
             ffn_norm_weight: Some(ffn_norm_weight),
             ffn_norm_bias: None,
+            // GH-279: QK norm weights (Qwen3 per-head RMSNorm)
+            attn_q_norm_weight: source
+                .get_tensor_auto(&format!("{hf_prefix}.self_attn.q_norm.weight"))
+                .or_else(|_| source.get_tensor_auto(&format!("{gguf_prefix}.attn_q_norm.weight")))
+                .ok(),
+            attn_k_norm_weight: source
+                .get_tensor_auto(&format!("{hf_prefix}.self_attn.k_norm.weight"))
+                .or_else(|_| source.get_tensor_auto(&format!("{gguf_prefix}.attn_k_norm.weight")))
+                .ok(),
         })
     }
 

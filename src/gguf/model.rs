@@ -254,6 +254,10 @@ pub struct GGUFTransformerLayer {
     pub ffn_norm_weight: Option<Vec<f32>>,
     /// FFN norm bias
     pub ffn_norm_bias: Option<Vec<f32>>,
+    /// GH-279: Per-head Q RMSNorm weight [head_dim] (Qwen3)
+    pub attn_q_norm_weight: Option<Vec<f32>>,
+    /// GH-279: Per-head K RMSNorm weight [head_dim] (Qwen3)
+    pub attn_k_norm_weight: Option<Vec<f32>>,
 }
 
 // ============================================================================

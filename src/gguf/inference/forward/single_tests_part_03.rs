@@ -9,6 +9,7 @@ fn create_llama_256_model() -> crate::gguf::OwnedQuantizedModel {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         intermediate_dim: 512,
         num_heads: 4,
@@ -41,6 +42,8 @@ fn create_llama_256_model() -> crate::gguf::OwnedQuantizedModel {
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0f32; hidden_dim]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     OwnedQuantizedModel {
@@ -98,6 +101,7 @@ fn create_phi_256_model() -> crate::gguf::OwnedQuantizedModel {
 
     let config = GGUFConfig {
         architecture: "phi".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
         hidden_dim: 256,
         intermediate_dim: 512,
         num_heads: 4,
@@ -130,6 +134,8 @@ fn create_phi_256_model() -> crate::gguf::OwnedQuantizedModel {
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0f32; hidden_dim]),
         ffn_norm_bias: Some(vec![0.0f32; hidden_dim]),
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     OwnedQuantizedModel {
@@ -156,6 +162,7 @@ fn create_llama_256_gqa_model() -> crate::gguf::OwnedQuantizedModel {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         intermediate_dim: 512,
         num_heads: 8,    // 8 query heads
@@ -189,6 +196,8 @@ fn create_llama_256_gqa_model() -> crate::gguf::OwnedQuantizedModel {
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0f32; hidden_dim]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     OwnedQuantizedModel {

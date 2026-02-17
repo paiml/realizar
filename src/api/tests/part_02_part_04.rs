@@ -12,6 +12,7 @@ fn test_imp_132a_adaptive_attention_records_cpu_latency() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 16,
         intermediate_dim: 32,
         num_layers: 1,
@@ -60,6 +61,7 @@ fn test_imp_132b_latency_values_are_reasonable() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 16,
         intermediate_dim: 32,
         num_layers: 1,
@@ -108,6 +110,7 @@ fn test_imp_132c_latency_count_matches_dispatch_count() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 16,
         intermediate_dim: 32,
         num_layers: 2, // 2 layers for more dispatches
@@ -158,6 +161,7 @@ fn test_imp_132d_gpu_dispatches_record_latency() {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 16,
         intermediate_dim: 32,
         num_layers: 1,

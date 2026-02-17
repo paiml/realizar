@@ -118,6 +118,7 @@ fn test_from_gguf_transformer_preserves_layer_biases() {
     // Create GGUFTransformer with biases set
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 8,
         num_layers: 1,
         num_heads: 2,
@@ -146,6 +147,8 @@ fn test_from_gguf_transformer_preserves_layer_biases() {
         ffn_down_bias: Some(vec![0.05; 8]),
         ffn_norm_weight: Some(vec![1.0; 8]),
         ffn_norm_bias: Some(vec![0.06; 8]),
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let gguf = GGUFTransformer {
@@ -183,6 +186,7 @@ fn test_from_gguf_transformer_no_biases() {
     // Create GGUFTransformer with no biases
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 8,
         num_layers: 1,
         num_heads: 2,
@@ -211,6 +215,8 @@ fn test_from_gguf_transformer_no_biases() {
         ffn_down_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let gguf = GGUFTransformer {
@@ -240,6 +246,7 @@ fn test_from_gguf_transformer_no_biases() {
 fn test_from_gguf_transformer_multi_layer() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 8,
         num_layers: 3,
         num_heads: 2,
@@ -268,6 +275,8 @@ fn test_from_gguf_transformer_multi_layer() {
         ffn_down_bias: None,
         ffn_norm_weight: Some(vec![1.0; 8]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let gguf = GGUFTransformer {

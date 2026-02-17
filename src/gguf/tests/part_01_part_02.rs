@@ -4,6 +4,7 @@
 fn test_imp_101c_attention_with_cache_softmax_normalized() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 4,
         intermediate_dim: 16,
         num_layers: 1,
@@ -110,6 +111,7 @@ fn test_imp_105_gqa_attention_multiple_q_per_kv() {
     // 8 Q heads share 2 KV heads (4 Q heads per KV head)
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 32, // 8 heads * 4 head_dim
         intermediate_dim: 128,
         num_layers: 1,
@@ -167,6 +169,7 @@ fn test_imp_105_gqa_kv_head_sharing() {
     // IMP-105: Verify that multiple Q heads correctly share KV heads
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 16, // 4 heads * 4 head_dim
         intermediate_dim: 64,
         num_layers: 1,

@@ -10,6 +10,7 @@ fn test_imp_114a_flattened_batched_gemm_correctness() {
     // Strategy: Flatten [batch, m, k] @ [batch, k, n] into single large matmul
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -86,6 +87,7 @@ fn test_imp_114b_flattened_matches_loop() {
     // IMP-114b: Verify flattened approach matches loop-based approach
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -144,6 +146,7 @@ fn test_imp_114c_flattened_attention_correctness() {
     // IMP-114c: Verify flattened attention matches reference
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -203,6 +206,7 @@ fn test_imp_114d_large_batch_flattened() {
     // IMP-114d: Test with larger batch sizes where flattening benefits
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("test"),
         hidden_dim: 128,
         intermediate_dim: 256,
         num_layers: 1,

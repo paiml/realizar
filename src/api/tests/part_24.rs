@@ -28,6 +28,7 @@ mod potemkin_village {
         // Create minimal config for mock model
         let config = GGUFConfig {
             architecture: "llama".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
             hidden_dim: 32,
             num_layers: 1,
             num_heads: 4,

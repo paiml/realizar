@@ -234,6 +234,8 @@ fn test_forward_two_layer_model() {
         ffn_down_bias: None,
         ffn_norm_weight: Some(vec![1.0; hidden_dim]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let mut token_embedding = vec![0.0f32; vocab_size * hidden_dim];

@@ -24,6 +24,7 @@ use crate::gguf::{GGUFConfig, OwnedQuantizedTensor};
 fn test_phase34_embed_single_token() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -48,6 +49,7 @@ fn test_phase34_embed_single_token() {
 fn test_phase34_embed_multiple_tokens() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -72,6 +74,7 @@ fn test_phase34_embed_multiple_tokens() {
 fn test_phase34_embed_out_of_vocab() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -98,6 +101,7 @@ fn test_phase34_embed_out_of_vocab() {
 fn test_phase34_embed_boundary_token() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -123,6 +127,7 @@ fn test_phase34_embed_boundary_token() {
 fn test_phase34_embed_empty() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -150,6 +155,7 @@ fn test_phase34_embed_empty() {
 fn test_phase34_embed_into_single() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -177,6 +183,7 @@ fn test_phase34_embed_into_single() {
 fn test_phase34_embed_into_out_of_vocab() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -231,6 +238,7 @@ fn create_q4_0_weight(in_dim: usize, out_dim: usize) -> OwnedQuantizedTensor {
 fn test_phase34_fused_matmul_q4_0_single_seq() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -267,6 +275,7 @@ fn test_phase34_fused_matmul_q4_0_single_seq() {
 fn test_phase34_fused_matmul_q4_0_multi_seq() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -331,6 +340,7 @@ fn create_q8_0_weight(in_dim: usize, out_dim: usize) -> OwnedQuantizedTensor {
 fn test_phase34_fused_matmul_q8_0_single_seq() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -366,6 +376,7 @@ fn test_phase34_fused_matmul_q8_0_single_seq() {
 fn test_phase34_fused_matmul_q8_0_multi_seq() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,

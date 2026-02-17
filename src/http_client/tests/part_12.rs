@@ -322,6 +322,7 @@ fn test_imp_400c_realizar_native_forward_performance() {
 
     let config = GGUFConfig {
         architecture: "phi2_benchmark_scaled".to_string(),
+        constraints: crate::gguf::ArchConstraints::from_architecture("phi2_benchmark_scaled"),
         hidden_dim,
         num_layers,
         num_heads,
@@ -352,6 +353,8 @@ fn test_imp_400c_realizar_native_forward_performance() {
             ffn_up_bias: None,
             ffn_down_weight: vec![0.01; intermediate_dim * hidden_dim],
             ffn_down_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         })
         .collect();
 

@@ -453,12 +453,8 @@ impl OwnedQuantizedModel {
             }
         }
 
-        // Detect if model uses RMSNorm (LLaMA-style) or LayerNorm (phi-2 style)
-        // LLaMA models have ffn_gate_weight (SwiGLU) and no bias in norms
-        let use_rmsnorm = self
-            .layers
-            .first()
-            .is_some_and(|l| l.ffn_gate_weight.is_some() && l.attn_norm_bias.is_none());
+        // GH-278: Use contract-derived norm type.
+        let use_rmsnorm = self.config.constraints.uses_rmsnorm();
 
         // Pre-allocate attention output buffer - reused across all layers
         let mut attn_out_buffer = vec![0.0f32; hidden_dim];
@@ -507,8 +503,26 @@ impl OwnedQuantizedModel {
             // PMAT-114: Trace QKV after bias for layer 0 (PMAT-260)
             self.debug_trace_qkv_after_bias(&qkv, layer, layer_idx, hidden_dim);
 
+            // GH-279: Per-head QK RMSNorm (Qwen3) — after bias, before RoPE
+            if let Some(ref q_norm) = layer.attn_q_norm_weight {
+                ops::apply_per_head_rms_norm(
+                    &mut qkv[0..hidden_dim],
+                    q_norm,
+                    self.config.num_heads,
+                    self.config.eps,
+                );
+            }
+            if let Some(ref k_norm) = layer.attn_k_norm_weight {
+                ops::apply_per_head_rms_norm(
+                    &mut qkv[hidden_dim..hidden_dim + kv_dim],
+                    k_norm,
+                    num_kv_heads,
+                    self.config.eps,
+                );
+            }
+
             // GH-278: Skip RoPE for models with learned position embeddings (GPT-2)
-            if self.position_embedding.is_none() {
+            if self.config.constraints.uses_rope() {
                 self.apply_rope(&mut qkv[0..hidden_dim], position, self.config.num_heads);
                 self.apply_rope(
                     &mut qkv[hidden_dim..hidden_dim + kv_dim],

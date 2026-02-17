@@ -3,16 +3,295 @@
 //! Extracts model configuration from GGUF metadata.
 //!
 //! This module defines `GGUFConfig` which holds the transformer
-//! architecture parameters needed for inference.
+//! architecture parameters needed for inference, and `ArchConstraints`
+//! which encodes compile-time model family contract data from
+//! `aprender/contracts/model-families/*.yaml`.
 
 use super::types::GGUFModel;
 use crate::error::{RealizarError, Result};
+
+// ---------------------------------------------------------------------------
+// ArchConstraints — contract-driven architecture behavior (GH-278)
+// ---------------------------------------------------------------------------
+
+/// Normalization type per model family contract.
+///
+/// Source: `constraints.norm_type` in `aprender/contracts/model-families/*.yaml`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NormType {
+    /// Standard Layer Normalization with optional bias (GPT-2, phi, BERT, whisper)
+    LayerNorm,
+    /// Root Mean Square Normalization without bias (LLaMA, Qwen2, Mistral, etc.)
+    RmsNorm,
+}
+
+/// Activation function per model family contract.
+///
+/// Source: `constraints.activation` in `aprender/contracts/model-families/*.yaml`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Activation {
+    /// Gaussian Error Linear Unit (GPT-2, BERT, gemma, whisper)
+    Gelu,
+    /// Sigmoid Linear Unit (LLaMA, Qwen2, Mistral, phi, etc.)
+    Silu,
+}
+
+/// Positional encoding type per model family contract.
+///
+/// Source: `constraints.positional_encoding` in `aprender/contracts/model-families/*.yaml`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PositionalEncoding {
+    /// Learned absolute position embeddings (GPT-2, BERT, whisper)
+    Absolute,
+    /// Rotary Position Embedding (LLaMA, Qwen2, Mistral, phi, etc.)
+    Rope,
+    /// No positional encoding (mamba, rwkv7)
+    None,
+}
+
+/// FFN/MLP structure per model family contract.
+///
+/// Source: `constraints.mlp_type` in `aprender/contracts/model-families/*.yaml`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MlpType {
+    /// Standard GELU MLP: up → GELU → down (GPT-2, BERT, whisper)
+    GeluMlp,
+    /// SwiGLU: gate ⊙ SiLU(up) → down (LLaMA, Qwen2, Mistral, phi, etc.)
+    SwiGlu,
+    /// Gated MLP: gate ⊙ GELU(up) → down (gemma, moonshine)
+    GatedMlp,
+}
+
+/// Weight storage layout per model family contract.
+///
+/// Source: `constraints.mlp_type` + `shape_template` in contracts
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WeightLayout {
+    /// Standard Linear layout: `[out_features, in_features]` — no transpose needed
+    Linear,
+    /// Conv1D layout: `[in_features, out_features]` — requires transpose for `y = x @ W^T`
+    Conv1D,
+}
+
+/// Architecture constraints derived from model family contracts.
+///
+/// These are compile-time constants per architecture, NOT runtime heuristics.
+/// Source of truth: `aprender/contracts/model-families/*.yaml`
+///
+/// # Usage
+///
+/// ```ignore
+/// let c = ArchConstraints::from_architecture("gpt2");
+/// // c.norm_type == NormType::LayerNorm
+/// // c.activation == Activation::Gelu
+/// // c.positional_encoding == PositionalEncoding::Absolute
+/// // c.mlp_type == MlpType::GeluMlp
+/// // c.weight_layout == WeightLayout::Conv1D
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ArchConstraints {
+    /// Normalization type (LayerNorm or RMSNorm)
+    pub norm_type: NormType,
+    /// Activation function (GELU or SiLU)
+    pub activation: Activation,
+    /// Positional encoding (Absolute, RoPE, or None)
+    pub positional_encoding: PositionalEncoding,
+    /// FFN structure (GeluMlp, SwiGlu, or GatedMlp)
+    pub mlp_type: MlpType,
+    /// Weight storage layout (Linear or Conv1D)
+    pub weight_layout: WeightLayout,
+    /// Whether the architecture has bias terms in attention/FFN layers
+    pub has_bias: bool,
+    /// Whether embedding and LM head weights are tied
+    pub tied_embeddings: bool,
+    /// Whether Q and K projections have per-head RMSNorm (GH-279: Qwen3)
+    pub has_qk_norm: bool,
+    /// Default norm epsilon when GGUF metadata is missing
+    pub default_eps: f32,
+}
+
+impl ArchConstraints {
+    /// Look up architecture constraints from the GGUF `general.architecture` value.
+    ///
+    /// Maps architecture names to their contract-defined behavior per
+    /// `aprender/contracts/model-families/*.yaml`. Unknown architectures
+    /// fall back to LLaMA-like defaults (the most common pattern).
+    #[must_use]
+    pub fn from_architecture(arch: &str) -> Self {
+        match arch {
+            // gpt2.yaml: layernorm, gelu, absolute, gelu_mlp, has_bias=true, tied=true
+            "gpt2" => Self {
+                norm_type: NormType::LayerNorm,
+                activation: Activation::Gelu,
+                positional_encoding: PositionalEncoding::Absolute,
+                mlp_type: MlpType::GeluMlp,
+                weight_layout: WeightLayout::Conv1D,
+                has_bias: true,
+                tied_embeddings: true,
+                has_qk_norm: false,
+                default_eps: 1e-5,
+            },
+            // llama.yaml: rmsnorm, silu, rope, swiglu, has_bias=false, tied=false
+            "llama" | "llama3" => Self {
+                norm_type: NormType::RmsNorm,
+                activation: Activation::Silu,
+                positional_encoding: PositionalEncoding::Rope,
+                mlp_type: MlpType::SwiGlu,
+                weight_layout: WeightLayout::Linear,
+                has_bias: false,
+                tied_embeddings: false,
+                has_qk_norm: false,
+                default_eps: 1e-5,
+            },
+            // qwen2.yaml: rmsnorm, silu, rope, swiglu, has_bias=true, tied=false
+            "qwen2" | "qwen2.5" | "qwen" => Self {
+                norm_type: NormType::RmsNorm,
+                activation: Activation::Silu,
+                positional_encoding: PositionalEncoding::Rope,
+                mlp_type: MlpType::SwiGlu,
+                weight_layout: WeightLayout::Linear,
+                has_bias: true,
+                tied_embeddings: false,
+                has_qk_norm: false,
+                default_eps: 1e-6,
+            },
+            // qwen3.yaml: rmsnorm, silu, rope, swiglu, has_bias=false, tied=false, qk_norm=true
+            "qwen3" => Self {
+                norm_type: NormType::RmsNorm,
+                activation: Activation::Silu,
+                positional_encoding: PositionalEncoding::Rope,
+                mlp_type: MlpType::SwiGlu,
+                weight_layout: WeightLayout::Linear,
+                has_bias: false,
+                tied_embeddings: false,
+                has_qk_norm: true,
+                default_eps: 1e-6,
+            },
+            // mistral.yaml: rmsnorm, silu, rope, swiglu, has_bias=false, tied=false
+            "mistral" => Self {
+                norm_type: NormType::RmsNorm,
+                activation: Activation::Silu,
+                positional_encoding: PositionalEncoding::Rope,
+                mlp_type: MlpType::SwiGlu,
+                weight_layout: WeightLayout::Linear,
+                has_bias: false,
+                tied_embeddings: false,
+                has_qk_norm: false,
+                default_eps: 1e-5,
+            },
+            // phi.yaml: layernorm, silu, rope, swiglu, has_bias=true, tied=false
+            "phi" | "phi2" | "phi3" => Self {
+                norm_type: NormType::LayerNorm,
+                activation: Activation::Silu,
+                positional_encoding: PositionalEncoding::Rope,
+                mlp_type: MlpType::SwiGlu,
+                weight_layout: WeightLayout::Linear,
+                has_bias: true,
+                tied_embeddings: false,
+                has_qk_norm: false,
+                default_eps: 1e-5,
+            },
+            // gemma.yaml: rmsnorm, gelu, rope, gated_mlp, has_bias=false, tied=true
+            "gemma" | "gemma2" => Self {
+                norm_type: NormType::RmsNorm,
+                activation: Activation::Gelu,
+                positional_encoding: PositionalEncoding::Rope,
+                mlp_type: MlpType::GatedMlp,
+                weight_layout: WeightLayout::Linear,
+                has_bias: false,
+                tied_embeddings: true,
+                has_qk_norm: false,
+                default_eps: 1e-6,
+            },
+            // deepseek.yaml: rmsnorm, silu, rope, swiglu, has_bias=false, tied=false
+            "deepseek" | "deepseek2" => Self {
+                norm_type: NormType::RmsNorm,
+                activation: Activation::Silu,
+                positional_encoding: PositionalEncoding::Rope,
+                mlp_type: MlpType::SwiGlu,
+                weight_layout: WeightLayout::Linear,
+                has_bias: false,
+                tied_embeddings: false,
+                has_qk_norm: false,
+                default_eps: 1e-5,
+            },
+            // bert.yaml: layernorm, gelu, absolute, gelu_mlp, has_bias=true, tied=true
+            "bert" => Self {
+                norm_type: NormType::LayerNorm,
+                activation: Activation::Gelu,
+                positional_encoding: PositionalEncoding::Absolute,
+                mlp_type: MlpType::GeluMlp,
+                weight_layout: WeightLayout::Linear,
+                has_bias: true,
+                tied_embeddings: true,
+                has_qk_norm: false,
+                default_eps: 1e-12,
+            },
+            // whisper.yaml: layernorm, gelu, absolute, gelu_mlp, has_bias=true, tied=false
+            "whisper" => Self {
+                norm_type: NormType::LayerNorm,
+                activation: Activation::Gelu,
+                positional_encoding: PositionalEncoding::Absolute,
+                mlp_type: MlpType::GeluMlp,
+                weight_layout: WeightLayout::Linear,
+                has_bias: true,
+                tied_embeddings: false,
+                has_qk_norm: false,
+                default_eps: 1e-5,
+            },
+            // mamba.yaml: rmsnorm, silu, none, swiglu, has_bias=false, tied=true
+            "mamba" => Self {
+                norm_type: NormType::RmsNorm,
+                activation: Activation::Silu,
+                positional_encoding: PositionalEncoding::None,
+                mlp_type: MlpType::SwiGlu,
+                weight_layout: WeightLayout::Linear,
+                has_bias: false,
+                tied_embeddings: true,
+                has_qk_norm: false,
+                default_eps: 1e-5,
+            },
+            // Default: LLaMA-like (most common pattern in modern LLMs)
+            _ => Self {
+                norm_type: NormType::RmsNorm,
+                activation: Activation::Silu,
+                positional_encoding: PositionalEncoding::Rope,
+                mlp_type: MlpType::SwiGlu,
+                weight_layout: WeightLayout::Linear,
+                has_bias: false,
+                tied_embeddings: false,
+                has_qk_norm: false,
+                default_eps: 1e-5,
+            },
+        }
+    }
+
+    /// Whether this architecture uses RoPE positional encoding.
+    #[must_use]
+    pub fn uses_rope(&self) -> bool {
+        self.positional_encoding == PositionalEncoding::Rope
+    }
+
+    /// Whether this architecture uses RMSNorm (vs LayerNorm).
+    #[must_use]
+    pub fn uses_rmsnorm(&self) -> bool {
+        self.norm_type == NormType::RmsNorm
+    }
+
+    /// Whether weight matrices need Conv1D transpose.
+    #[must_use]
+    pub fn needs_transpose(&self) -> bool {
+        self.weight_layout == WeightLayout::Conv1D
+    }
+}
 
 /// Configuration for GGUF transformer inference
 #[derive(Debug, Clone)]
 pub struct GGUFConfig {
     /// Model architecture (e.g., "phi2", "llama", "qwen2")
     pub architecture: String,
+    /// Contract-derived architecture constraints (norm type, activation, etc.)
+    pub constraints: ArchConstraints,
     /// Embedding dimension (hidden size)
     pub hidden_dim: usize,
     /// Number of transformer layers
@@ -121,9 +400,14 @@ impl GGUFConfig {
         // Qwen2 uses 1000000.0, which is read from qwen2.rope.freq_base
         let rope_theta = model.rope_freq_base().unwrap_or(10000.0);
 
-        // Read RMSNorm epsilon from metadata, or use default (1e-5 for LLaMA-style)
-        // Qwen2 uses 1e-6, which is read from qwen2.attention.layer_norm_rms_epsilon
-        let eps = model.rms_epsilon().unwrap_or(1e-5);
+        // GH-278: Look up contract constraints for this architecture.
+        // This replaces ALL runtime heuristics (tensor presence checks, string matching)
+        // with compile-time contract data from aprender/contracts/model-families/*.yaml.
+        let constraints = ArchConstraints::from_architecture(&architecture);
+
+        // Read norm epsilon from GGUF metadata, falling back to contract default.
+        // The contract default is architecture-specific (e.g., 1e-5 for LLaMA, 1e-6 for Qwen2).
+        let eps = model.rms_epsilon().unwrap_or(constraints.default_eps);
 
         // num_kv_heads (for GQA - e.g., Qwen uses fewer KV heads than Q heads)
         let num_kv_heads = model.num_kv_heads().unwrap_or(num_heads);
@@ -147,6 +431,7 @@ impl GGUFConfig {
 
         Ok(Self {
             architecture,
+            constraints,
             hidden_dim,
             num_layers,
             num_heads,
@@ -250,6 +535,12 @@ impl ValidatedModelConfig {
     #[must_use]
     pub fn architecture(&self) -> &str {
         &self.inner.architecture
+    }
+
+    /// Contract-derived architecture constraints
+    #[must_use]
+    pub fn constraints(&self) -> &ArchConstraints {
+        &self.inner.constraints
     }
 
     /// Embedding dimension (hidden size)

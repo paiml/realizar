@@ -80,6 +80,7 @@ mod tests {
         // Qwen 1.5B: hidden=1536, heads=12, kv_heads=2
         let cfg = GGUFConfig {
             architecture: "qwen2".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("qwen2"),
             hidden_dim: 1536,
             num_layers: 28,
             num_heads: 12,
@@ -102,6 +103,7 @@ mod tests {
     fn test_validated_config_qwen2_0_5b_dimensions() {
         let cfg = GGUFConfig {
             architecture: "qwen2".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("qwen2"),
             hidden_dim: 896,
             num_layers: 24,
             num_heads: 14,
