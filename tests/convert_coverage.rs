@@ -12,7 +12,7 @@
 use realizar::apr::{ALIGNMENT, HEADER_SIZE, MAGIC};
 use realizar::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
 use realizar::convert::{ConversionStats, GgufToAprConverter, Q4KConversionStats, RawTensor};
-use realizar::gguf::{GGUFConfig, GGUFTransformer, GGUFTransformerLayer};
+use realizar::gguf::{ArchConstraints, GGUFConfig, GGUFTransformer, GGUFTransformerLayer};
 
 // =============================================================================
 // Helper Functions
@@ -26,6 +26,7 @@ fn create_minimal_gguf_transformer(
 ) -> GGUFTransformer {
     let config = GGUFConfig {
         architecture: "test_arch".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim,
         num_layers,
         num_heads: 4,
@@ -55,12 +56,15 @@ fn create_minimal_gguf_transformer(
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         })
         .collect();
 
     GGUFTransformer {
         config,
         token_embedding: vec![0.1; vocab_size * hidden_dim],
+        position_embedding: None,
         layers,
         output_norm_weight: vec![1.0; hidden_dim],
         output_norm_bias: None,
@@ -104,6 +108,8 @@ fn create_minimal_apr_transformer(
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         })
         .collect();
 
@@ -789,6 +795,8 @@ fn test_conversion_with_bias_weights() {
         ffn_down_bias: Some(vec![0.0; 8]),
         ffn_norm_weight: Some(vec![1.0; 8]),
         ffn_norm_bias: Some(vec![0.0; 8]),
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let apr = AprTransformer {
@@ -817,6 +825,7 @@ fn test_gguf_transformer_with_gate_weights() {
     // Create GGUF transformer with FFN gate weights (SwiGLU style)
     let config = GGUFConfig {
         architecture: "swiglu_test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 8,
         num_layers: 1,
         num_heads: 2,
@@ -845,11 +854,14 @@ fn test_gguf_transformer_with_gate_weights() {
         ffn_down_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 10 * 8],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -971,6 +983,8 @@ fn test_roundtrip_with_different_architectures() {
                 ffn_down_bias: None,
                 ffn_norm_weight: None,
                 ffn_norm_bias: None,
+                attn_q_norm_weight: None,
+                attn_k_norm_weight: None,
             }],
             output_norm_weight: vec![1.0; 8],
             output_norm_bias: None,
@@ -1430,6 +1444,7 @@ fn test_to_apr_bytes_many_layers() {
 fn test_from_gguf_transformer_with_all_biases() {
     let config = GGUFConfig {
         architecture: "biased".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 8,
         num_layers: 1,
         num_heads: 2,
@@ -1458,11 +1473,14 @@ fn test_from_gguf_transformer_with_all_biases() {
         ffn_down_bias: Some(vec![0.06; 8]),
         ffn_norm_weight: Some(vec![1.0; 8]),
         ffn_norm_bias: Some(vec![0.07; 8]),
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 10 * 8],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: Some(vec![0.08; 8]),
@@ -1488,6 +1506,7 @@ fn test_from_gguf_transformer_with_all_biases() {
 fn test_from_gguf_transformer_with_ffn_norm() {
     let config = GGUFConfig {
         architecture: "normed_ffn".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 8,
         num_layers: 1,
         num_heads: 2,
@@ -1516,11 +1535,14 @@ fn test_from_gguf_transformer_with_ffn_norm() {
         ffn_down_bias: None,
         ffn_norm_weight: Some(vec![1.0; 8]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 10 * 8],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -1544,6 +1566,7 @@ fn test_from_gguf_transformer_preserves_intermediate_dim() {
 fn test_from_gguf_transformer_different_kv_heads() {
     let config = GGUFConfig {
         architecture: "gqa".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 32,
         num_layers: 1,
         num_heads: 8,
@@ -1572,11 +1595,14 @@ fn test_from_gguf_transformer_different_kv_heads() {
         ffn_down_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 100 * 32],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; 32],
         output_norm_bias: None,
@@ -1626,6 +1652,8 @@ fn test_roundtrip_with_special_rope_theta() {
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -1676,6 +1704,8 @@ fn test_roundtrip_with_long_context() {
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -2063,6 +2093,7 @@ fn test_apr_bytes_reserved_bytes() {
 fn test_gguf_transformer_with_output_norm_bias() {
     let config = GGUFConfig {
         architecture: "with_bias".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 8,
         num_layers: 1,
         num_heads: 2,
@@ -2091,11 +2122,14 @@ fn test_gguf_transformer_with_output_norm_bias() {
         ffn_down_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 10 * 8],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: Some(vec![0.01; 8]), // Has output norm bias
@@ -2112,6 +2146,7 @@ fn test_gguf_transformer_with_output_norm_bias() {
 fn test_gguf_transformer_with_lm_head_bias() {
     let config = GGUFConfig {
         architecture: "lm_bias".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 8,
         num_layers: 1,
         num_heads: 2,
@@ -2140,11 +2175,14 @@ fn test_gguf_transformer_with_lm_head_bias() {
         ffn_down_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 10 * 8],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -2165,6 +2203,7 @@ fn test_gguf_transformer_with_lm_head_bias() {
 fn test_layer_attn_norm_bias_preservation() {
     let config = GGUFConfig {
         architecture: "attn_norm_bias".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 8,
         num_layers: 1,
         num_heads: 2,
@@ -2193,11 +2232,14 @@ fn test_layer_attn_norm_bias_preservation() {
         ffn_down_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 10 * 8],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -2213,6 +2255,7 @@ fn test_layer_attn_norm_bias_preservation() {
 fn test_layer_qkv_bias_preservation() {
     let config = GGUFConfig {
         architecture: "qkv_bias".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 8,
         num_layers: 1,
         num_heads: 2,
@@ -2241,11 +2284,14 @@ fn test_layer_qkv_bias_preservation() {
         ffn_down_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 10 * 8],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -2261,6 +2307,7 @@ fn test_layer_qkv_bias_preservation() {
 fn test_layer_attn_output_bias_preservation() {
     let config = GGUFConfig {
         architecture: "attn_out_bias".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 8,
         num_layers: 1,
         num_heads: 2,
@@ -2289,11 +2336,14 @@ fn test_layer_attn_output_bias_preservation() {
         ffn_down_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 10 * 8],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -2309,6 +2359,7 @@ fn test_layer_attn_output_bias_preservation() {
 fn test_layer_ffn_up_bias_preservation() {
     let config = GGUFConfig {
         architecture: "ffn_up_bias".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 8,
         num_layers: 1,
         num_heads: 2,
@@ -2337,11 +2388,14 @@ fn test_layer_ffn_up_bias_preservation() {
         ffn_down_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 10 * 8],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -2357,6 +2411,7 @@ fn test_layer_ffn_up_bias_preservation() {
 fn test_layer_ffn_down_bias_preservation() {
     let config = GGUFConfig {
         architecture: "ffn_down_bias".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 8,
         num_layers: 1,
         num_heads: 2,
@@ -2385,11 +2440,14 @@ fn test_layer_ffn_down_bias_preservation() {
         ffn_down_bias: Some(vec![0.0; 8]),
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     let gguf = GGUFTransformer {
         config,
         token_embedding: vec![0.1; 10 * 8],
+        position_embedding: None,
         layers: vec![layer],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -2468,6 +2526,8 @@ fn test_roundtrip_empty_architecture() {
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -2517,6 +2577,8 @@ fn test_roundtrip_very_small_eps() {
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -2566,6 +2628,8 @@ fn test_roundtrip_single_head() {
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -2805,6 +2869,8 @@ fn test_metadata_preservation_all_fields() {
                 ffn_down_bias: None,
                 ffn_norm_weight: None,
                 ffn_norm_bias: None,
+                attn_q_norm_weight: None,
+                attn_k_norm_weight: None,
             })
             .collect(),
         output_norm_weight: vec![1.0; 512],
@@ -2865,6 +2931,8 @@ fn test_metadata_unicode_architecture() {
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -3076,6 +3144,8 @@ fn test_apr_roundtrip_weight_values_exact() {
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         }],
         output_norm_weight: vec![1.0, 1.0, 1.0, 1.0],
         output_norm_bias: None,
@@ -3355,6 +3425,8 @@ fn test_apr_with_all_optional_fields_none() {
             ffn_down_bias: None,
             ffn_norm_weight: None, // Optional
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 4],
         output_norm_bias: None, // Optional
@@ -3406,6 +3478,8 @@ fn test_apr_with_all_optional_fields_some() {
             ffn_down_bias: Some(vec![0.07; 4]),
             ffn_norm_weight: Some(vec![1.0; 4]),
             ffn_norm_bias: Some(vec![0.08; 4]),
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 4],
         output_norm_bias: Some(vec![0.09; 4]),

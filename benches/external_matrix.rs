@@ -39,7 +39,7 @@ use realizar::bench::{
     BenchmarkMatrix, ComputeBackendType, HardwareSpec, MatrixBenchmarkEntry, RuntimeType,
 };
 
-use realizar::gguf::{GGUFConfig, GGUFTransformer, GGUFTransformerLayer};
+use realizar::gguf::{ArchConstraints, GGUFConfig, GGUFTransformer, GGUFTransformerLayer};
 
 // ============================================================================
 // Configuration
@@ -80,6 +80,7 @@ fn create_benchmark_transformer() -> GGUFTransformer {
 
     let config = GGUFConfig {
         architecture: "benchmark_model".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim,
         num_layers,
         num_heads: 4,

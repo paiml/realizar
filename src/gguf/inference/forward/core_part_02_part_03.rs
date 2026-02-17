@@ -18,15 +18,17 @@ impl OwnedQuantizedModel {
         // 1. Token embedding
         profiler.start("Embedding");
         let mut hidden = self.embed(token_ids);
-        // GH-278: Add learned position embeddings (GPT-2 style)
-        if let Some(ref pos_emb) = self.position_embedding {
-            for (s, _) in token_ids.iter().enumerate() {
-                let pos_start = s * hidden_dim;
-                let pos_end = pos_start + hidden_dim;
-                if pos_end <= pos_emb.len() {
-                    let h_start = s * hidden_dim;
-                    for i in 0..hidden_dim {
-                        hidden[h_start + i] += pos_emb[pos_start + i];
+        // GH-278: Add learned position embeddings for absolute encoding (GPT-2, BERT, whisper)
+        if self.config.constraints.uses_absolute_positions() {
+            if let Some(ref pos_emb) = self.position_embedding {
+                for (s, _) in token_ids.iter().enumerate() {
+                    let pos_start = s * hidden_dim;
+                    let pos_end = pos_start + hidden_dim;
+                    if pos_end <= pos_emb.len() {
+                        let h_start = s * hidden_dim;
+                        for i in 0..hidden_dim {
+                            hidden[h_start + i] += pos_emb[pos_start + i];
+                        }
                     }
                 }
             }
@@ -138,9 +140,11 @@ impl OwnedQuantizedModel {
             };
             profiler.stop("RmsNorm");
 
-            // 2g. FFN
-            let ffn_activated = if let Some(ref gate_weight) = layer.ffn_gate_weight {
+            // 2g. FFN (contract-driven activation selection, GH-278)
+            let ffn_activated = if self.config.constraints.has_gate_ffn() {
                 // SwiGLU path
+                let gate_weight = layer.ffn_gate_weight.as_ref()
+                    .expect("gated FFN contract requires gate weight");
                 profiler.start("UpProjection");
                 let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
                 if let Some(ref bias) = layer.ffn_up_bias {

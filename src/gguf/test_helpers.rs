@@ -32,11 +32,14 @@ use crate::gguf::{
 ///
 /// An `OwnedQuantizedModel` with test weights
 pub(crate) fn create_test_model_with_config(config: &GGUFConfig) -> OwnedQuantizedModel {
-    // Create minimal model weights for testing
+    // Create minimal model weights for testing.
+    // GH-278: Model structure is contract-consistent — gate weights, biases,
+    // position embeddings, and FFN norms are created based on ArchConstraints.
     let vocab_size = config.vocab_size;
     let hidden_dim = config.hidden_dim;
     let intermediate_dim = config.intermediate_dim;
     let kv_dim = config.num_kv_heads * (hidden_dim / config.num_heads);
+    let constraints = &config.constraints;
 
     // QKV projection: hidden_dim -> hidden_dim + 2*kv_dim (Q + K + V)
     let qkv_out_dim = hidden_dim + 2 * kv_dim;
@@ -49,12 +52,24 @@ pub(crate) fn create_test_model_with_config(config: &GGUFConfig) -> OwnedQuantiz
     let ffn_up_weight = create_q4k_test_data(hidden_dim, intermediate_dim);
     let ffn_down_weight = create_q4k_test_data(intermediate_dim, hidden_dim);
 
-    // Layer norm weights
+    // Gate weight: present for gated FFN architectures (SwiGLU, GatedMLP)
+    let ffn_gate_weight = if constraints.has_gate_ffn() {
+        Some(create_q4k_test_data(hidden_dim, intermediate_dim))
+    } else {
+        None
+    };
+
+    // Layer norm weights and biases (contract-driven)
     let attn_norm_weight = vec![1.0f32; hidden_dim];
+    let attn_norm_bias = if !constraints.uses_rmsnorm() {
+        Some(vec![0.0f32; hidden_dim])
+    } else {
+        None
+    };
 
     let layer = OwnedQuantizedLayer {
         attn_norm_weight,
-        attn_norm_bias: None,
+        attn_norm_bias,
         qkv_weight: OwnedQKVWeights::Fused(qkv_weight),
         qkv_bias: None,
         attn_output_weight,
@@ -63,7 +78,7 @@ pub(crate) fn create_test_model_with_config(config: &GGUFConfig) -> OwnedQuantiz
         ffn_up_bias: None,
         ffn_down_weight,
         ffn_down_bias: None,
-        ffn_gate_weight: None,
+        ffn_gate_weight,
         ffn_gate_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
@@ -75,13 +90,27 @@ pub(crate) fn create_test_model_with_config(config: &GGUFConfig) -> OwnedQuantiz
     let output_norm_weight = vec![1.0f32; hidden_dim];
     let lm_head_weight = create_q4k_test_data(hidden_dim, vocab_size);
 
+    // Position embedding: present for absolute position encoding (GPT-2, BERT, whisper)
+    let position_embedding = if constraints.uses_absolute_positions() {
+        Some(vec![0.01f32; config.context_length * hidden_dim])
+    } else {
+        None
+    };
+
+    // Output norm bias for LayerNorm models
+    let output_norm_bias = if !constraints.uses_rmsnorm() {
+        Some(vec![0.0f32; hidden_dim])
+    } else {
+        None
+    };
+
     OwnedQuantizedModel {
         config: config.clone(),
         token_embedding,
-        position_embedding: None,
+        position_embedding,
         layers: vec![layer],
         output_norm_weight,
-        output_norm_bias: None,
+        output_norm_bias,
         lm_head_weight,
         lm_head_bias: None,
         #[cfg(feature = "cuda")]

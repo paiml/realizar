@@ -11,10 +11,11 @@
 //! - Error paths for malformed headers
 
 use realizar::gguf::{
-    GGUFConfig, GGUFHeader, GGUFModel, GGUFValue, OwnedQKVWeights, OwnedQuantizedLayer,
-    OwnedQuantizedModel, OwnedQuantizedTensor, TensorInfo, GGUF_ALIGNMENT, GGUF_MAGIC,
-    GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0,
-    GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
+    ArchConstraints, GGUFConfig, GGUFHeader, GGUFModel, GGUFValue, OwnedQKVWeights,
+    OwnedQuantizedLayer, OwnedQuantizedModel, OwnedQuantizedTensor, TensorInfo, GGUF_ALIGNMENT,
+    GGUF_MAGIC, GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K,
+    GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0,
+    GGUF_VERSION_V3,
 };
 
 // ============================================================================
@@ -193,6 +194,7 @@ fn build_gguf_with_arch(arch: &str, hidden: usize, layers: usize, heads: usize) 
 fn create_test_config() -> GGUFConfig {
     GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 128,
         num_layers: 2,
         num_heads: 4,
@@ -237,6 +239,8 @@ fn create_test_layer(config: &GGUFConfig) -> OwnedQuantizedLayer {
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0; hidden]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     }
 }
 
@@ -1040,6 +1044,8 @@ fn test_cov_owned_layer_with_biases() {
         ffn_gate_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     assert!(layer.attn_norm_bias.is_some());
@@ -1491,6 +1497,7 @@ fn create_inference_test_model() -> OwnedQuantizedModel {
 
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim,
         num_layers,
         num_heads,
@@ -1546,6 +1553,8 @@ fn create_inference_test_model() -> OwnedQuantizedModel {
             ffn_gate_bias: None,
             ffn_norm_weight: Some(vec![1.0; hidden_dim]),
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         });
     }
 
@@ -1774,6 +1783,8 @@ fn test_cov_ffn_without_gate() {
         ffn_gate_bias: None,
         ffn_norm_weight: Some(vec![1.0; hidden]),
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     assert!(layer.ffn_gate_weight.is_none());
@@ -1952,6 +1963,7 @@ fn test_cov_config_with_gqa() {
     // Grouped Query Attention: fewer KV heads than Q heads
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 2048,
         num_layers: 24,
         num_heads: 32,
@@ -1973,6 +1985,7 @@ fn test_cov_config_with_mqa() {
     // Multi-Query Attention: single KV head
     let config = GGUFConfig {
         architecture: "falcon".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 4096,
         num_layers: 32,
         num_heads: 64,
@@ -2001,6 +2014,7 @@ fn test_cov_config_rope_type_neox() {
 fn test_cov_config_large_context() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 4096,
         num_layers: 32,
         num_heads: 32,
@@ -2134,6 +2148,8 @@ fn test_cov_layer_with_all_biases() {
         ffn_gate_bias: Some(vec![0.0; inter]),
         ffn_norm_weight: Some(vec![1.0; hidden]),
         ffn_norm_bias: Some(vec![0.0; hidden]),
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     assert!(layer.attn_norm_bias.is_some());
@@ -2166,6 +2182,8 @@ fn test_cov_layer_minimal_no_biases() {
         ffn_gate_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     assert!(layer.attn_norm_bias.is_none());
@@ -2219,6 +2237,8 @@ fn test_cov_layer_separate_qkv() {
         ffn_gate_bias: None,
         ffn_norm_weight: None,
         ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
     };
 
     match layer.qkv_weight {
@@ -2341,6 +2361,7 @@ fn test_cov_tensor_info_max_dims() {
 fn test_cov_config_head_dim_calculation() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 4096,
         num_layers: 32,
         num_heads: 32,
@@ -2366,6 +2387,7 @@ fn test_cov_config_intermediate_ratio() {
     // Standard LLaMA: intermediate = 4 * hidden * 2/3 (rounded)
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 4096,
         num_layers: 32,
         num_heads: 32,

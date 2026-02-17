@@ -179,8 +179,22 @@ impl ArchConstraints {
                 has_qk_norm: false,
                 default_eps: 1e-5,
             },
-            // phi.yaml: layernorm, silu, rope, swiglu, has_bias=true, tied=false
-            "phi" | "phi2" | "phi3" => Self {
+            // phi2.yaml: layernorm, gelu, rope, gelu_mlp, has_bias=true, tied=false
+            // Phi-1/Phi-1.5/Phi-2 use GELU MLP (no gate weight)
+            "phi2" => Self {
+                norm_type: NormType::LayerNorm,
+                activation: Activation::Gelu,
+                positional_encoding: PositionalEncoding::Rope,
+                mlp_type: MlpType::GeluMlp,
+                weight_layout: WeightLayout::Linear,
+                has_bias: true,
+                tied_embeddings: false,
+                has_qk_norm: false,
+                default_eps: 1e-5,
+            },
+            // phi3.yaml: layernorm, silu, rope, swiglu, has_bias=true, tied=false
+            // Phi-3/Phi-3.5 use SwiGLU (gate weight present)
+            "phi" | "phi3" => Self {
                 norm_type: NormType::LayerNorm,
                 activation: Activation::Silu,
                 positional_encoding: PositionalEncoding::Rope,
@@ -282,6 +296,24 @@ impl ArchConstraints {
     #[must_use]
     pub fn needs_transpose(&self) -> bool {
         self.weight_layout == WeightLayout::Conv1D
+    }
+
+    /// Whether this architecture uses a gated FFN (SwiGLU or GatedMLP).
+    ///
+    /// Gated FFN architectures require `ffn_gate_weight` to be present in model layers.
+    /// Non-gated architectures (GeluMlp) use a simple up → activation → down path.
+    #[must_use]
+    pub fn has_gate_ffn(&self) -> bool {
+        !matches!(self.mlp_type, MlpType::GeluMlp)
+    }
+
+    /// Whether this architecture uses learned absolute position embeddings.
+    ///
+    /// Architectures with absolute encoding (GPT-2, BERT, whisper) add learned
+    /// position vectors to token embeddings. RoPE-based models skip this.
+    #[must_use]
+    pub fn uses_absolute_positions(&self) -> bool {
+        self.positional_encoding == PositionalEncoding::Absolute
     }
 }
 

@@ -93,7 +93,7 @@ impl OwnedQuantizedModelCuda {
                     reason: format!("Failed to cache FFN down weights: {}", e),
                 })?;
 
-            // FFN gate is optional (SwiGLU models like LLaMA/Qwen)
+            // FFN gate weight present for gated FFN architectures (SwiGLU/GatedMLP)
             if let Some(ref gate_weight) = layer.ffn_gate_weight {
                 let ffn_gate_name = format!("{}.ffn_gate.weight", prefix);
                 total_bytes += self

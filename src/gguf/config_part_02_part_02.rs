@@ -103,8 +103,8 @@
     fn test_gguf_config_mha() {
         // Test MHA config (num_heads == num_kv_heads)
         let config = GGUFConfig {
-            architecture: "phi".to_string(),
-            constraints: crate::gguf::ArchConstraints::from_architecture("phi"),
+            architecture: "phi2".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("phi2"),
             hidden_dim: 2560,
             num_layers: 32,
             num_heads: 32,

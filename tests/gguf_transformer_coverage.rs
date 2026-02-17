@@ -7,7 +7,7 @@
 //! - Helper functions (embed, layer_norm, matmul, etc.)
 
 use realizar::gguf::{
-    GGUFConfig, GGUFModel, GGUFTransformer, GGUFValue, InferenceScratchBuffer,
+    ArchConstraints, GGUFConfig, GGUFModel, GGUFTransformer, GGUFValue, InferenceScratchBuffer,
     OwnedQuantizedKVCache, QKVWeights, QuantizedGenerateConfig, QuantizedTensorRef, GGUF_ALIGNMENT,
     GGUF_MAGIC, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_K, GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
 };
@@ -374,6 +374,7 @@ fn test_cov_qkv_weights_separate_q_dim() {
 fn test_cov_inference_scratch_buffer_from_config() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 128,
         num_layers: 4,
         num_heads: 4,
@@ -405,6 +406,7 @@ fn test_cov_inference_scratch_buffer_from_config() {
 fn test_cov_inference_scratch_buffer_reset() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         num_layers: 2,
         num_heads: 2,
@@ -436,6 +438,7 @@ fn test_cov_inference_scratch_buffer_reset() {
 fn test_cov_inference_scratch_buffer_q8k_buffers() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 512, // Must be multiple of 256 for Q8K
         num_layers: 2,
         num_heads: 8,

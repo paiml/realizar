@@ -12,10 +12,10 @@
 use std::io::Write as _;
 
 use realizar::gguf::{
-    GGUFConfig, GGUFHeader, GGUFModel, GGUFValue, MappedGGUFModel, TensorInfo, GGUF_ALIGNMENT,
-    GGUF_MAGIC, GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K,
-    GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0,
-    GGUF_VERSION_V3,
+    ArchConstraints, GGUFConfig, GGUFHeader, GGUFModel, GGUFValue, MappedGGUFModel, TensorInfo,
+    GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1,
+    GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_0, GGUF_TYPE_Q5_1, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K,
+    GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
 };
 use tempfile::NamedTempFile;
 
@@ -1866,6 +1866,7 @@ fn test_cov_gguf_model_unicode_metadata() {
 fn test_cov_gguf_config_struct_fields() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 4096,
         num_layers: 32,
         num_heads: 32,
@@ -1897,6 +1898,7 @@ fn test_cov_gguf_config_gqa_model() {
     // Grouped Query Attention model (fewer KV heads than Q heads)
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 4096,
         num_layers: 32,
         num_heads: 32,
@@ -1919,6 +1921,7 @@ fn test_cov_gguf_config_mha_model() {
     // Multi-Head Attention model (same number of KV heads as Q heads)
     let config = GGUFConfig {
         architecture: "gpt2".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 768,
         num_layers: 12,
         num_heads: 12,
@@ -1940,6 +1943,7 @@ fn test_cov_gguf_config_mha_model() {
 fn test_cov_gguf_config_head_dim_calculation() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 4096,
         num_layers: 32,
         num_heads: 32,
@@ -1966,6 +1970,7 @@ fn test_cov_gguf_config_head_dim_calculation() {
 fn test_cov_gguf_config_clone() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 2048,
         num_layers: 22,
         num_heads: 32,
@@ -1989,6 +1994,7 @@ fn test_cov_gguf_config_clone() {
 fn test_cov_gguf_config_debug() {
     let config = GGUFConfig {
         architecture: "phi2".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 2560,
         num_layers: 32,
         num_heads: 32,
@@ -2062,6 +2068,7 @@ fn test_cov_kv_cache_new() {
 fn test_cov_kv_cache_from_config() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         num_layers: 4,
         num_heads: 4,
@@ -2306,6 +2313,7 @@ fn test_cov_contiguous_cache_new() {
 fn test_cov_contiguous_cache_from_config() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         num_layers: 8,
         num_heads: 4,
@@ -2755,6 +2763,7 @@ use realizar::gguf::OwnedInferenceScratchBuffer;
 fn test_cov_scratch_buffer_from_config() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         num_layers: 4,
         num_heads: 4,
@@ -2782,6 +2791,7 @@ fn test_cov_scratch_buffer_from_config() {
 fn test_cov_scratch_buffer_reset() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         num_layers: 4,
         num_heads: 4,
@@ -2807,6 +2817,7 @@ fn test_cov_scratch_buffer_reset() {
 fn test_cov_scratch_buffer_debug() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 128,
         num_layers: 2,
         num_heads: 2,

@@ -214,7 +214,7 @@
             num_layers: 6,
             hidden_dim: 512,
             vocab_size: 10000,
-            architecture: "phi".to_string(),
+            architecture: "phi2".to_string(),
         };
         let debug = format!("{:?}", stats);
         assert!(debug.contains("ConversionStats"));

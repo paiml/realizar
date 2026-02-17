@@ -40,9 +40,11 @@ impl OwnedQuantizedModel {
             hidden.to_vec()
         };
 
-        // FFN with SwiGLU or GELU activation
-        let ffn_activated = if let Some(ref gate_weight) = layer.ffn_gate_weight {
+        // FFN with SwiGLU or GELU activation (contract-driven, GH-278)
+        let ffn_activated = if self.config.constraints.has_gate_ffn() {
             // SwiGLU path
+            let gate_weight = layer.ffn_gate_weight.as_ref()
+                .expect("gated FFN contract requires gate weight");
             let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
             if let Some(ref bias) = layer.ffn_up_bias {
                 ops::add_bias(&mut ffn_up, bias);
@@ -339,13 +341,15 @@ impl OwnedQuantizedModel {
         // 1. Token embedding lookup
         let mut hidden = self.embed(&[token_id]);
 
-        // GH-278: Add learned position embedding (GPT-2 style)
-        if let Some(ref pos_emb) = self.position_embedding {
-            let start = position * hidden_dim;
-            let end = start + hidden_dim;
-            if end <= pos_emb.len() {
-                for i in 0..hidden_dim {
-                    hidden[i] += pos_emb[start + i];
+        // GH-278: Add learned position embedding for absolute encoding (GPT-2, BERT, whisper)
+        if self.config.constraints.uses_absolute_positions() {
+            if let Some(ref pos_emb) = self.position_embedding {
+                let start = position * hidden_dim;
+                let end = start + hidden_dim;
+                if end <= pos_emb.len() {
+                    for i in 0..hidden_dim {
+                        hidden[i] += pos_emb[start + i];
+                    }
                 }
             }
         }
@@ -469,9 +473,11 @@ impl OwnedQuantizedModel {
             hidden.to_vec()
         };
 
-        // FFN with SwiGLU or GELU activation
-        let ffn_activated = if let Some(ref gate_weight) = layer.ffn_gate_weight {
+        // FFN with SwiGLU or GELU activation (contract-driven, GH-278)
+        let ffn_activated = if self.config.constraints.has_gate_ffn() {
             // SwiGLU path
+            let gate_weight = layer.ffn_gate_weight.as_ref()
+                .expect("gated FFN contract requires gate weight");
             let start = std::time::Instant::now();
             let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
             metrics.record_gpu_dispatch();

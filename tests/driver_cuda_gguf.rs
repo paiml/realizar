@@ -11,8 +11,8 @@
 #![cfg(feature = "cuda")]
 
 use realizar::gguf::{
-    GGUFConfig, OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedModel, OwnedQuantizedTensor,
-    QuantizedGenerateConfig, GGUF_TYPE_Q4_K,
+    ArchConstraints, GGUFConfig, OwnedQKVWeights, OwnedQuantizedLayer, OwnedQuantizedModel,
+    OwnedQuantizedTensor, QuantizedGenerateConfig, GGUF_TYPE_Q4_K,
 };
 
 // =============================================================================
@@ -83,6 +83,8 @@ fn create_test_model(config: &GGUFConfig) -> OwnedQuantizedModel {
             ffn_gate_bias: None,
             ffn_norm_weight: Some(ffn_norm_weight.clone()),
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         });
     }
 
@@ -128,6 +130,7 @@ fn test_driver_cuda_model_creation() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -165,6 +168,7 @@ fn test_driver_cuda_model_with_max_seq_len() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 2,
@@ -203,6 +207,7 @@ fn test_driver_cuda_forward_basic() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -244,6 +249,7 @@ fn test_driver_cuda_forward_multi_token() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -278,6 +284,7 @@ fn test_driver_cuda_generate() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -317,6 +324,7 @@ fn test_driver_cuda_generate_greedy() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -355,6 +363,7 @@ fn test_driver_cuda_generate_with_stop_token() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -396,6 +405,7 @@ fn test_driver_cuda_gqa_forward() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 1,
@@ -448,6 +458,7 @@ fn test_driver_cuda_multi_layer() {
 
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         intermediate_dim: 128,
         num_layers: 4, // Multiple layers

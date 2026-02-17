@@ -4,9 +4,9 @@
 //! that are not behind the GPU feature flag.
 
 use realizar::gguf::{
-    GGUFConfig, GGUFHeader, GGUFValue, InferenceScratchBuffer, TensorInfo, GGUF_ALIGNMENT,
-    GGUF_MAGIC, GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_K,
-    GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
+    ArchConstraints, GGUFConfig, GGUFHeader, GGUFValue, InferenceScratchBuffer, TensorInfo,
+    GGUF_ALIGNMENT, GGUF_MAGIC, GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_K,
+    GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K, GGUF_TYPE_Q8_0, GGUF_VERSION_V3,
 };
 
 // ============================================================================
@@ -440,6 +440,7 @@ fn test_tensor_info_empty_dims() {
 fn test_gguf_config_llama() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 4096,
         num_layers: 32,
         num_heads: 32,
@@ -461,6 +462,7 @@ fn test_gguf_config_llama() {
 fn test_gguf_config_llama2() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 4096,
         num_layers: 32,
         num_heads: 32,
@@ -480,6 +482,7 @@ fn test_gguf_config_llama2() {
 fn test_gguf_config_phi() {
     let config = GGUFConfig {
         architecture: "phi".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 2560,
         num_layers: 32,
         num_heads: 32,
@@ -499,6 +502,7 @@ fn test_gguf_config_phi() {
 fn test_gguf_config_mistral() {
     let config = GGUFConfig {
         architecture: "mistral".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 4096,
         num_layers: 32,
         num_heads: 32,
@@ -519,6 +523,7 @@ fn test_gguf_config_mistral() {
 fn test_gguf_config_head_dim_calculation() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 512,
         num_layers: 8,
         num_heads: 8,
@@ -538,6 +543,7 @@ fn test_gguf_config_head_dim_calculation() {
 fn test_gguf_config_gqa_ratio() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 1024,
         num_layers: 4,
         num_heads: 16,
@@ -558,6 +564,7 @@ fn test_gguf_config_gqa_ratio() {
 fn test_gguf_config_clone() {
     let config = GGUFConfig {
         architecture: "cloneable".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         num_layers: 2,
         num_heads: 4,
@@ -579,6 +586,7 @@ fn test_gguf_config_clone() {
 fn test_gguf_config_debug() {
     let config = GGUFConfig {
         architecture: "debug".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 128,
         num_layers: 1,
         num_heads: 2,
@@ -599,6 +607,7 @@ fn test_gguf_config_debug() {
 fn test_gguf_config_rope_theta_values() {
     let config_10k = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         num_layers: 2,
         num_heads: 4,
@@ -615,6 +624,7 @@ fn test_gguf_config_rope_theta_values() {
 
     let config_1m = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 256,
         num_layers: 2,
         num_heads: 4,
@@ -637,6 +647,7 @@ fn test_gguf_config_rope_theta_values() {
 fn make_test_config(hidden_dim: usize, num_heads: usize) -> GGUFConfig {
     GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim,
         num_layers: 2,
         num_heads,
@@ -800,6 +811,7 @@ fn test_tensor_info_long_name() {
 fn test_gguf_config_very_small_model() {
     let config = GGUFConfig {
         architecture: "tiny".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 16,
         num_layers: 1,
         num_heads: 1,
@@ -819,6 +831,7 @@ fn test_gguf_config_very_small_model() {
 fn test_gguf_config_very_large_model() {
     let config = GGUFConfig {
         architecture: "huge".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 16384,
         num_layers: 128,
         num_heads: 128,
@@ -875,6 +888,7 @@ fn test_gguf_config_different_eps_values() {
     for eps in eps_values {
         let config = GGUFConfig {
             architecture: "test".to_string(),
+            constraints: ArchConstraints::from_architecture("llama"),
             hidden_dim: 256,
             num_layers: 2,
             num_heads: 4,

@@ -14,7 +14,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use realizar::apr_transformer::{AprTransformer, AprTransformerConfig, AprTransformerLayer};
 use realizar::convert::GgufToAprConverter;
-use realizar::gguf::{GGUFConfig, GGUFTransformer, GGUFTransformerLayer};
+use realizar::gguf::{ArchConstraints, GGUFConfig, GGUFTransformer, GGUFTransformerLayer};
 use realizar::Tensor;
 
 /// Simple forward pass simulation for benchmark comparison.
@@ -219,6 +219,7 @@ fn create_test_gguf_transformer(
 ) -> GGUFTransformer {
     let config = GGUFConfig {
         architecture: "test_model".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim,
         num_layers,
         num_heads: 4,

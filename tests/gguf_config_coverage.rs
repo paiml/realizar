@@ -1,8 +1,8 @@
 //! EXTREME TDD: GGUFConfig and InferenceScratchBuffer Coverage Tests
 
 use realizar::gguf::{
-    GGUFConfig, GGUFModel, InferenceScratchBuffer, OwnedInferenceScratchBuffer, OwnedQKVWeights,
-    OwnedQuantizedTensor,
+    ArchConstraints, GGUFConfig, GGUFModel, InferenceScratchBuffer, OwnedInferenceScratchBuffer,
+    OwnedQKVWeights, OwnedQuantizedTensor,
 };
 
 /// Helper to build GGUF model with architecture metadata
@@ -277,6 +277,7 @@ fn test_cov_gguf_config_missing_embedding_length() {
 fn test_cov_scratch_buffer_from_config() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 2048,
         num_layers: 22,
         num_heads: 32,
@@ -310,6 +311,7 @@ fn test_cov_scratch_buffer_from_config() {
 fn test_cov_scratch_buffer_q8k_buffers() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 2048,
         num_layers: 22,
         num_heads: 32,
@@ -339,6 +341,7 @@ fn test_cov_scratch_buffer_q8k_buffers() {
 fn test_cov_scratch_buffer_reset() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 128,
         num_layers: 2,
         num_heads: 4,
@@ -373,6 +376,7 @@ fn test_cov_scratch_buffer_reset() {
 fn test_cov_scratch_buffer_small_model() {
     let config = GGUFConfig {
         architecture: "tiny".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 64,
         num_layers: 2,
         num_heads: 2,
@@ -399,6 +403,7 @@ fn test_cov_scratch_buffer_small_model() {
 fn test_cov_owned_scratch_buffer_from_config() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 2048,
         num_layers: 22,
         num_heads: 32,
@@ -426,6 +431,7 @@ fn test_cov_owned_scratch_buffer_from_config() {
 fn test_cov_owned_scratch_buffer_qkv_size() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 2048,
         num_layers: 22,
         num_heads: 32,
@@ -451,6 +457,7 @@ fn test_cov_owned_scratch_buffer_qkv_size() {
 fn test_cov_owned_scratch_buffer_reset() {
     let config = GGUFConfig {
         architecture: "test".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 128,
         num_layers: 2,
         num_heads: 4,
@@ -482,6 +489,7 @@ fn test_cov_owned_scratch_buffer_reset() {
 fn test_cov_owned_scratch_buffer_q8k_buffers() {
     let config = GGUFConfig {
         architecture: "llama".to_string(),
+        constraints: ArchConstraints::from_architecture("llama"),
         hidden_dim: 2048,
         num_layers: 22,
         num_heads: 32,

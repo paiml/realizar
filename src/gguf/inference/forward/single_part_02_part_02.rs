@@ -7,6 +7,10 @@ impl OwnedQuantizedModel {
     /// - GELU path (no gate weight)
     ///
     /// Returns the activated FFN output before down projection.
+    /// Contract-driven FFN block for single-token cached forward pass (GH-278).
+    ///
+    /// Uses `constraints.has_gate_ffn()` to select SwiGLU vs GELU path,
+    /// with fused RMSNorm optimization when applicable.
     fn single_cache_ffn_block(
         &self,
         hidden: &[f32],
@@ -15,87 +19,79 @@ impl OwnedQuantizedModel {
     ) -> Result<Vec<f32>> {
         let layer = &self.layers[layer_idx];
 
-        match (&layer.ffn_norm_weight, &layer.ffn_gate_weight) {
+        if self.config.constraints.has_gate_ffn() {
+            let gate_weight = layer.ffn_gate_weight.as_ref()
+                .expect("gated FFN contract requires gate weight");
+
             // Fused path: RMSNorm + SwiGLU (LLaMA, TinyLlama, Mistral, etc.)
-            (Some(ref ffn_norm), Some(ref gate_weight)) if use_rmsnorm => {
-                let (mut ffn_up, mut ffn_gate) = self.fused_rmsnorm_ffn_up_gate(
-                    hidden,
-                    ffn_norm,
-                    self.config.eps,
-                    &layer.ffn_up_weight,
-                    gate_weight,
-                )?;
-
-                if let Some(ref bias) = layer.ffn_up_bias {
-                    ops::add_bias(&mut ffn_up, bias);
-                }
-                if let Some(ref bias) = layer.ffn_gate_bias {
-                    ops::add_bias(&mut ffn_gate, bias);
-                }
-
-                // SwiGLU: silu(gate) * up
-                ops::silu(&mut ffn_gate);
-                for i in 0..ffn_gate.len() {
-                    ffn_gate[i] *= ffn_up[i];
-                }
-                Ok(ffn_gate)
-            },
-
-            // Non-fused SwiGLU (LayerNorm models with gate)
-            (ffn_norm_opt, Some(ref gate_weight)) => {
-                let ffn_input = if let Some(ref ffn_norm) = ffn_norm_opt {
-                    ops::layer_norm(
-                        hidden,
-                        ffn_norm,
-                        layer.ffn_norm_bias.as_deref(),
-                        self.config.eps,
-                    )
-                } else {
-                    hidden.to_vec()
-                };
-
-                let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
-                if let Some(ref bias) = layer.ffn_up_bias {
-                    ops::add_bias(&mut ffn_up, bias);
-                }
-
-                let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
-                if let Some(ref bias) = layer.ffn_gate_bias {
-                    ops::add_bias(&mut ffn_gate, bias);
-                }
-
-                // SwiGLU: silu(gate) * up
-                ops::silu(&mut ffn_gate);
-                for i in 0..ffn_gate.len() {
-                    ffn_gate[i] *= ffn_up[i];
-                }
-                Ok(ffn_gate)
-            },
-
-            // GELU path (phi-2, GPT-2, etc.) - no gate weight
-            (ffn_norm_opt, None) => {
-                let ffn_input = if let Some(ref ffn_norm) = ffn_norm_opt {
-                    if use_rmsnorm {
-                        ops::rms_norm(hidden, ffn_norm, self.config.eps)
-                    } else {
-                        ops::layer_norm(
-                            hidden,
-                            ffn_norm,
-                            layer.ffn_norm_bias.as_deref(),
-                            self.config.eps,
-                        )
+            if use_rmsnorm {
+                if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+                    let (mut ffn_up, mut ffn_gate) = self.fused_rmsnorm_ffn_up_gate(
+                        hidden, ffn_norm, self.config.eps,
+                        &layer.ffn_up_weight, gate_weight,
+                    )?;
+                    if let Some(ref bias) = layer.ffn_up_bias {
+                        ops::add_bias(&mut ffn_up, bias);
                     }
-                } else {
-                    hidden.to_vec()
-                };
-
-                let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
-                if let Some(ref bias) = layer.ffn_up_bias {
-                    ops::add_bias(&mut ffn_hidden, bias);
+                    if let Some(ref bias) = layer.ffn_gate_bias {
+                        ops::add_bias(&mut ffn_gate, bias);
+                    }
+                    ops::silu(&mut ffn_gate);
+                    for i in 0..ffn_gate.len() {
+                        ffn_gate[i] *= ffn_up[i];
+                    }
+                    return Ok(ffn_gate);
                 }
-                ops::gelu(&mut ffn_hidden);
-                Ok(ffn_hidden)
-            },
+            }
+
+            // Non-fused gated path (LayerNorm models or no FFN norm)
+            let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+                if use_rmsnorm {
+                    ops::rms_norm(hidden, ffn_norm, self.config.eps)
+                } else {
+                    ops::layer_norm(
+                        hidden, ffn_norm,
+                        layer.ffn_norm_bias.as_deref(), self.config.eps,
+                    )
+                }
+            } else {
+                hidden.to_vec()
+            };
+
+            let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+            if let Some(ref bias) = layer.ffn_up_bias {
+                ops::add_bias(&mut ffn_up, bias);
+            }
+            let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
+            if let Some(ref bias) = layer.ffn_gate_bias {
+                ops::add_bias(&mut ffn_gate, bias);
+            }
+            ops::silu(&mut ffn_gate);
+            for i in 0..ffn_gate.len() {
+                ffn_gate[i] *= ffn_up[i];
+            }
+            Ok(ffn_gate)
+        } else {
+            // GELU path (GPT-2, BERT, etc.) - no gate weight
+            let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+                if use_rmsnorm {
+                    ops::rms_norm(hidden, ffn_norm, self.config.eps)
+                } else {
+                    ops::layer_norm(
+                        hidden, ffn_norm,
+                        layer.ffn_norm_bias.as_deref(), self.config.eps,
+                    )
+                }
+            } else {
+                hidden.to_vec()
+            };
+
+            let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+            if let Some(ref bias) = layer.ffn_up_bias {
+                ops::add_bias(&mut ffn_hidden, bias);
+            }
+            ops::gelu(&mut ffn_hidden);
+            Ok(ffn_hidden)
         }
     }
 
@@ -442,13 +438,15 @@ impl OwnedQuantizedModel {
         // 1. Token embedding lookup
         let mut hidden = self.embed(&[token_id]);
 
-        // GH-278: Add learned position embedding (GPT-2 style)
-        if let Some(ref pos_emb) = self.position_embedding {
-            let start = position * hidden_dim;
-            let end = start + hidden_dim;
-            if end <= pos_emb.len() {
-                for i in 0..hidden_dim {
-                    hidden[i] += pos_emb[start + i];
+        // GH-278: Add learned position embedding for absolute encoding (GPT-2, BERT, whisper)
+        if self.config.constraints.uses_absolute_positions() {
+            if let Some(ref pos_emb) = self.position_embedding {
+                let start = position * hidden_dim;
+                let end = start + hidden_dim;
+                if end <= pos_emb.len() {
+                    for i in 0..hidden_dim {
+                        hidden[i] += pos_emb[start + i];
+                    }
                 }
             }
         }

@@ -52,7 +52,7 @@ fn test_conversion_stats_parameters_m() {
         num_layers: 6,
         hidden_dim: 512,
         vocab_size: 10000,
-        architecture: "phi".to_string(),
+        architecture: "phi2".to_string(),
     };
     let pm = stats.parameters_m();
     assert!((pm - 7.0).abs() < 0.001, "Expected 7.0M, got {}", pm);

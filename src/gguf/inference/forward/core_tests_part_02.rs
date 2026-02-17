@@ -7,15 +7,15 @@
 fn test_architecture_detection_llama() {
     let model = create_llama_style_model(100, 64, 128, 4, 4, 1);
 
-    // LLaMA detection: ffn_gate_weight.is_some() && attn_norm_bias.is_none()
+    // LLaMA contract: SwiGLU (gate weight), RMSNorm (no bias)
     let layer = &model.layers[0];
     assert!(
         layer.ffn_gate_weight.is_some(),
-        "LLaMA should have gate weight"
+        "LLaMA should have gate weight (SwiGLU contract)"
     );
     assert!(
         layer.attn_norm_bias.is_none(),
-        "LLaMA should not have norm bias"
+        "LLaMA should not have norm bias (RMSNorm contract)"
     );
 }
 
