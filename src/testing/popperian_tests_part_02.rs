@@ -7,6 +7,7 @@
 ///
 /// Prohibition: If GQA ratio changes during conversion, metadata is corrupted.
 #[test]
+#[ignore] // Heavy: qwen_1_5b config allocates ~890MB per tensor (151936 vocab × 1536 hidden)
 fn test_f116_gqa_ratio_preservation() {
     let configs = [
         ("tiny", ModelConfig::tiny()),
