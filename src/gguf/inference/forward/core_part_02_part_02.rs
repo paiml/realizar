@@ -22,6 +22,21 @@ impl OwnedQuantizedModel {
         // 1. Token embedding lookup (f32, fast)
         let mut hidden = self.embed(token_ids);
 
+        // GH-278: Add learned position embeddings (GPT-2 style)
+        if let Some(ref pos_emb) = self.position_embedding {
+            let hidden_dim = self.config.hidden_dim;
+            for (s, _) in token_ids.iter().enumerate() {
+                let pos_start = s * hidden_dim;
+                let pos_end = pos_start + hidden_dim;
+                if pos_end <= pos_emb.len() {
+                    let h_start = s * hidden_dim;
+                    for i in 0..hidden_dim {
+                        hidden[h_start + i] += pos_emb[pos_start + i];
+                    }
+                }
+            }
+        }
+
         // Detect if model uses RMSNorm (LLaMA-style) or LayerNorm (phi-2 style)
         // LLaMA models have ffn_gate_weight (SwiGLU) and no bias in norms
         let use_rmsnorm = self
@@ -122,10 +137,11 @@ impl OwnedQuantizedModel {
                 let mut k = qkv[qkv_start + q_dim..qkv_start + q_dim + k_dim].to_vec();
                 let v = &qkv[qkv_start + q_dim + k_dim..qkv_start + q_dim + k_dim + v_dim];
 
-                // Apply RoPE to Q and K (position-dependent rotation)
-                // GQA: Q has num_heads, K has num_kv_heads
-                self.apply_rope(&mut q, s, self.config.num_heads);
-                self.apply_rope(&mut k, s, self.config.num_kv_heads);
+                // GH-278: Skip RoPE for models with learned position embeddings (GPT-2)
+                if self.position_embedding.is_none() {
+                    self.apply_rope(&mut q, s, self.config.num_heads);
+                    self.apply_rope(&mut k, s, self.config.num_kv_heads);
+                }
 
                 // CORRECTNESS-011: Q after RoPE at position 0
                 if cpu_debug_layers && layer_idx < 2 && s == 0 {

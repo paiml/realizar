@@ -18,6 +18,19 @@ impl OwnedQuantizedModel {
         // 1. Token embedding
         profiler.start("Embedding");
         let mut hidden = self.embed(token_ids);
+        // GH-278: Add learned position embeddings (GPT-2 style)
+        if let Some(ref pos_emb) = self.position_embedding {
+            for (s, _) in token_ids.iter().enumerate() {
+                let pos_start = s * hidden_dim;
+                let pos_end = pos_start + hidden_dim;
+                if pos_end <= pos_emb.len() {
+                    let h_start = s * hidden_dim;
+                    for i in 0..hidden_dim {
+                        hidden[h_start + i] += pos_emb[pos_start + i];
+                    }
+                }
+            }
+        }
         profiler.stop("Embedding");
 
         let use_rmsnorm = self
@@ -80,8 +93,11 @@ impl OwnedQuantizedModel {
                 let mut k = qkv[qkv_start + q_dim..qkv_start + q_dim + k_dim].to_vec();
                 let v = &qkv[qkv_start + q_dim + k_dim..qkv_start + q_dim + k_dim + v_dim];
 
-                self.apply_rope(&mut q, s, self.config.num_heads);
-                self.apply_rope(&mut k, s, self.config.num_kv_heads);
+                // GH-278: Skip RoPE for models with learned position embeddings (GPT-2)
+                if self.position_embedding.is_none() {
+                    self.apply_rope(&mut q, s, self.config.num_heads);
+                    self.apply_rope(&mut k, s, self.config.num_kv_heads);
+                }
 
                 q_all.extend_from_slice(&q);
                 k_all.extend_from_slice(&k);
