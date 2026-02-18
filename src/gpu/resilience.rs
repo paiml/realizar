@@ -301,13 +301,13 @@ impl CircuitBreaker {
     }
 
     /// Record a failure
-    #[inline(always)]
+    #[inline]
     pub fn record_failure(&self) {
         self.record_outcome(false);
     }
 
     /// Record a success
-    #[inline(always)]
+    #[inline]
     pub fn record_success(&self) {
         self.record_outcome(true);
     }
@@ -477,7 +477,7 @@ impl BulkheadManager {
     ///
     /// # Errors
     /// Returns error if pool is exhausted.
-    #[inline(always)]
+    #[inline]
     pub fn try_acquire(
         &self,
         request_type: RequestType,

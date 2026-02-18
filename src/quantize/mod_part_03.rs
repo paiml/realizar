@@ -77,7 +77,7 @@ unsafe fn hsum_avx2(v: __m256) -> f32 {
 /// # Safety
 /// Caller must guarantee `q4_ptr..q4_ptr+2` is valid readable memory.
 #[cfg(target_arch = "x86_64")]
-#[inline(always)]
+#[inline]
 unsafe fn read_q4_scale(q4_ptr: *const u8) -> f32 { unsafe {
     // SAFETY: caller guarantees q4_ptr..+2 is valid
     f16_to_f32_lut(u16::from_le_bytes([*q4_ptr, *q4_ptr.add(1)]))

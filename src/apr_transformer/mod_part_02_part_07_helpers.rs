@@ -1,3 +1,5 @@
+/// Accessor function that extracts optional quantized bytes from a Q4K layer.
+type Q4KFieldAccessor<'a> = fn(&'a Q4KLayerWeights) -> Option<&'a [u8]>;
 
 impl AprTransformer {
     /// Project a single weight matrix using Q4K, then Q6K, then F32 fallback.
@@ -29,8 +31,8 @@ impl AprTransformer {
     fn select_q4k_q6k<'a>(
         q4k_layer: Option<&'a Q4KLayerWeights>,
         force_f32: bool,
-        q4k_field: fn(&'a Q4KLayerWeights) -> Option<&'a [u8]>,
-        q6k_field: Option<fn(&'a Q4KLayerWeights) -> Option<&'a [u8]>>,
+        q4k_field: Q4KFieldAccessor<'a>,
+        q6k_field: Option<Q4KFieldAccessor<'a>>,
     ) -> (Option<&'a [u8]>, Option<&'a [u8]>) {
         if force_f32 {
             return (None, None);

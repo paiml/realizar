@@ -140,6 +140,7 @@ impl LinearAttnState {
 /// # Errors
 ///
 /// Returns error if projections fail or dimensions mismatch.
+#[allow(clippy::many_single_char_names)]
 pub fn forward_linear_block_incremental(
     model: &mut GpuModel,
     input: &[f32],
