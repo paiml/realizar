@@ -297,12 +297,19 @@ unsafe fn fused_q4k_q8k_dot_avx512vnni(
         let sb_start = sb_idx * SUPER_BLOCK_BYTES;
         let q8_start = sb_idx * QK_K;
 
-        // Prefetch next super-block
+        // Prefetch next super-block (dual: Q4_K + Q8_K — match V2 pattern)
         if sb_idx + 1 < num_super_blocks {
             _mm_prefetch(
                 q4k_data
                     .as_ptr()
                     .add((sb_idx + 1) * SUPER_BLOCK_BYTES)
+                    .cast::<i8>(),
+                _MM_HINT_T0,
+            );
+            _mm_prefetch(
+                q8k_quants
+                    .as_ptr()
+                    .add((sb_idx + 1) * QK_K)
                     .cast::<i8>(),
                 _MM_HINT_T0,
             );

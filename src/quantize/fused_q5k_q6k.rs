@@ -184,10 +184,14 @@ unsafe fn fused_q6k_dot_avx2(q6k_data: &[u8], activations: &[f32]) -> Result<f32
         let sb_start = sb_idx * SUPER_BLOCK_BYTES;
         let act_start = sb_idx * QK_K;
 
-        // Prefetch next super-block
+        // Prefetch next super-block (dual: Q6_K weights + activations)
         if sb_idx + 1 < num_super_blocks {
             let next_sb = (sb_idx + 1) * SUPER_BLOCK_BYTES;
             _mm_prefetch(q6k_data.as_ptr().add(next_sb).cast::<i8>(), _MM_HINT_T0);
+            _mm_prefetch(
+                activations.as_ptr().add((sb_idx + 1) * QK_K).cast::<i8>(),
+                _MM_HINT_T0,
+            );
         }
 
         // Q6_K layout: ql (128) + qh (64) + scales (16) + d (2)
