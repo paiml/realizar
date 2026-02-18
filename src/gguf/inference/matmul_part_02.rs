@@ -87,9 +87,17 @@ impl OwnedQuantizedModel {
             } => {
                 let seq_len = input.len() / hidden_dim;
 
-                let q_out = self.fused_matmul(input, q)?;
-                let k_out = self.fused_matmul(input, k)?;
-                let v_out = self.fused_matmul(input, v)?;
+                // P4: Parallel QKV projections — K+V overlap with Q tail
+                let (q_out, (k_out, v_out)) = rayon::join(
+                    || self.fused_matmul(input, q),
+                    || rayon::join(
+                        || self.fused_matmul(input, k),
+                        || self.fused_matmul(input, v),
+                    ),
+                );
+                let q_out = q_out?;
+                let k_out = k_out?;
+                let v_out = v_out?;
 
                 // Interleave Q, K, V for each position
                 let qkv_dim = q.out_dim + k.out_dim + v.out_dim;
@@ -122,13 +130,20 @@ impl OwnedQuantizedModel {
                 let k_dim = k.out_dim;
                 let v_dim = v.out_dim;
 
-                self.fused_matmul_into(input, q, &mut output[..q_dim])?;
-                self.fused_matmul_into(input, k, &mut output[q_dim..q_dim + k_dim])?;
-                self.fused_matmul_into(
-                    input,
-                    v,
-                    &mut output[q_dim + k_dim..q_dim + k_dim + v_dim],
-                )?;
+                // P4: Parallel QKV projections — split output buffer, run concurrently
+                let (q_out, kv_out) = output[..q_dim + k_dim + v_dim].split_at_mut(q_dim);
+                let (k_out, v_out) = kv_out.split_at_mut(k_dim);
+
+                let (q_res, (k_res, v_res)) = rayon::join(
+                    || self.fused_matmul_into(input, q, q_out),
+                    || rayon::join(
+                        || self.fused_matmul_into(input, k, k_out),
+                        || self.fused_matmul_into(input, v, v_out),
+                    ),
+                );
+                q_res?;
+                k_res?;
+                v_res?;
 
                 Ok(())
             },
@@ -237,9 +252,17 @@ impl OwnedQuantizedModel {
                     }
                 }
 
-                let q_out = self.fused_matmul(&normed, q)?;
-                let k_out = self.fused_matmul(&normed, k)?;
-                let v_out = self.fused_matmul(&normed, v)?;
+                // P4: Parallel QKV projections — K+V overlap with Q tail
+                let (q_out, (k_out, v_out)) = rayon::join(
+                    || self.fused_matmul(&normed, q),
+                    || rayon::join(
+                        || self.fused_matmul(&normed, k),
+                        || self.fused_matmul(&normed, v),
+                    ),
+                );
+                let q_out = q_out?;
+                let k_out = k_out?;
+                let v_out = v_out?;
 
                 let qkv_dim = q.out_dim + k.out_dim + v.out_dim;
                 let mut output = Vec::with_capacity(qkv_dim);
@@ -346,46 +369,44 @@ impl OwnedQuantizedModel {
             } => {
                 let q_dim = q.out_dim;
                 let k_dim = k.out_dim;
-                if q.qtype == GGUF_TYPE_Q4_K {
-                    fused_q4k_q8k_parallel_matvec_into(
-                        &q.data,
-                        scales,
-                        quants,
-                        q.in_dim,
-                        q_dim,
-                        &mut output[..q_dim],
-                    )?;
-                } else {
-                    self.fused_matmul_into(input, q, &mut output[..q_dim])?;
-                }
-                if k.qtype == GGUF_TYPE_Q4_K {
-                    fused_q4k_q8k_parallel_matvec_into(
-                        &k.data,
-                        scales,
-                        quants,
-                        k.in_dim,
-                        k_dim,
-                        &mut output[q_dim..q_dim + k_dim],
-                    )?;
-                } else {
-                    self.fused_matmul_into(input, k, &mut output[q_dim..q_dim + k_dim])?;
-                }
-                if v.qtype == GGUF_TYPE_Q4_K {
-                    fused_q4k_q8k_parallel_matvec_into(
-                        &v.data,
-                        scales,
-                        quants,
-                        v.in_dim,
-                        v.out_dim,
-                        &mut output[q_dim + k_dim..q_dim + k_dim + v.out_dim],
-                    )?;
-                } else {
-                    self.fused_matmul_into(
-                        input,
-                        v,
-                        &mut output[q_dim + k_dim..q_dim + k_dim + v.out_dim],
-                    )?;
-                }
+                let v_dim = v.out_dim;
+
+                // P4: Parallel QKV projections — split output buffer, run concurrently
+                let (q_out, kv_out) = output[..q_dim + k_dim + v_dim].split_at_mut(q_dim);
+                let (k_out, v_out) = kv_out.split_at_mut(k_dim);
+
+                let q_fn = || -> Result<()> {
+                    if q.qtype == GGUF_TYPE_Q4_K {
+                        fused_q4k_q8k_parallel_matvec_into(
+                            &q.data, scales, quants, q.in_dim, q_dim, q_out,
+                        )
+                    } else {
+                        self.fused_matmul_into(input, q, q_out)
+                    }
+                };
+                let k_fn = || -> Result<()> {
+                    if k.qtype == GGUF_TYPE_Q4_K {
+                        fused_q4k_q8k_parallel_matvec_into(
+                            &k.data, scales, quants, k.in_dim, k_dim, k_out,
+                        )
+                    } else {
+                        self.fused_matmul_into(input, k, k_out)
+                    }
+                };
+                let v_fn = || -> Result<()> {
+                    if v.qtype == GGUF_TYPE_Q4_K {
+                        fused_q4k_q8k_parallel_matvec_into(
+                            &v.data, scales, quants, v.in_dim, v_dim, v_out,
+                        )
+                    } else {
+                        self.fused_matmul_into(input, v, v_out)
+                    }
+                };
+
+                let (q_res, (k_res, v_res)) = rayon::join(q_fn, || rayon::join(k_fn, v_fn));
+                q_res?;
+                k_res?;
+                v_res?;
                 Ok(())
             }
         }
