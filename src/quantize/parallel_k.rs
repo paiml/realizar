@@ -14,6 +14,8 @@ use super::fused_k::{
     fused_q4k_dot_simd, fused_q4k_q8k_dot_4rows_avx512vnni, fused_q4k_q8k_dot_simd,
 };
 use super::fused_q5k_q6k::{fused_q5k_dot_simd, fused_q6k_dot_simd};
+use super::format_trait::{Q4K, Q5K, Q6K};
+use super::generic_matvec::{generic_parallel_matvec, generic_parallel_matvec_into};
 use super::types::QK_K;
 use crate::error::{RealizarError, Result};
 use std::borrow::Cow;
@@ -188,84 +190,9 @@ pub fn fused_q4k_parallel_matvec(
     in_dim: usize,
     out_dim: usize,
 ) -> Result<Vec<f32>> {
-    // PAR-126: Five-Whys fix - parallel threshold was too high
-    // OLD: PARALLEL_THRESHOLD=4096 meant FFN down (out_dim=1536) used sequential path
-    // PROBLEM: 1.5B model was 11 tok/s instead of 200 tok/s due to single-threaded matmuls
-    //
-    // ANALYSIS (for 32-core system with in_dim=8960):
-    // - Per-row time: 8960/256 superblocks × ~50ns/superblock = ~1.75µs
-    // - Rayon overhead: ~10µs (reduced with work-stealing)
-    // - Break-even: 10µs / (1.75µs/32) = ~183 rows
-    // SOLUTION: Lower threshold to 256 to enable parallelism for all practical matmuls
-    const PARALLEL_THRESHOLD: usize = 256;
-
-    // Calculate bytes per output row
-    let super_blocks_per_row = in_dim.div_ceil(QK_K);
-    let bytes_per_row = super_blocks_per_row * 144; // Q4_K: 144 bytes per super-block
-
-    // Validate dimensions
-    let expected_weight_bytes = out_dim * bytes_per_row;
-    if weight_data.len() < expected_weight_bytes {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q4_K weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes,
-                out_dim,
-                in_dim,
-                weight_data.len()
-            ),
-        });
-    }
-
-    if activations.len() != in_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Activation length {} doesn't match in_dim {}",
-                activations.len(),
-                in_dim
-            ),
-        });
-    }
-
-    // GH-202 FIX: Pad activations to super-block boundary when in_dim % 256 != 0.
-    // Per-row quantization pads each row to ceil(in_dim/256)*256 elements.
-    // The fused dot kernel requires activations.len() == num_blocks * 256.
-    let padded_in_dim = super_blocks_per_row * QK_K;
-    let acts = pad_activations(activations, padded_in_dim);
-
-    if out_dim < PARALLEL_THRESHOLD {
-        // Sequential path: avoids rayon overhead for small matrices
-        let output: Vec<f32> = (0..out_dim)
-            .map(|o| {
-                let row_start = o * bytes_per_row;
-                let row_end = row_start + bytes_per_row;
-                let row_data = &weight_data[row_start..row_end];
-                fused_q4k_dot_simd(row_data, &acts).unwrap_or(0.0)
-            })
-            .collect();
-
-        Ok(output)
-    } else {
-        // Parallel path: better for large matrices
-        use rayon::prelude::*;
-
-        // Use chunked parallel iteration with optimal chunk size
-        // Chunk size tuned for L2 cache (~256KB): process ~64 rows per chunk
-        const CHUNK_SIZE: usize = 64;
-
-        let output: Vec<f32> = (0..out_dim)
-            .into_par_iter()
-            .with_min_len(CHUNK_SIZE)
-            .map(|o| {
-                let row_start = o * bytes_per_row;
-                let row_end = row_start + bytes_per_row;
-                let row_data = &weight_data[row_start..row_end];
-                fused_q4k_dot_simd(row_data, &acts).unwrap_or(0.0)
-            })
-            .collect();
-
-        Ok(output)
-    }
+    // Contract: quantized-dot-product-v1.yaml — delegates to generic matvec
+    // with format-specific SIMD dot product (Phase 3: eliminate ~300 lines duplication)
+    generic_parallel_matvec::<Q4K>(weight_data, activations, in_dim, out_dim, fused_q4k_dot_simd)
 }
 
 /// Parallel fused Q4_K matrix-vector multiply - writes to pre-allocated buffer
@@ -294,85 +221,15 @@ pub fn fused_q4k_parallel_matvec_into(
     out_dim: usize,
     output: &mut [f32],
 ) -> Result<()> {
-    // PAR-126: Match threshold from allocating version (was 4096, caused 25% perf loss)
-    // Analysis: For 32-core system with in_dim=8960:
-    // - Per-row time: ~1.75µs, Rayon overhead: ~10µs
-    // - Break-even: ~183 rows, so 256 is safe threshold
-    const PARALLEL_THRESHOLD: usize = 256;
-
-    let super_blocks_per_row = in_dim.div_ceil(QK_K);
-    let bytes_per_row = super_blocks_per_row * 144;
-
-    let expected_weight_bytes = out_dim * bytes_per_row;
-    if weight_data.len() < expected_weight_bytes {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q4_K weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes,
-                out_dim,
-                in_dim,
-                weight_data.len()
-            ),
-        });
-    }
-
-    if activations.len() != in_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Activation length {} doesn't match in_dim {}",
-                activations.len(),
-                in_dim
-            ),
-        });
-    }
-
-    if output.len() < out_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Output buffer too small: need {}, have {}",
-                out_dim,
-                output.len()
-            ),
-        });
-    }
-
-    // GH-202 FIX: Pad activations to super-block boundary
-    let padded_in_dim = super_blocks_per_row * QK_K;
-    let acts = pad_activations(activations, padded_in_dim);
-
-    if out_dim < PARALLEL_THRESHOLD {
-        // Sequential path
-        for o in 0..out_dim {
-            let row_start = o * bytes_per_row;
-            let row_end = row_start + bytes_per_row;
-            let row_data = &weight_data[row_start..row_end];
-            output[o] = fused_q4k_dot_simd(row_data, &acts).unwrap_or(0.0);
-        }
-    } else {
-        // Parallel path with TCB-style midi-tile chunking
-        // Process rows in 64-row chunks to maximize activation cache reuse
-        use rayon::prelude::*;
-        const MIDI_TILE_M: usize = 64;
-
-        output[..out_dim]
-            .par_chunks_mut(MIDI_TILE_M)
-            .enumerate()
-            .for_each(|(midi_idx, midi_chunk)| {
-                let midi_start = midi_idx * MIDI_TILE_M;
-
-                // Process each row in this midi-tile
-                // All rows share the same activation vector (kept in L2 cache)
-                for (local_idx, out) in midi_chunk.iter_mut().enumerate() {
-                    let row = midi_start + local_idx;
-                    let row_start = row * bytes_per_row;
-                    let row_end = row_start + bytes_per_row;
-                    let row_data = &weight_data[row_start..row_end];
-                    *out = fused_q4k_dot_simd(row_data, &acts).unwrap_or(0.0);
-                }
-            });
-    }
-
-    Ok(())
+    // Contract: quantized-dot-product-v1.yaml — delegates to generic matvec
+    generic_parallel_matvec_into::<Q4K>(
+        weight_data,
+        activations,
+        in_dim,
+        out_dim,
+        output,
+        fused_q4k_dot_simd,
+    )
 }
 
 /// Parallel fused Q5_K matrix-vector multiply
@@ -389,50 +246,8 @@ pub fn fused_q5k_parallel_matvec(
     in_dim: usize,
     out_dim: usize,
 ) -> Result<Vec<f32>> {
-    use rayon::prelude::*;
-
-    let super_blocks_per_row = in_dim.div_ceil(QK_K);
-    let bytes_per_row = super_blocks_per_row * 176; // Q5_K: 176 bytes per super-block
-
-    let expected_weight_bytes = out_dim * bytes_per_row;
-    if weight_data.len() < expected_weight_bytes {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q5_K weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes,
-                out_dim,
-                in_dim,
-                weight_data.len()
-            ),
-        });
-    }
-
-    if activations.len() != in_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Activation length {} doesn't match in_dim {}",
-                activations.len(),
-                in_dim
-            ),
-        });
-    }
-
-    // GH-202 FIX: Pad activations to super-block boundary
-    let padded_in_dim = super_blocks_per_row * QK_K;
-    let acts = pad_activations(activations, padded_in_dim);
-
-    let output: Vec<f32> = (0..out_dim)
-        .into_par_iter()
-        .map(|o| {
-            let row_start = o * bytes_per_row;
-            let row_end = row_start + bytes_per_row;
-            let row_data = &weight_data[row_start..row_end];
-
-            fused_q5k_dot_simd(row_data, &acts).unwrap_or(0.0)
-        })
-        .collect();
-
-    Ok(output)
+    // Contract: quantized-dot-product-v1.yaml — delegates to generic matvec
+    generic_parallel_matvec::<Q5K>(weight_data, activations, in_dim, out_dim, fused_q5k_dot_simd)
 }
 
 include!("parallel_k_part_02.rs");

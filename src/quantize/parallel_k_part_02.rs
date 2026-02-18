@@ -2,6 +2,7 @@
 /// Parallel fused Q5_K matrix-vector multiply - writes to pre-allocated buffer
 ///
 /// IMP-131: Zero-allocation variant for hot-path inference.
+/// Contract: quantized-dot-product-v1.yaml — delegates to generic matvec.
 #[allow(clippy::similar_names)]
 pub fn fused_q5k_parallel_matvec_into(
     weight_data: &[u8],
@@ -10,62 +11,19 @@ pub fn fused_q5k_parallel_matvec_into(
     out_dim: usize,
     output: &mut [f32],
 ) -> Result<()> {
-    use rayon::prelude::*;
-
-    let super_blocks_per_row = in_dim.div_ceil(QK_K);
-    let bytes_per_row = super_blocks_per_row * 176;
-
-    let expected_weight_bytes = out_dim * bytes_per_row;
-    if weight_data.len() < expected_weight_bytes {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q5_K weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes,
-                out_dim,
-                in_dim,
-                weight_data.len()
-            ),
-        });
-    }
-
-    if activations.len() != in_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Activation length {} doesn't match in_dim {}",
-                activations.len(),
-                in_dim
-            ),
-        });
-    }
-
-    if output.len() < out_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Output buffer too small: need {}, have {}",
-                out_dim,
-                output.len()
-            ),
-        });
-    }
-
-    // GH-202 FIX: Pad activations to super-block boundary
-    let padded_in_dim = super_blocks_per_row * QK_K;
-    let acts = pad_activations(activations, padded_in_dim);
-
-    output[..out_dim]
-        .par_iter_mut()
-        .enumerate()
-        .for_each(|(o, out)| {
-            let row_start = o * bytes_per_row;
-            let row_end = row_start + bytes_per_row;
-            let row_data = &weight_data[row_start..row_end];
-            *out = fused_q5k_dot_simd(row_data, &acts).unwrap_or(0.0);
-        });
-
-    Ok(())
+    generic_parallel_matvec_into::<Q5K>(
+        weight_data,
+        activations,
+        in_dim,
+        out_dim,
+        output,
+        fused_q5k_dot_simd,
+    )
 }
 
 /// Parallel fused Q6_K matrix-vector multiply
+///
+/// Contract: quantized-dot-product-v1.yaml — delegates to generic matvec.
 ///
 /// # Errors
 ///
@@ -79,55 +37,13 @@ pub fn fused_q6k_parallel_matvec(
     in_dim: usize,
     out_dim: usize,
 ) -> Result<Vec<f32>> {
-    use rayon::prelude::*;
-
-    let super_blocks_per_row = in_dim.div_ceil(QK_K);
-    let bytes_per_row = super_blocks_per_row * 210; // Q6_K: 210 bytes per super-block
-
-    let expected_weight_bytes = out_dim * bytes_per_row;
-    if weight_data.len() < expected_weight_bytes {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q6_K weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes,
-                out_dim,
-                in_dim,
-                weight_data.len()
-            ),
-        });
-    }
-
-    if activations.len() != in_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Activation length {} doesn't match in_dim {}",
-                activations.len(),
-                in_dim
-            ),
-        });
-    }
-
-    // GH-202 FIX: Pad activations to super-block boundary
-    let padded_in_dim = super_blocks_per_row * QK_K;
-    let acts = pad_activations(activations, padded_in_dim);
-
-    let output: Vec<f32> = (0..out_dim)
-        .into_par_iter()
-        .map(|o| {
-            let row_start = o * bytes_per_row;
-            let row_end = row_start + bytes_per_row;
-            let row_data = &weight_data[row_start..row_end];
-
-            fused_q6k_dot_simd(row_data, &acts).unwrap_or(0.0)
-        })
-        .collect();
-
-    Ok(output)
+    generic_parallel_matvec::<Q6K>(weight_data, activations, in_dim, out_dim, fused_q6k_dot_simd)
 }
 
 /// Parallel fused Q6_K matrix-vector multiply - writes to pre-allocated buffer
 ///
 /// IMP-131: Zero-allocation variant for hot-path inference.
+/// Contract: quantized-dot-product-v1.yaml — delegates to generic matvec.
 #[allow(clippy::similar_names)]
 pub fn fused_q6k_parallel_matvec_into(
     weight_data: &[u8],
@@ -136,71 +52,14 @@ pub fn fused_q6k_parallel_matvec_into(
     out_dim: usize,
     output: &mut [f32],
 ) -> Result<()> {
-    use rayon::prelude::*;
-
-    let super_blocks_per_row = in_dim.div_ceil(QK_K);
-    let bytes_per_row = super_blocks_per_row * 210;
-
-    let expected_weight_bytes = out_dim * bytes_per_row;
-    if weight_data.len() < expected_weight_bytes {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Q6_K weight data too small: need {} bytes for {}x{}, have {}",
-                expected_weight_bytes,
-                out_dim,
-                in_dim,
-                weight_data.len()
-            ),
-        });
-    }
-
-    if activations.len() != in_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Activation length {} doesn't match in_dim {}",
-                activations.len(),
-                in_dim
-            ),
-        });
-    }
-
-    if output.len() < out_dim {
-        return Err(RealizarError::InvalidShape {
-            reason: format!(
-                "Output buffer too small: need {}, have {}",
-                out_dim,
-                output.len()
-            ),
-        });
-    }
-
-    // GH-202 FIX: Pad activations to super-block boundary
-    let padded_in_dim = super_blocks_per_row * QK_K;
-    let acts = pad_activations(activations, padded_in_dim);
-
-    // TCB Tiling: Process rows in midi-tiles (64 rows) to maximize activation cache reuse
-    // While Q6K×f32 doesn't have integer Q8K, the f32 activation vector still benefits
-    // from being kept in L2 cache while processing multiple output rows.
-    const MIDI_TILE_M: usize = 64;
-
-    output[..out_dim]
-        .par_chunks_mut(MIDI_TILE_M)
-        .enumerate()
-        .for_each(|(midi_idx, midi_chunk)| {
-            let midi_start = midi_idx * MIDI_TILE_M;
-
-            // Process each row in this midi-tile
-            // All rows share the same activation vector (kept in L2 cache)
-            for (local_idx, out) in midi_chunk.iter_mut().enumerate() {
-                let row = midi_start + local_idx;
-                let row_start = row * bytes_per_row;
-                let row_end = row_start + bytes_per_row;
-                let row_data = &weight_data[row_start..row_end];
-                *out = fused_q6k_dot_simd(row_data, &acts).unwrap_or(0.0);
-            }
-        });
-
-    Ok(())
+    generic_parallel_matvec_into::<Q6K>(
+        weight_data,
+        activations,
+        in_dim,
+        out_dim,
+        output,
+        fused_q6k_dot_simd,
+    )
 }
 
 // ============================================================================
