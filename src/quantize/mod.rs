@@ -63,10 +63,14 @@ use crate::error::{RealizarError, Result};
 // ============================================================================
 
 pub mod activation;
+pub mod contract_tests;
 pub mod dequant;
 pub mod encode;
+pub mod format_trait;
 pub mod fused_k;
 pub mod fused_q5k_q6k;
+pub mod generic_dot;
+pub mod generic_matvec;
 pub mod parallel_dequant;
 pub mod parallel_k;
 pub mod simd;
@@ -113,6 +117,11 @@ pub use parallel_dequant::{
 
 // Re-export SIMD utilities (for tests and internal use)
 pub use simd::{extract_scale_min, extract_scale_min_from_slice, read_f16};
+
+// Re-export format trait and generic kernels (Contract: quantized-dot-product-v1.yaml)
+pub use format_trait::{QuantBlockFormat, QuantFamily, Q4K, Q4_0Fmt, Q5K, Q6K, Q8_0Fmt};
+pub use generic_dot::{compute_bsums, generic_fused_dot_scalar};
+pub use generic_matvec::{generic_parallel_matvec, generic_parallel_matvec_into};
 
 // Re-export encoding functions (Toyota Way: ONE source of truth)
 // aprender imports these for format conversion - NEVER duplicates
