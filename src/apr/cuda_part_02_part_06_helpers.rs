@@ -1,10 +1,20 @@
 
+/// Add bias vector to each position in a projection buffer.
+///
+/// `buf` has shape `[seq_len, dim]`, `bias` has shape `[dim]`.
+/// Adds `bias[i]` to `buf[pos * dim + i]` for all positions.
+fn add_bias_per_position(buf: &mut [f32], bias: &[f32], dim: usize, seq_len: usize) {
+    for pos in 0..seq_len {
+        let start = pos * dim;
+        for (i, &b) in bias.iter().enumerate() {
+            buf[start + i] += b;
+        }
+    }
+}
+
 impl AprV2ModelCuda {
 
     /// Apply QKV bias for a transformer layer (both fused and separate formats).
-    ///
-    /// Handles Qwen2 attention bias (fused qkv_proj.bias) and GGUF-converted
-    /// separate q_proj.bias/k_proj.bias/v_proj.bias.
     #[allow(clippy::too_many_arguments)]
     fn apply_qkv_bias_for_layer(
         &self,
@@ -15,102 +25,37 @@ impl AprV2ModelCuda {
         hidden_dim: usize,
         kv_dim: usize,
         seq_len: usize,
-        trace_layers: bool,
+        _trace_layers: bool,
     ) -> Result<()> {
-        let fused_bias_name = format!("model.layers.{layer_idx}.self_attn.qkv_proj.bias");
-        let mut bias_applied = false;
-
         // Try fused bias first (HuggingFace import with fused QKV)
+        let fused_bias_name = format!("model.layers.{layer_idx}.self_attn.qkv_proj.bias");
         if let Ok(qkv_bias) = self.model.get_tensor_f32(&fused_bias_name) {
-            let q_bias_size = hidden_dim;
-            let k_bias_size = kv_dim;
-            let v_bias_size = kv_dim;
-
-            if qkv_bias.len() >= q_bias_size + k_bias_size + v_bias_size {
-                let q_bias = &qkv_bias[0..q_bias_size];
-                let k_bias = &qkv_bias[q_bias_size..q_bias_size + k_bias_size];
-                let v_bias = &qkv_bias
-                    [q_bias_size + k_bias_size..q_bias_size + k_bias_size + v_bias_size];
-
-                for pos in 0..seq_len {
-                    let q_start = pos * hidden_dim;
-                    let k_start = pos * kv_dim;
-                    let v_start = pos * kv_dim;
-
-                    for (i, bias_val) in q_bias.iter().enumerate() {
-                        q[q_start + i] += bias_val;
-                    }
-                    for (i, bias_val) in k_bias.iter().enumerate() {
-                        k[k_start + i] += bias_val;
-                    }
-                    for (i, bias_val) in v_bias.iter().enumerate() {
-                        v[v_start + i] += bias_val;
-                    }
-                }
-
-                bias_applied = true;
-                if trace_layers && layer_idx == 0 {
-                    let k_bias_mean: f32 = k_bias.iter().sum::<f32>() / k_bias.len() as f32;
-                    eprintln!(
-                        "[PMAT-114-APR] L0 has_qkv_bias=true (fused), K bias mean={:.6}",
-                        k_bias_mean
-                    );
-                }
+            if qkv_bias.len() >= hidden_dim + kv_dim + kv_dim {
+                add_bias_per_position(q, &qkv_bias[..hidden_dim], hidden_dim, seq_len);
+                add_bias_per_position(k, &qkv_bias[hidden_dim..hidden_dim + kv_dim], kv_dim, seq_len);
+                add_bias_per_position(v, &qkv_bias[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim], kv_dim, seq_len);
+                return Ok(());
             }
         }
 
         // PMAT-113 FIX: Try separate Q/K/V biases (APR converted from GGUF)
-        if !bias_applied {
-            let q_bias_name = format!("model.layers.{layer_idx}.self_attn.q_proj.bias");
-            let k_bias_name = format!("model.layers.{layer_idx}.self_attn.k_proj.bias");
-            let v_bias_name = format!("model.layers.{layer_idx}.self_attn.v_proj.bias");
+        let q_bias_name = format!("model.layers.{layer_idx}.self_attn.q_proj.bias");
+        let k_bias_name = format!("model.layers.{layer_idx}.self_attn.k_proj.bias");
+        let v_bias_name = format!("model.layers.{layer_idx}.self_attn.v_proj.bias");
 
-            let q_bias = self.model.get_tensor_f32(&q_bias_name).ok();
-            let k_bias = self.model.get_tensor_f32(&k_bias_name).ok();
-            let v_bias = self.model.get_tensor_f32(&v_bias_name).ok();
-
-            if let Some(ref bias) = q_bias {
-                if bias.len() == hidden_dim {
-                    for pos in 0..seq_len {
-                        let start = pos * hidden_dim;
-                        for (i, bias_val) in bias.iter().enumerate() {
-                            q[start + i] += bias_val;
-                        }
-                    }
-                }
+        if let Ok(bias) = self.model.get_tensor_f32(&q_bias_name) {
+            if bias.len() == hidden_dim {
+                add_bias_per_position(q, &bias, hidden_dim, seq_len);
             }
-
-            if let Some(ref bias) = k_bias {
-                if bias.len() == kv_dim {
-                    for pos in 0..seq_len {
-                        let start = pos * kv_dim;
-                        for (i, bias_val) in bias.iter().enumerate() {
-                            k[start + i] += bias_val;
-                        }
-                    }
-                    bias_applied = true;
-                }
+        }
+        if let Ok(bias) = self.model.get_tensor_f32(&k_bias_name) {
+            if bias.len() == kv_dim {
+                add_bias_per_position(k, &bias, kv_dim, seq_len);
             }
-
-            if let Some(ref bias) = v_bias {
-                if bias.len() == kv_dim {
-                    for pos in 0..seq_len {
-                        let start = pos * kv_dim;
-                        for (i, bias_val) in bias.iter().enumerate() {
-                            v[start + i] += bias_val;
-                        }
-                    }
-                }
-            }
-
-            if trace_layers && layer_idx == 0 && bias_applied {
-                if let Some(ref kb) = k_bias {
-                    let k_bias_mean: f32 = kb.iter().sum::<f32>() / kb.len() as f32;
-                    eprintln!(
-                        "[PMAT-114-APR] L0 has_qkv_bias=true (separate), K bias mean={:.6}",
-                        k_bias_mean
-                    );
-                }
+        }
+        if let Ok(bias) = self.model.get_tensor_f32(&v_bias_name) {
+            if bias.len() == kv_dim {
+                add_bias_per_position(v, &bias, kv_dim, seq_len);
             }
         }
 
@@ -372,5 +317,165 @@ impl AprV2ModelCuda {
         }
 
         Ok(())
+    }
+
+    /// Fast decode path for single token with indexed Q4K weights and CUDA graph.
+    ///
+    /// Returns logits if applicable, or None if fast path conditions aren't met.
+    #[allow(clippy::too_many_arguments)]
+    fn forward_cuda_indexed_decode(
+        &mut self,
+        token_id: u32,
+        vocab_size: usize,
+        num_layers: usize,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        eps: f32,
+    ) -> Result<Vec<f32>> {
+        let position = self.kv_position;
+
+        let input: Vec<f32> = self
+            .get_embedding(token_id)
+            .ok_or_else(|| RealizarError::InvalidShape {
+                reason: format!("Token {} out of embedding range", token_id),
+            })?
+            .to_vec();
+
+        let mut output = vec![0.0f32; vocab_size];
+        self.executor
+            .forward_all_layers_gpu_to_logits_graphed(
+                &input,
+                &mut output,
+                position,
+                num_layers,
+                hidden_dim,
+                intermediate_dim,
+                vocab_size as u32,
+                eps,
+            )
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "forward_all_layers_gpu_to_logits_graphed".to_string(),
+                reason: format!("Q4K graphed fast path failed: {e}"),
+            })?;
+
+        self.kv_position += 1;
+        Ok(output)
+    }
+
+    /// QKV projection for a transformer layer (cached, fused, or separate weights).
+    #[allow(clippy::too_many_arguments)]
+    fn forward_cuda_qkv_projection(
+        &mut self,
+        layer_idx: usize,
+        normed: &[f32],
+        seq_len: usize,
+        hidden_dim: usize,
+        kv_dim: usize,
+    ) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>)> {
+        let q_cache_name = format!("blk.{}.attn_q.weight", layer_idx);
+        let k_cache_name = format!("blk.{}.attn_k.weight", layer_idx);
+        let v_cache_name = format!("blk.{}.attn_v.weight", layer_idx);
+
+        if self.has_cached_weight(&q_cache_name) {
+            let q = self.gemm_cached_gpu(&q_cache_name, normed, seq_len, hidden_dim, hidden_dim)?;
+            let k = self.gemm_cached_gpu(&k_cache_name, normed, seq_len, hidden_dim, kv_dim)?;
+            let v = self.gemm_cached_gpu(&v_cache_name, normed, seq_len, hidden_dim, kv_dim)?;
+            return Ok((q, k, v));
+        }
+
+        // Check for fused QKV (from APR import)
+        let fused_qkv_name = self.model.find_tensor_name(&[&format!(
+            "model.layers.{layer_idx}.self_attn.qkv_proj.weight"
+        )]);
+
+        if let Ok(fused_name) = fused_qkv_name {
+            let qkv_weight = self.model.get_tensor_f32(&fused_name)?;
+            let q_size = hidden_dim * hidden_dim;
+            let k_size = kv_dim * hidden_dim;
+            let v_size = kv_dim * hidden_dim;
+
+            if qkv_weight.len() < q_size + k_size + v_size {
+                return Err(RealizarError::InvalidShape {
+                    reason: format!(
+                        "Fused QKV weight too small: {} < {}",
+                        qkv_weight.len(),
+                        q_size + k_size + v_size
+                    ),
+                });
+            }
+
+            let q_weight_t = transpose_matrix(&qkv_weight[..q_size], hidden_dim, hidden_dim);
+            let k_weight_t = transpose_matrix(&qkv_weight[q_size..q_size + k_size], kv_dim, hidden_dim);
+            let v_weight_t = transpose_matrix(&qkv_weight[q_size + k_size..q_size + k_size + v_size], kv_dim, hidden_dim);
+            let q = self.gemm_gpu(normed, &q_weight_t, seq_len, hidden_dim, hidden_dim)?;
+            let k = self.gemm_gpu(normed, &k_weight_t, seq_len, hidden_dim, kv_dim)?;
+            let v = self.gemm_gpu(normed, &v_weight_t, seq_len, hidden_dim, kv_dim)?;
+            return Ok((q, k, v));
+        }
+
+        // Separate Q/K/V weights
+        let q_name = self.model.find_tensor_name(&[
+            &format!("model.layers.{layer_idx}.self_attn.q_proj.weight"),
+            &format!("layers.{layer_idx}.self_attn.q_proj.weight"),
+            &format!("transformer.h.{layer_idx}.attn.q_proj.weight"),
+            &format!("layers.{layer_idx}.attention.wq.weight"),
+            &format!("blk.{layer_idx}.attn_q.weight"),
+        ])?;
+        let k_name = self.model.find_tensor_name(&[
+            &format!("model.layers.{layer_idx}.self_attn.k_proj.weight"),
+            &format!("layers.{layer_idx}.self_attn.k_proj.weight"),
+            &format!("transformer.h.{layer_idx}.attn.k_proj.weight"),
+            &format!("layers.{layer_idx}.attention.wk.weight"),
+            &format!("blk.{layer_idx}.attn_k.weight"),
+        ])?;
+        let v_name = self.model.find_tensor_name(&[
+            &format!("model.layers.{layer_idx}.self_attn.v_proj.weight"),
+            &format!("layers.{layer_idx}.self_attn.v_proj.weight"),
+            &format!("transformer.h.{layer_idx}.attn.v_proj.weight"),
+            &format!("layers.{layer_idx}.attention.wv.weight"),
+            &format!("blk.{layer_idx}.attn_v.weight"),
+        ])?;
+
+        let q_weight = self.model.get_tensor_f32(&q_name)?;
+        let k_weight = self.model.get_tensor_f32(&k_name)?;
+        let v_weight = self.model.get_tensor_f32(&v_name)?;
+        let q_weight_t = transpose_matrix(&q_weight, hidden_dim, hidden_dim);
+        let k_weight_t = transpose_matrix(&k_weight, kv_dim, hidden_dim);
+        let v_weight_t = transpose_matrix(&v_weight, kv_dim, hidden_dim);
+        let q = self.gemm_gpu(normed, &q_weight_t, seq_len, hidden_dim, hidden_dim)?;
+        let k = self.gemm_gpu(normed, &k_weight_t, seq_len, hidden_dim, kv_dim)?;
+        let v = self.gemm_gpu(normed, &v_weight_t, seq_len, hidden_dim, kv_dim)?;
+        Ok((q, k, v))
+    }
+
+    /// LM head projection: produces logits from the last token's hidden state.
+    fn forward_cuda_lm_head(
+        &mut self,
+        last_hidden: &[f32],
+        hidden_dim: usize,
+        vocab_size: usize,
+    ) -> Result<Vec<f32>> {
+        if self.has_cached_weight("lm_head") {
+            return self.gemm_cached_gpu("lm_head", last_hidden, 1, hidden_dim, vocab_size);
+        }
+
+        let lm_head_name = self.model.find_tensor_name(&[
+            "lm_head.weight",
+            "output.weight",
+            "model.embed_tokens.weight",
+            "embed_tokens.weight",
+            "token_embd.weight",
+        ])?;
+        let lm_head = self.model.get_tensor_f32(&lm_head_name)?;
+
+        let is_tied_embedding = lm_head_name == "token_embd.weight"
+            || lm_head_name.ends_with("embed_tokens.weight");
+
+        let lm_head_for_gemm = if is_tied_embedding && lm_head.len() == hidden_dim * vocab_size {
+            lm_head.clone()
+        } else {
+            transpose_matrix(&lm_head, vocab_size, hidden_dim)
+        };
+        self.gemm_gpu(last_hidden, &lm_head_for_gemm, 1, hidden_dim, vocab_size)
     }
 }

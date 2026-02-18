@@ -176,6 +176,14 @@ impl AprV2ModelCuda {
         max_new_tokens: usize,
         eos_id: u32,
     ) -> Result<Vec<u32>> {
+        // GH-282: Ensure CUDA context is current for this thread
+        self.executor
+            .make_current()
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "cuda_make_current".to_string(),
+                reason: format!("Failed to set CUDA context current: {e}"),
+            })?;
+
         let mut tokens = prompt.to_vec();
 
         for _ in 0..max_new_tokens {
@@ -236,6 +244,14 @@ impl AprV2ModelCuda {
         max_new_tokens: usize,
         eos_id: u32,
     ) -> Result<Vec<u32>> {
+        // GH-282: Ensure CUDA context is current for this thread
+        self.executor
+            .make_current()
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "cuda_make_current".to_string(),
+                reason: format!("Failed to set CUDA context current: {e}"),
+            })?;
+
         // GH-260: Reset KV cache and decode graph before each generation.
         // Without this, the second chat turn has stale kv_position from turn 1,
         // causing the prefill to write KV entries at wrong positions and the
