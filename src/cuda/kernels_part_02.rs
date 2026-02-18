@@ -304,6 +304,12 @@ pub enum KernelType {
         hidden_size: u32,
         epsilon: f32,
     },
+    /// GH-280: Per-head QK RMSNorm (Qwen3)
+    PerHeadRmsNorm {
+        head_dim: u32,
+        num_heads: u32,
+        epsilon: f32,
+    },
     /// PAR-114: Batched RoPE kernel
     BatchedRope {
         num_heads: u32,
