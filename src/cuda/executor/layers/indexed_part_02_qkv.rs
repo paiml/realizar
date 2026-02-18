@@ -129,6 +129,9 @@ impl CudaExecutor {
         // BIAS-FIX: Add QKV bias after GEMV (Qwen2.5 models have QKV bias)
         self.apply_qkv_bias(q_buf, k_buf, v_buf, layer_idx, layer_weights, q_dim, kv_dim, skip_debug)?;
 
+        // GH-279: Per-head QK RMSNorm (Qwen3) — after bias, before RoPE
+        self.apply_qk_norm(q_buf, k_buf, layer_weights, epsilon)?;
+
         // PAR-058-DEBUG: Check Q/K/V after projections (skip during graph capture)
         if !skip_debug
             && (layer_idx == 0
@@ -188,87 +191,7 @@ impl CudaExecutor {
         }
 
         // PAR-060: Apply RoPE to Q and K before attention using GPU kernel
-        // PAR-070: Use explicit position parameter instead of deriving from cache length
-        let timer_rope = if profiling {
-            self.start_brick_id(trueno::BrickId::RopeEmbedding)
-        } else {
-            None
-        };
-        {
-            let num_heads = self.kv_num_heads as u32;
-            let num_kv_heads = self.kv_num_kv_heads as u32;
-            let head_dim = self.kv_head_dim as u32;
-            let theta = self.rope_theta;
-
-            // PAR-061: Use indirect position for CUDA graph capture to avoid baking position
-            if layer_idx == 0 && verbose() {
-                eprintln!(
-                    "[CORRECTNESS-010] RoPE: skip_debug={}, position_buf={}, using {}",
-                    skip_debug,
-                    self.position_buf.is_some(),
-                    if skip_debug && self.position_buf.is_some() {
-                        "indirect"
-                    } else {
-                        "direct"
-                    }
-                );
-            }
-            // CORRECTNESS-011: Use NEOX RoPE style for rope_type == 2 (Qwen2.5, etc.)
-            if skip_debug && self.position_buf.is_some() {
-                // Graph capture mode: read position from device memory (updated before replay)
-                let pos_buf_ptr = self
-                    .position_buf
-                    .as_ref()
-                    .expect("position_buf must be initialized")
-                    .as_ptr();
-                let pos_buf_len = self
-                    .position_buf
-                    .as_ref()
-                    .expect("position_buf must be initialized")
-                    .len();
-                // SAFETY: Pointer valid from allocation, length verified, used within scope
-                let pos_buf = unsafe { GpuBuffer::<u32>::from_raw_parts(pos_buf_ptr, pos_buf_len) };
-                if self.rope_type == 2 {
-                    // NEOX style: split halves (i, i + half_dim)
-                    self.rope_neox_indirect_into(
-                        q_buf, q_buf, &pos_buf, num_heads, head_dim, theta,
-                    )?;
-                    self.rope_neox_indirect_into(
-                        k_buf, k_buf, &pos_buf, num_kv_heads, head_dim, theta,
-                    )?;
-                } else {
-                    // NORM style: adjacent pairs (2*i, 2*i+1)
-                    self.rope_indirect_into(q_buf, q_buf, &pos_buf, num_heads, head_dim, theta)?;
-                    self.rope_indirect_into(
-                        k_buf, k_buf, &pos_buf, num_kv_heads, head_dim, theta,
-                    )?;
-                }
-                std::mem::forget(pos_buf); // Don't drop - it's a view into self.position_buf
-            } else {
-                // Normal mode: use direct position value
-                if self.rope_type == 2 {
-                    self.rope_neox_into(q_buf, q_buf, position, num_heads, head_dim, theta)?;
-                    self.rope_neox_into(k_buf, k_buf, position, num_kv_heads, head_dim, theta)?;
-                } else {
-                    self.rope_into(q_buf, q_buf, position, num_heads, head_dim, theta)?;
-                    self.rope_into(k_buf, k_buf, position, num_kv_heads, head_dim, theta)?;
-                }
-            }
-
-            if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3)
-            {
-                self.stream.synchronize()?;
-                let mut q_host = vec![0.0f32; q_buf.len()];
-                let mut k_host = vec![0.0f32; k_buf.len()];
-                q_buf.copy_to_host(&mut q_host)?;
-                k_buf.copy_to_host(&mut k_host)?;
-                eprintln!("[PAR-060-L{}] Applied GPU RoPE at position {}, theta={}, Q first 3: {:?}, K first 3: {:?}",
-                    layer_idx, position, theta, &q_host[..3.min(q_host.len())], &k_host[..3.min(k_host.len())]);
-            }
-        }
-        if profiling {
-            self.stop_brick_id(timer_rope, 1);
-        }
+        self.apply_rope_to_qk(q_buf, k_buf, layer_idx, position, skip_debug, profiling)?;
 
         Ok(())
     }
@@ -376,6 +299,134 @@ impl CudaExecutor {
                     &v_check[..5.min(v_check.len())]
                 );
             }
+        }
+        Ok(())
+    }
+
+    /// GH-279: Apply per-head QK RMSNorm (Qwen3) after bias, before RoPE.
+    /// Matches CPU path at single_part_02.rs:211-225.
+    /// No-op if the model doesn't have QkNorm weights (len == 0).
+    fn apply_qk_norm(
+        &mut self,
+        q_buf: &GpuBuffer<f32>,
+        k_buf: &GpuBuffer<f32>,
+        layer_weights: &IndexedLayerWeights,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        if layer_weights.attn_q_norm_len > 0 {
+            // SAFETY: Pointer valid from rmsnorm_cache, length verified at model load time
+            let q_norm_buf = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    layer_weights.attn_q_norm_ptr,
+                    layer_weights.attn_q_norm_len,
+                )
+            };
+            let num_heads = self.kv_num_heads as u32;
+            let head_dim = self.kv_head_dim as u32;
+            self.per_head_rmsnorm_into(q_buf, &q_norm_buf, q_buf, head_dim, num_heads, epsilon)?;
+            std::mem::forget(q_norm_buf);
+        }
+        if layer_weights.attn_k_norm_len > 0 {
+            // SAFETY: Pointer valid from rmsnorm_cache, length verified at model load time
+            let k_norm_buf = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    layer_weights.attn_k_norm_ptr,
+                    layer_weights.attn_k_norm_len,
+                )
+            };
+            let num_kv_heads = self.kv_num_kv_heads as u32;
+            let head_dim = self.kv_head_dim as u32;
+            self.per_head_rmsnorm_into(k_buf, &k_norm_buf, k_buf, head_dim, num_kv_heads, epsilon)?;
+            std::mem::forget(k_norm_buf);
+        }
+        Ok(())
+    }
+
+    /// PAR-060: Apply RoPE (Rotary Position Embedding) to Q and K buffers.
+    /// Supports both NORM (adjacent pairs) and NEOX (split halves) styles,
+    /// and both direct position values and indirect position buffers for CUDA graph capture.
+    fn apply_rope_to_qk(
+        &mut self,
+        q_buf: &GpuBuffer<f32>,
+        k_buf: &GpuBuffer<f32>,
+        _layer_idx: usize,
+        position: u32,
+        skip_debug: bool,
+        profiling: bool,
+    ) -> Result<(), GpuError> {
+        let timer_rope = if profiling {
+            self.start_brick_id(trueno::BrickId::RopeEmbedding)
+        } else {
+            None
+        };
+
+        let num_heads = self.kv_num_heads as u32;
+        let num_kv_heads = self.kv_num_kv_heads as u32;
+        let head_dim = self.kv_head_dim as u32;
+        let theta = self.rope_theta;
+
+        if skip_debug && self.position_buf.is_some() {
+            self.apply_rope_indirect(q_buf, k_buf, num_heads, num_kv_heads, head_dim, theta)?;
+        } else {
+            self.apply_rope_direct(q_buf, k_buf, position, num_heads, num_kv_heads, head_dim, theta)?;
+        }
+
+        if profiling {
+            self.stop_brick_id(timer_rope, 1);
+        }
+        Ok(())
+    }
+
+    /// Apply RoPE using indirect position buffer (CUDA graph capture mode).
+    fn apply_rope_indirect(
+        &mut self,
+        q_buf: &GpuBuffer<f32>,
+        k_buf: &GpuBuffer<f32>,
+        num_heads: u32,
+        num_kv_heads: u32,
+        head_dim: u32,
+        theta: f32,
+    ) -> Result<(), GpuError> {
+        let pos_buf_ptr = self
+            .position_buf
+            .as_ref()
+            .expect("position_buf must be initialized")
+            .as_ptr();
+        let pos_buf_len = self
+            .position_buf
+            .as_ref()
+            .expect("position_buf must be initialized")
+            .len();
+        // SAFETY: Pointer valid from allocation, length verified, used within scope
+        let pos_buf = unsafe { GpuBuffer::<u32>::from_raw_parts(pos_buf_ptr, pos_buf_len) };
+        if self.rope_type == 2 {
+            self.rope_neox_indirect_into(q_buf, q_buf, &pos_buf, num_heads, head_dim, theta)?;
+            self.rope_neox_indirect_into(k_buf, k_buf, &pos_buf, num_kv_heads, head_dim, theta)?;
+        } else {
+            self.rope_indirect_into(q_buf, q_buf, &pos_buf, num_heads, head_dim, theta)?;
+            self.rope_indirect_into(k_buf, k_buf, &pos_buf, num_kv_heads, head_dim, theta)?;
+        }
+        std::mem::forget(pos_buf);
+        Ok(())
+    }
+
+    /// Apply RoPE using direct position value (normal mode).
+    fn apply_rope_direct(
+        &mut self,
+        q_buf: &GpuBuffer<f32>,
+        k_buf: &GpuBuffer<f32>,
+        position: u32,
+        num_heads: u32,
+        num_kv_heads: u32,
+        head_dim: u32,
+        theta: f32,
+    ) -> Result<(), GpuError> {
+        if self.rope_type == 2 {
+            self.rope_neox_into(q_buf, q_buf, position, num_heads, head_dim, theta)?;
+            self.rope_neox_into(k_buf, k_buf, position, num_kv_heads, head_dim, theta)?;
+        } else {
+            self.rope_into(q_buf, q_buf, position, num_heads, head_dim, theta)?;
+            self.rope_into(k_buf, k_buf, position, num_kv_heads, head_dim, theta)?;
         }
         Ok(())
     }

@@ -24,173 +24,8 @@ impl OwnedQuantizedModelCuda {
 
         let mut total_bytes = 0usize;
 
-        for (layer_idx, layer) in self.model.layers.iter().enumerate() {
-            let prefix = format!("blk.{}", layer_idx);
-
-            // Upload Q, K, V weights (requires separate format for GPU-resident path)
-            match &layer.qkv_weight {
-                OwnedQKVWeights::Separate { q, k, v } => {
-                    // Q projection - PAR-058: pass qtype for mixed-quant models (e.g., Q5_0 in Qwen 0.5B)
-                    let q_name = format!("{}.attn_q.weight", prefix);
-                    if !self.executor.has_quantized_weights(&q_name) {
-                        total_bytes += self
-                            .executor
-                            .load_quantized_weights_with_type(&q_name, &q.data, q.qtype)
-                            .map_err(|e| RealizarError::UnsupportedOperation {
-                                operation: "preload_weights_gpu".to_string(),
-                                reason: format!(
-                                    "Failed to upload Q weights for layer {}: {}",
-                                    layer_idx, e
-                                ),
-                            })?;
-                    }
-
-                    // K projection - PAR-058: pass qtype for mixed-quant models
-                    let k_name = format!("{}.attn_k.weight", prefix);
-                    if !self.executor.has_quantized_weights(&k_name) {
-                        total_bytes += self
-                            .executor
-                            .load_quantized_weights_with_type(&k_name, &k.data, k.qtype)
-                            .map_err(|e| RealizarError::UnsupportedOperation {
-                                operation: "preload_weights_gpu".to_string(),
-                                reason: format!(
-                                    "Failed to upload K weights for layer {}: {}",
-                                    layer_idx, e
-                                ),
-                            })?;
-                    }
-
-                    // V projection - PAR-058: pass qtype for mixed-quant models
-                    let v_name = format!("{}.attn_v.weight", prefix);
-                    if !self.executor.has_quantized_weights(&v_name) {
-                        total_bytes += self
-                            .executor
-                            .load_quantized_weights_with_type(&v_name, &v.data, v.qtype)
-                            .map_err(|e| RealizarError::UnsupportedOperation {
-                                operation: "preload_weights_gpu".to_string(),
-                                reason: format!(
-                                    "Failed to upload V weights for layer {}: {}",
-                                    layer_idx, e
-                                ),
-                            })?;
-                    }
-                },
-                OwnedQKVWeights::Fused(_) => {
-                    // Fused QKV not yet supported for GPU-resident path
-                    // Fall back to standard forward pass for phi-2 style models
-                    return Err(RealizarError::UnsupportedOperation {
-                        operation: "preload_weights_gpu".to_string(),
-                        reason: format!(
-                            "Layer {} uses fused QKV (phi-2 style), GPU-resident path requires separate Q/K/V",
-                            layer_idx
-                        ),
-                    });
-                },
-            }
-
-            // Output projection - PAR-058: pass qtype for mixed-quant models
-            let o_name = format!("{}.attn_output.weight", prefix);
-            if !self.executor.has_quantized_weights(&o_name) {
-                total_bytes += self
-                    .executor
-                    .load_quantized_weights_with_type(
-                        &o_name,
-                        &layer.attn_output_weight.data,
-                        layer.attn_output_weight.qtype,
-                    )
-                    .map_err(|e| RealizarError::UnsupportedOperation {
-                        operation: "preload_weights_gpu".to_string(),
-                        reason: format!(
-                            "Failed to upload O weights for layer {}: {}",
-                            layer_idx, e
-                        ),
-                    })?;
-            }
-
-            // FFN gate (SwiGLU models) - PAR-058: pass qtype
-            if let Some(ref gate) = layer.ffn_gate_weight {
-                let gate_name = format!("{}.ffn_gate.weight", prefix);
-                if !self.executor.has_quantized_weights(&gate_name) {
-                    total_bytes += self
-                        .executor
-                        .load_quantized_weights_with_type(&gate_name, &gate.data, gate.qtype)
-                        .map_err(|e| RealizarError::UnsupportedOperation {
-                            operation: "preload_weights_gpu".to_string(),
-                            reason: format!(
-                                "Failed to upload gate weights for layer {}: {}",
-                                layer_idx, e
-                            ),
-                        })?;
-                }
-            }
-
-            // FFN up - PAR-058: pass qtype
-            let up_name = format!("{}.ffn_up.weight", prefix);
-            if !self.executor.has_quantized_weights(&up_name) {
-                total_bytes += self
-                    .executor
-                    .load_quantized_weights_with_type(
-                        &up_name,
-                        &layer.ffn_up_weight.data,
-                        layer.ffn_up_weight.qtype,
-                    )
-                    .map_err(|e| RealizarError::UnsupportedOperation {
-                        operation: "preload_weights_gpu".to_string(),
-                        reason: format!(
-                            "Failed to upload up weights for layer {}: {}",
-                            layer_idx, e
-                        ),
-                    })?;
-            }
-
-            // FFN down - PAR-058: pass qtype
-            let down_name = format!("{}.ffn_down.weight", prefix);
-            if !self.executor.has_quantized_weights(&down_name) {
-                total_bytes += self
-                    .executor
-                    .load_quantized_weights_with_type(
-                        &down_name,
-                        &layer.ffn_down_weight.data,
-                        layer.ffn_down_weight.qtype,
-                    )
-                    .map_err(|e| RealizarError::UnsupportedOperation {
-                        operation: "preload_weights_gpu".to_string(),
-                        reason: format!(
-                            "Failed to upload down weights for layer {}: {}",
-                            layer_idx, e
-                        ),
-                    })?;
-            }
-        }
-
-        // Also upload LM head weights
-        let lm_head_name = "output.weight".to_string();
-        if !self.executor.has_quantized_weights(&lm_head_name) {
-            // PAR-060-DEBUG: Print first bytes of LM head weight for verification
-            let lm_data = &self.model.lm_head_weight.data;
-            if verbose() {
-                eprintln!(
-                    "[PAR-060-DEBUG] LM head weight: len={}, first 20 bytes: {:?}",
-                    lm_data.len(),
-                    &lm_data[..20.min(lm_data.len())]
-                );
-                eprintln!(
-                    "[PAR-060-DEBUG] LM head dims: in_dim={}, out_dim={}",
-                    self.model.lm_head_weight.in_dim, self.model.lm_head_weight.out_dim
-                );
-            }
-            total_bytes += self
-                .executor
-                .load_quantized_weights_with_type(
-                    &lm_head_name,
-                    lm_data,
-                    self.model.lm_head_weight.qtype,
-                )
-                .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "preload_weights_gpu".to_string(),
-                    reason: format!("Failed to upload LM head weights: {}", e),
-                })?;
-        }
+        // Upload per-layer projection weights (Q/K/V, O, FFN) + LM head
+        total_bytes += self.preload_layer_projection_weights()?;
 
         // PAR-023: Pre-cache RMSNorm weights for all layers
         let num_layers = self.model.layers.len();
@@ -229,96 +64,8 @@ impl OwnedQuantizedModelCuda {
                 reason: format!("Failed to upload output norm weights: {}", e),
             })?;
 
-        // BIAS-FIX: Pre-cache QKV bias vectors for all layers
-        // Qwen2.5 models have QKV bias that must be added after GEMV
-        // GQA-FIX: Use config-aware dimension calculation for GQA models
-        // (out_dim / 3 is WRONG for GQA where Q, K, V have different sizes)
-        let num_heads = self.model.config.num_heads;
-        let num_kv_heads = self.model.config.num_kv_heads;
-        let hidden_dim = self.model.config.hidden_dim;
-
-        let q_biases: Vec<Option<&[f32]>> = self
-            .model
-            .layers
-            .iter()
-            .map(|l| {
-                l.qkv_bias.as_ref().map(|b| {
-                    // Q bias is first q_dim elements (GQA-aware)
-                    let q_dim = l
-                        .qkv_weight
-                        .q_dim_for_config(num_heads, num_kv_heads, hidden_dim);
-                    &b[..q_dim]
-                })
-            })
-            .collect();
-        let k_biases: Vec<Option<&[f32]>> = self
-            .model
-            .layers
-            .iter()
-            .enumerate()
-            .map(|(layer_idx, l)| {
-                l.qkv_bias.as_ref().map(|b| {
-                    // K bias starts after Q (GQA-aware)
-                    let q_dim = l.qkv_weight.q_dim_for_config(num_heads, num_kv_heads, hidden_dim);
-                    let k_dim = l.qkv_weight.k_dim_for_config(num_heads, num_kv_heads, hidden_dim);
-                    // GQA-DEBUG: Print extraction params for layer 0
-                    if layer_idx == 0 && verbose() {
-                        eprintln!(
-                            "[GQA-DEBUG] Layer 0 K bias: total_len={}, q_dim={}, k_dim={}, slice=[{}..{}]",
-                            b.len(), q_dim, k_dim, q_dim, q_dim + k_dim
-                        );
-                        eprintln!(
-                            "[GQA-DEBUG] Layer 0 K bias raw: first 5 at offset {} = {:?}",
-                            q_dim, &b[q_dim..q_dim + 5.min(k_dim)]
-                        );
-                    }
-                    &b[q_dim..q_dim + k_dim]
-                })
-            })
-            .collect();
-        let v_biases: Vec<Option<&[f32]>> = self
-            .model
-            .layers
-            .iter()
-            .enumerate()
-            .map(|(layer_idx, l)| {
-                l.qkv_bias.as_ref().map(|b| {
-                    // V bias starts after Q+K (GQA-aware)
-                    let q_dim = l
-                        .qkv_weight
-                        .q_dim_for_config(num_heads, num_kv_heads, hidden_dim);
-                    let k_dim = l
-                        .qkv_weight
-                        .k_dim_for_config(num_heads, num_kv_heads, hidden_dim);
-                    let v_dim = l
-                        .qkv_weight
-                        .v_dim_for_config(num_heads, num_kv_heads, hidden_dim);
-                    // GQA-DEBUG: Print extraction params for layer 0
-                    if layer_idx == 0 && verbose() {
-                        eprintln!(
-                            "[GQA-DEBUG] Layer 0 V bias: slice=[{}..{}]",
-                            q_dim + k_dim,
-                            q_dim + k_dim + v_dim
-                        );
-                        eprintln!(
-                            "[GQA-DEBUG] Layer 0 V bias raw: first 5 = {:?}",
-                            b.get(q_dim + k_dim..q_dim + k_dim + 5.min(v_dim)).unwrap_or(&[])
-                        );
-                        // Also print Q bias for comparison
-                        eprintln!("[GQA-DEBUG] Layer 0 Q bias raw: first 5 = {:?}", b.get(..5).unwrap_or(&[]));
-                    }
-                    &b[q_dim + k_dim..q_dim + k_dim + v_dim]
-                })
-            })
-            .collect();
-
-        total_bytes += self
-            .executor
-            .preload_qkv_bias(num_layers, &q_biases, &k_biases, &v_biases)
-            .map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "preload_weights_gpu".to_string(),
-                reason: format!("Failed to upload QKV bias: {}", e),
-            })?;
+        // BIAS-FIX: Pre-cache QKV bias vectors for all layers (GQA-aware)
+        total_bytes += self.preload_qkv_bias_weights(num_layers)?;
 
         // PAR-064-FIX: Pre-cache LM head bias (output.bias) for models that have it
         // Without this bias, GPU inference produces incorrect token predictions
@@ -329,6 +76,9 @@ impl OwnedQuantizedModelCuda {
                 operation: "preload_weights_gpu".to_string(),
                 reason: format!("Failed to upload LM head bias: {}", e),
             })?;
+
+        // GH-279: Pre-cache QkNorm weights for Qwen3 per-head RMSNorm
+        total_bytes += self.preload_qk_norm_weights()?;
 
         // PAR-043: Build indexed weight lookup table for O(1) access during decode
         // This eliminates ~10ms constant CPU overhead per token from string formatting + HashMap lookups
@@ -361,6 +111,131 @@ impl OwnedQuantizedModelCuda {
         Ok(total_bytes)
     }
 
+    /// GH-279: Pre-cache QkNorm weights for Qwen3 per-head RMSNorm.
+    /// Optional — only Qwen3+ models have attn_q_norm_weight/attn_k_norm_weight.
+    fn preload_qk_norm_weights(&mut self) -> Result<usize> {
+        let mut total_bytes = 0usize;
+        for (layer_idx, layer) in self.model.layers.iter().enumerate() {
+            if let Some(ref q_norm) = layer.attn_q_norm_weight {
+                let name = format!("blk.{}.attn_q_norm.gamma", layer_idx);
+                total_bytes += self
+                    .executor
+                    .cache_rmsnorm_gamma(&name, q_norm)
+                    .map_err(|e| RealizarError::UnsupportedOperation {
+                        operation: "preload_qk_norm_weights".to_string(),
+                        reason: format!(
+                            "Failed to upload Q norm weights for layer {}: {}",
+                            layer_idx, e
+                        ),
+                    })?;
+            }
+            if let Some(ref k_norm) = layer.attn_k_norm_weight {
+                let name = format!("blk.{}.attn_k_norm.gamma", layer_idx);
+                total_bytes += self
+                    .executor
+                    .cache_rmsnorm_gamma(&name, k_norm)
+                    .map_err(|e| RealizarError::UnsupportedOperation {
+                        operation: "preload_qk_norm_weights".to_string(),
+                        reason: format!(
+                            "Failed to upload K norm weights for layer {}: {}",
+                            layer_idx, e
+                        ),
+                    })?;
+            }
+        }
+        Ok(total_bytes)
+    }
+
+    /// Upload per-layer projection weights (Q/K/V, O, FFN gate/up/down) and LM head to GPU.
+    ///
+    /// PAR-058: Passes qtype per weight for mixed-quant model support.
+    /// Skips weights already present on GPU (idempotent).
+    fn preload_layer_projection_weights(&mut self) -> Result<usize> {
+        let mut total_bytes = 0usize;
+
+        for (layer_idx, layer) in self.model.layers.iter().enumerate() {
+            let prefix = format!("blk.{}", layer_idx);
+            total_bytes += upload_layer_qkv(&mut self.executor, &prefix, layer_idx, layer)?;
+            total_bytes += upload_layer_ffn(&mut self.executor, &prefix, layer)?;
+        }
+
+        // LM head weights
+        total_bytes += upload_if_absent(
+            &mut self.executor, "output.weight",
+            &self.model.lm_head_weight.data, self.model.lm_head_weight.qtype,
+        )?;
+
+        Ok(total_bytes)
+    }
+
+    /// Collect and upload QKV bias vectors for all layers to GPU.
+    ///
+    /// BIAS-FIX: Qwen2.5 models have QKV bias that must be added after GEMV.
+    /// GQA-FIX: Uses config-aware dimension calculation for GQA models
+    /// where Q, K, V have different sizes (out_dim / 3 is wrong for GQA).
+    ///
+    /// # Errors
+    ///
+    /// Returns error if bias upload fails.
+    fn preload_qkv_bias_weights(&mut self, num_layers: usize) -> Result<usize> {
+        let num_heads = self.model.config.num_heads;
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let hidden_dim = self.model.config.hidden_dim;
+
+        let q_biases: Vec<Option<&[f32]>> = self
+            .model
+            .layers
+            .iter()
+            .map(|l| {
+                l.qkv_bias.as_ref().map(|b| {
+                    // Q bias is first q_dim elements (GQA-aware)
+                    let q_dim = l
+                        .qkv_weight
+                        .q_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                    &b[..q_dim]
+                })
+            })
+            .collect();
+        let k_biases: Vec<Option<&[f32]>> = self
+            .model
+            .layers
+            .iter()
+            .map(|l| {
+                l.qkv_bias.as_ref().map(|b| {
+                    let q_dim = l.qkv_weight.q_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                    let k_dim = l.qkv_weight.k_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                    &b[q_dim..q_dim + k_dim]
+                })
+            })
+            .collect();
+        let v_biases: Vec<Option<&[f32]>> = self
+            .model
+            .layers
+            .iter()
+            .map(|l| {
+                l.qkv_bias.as_ref().map(|b| {
+                    let q_dim = l
+                        .qkv_weight
+                        .q_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                    let k_dim = l
+                        .qkv_weight
+                        .k_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                    let v_dim = l
+                        .qkv_weight
+                        .v_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                    &b[q_dim + k_dim..q_dim + k_dim + v_dim]
+                })
+            })
+            .collect();
+
+        self.executor
+            .preload_qkv_bias(num_layers, &q_biases, &k_biases, &v_biases)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "preload_qkv_bias_weights".to_string(),
+                reason: format!("Failed to upload QKV bias: {}", e),
+            })
+    }
+
     /// Clear decode graph and related state
     ///
     /// Call this before starting a new generation session to ensure
@@ -388,6 +263,76 @@ impl OwnedQuantizedModelCuda {
 
         has_separate_qkv && has_gated_ffn && has_rmsnorm
     }
+}
+
+/// Upload a single quantized weight to GPU if not already present (free function to avoid borrow conflicts).
+fn upload_if_absent(
+    executor: &mut crate::cuda::CudaExecutor,
+    name: &str,
+    data: &[u8],
+    qtype: u32,
+) -> Result<usize> {
+    if executor.has_quantized_weights(name) {
+        return Ok(0);
+    }
+    executor
+        .load_quantized_weights_with_type(name, data, qtype)
+        .map_err(|e| RealizarError::UnsupportedOperation {
+            operation: "preload_layer_projection_weights".to_string(),
+            reason: format!("Failed to upload '{}': {}", name, e),
+        })
+}
+
+/// Upload Q/K/V and output projection weights for a single layer.
+fn upload_layer_qkv(
+    executor: &mut crate::cuda::CudaExecutor,
+    prefix: &str,
+    layer_idx: usize,
+    layer: &crate::gguf::quantized::OwnedQuantizedLayer,
+) -> Result<usize> {
+    let mut total = 0usize;
+    match &layer.qkv_weight {
+        OwnedQKVWeights::Separate { q, k, v } => {
+            total += upload_if_absent(executor, &format!("{prefix}.attn_q.weight"), &q.data, q.qtype)?;
+            total += upload_if_absent(executor, &format!("{prefix}.attn_k.weight"), &k.data, k.qtype)?;
+            total += upload_if_absent(executor, &format!("{prefix}.attn_v.weight"), &v.data, v.qtype)?;
+        },
+        OwnedQKVWeights::Fused(_) => {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "preload_layer_projection_weights".to_string(),
+                reason: format!(
+                    "Layer {} uses fused QKV (phi-2 style), GPU-resident path requires separate Q/K/V",
+                    layer_idx
+                ),
+            });
+        },
+    }
+    total += upload_if_absent(
+        executor, &format!("{prefix}.attn_output.weight"),
+        &layer.attn_output_weight.data, layer.attn_output_weight.qtype,
+    )?;
+    Ok(total)
+}
+
+/// Upload FFN weights (gate/up/down) for a single layer.
+fn upload_layer_ffn(
+    executor: &mut crate::cuda::CudaExecutor,
+    prefix: &str,
+    layer: &crate::gguf::quantized::OwnedQuantizedLayer,
+) -> Result<usize> {
+    let mut total = 0usize;
+    if let Some(ref gate) = layer.ffn_gate_weight {
+        total += upload_if_absent(executor, &format!("{prefix}.ffn_gate.weight"), &gate.data, gate.qtype)?;
+    }
+    total += upload_if_absent(
+        executor, &format!("{prefix}.ffn_up.weight"),
+        &layer.ffn_up_weight.data, layer.ffn_up_weight.qtype,
+    )?;
+    total += upload_if_absent(
+        executor, &format!("{prefix}.ffn_down.weight"),
+        &layer.ffn_down_weight.data, layer.ffn_down_weight.qtype,
+    )?;
+    Ok(total)
 }
 
 include!("weights_part_02_part_02.rs");

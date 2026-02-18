@@ -241,72 +241,26 @@ impl CudaExecutor {
             let (attn_norm_ptr, attn_norm_len) = get_rmsnorm(&attn_norm_name)?;
             let (ffn_norm_ptr, ffn_norm_len) = get_rmsnorm(&ffn_norm_name)?;
 
-            // PAR-058: Get Q/K/V quantization types from stored GGML types
-            // This uses the qtype passed during load_quantized_weights_with_type
-            let attn_q_qtype = self
-                .quantized_weight_types
-                .get(&q_name)
-                .and_then(|&t| WeightQuantType::from_ggml_type(t))
-                .unwrap_or(WeightQuantType::Q4K);
-            let attn_k_qtype = self
-                .quantized_weight_types
-                .get(&k_name)
-                .and_then(|&t| WeightQuantType::from_ggml_type(t))
-                .unwrap_or(WeightQuantType::Q4K);
-            let attn_v_qtype = self
-                .quantized_weight_types
-                .get(&v_name)
-                .and_then(|&t| WeightQuantType::from_ggml_type(t))
-                .unwrap_or(WeightQuantType::Q4K);
+            // PAR-058: Resolve quantization types for all weight tensors
+            let attn_q_qtype = self.resolve_qtype(&q_name);
+            let attn_k_qtype = self.resolve_qtype(&k_name);
+            let attn_v_qtype = self.resolve_qtype(&v_name);
+            let attn_output_qtype = self.resolve_qtype(&o_name);
+            let ffn_gate_qtype = self.resolve_qtype(&gate_name);
+            let ffn_up_qtype = self.resolve_qtype(&up_name);
+            let ffn_down_qtype = self.resolve_qtype(&down_name);
 
             // Log if non-Q4K types detected (for debugging mixed-quant models)
-            if verbose()
-                && (attn_q_qtype != WeightQuantType::Q4K || attn_k_qtype != WeightQuantType::Q4K)
-            {
-                eprintln!(
-                    "[PAR-058] Layer {}: Q={:?}, K={:?}, V={:?}",
-                    layer_idx, attn_q_qtype, attn_k_qtype, attn_v_qtype
-                );
-            }
-
-            // PAR-058: Get O projection quantization type (was missing, causing Q4_0 models to fail)
-            let attn_output_qtype = self
-                .quantized_weight_types
-                .get(&o_name)
-                .and_then(|&t| WeightQuantType::from_ggml_type(t))
-                .unwrap_or(WeightQuantType::Q4K);
-
-            // PAR-058: Get FFN gate/up quantization types (was missing, causing Q4_0 models to fail)
-            let ffn_gate_qtype = self
-                .quantized_weight_types
-                .get(&gate_name)
-                .and_then(|&t| WeightQuantType::from_ggml_type(t))
-                .unwrap_or(WeightQuantType::Q4K);
-            let ffn_up_qtype = self
-                .quantized_weight_types
-                .get(&up_name)
-                .and_then(|&t| WeightQuantType::from_ggml_type(t))
-                .unwrap_or(WeightQuantType::Q4K);
-
-            // PAR-058: Get FFN down quantization type from stored GGML type
-            let ffn_down_qtype = self
-                .quantized_weight_types
-                .get(&down_name)
-                .and_then(|&t| WeightQuantType::from_ggml_type(t))
-                .unwrap_or(WeightQuantType::Q4K);
-
-            // Log if non-Q4K FFN types detected
-            if verbose()
-                && (ffn_down_qtype != WeightQuantType::Q4K
-                    || ffn_gate_qtype != WeightQuantType::Q4K
-                    || ffn_up_qtype != WeightQuantType::Q4K
-                    || attn_output_qtype != WeightQuantType::Q4K)
-            {
-                eprintln!(
-                    "[PAR-058] Layer {}: O={:?}, gate={:?}, up={:?}, down={:?}",
-                    layer_idx, attn_output_qtype, ffn_gate_qtype, ffn_up_qtype, ffn_down_qtype
-                );
-            }
+            self.log_mixed_quant_types(
+                layer_idx,
+                attn_q_qtype,
+                attn_k_qtype,
+                attn_v_qtype,
+                attn_output_qtype,
+                ffn_gate_qtype,
+                ffn_up_qtype,
+                ffn_down_qtype,
+            );
 
             // BIAS-FIX: Get QKV bias pointers from bias_cache (optional - 0/0 if not present)
             let q_bias_name = format!("{}.attn_q.bias", prefix);
@@ -326,17 +280,17 @@ impl CudaExecutor {
                 .get(&v_bias_name)
                 .map_or((0, 0), |b| (b.as_ptr(), b.len()));
 
-            // Log if bias detected (for debugging)
-            if verbose() {
-                if attn_q_bias_len > 0 && (layer_idx == 0 || layer_idx == 4 || layer_idx == 27) {
-                    eprintln!(
-                        "[BIAS-FIX] Layer {}: Q bias len={}, K bias len={}, V bias len={}",
-                        layer_idx, attn_q_bias_len, attn_k_bias_len, attn_v_bias_len
-                    );
-                } else if attn_q_bias_len == 0 && layer_idx <= 10 {
-                    eprintln!("[BIAS-FIX] Layer {}: NO BIAS (q_bias_len=0)", layer_idx);
-                }
-            }
+            // GH-279: QkNorm pointers from rmsnorm_cache (optional - 0/0 if not present)
+            let q_norm_name = format!("{}.attn_q_norm.gamma", prefix);
+            let k_norm_name = format!("{}.attn_k_norm.gamma", prefix);
+            let (attn_q_norm_ptr, attn_q_norm_len) = self
+                .rmsnorm_cache
+                .get(&q_norm_name)
+                .map_or((0, 0), |b| (b.as_ptr(), b.len()));
+            let (attn_k_norm_ptr, attn_k_norm_len) = self
+                .rmsnorm_cache
+                .get(&k_norm_name)
+                .map_or((0, 0), |b| (b.as_ptr(), b.len()));
 
             indexed.push(IndexedLayerWeights {
                 attn_q_ptr,
@@ -371,47 +325,16 @@ impl CudaExecutor {
                 attn_k_bias_len,
                 attn_v_bias_ptr,
                 attn_v_bias_len,
+                // GH-279: QkNorm pointers (Qwen3 per-head RMSNorm)
+                attn_q_norm_ptr,
+                attn_q_norm_len,
+                attn_k_norm_ptr,
+                attn_k_norm_len,
             });
         }
 
         self.indexed_layer_weights = indexed;
-
-        // Also index output norm and LM head
-        if let Some(buf) = self.rmsnorm_cache.get("output_norm.gamma") {
-            self.output_norm_ptr = buf.as_ptr();
-            self.output_norm_len = buf.len();
-        }
-
-        // PAR-054: Index LM head weight for CUDA graph capture
-        // PAR-058: Detect LM head quantization type (Q6_K in Qwen 1.5B, not Q4_K)
-        if let Some(buf) = self.quantized_weight_cache.get("output.weight") {
-            self.lm_head_ptr = buf.as_ptr();
-            self.lm_head_len = buf.len();
-            // Get quantization type from stored GGML type
-            if let Some(&qtype) = self.quantized_weight_types.get("output.weight") {
-                self.lm_head_qtype = match qtype {
-                    6 => WeightQuantType::Q5_0,
-                    8 => WeightQuantType::Q8_0,
-                    12 => WeightQuantType::Q4K,
-                    13 => WeightQuantType::Q5K,
-                    14 => WeightQuantType::Q6K, // Qwen 1.5B uses Q6_K for LM head
-                    _ => WeightQuantType::Q4K,  // Default fallback
-                };
-                if verbose() {
-                    eprintln!(
-                        "[PAR-058] LM head qtype: {:?} (GGML type {})",
-                        self.lm_head_qtype, qtype
-                    );
-                }
-            }
-            if verbose() {
-                eprintln!(
-                    "[PAR-054] Indexed lm_head_ptr={:#x}, len={}",
-                    self.lm_head_ptr, self.lm_head_len
-                );
-            }
-        }
-
+        self.index_output_weights();
         Ok(())
     }
 
@@ -442,6 +365,81 @@ impl CudaExecutor {
         // PAR-064-FIX: Also clear LM head bias pointer
         self.lm_head_bias_ptr = 0;
         self.lm_head_bias_len = 0;
+    }
+
+    // ========================================================================
+    // PAR-058: Helper methods for quantization type resolution
+    // ========================================================================
+
+    /// Resolve the quantization type for a named weight tensor.
+    ///
+    /// Looks up the GGML type stored during `load_quantized_weights_with_type()`,
+    /// converts it to `WeightQuantType`, and defaults to Q4K if not found.
+    fn resolve_qtype(&self, name: &str) -> WeightQuantType {
+        self.quantized_weight_types
+            .get(name)
+            .and_then(|&t| WeightQuantType::from_ggml_type(t))
+            .unwrap_or(WeightQuantType::Q4K)
+    }
+
+    /// Index output norm and LM head pointers for zero-allocation forward pass.
+    ///
+    /// PAR-054: LM head weight for CUDA graph capture.
+    /// PAR-058: Detect LM head quantization type (Q6_K in Qwen 1.5B, not Q4_K).
+    fn index_output_weights(&mut self) {
+        if let Some(buf) = self.rmsnorm_cache.get("output_norm.gamma") {
+            self.output_norm_ptr = buf.as_ptr();
+            self.output_norm_len = buf.len();
+        }
+
+        if let Some(buf) = self.quantized_weight_cache.get("output.weight") {
+            self.lm_head_ptr = buf.as_ptr();
+            self.lm_head_len = buf.len();
+            self.lm_head_qtype = self.resolve_qtype("output.weight");
+            if verbose() {
+                eprintln!(
+                    "[PAR-058] LM head qtype: {:?}, ptr={:#x}, len={}",
+                    self.lm_head_qtype, self.lm_head_ptr, self.lm_head_len
+                );
+            }
+        }
+    }
+
+    /// Log non-Q4K quantization types for debugging mixed-quant models (PAR-058).
+    ///
+    /// Only emits output when `verbose()` is true and at least one weight
+    /// uses a quantization type other than Q4K.
+    #[allow(clippy::too_many_arguments)]
+    fn log_mixed_quant_types(
+        &self,
+        layer_idx: usize,
+        attn_q: WeightQuantType,
+        attn_k: WeightQuantType,
+        attn_v: WeightQuantType,
+        attn_output: WeightQuantType,
+        ffn_gate: WeightQuantType,
+        ffn_up: WeightQuantType,
+        ffn_down: WeightQuantType,
+    ) {
+        if !verbose() {
+            return;
+        }
+        if attn_q != WeightQuantType::Q4K || attn_k != WeightQuantType::Q4K {
+            eprintln!(
+                "[PAR-058] Layer {}: Q={:?}, K={:?}, V={:?}",
+                layer_idx, attn_q, attn_k, attn_v
+            );
+        }
+        if attn_output != WeightQuantType::Q4K
+            || ffn_gate != WeightQuantType::Q4K
+            || ffn_up != WeightQuantType::Q4K
+            || ffn_down != WeightQuantType::Q4K
+        {
+            eprintln!(
+                "[PAR-058] Layer {}: O={:?}, gate={:?}, up={:?}, down={:?}",
+                layer_idx, attn_output, ffn_gate, ffn_up, ffn_down
+            );
+        }
     }
 }
 
