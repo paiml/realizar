@@ -134,8 +134,8 @@ pub fn gpu_supported_ops() -> HashSet<RequiredOp> {
     ops.insert(RequiredOp::RMSNorm);
     ops.insert(RequiredOp::BiasAdd);
     ops.insert(RequiredOp::CausalMask);
+    ops.insert(RequiredOp::QkNorm); // GH-280: trueno PerHeadRmsNormKernel
     // NOT supported yet:
-    // - QkNorm (per-head QK RMSNorm — requires trueno kernel change)
     // - GeluMlp (GPU uses SwiGLU path; GELU MLP models fall back to CPU)
     // - LayerNorm (GPU uses RMSNorm path; LayerNorm models fall back to CPU)
     // - AbsolutePos (GPU uses RoPE path; absolute-pos models fall back to CPU)
@@ -194,14 +194,12 @@ mod tests {
     }
 
     #[test]
-    fn test_qwen3_missing_qk_norm() {
+    fn test_qwen3_all_supported() {
+        // GH-280: Qwen3 GPU inference now supported (PerHeadRmsNormKernel)
         let constraints = ArchConstraints::from_architecture("qwen3");
         let required = required_ops(&constraints);
         let supported = gpu_supported_ops();
-        let result = check_capability(&required, &supported);
-        assert!(result.is_err());
-        let missing = result.unwrap_err();
-        assert!(missing.contains(&RequiredOp::QkNorm));
+        assert!(check_capability(&required, &supported).is_ok());
     }
 
     #[test]
@@ -251,13 +249,14 @@ mod tests {
     #[test]
     fn test_check_capability_returns_all_missing() {
         let mut required = HashSet::new();
-        required.insert(RequiredOp::QkNorm);
+        required.insert(RequiredOp::QkNorm); // now supported (GH-280)
         required.insert(RequiredOp::LayerNorm);
         required.insert(RequiredOp::GeluMlp);
         let supported = gpu_supported_ops();
         let result = check_capability(&required, &supported);
         assert!(result.is_err());
         let missing = result.unwrap_err();
-        assert_eq!(missing.len(), 3);
+        // QkNorm is now supported, only LayerNorm and GeluMlp are missing
+        assert_eq!(missing.len(), 2);
     }
 }

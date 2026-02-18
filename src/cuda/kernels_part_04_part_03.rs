@@ -169,6 +169,9 @@ impl CudaKernels {
             KernelType::PreciseRmsNorm { hidden_size, epsilon } => {
                 PreciseRmsNormKernel::new(*hidden_size).with_epsilon(*epsilon).emit_ptx()
             },
+            KernelType::PerHeadRmsNorm { head_dim, num_heads, epsilon } => {
+                PerHeadRmsNormKernel::new(*head_dim, *num_heads).with_epsilon(*epsilon).emit_ptx()
+            },
             KernelType::FusedResidualRmsNorm { hidden_size, epsilon } => {
                 FusedResidualRmsNormKernel::new(*hidden_size).with_epsilon(*epsilon).emit_ptx()
             },

@@ -220,6 +220,73 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// GH-280: Per-head QK RMSNorm for Qwen3 (one warp per head).
+    ///
+    /// Applies RMSNorm independently to each attention head. Gamma weights
+    /// are `[head_dim]` and shared across all heads (no head offset).
+    ///
+    /// Grid: (num_heads, 1, 1), Block: (32, 1, 1).
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - GPU buffer with Q or K: `[num_heads * head_dim]`
+    /// * `gamma` - GPU buffer with norm weights: `[head_dim]`
+    /// * `output` - GPU buffer for result: `[num_heads * head_dim]`
+    /// * `head_dim` - Elements per head (128 for Qwen3)
+    /// * `num_heads` - Number of heads (32 for Q, 8 for K)
+    /// * `epsilon` - Numerical stability constant (1e-6 for Qwen3)
+    pub fn per_head_rmsnorm_into(
+        &mut self,
+        input: &GpuBuffer<f32>,
+        gamma: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        head_dim: u32,
+        num_heads: u32,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::PerHeadRmsNorm {
+            head_dim,
+            num_heads,
+            epsilon,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("per_head_rmsnorm_{}_{}", head_dim, num_heads);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // One warp (32 threads) per head, one block per head
+        let config = LaunchConfig::grid_2d(num_heads, 1, 32, 1);
+
+        let mut ptr_input = input.as_ptr();
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_gamma = gamma.as_ptr();
+
+        // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_gamma) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
     /// PAR-112: Batched RMSNorm for M sequences in parallel
     ///
     /// Processes M sequences in a single kernel launch using Grid.y = M.
