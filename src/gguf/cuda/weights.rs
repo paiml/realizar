@@ -6,7 +6,6 @@
 //! - `clear_decode_graph`: Clear CUDA graph state
 //! - `supports_gpu_resident`: Check if model supports GPU-resident path
 
-use super::verbose;
 use super::{OwnedQKVWeights, OwnedQuantizedModelCuda};
 use crate::error::{RealizarError, Result};
 
