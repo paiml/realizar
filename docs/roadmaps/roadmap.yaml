@@ -1,5 +1,5 @@
 roadmap_version: '1.0'
-github_enabled: 'true'
+github_enabled: true
 github_repo: paiml/realizar
 roadmap:
 - id: PARITY-001
@@ -4446,6 +4446,22 @@ roadmap:
   assigned_to: null
   created: 2026-02-14T23:34:47Z
   updated: 2026-02-14T23:34:51.132030786+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
+- id: PMAT-261
+  github_issue: null
+  item_type: task
+  title: 'New task: PMAT-261'
+  status: inprogress
+  priority: medium
+  assigned_to: null
+  created: 2026-02-18T12:52:27.187445343+00:00
+  updated: 2026-02-18T12:52:27.187445343+00:00
   spec: null
   acceptance_criteria: []
   phases: []

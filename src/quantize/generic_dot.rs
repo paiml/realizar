@@ -114,7 +114,7 @@ pub fn compute_bsums(activations: &[f32], elements_per_subblock: usize) -> Vec<f
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::quantize::format_trait::{Q4K, Q4_0Fmt, Q5K, Q6K, Q8_0Fmt};
+    use crate::quantize::format_trait::{Q4_0Fmt, Q8_0Fmt, Q4K, Q5K, Q6K};
 
     // =========================================================================
     // Zero-data tests (sanity check)
@@ -242,10 +242,7 @@ mod tests {
         assert!(result.is_ok());
         // dot = sum(1.0 * 1.0 * 1.0) for 32 values = 32.0
         let val = result.expect("should succeed");
-        assert!(
-            (val - 32.0).abs() < 0.1,
-            "Expected ~32.0, got {val}"
-        );
+        assert!((val - 32.0).abs() < 0.1, "Expected ~32.0, got {val}");
     }
 
     // =========================================================================

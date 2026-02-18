@@ -135,10 +135,10 @@ pub fn gpu_supported_ops() -> HashSet<RequiredOp> {
     ops.insert(RequiredOp::BiasAdd);
     ops.insert(RequiredOp::CausalMask);
     ops.insert(RequiredOp::QkNorm); // GH-280: trueno PerHeadRmsNormKernel
-    // NOT supported yet:
-    // - GeluMlp (GPU uses SwiGLU path; GELU MLP models fall back to CPU)
-    // - LayerNorm (GPU uses RMSNorm path; LayerNorm models fall back to CPU)
-    // - AbsolutePos (GPU uses RoPE path; absolute-pos models fall back to CPU)
+                                    // NOT supported yet:
+                                    // - GeluMlp (GPU uses SwiGLU path; GELU MLP models fall back to CPU)
+                                    // - LayerNorm (GPU uses RMSNorm path; LayerNorm models fall back to CPU)
+                                    // - AbsolutePos (GPU uses RoPE path; absolute-pos models fall back to CPU)
     ops
 }
 

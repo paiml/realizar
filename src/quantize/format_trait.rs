@@ -325,11 +325,11 @@ impl QuantBlockFormat for Q6K {
     const ZERO_OFFSET: i32 = 32;
     const ULP_TOLERANCE: u32 = 8;
     const BITS_PER_WEIGHT: f32 = 6.5625;
-    const D_OFFSET: usize = 208;   // d is at the END for Q6_K
-    const DMIN_OFFSET: usize = 0;  // No dmin
+    const D_OFFSET: usize = 208; // d is at the END for Q6_K
+    const DMIN_OFFSET: usize = 0; // No dmin
     const SCALES_OFFSET: usize = 192;
     const SCALES_BYTES: usize = 16;
-    const QS_OFFSET: usize = 0;    // ql starts at offset 0
+    const QS_OFFSET: usize = 0; // ql starts at offset 0
     const QS_BYTES: usize = 128;
 
     #[inline]
@@ -378,22 +378,22 @@ impl QuantBlockFormat for Q6K {
                 let ql_val = superblock[ql_slice_start + pos] & 0xF;
                 let qh_val = (superblock[128 + qh_slice_start + pos] & 3) << 4;
                 (ql_val | qh_val) as i32 - 32
-            }
+            },
             1 => {
                 let ql_val = superblock[ql_slice_start + pos + 32] & 0xF;
                 let qh_val = ((superblock[128 + qh_slice_start + pos] >> 2) & 3) << 4;
                 (ql_val | qh_val) as i32 - 32
-            }
+            },
             2 => {
                 let ql_val = superblock[ql_slice_start + pos] >> 4;
                 let qh_val = ((superblock[128 + qh_slice_start + pos] >> 4) & 3) << 4;
                 (ql_val | qh_val) as i32 - 32
-            }
+            },
             3 => {
                 let ql_val = superblock[ql_slice_start + pos + 32] >> 4;
                 let qh_val = ((superblock[128 + qh_slice_start + pos] >> 6) & 3) << 4;
                 (ql_val | qh_val) as i32 - 32
-            }
+            },
             _ => unreachable!(),
         };
 
@@ -431,7 +431,7 @@ impl QuantBlockFormat for Q4_0Fmt {
     const BITS_PER_WEIGHT: f32 = 4.0;
     const D_OFFSET: usize = 0;
     const DMIN_OFFSET: usize = 0;
-    const SCALES_OFFSET: usize = 0;  // No separate scales
+    const SCALES_OFFSET: usize = 0; // No separate scales
     const SCALES_BYTES: usize = 0;
     const QS_OFFSET: usize = 2;
     const QS_BYTES: usize = 16;

@@ -137,3 +137,83 @@ pub fn generate_with_cache(
 
     Ok(output)
 }
+
+/// Generate tokens with streaming callback (GH-284)
+///
+/// Same as `generate_with_cache` but calls `on_token` after each generated
+/// token, enabling true per-token streaming to HTTP clients.
+///
+/// # Arguments
+///
+/// * `model` - The APR transformer model
+/// * `prompt` - Initial token IDs
+/// * `config` - Generation configuration
+/// * `on_token` - Callback for each new token. Return `false` to stop early
+///   (e.g., client disconnected).
+///
+/// # Returns
+///
+/// Generated token sequence (including prompt)
+///
+/// # Errors
+///
+/// Returns error if prompt is empty or forward pass fails.
+pub fn generate_with_cache_streaming<F>(
+    model: &AprTransformer,
+    prompt: &[u32],
+    config: &GenerateConfig,
+    mut on_token: F,
+) -> Result<Vec<u32>>
+where
+    F: FnMut(u32) -> bool,
+{
+    if prompt.is_empty() {
+        return Err(RealizarError::InvalidShape {
+            reason: "Prompt cannot be empty".to_string(),
+        });
+    }
+
+    let trace = std::env::var("REALIZE_TRACE").is_ok();
+    let mut cache = AprKVCache::new(&model.config);
+    let mut output = prompt.to_vec();
+
+    let logits = process_prompt_tokens(model, prompt, &mut cache, trace)?;
+
+    // Generate tokens with streaming callback
+    let mut logits = logits;
+    for i in 0..config.max_tokens {
+        let next_token = sample_from_logits(&logits, config.temperature);
+        output.push(next_token);
+
+        if is_eos_token(next_token) {
+            break;
+        }
+
+        // GH-284: Stream token to client — stop if callback returns false
+        if !on_token(next_token) {
+            break;
+        }
+
+        if i < config.max_tokens - 1 {
+            let start = std::time::Instant::now();
+            logits = model.forward_with_cache(next_token, &mut cache, output.len() - 1)?;
+            if trace {
+                eprintln!(
+                    "[TRACE] Gen token {} (pos {}): {:?}",
+                    i,
+                    output.len() - 1,
+                    start.elapsed()
+                );
+            }
+        }
+    }
+
+    if trace {
+        eprintln!(
+            "[TRACE] Streaming generation complete. Total output tokens: {}",
+            output.len()
+        );
+    }
+
+    Ok(output)
+}

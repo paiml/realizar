@@ -285,9 +285,8 @@ pub fn fused_q4k_q8k_parallel_matvec_with_bsums_into(
         for o in 0..out_dim {
             let row_start = o * bytes_per_row;
             let row_data = &weight_data[row_start..row_start + bytes_per_row];
-            output[o] =
-                fused_q4k_q8k_dot_with_bsums_simd(row_data, q8k_scales, q8k_quants, &bsums)
-                    .unwrap_or(0.0);
+            output[o] = fused_q4k_q8k_dot_with_bsums_simd(row_data, q8k_scales, q8k_quants, &bsums)
+                .unwrap_or(0.0);
         }
     } else {
         // Parallel path with midi-tile chunking
@@ -301,13 +300,9 @@ pub fn fused_q4k_q8k_parallel_matvec_with_bsums_into(
                     let row = midi_start + local_idx;
                     let row_start = row * bytes_per_row;
                     let row_data = &weight_data[row_start..row_start + bytes_per_row];
-                    *out = fused_q4k_q8k_dot_with_bsums_simd(
-                        row_data,
-                        q8k_scales,
-                        q8k_quants,
-                        &bsums,
-                    )
-                    .unwrap_or(0.0);
+                    *out =
+                        fused_q4k_q8k_dot_with_bsums_simd(row_data, q8k_scales, q8k_quants, &bsums)
+                            .unwrap_or(0.0);
                 }
             });
     }
@@ -376,7 +371,10 @@ mod tests {
             let start = block * 32;
             let expected: i32 = (0..32).map(|i| quants[start + i] as i32).sum();
             assert_eq!(bsums[0][block], expected);
-            assert!(bsums[0][block] <= 0, "All negative inputs should give negative sum");
+            assert!(
+                bsums[0][block] <= 0,
+                "All negative inputs should give negative sum"
+            );
         }
     }
 
@@ -393,7 +391,12 @@ mod tests {
         let mut output = vec![0.0f32; out_dim];
 
         let result = fused_q4k_q8k_parallel_matvec_with_bsums_into(
-            &weights, &scales, &quants, in_dim, out_dim, &mut output,
+            &weights,
+            &scales,
+            &quants,
+            in_dim,
+            out_dim,
+            &mut output,
         );
         assert!(result.is_ok());
         assert!(output.iter().all(|&v| v == 0.0));
@@ -407,7 +410,12 @@ mod tests {
         let mut output = vec![0.0f32; 64];
 
         let result = fused_q4k_q8k_parallel_matvec_with_bsums_into(
-            &weights, &scales, &quants, 256, 64, &mut output,
+            &weights,
+            &scales,
+            &quants,
+            256,
+            64,
+            &mut output,
         );
         assert!(result.is_err());
     }

@@ -184,6 +184,12 @@ impl AprV2ModelCuda {
                 reason: format!("Failed to set CUDA context current: {e}"),
             })?;
 
+        // GH-284: Reset KV cache to prevent cross-request position overflow.
+        // Without this, kv_position accumulates across HTTP requests, causing
+        // "KV cache overflow - max_len=2048, trying to add position 2049" warnings
+        // and degrading TPS (1.37 → 0.91 over successive requests).
+        self.reset_kv_cache();
+
         let mut tokens = prompt.to_vec();
 
         for _ in 0..max_new_tokens {
