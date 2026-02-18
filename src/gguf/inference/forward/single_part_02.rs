@@ -533,12 +533,34 @@ impl OwnedQuantizedModel {
             );
         }
 
-        // 4. LM head -> scratch.logits
-        self.fused_matmul_into(
-            &scratch.normed[..hidden_dim],
-            &self.lm_head_weight,
-            &mut scratch.logits,
-        )?;
+        // 4. LM head -> scratch.logits (Q8K integer path for Q4K weights)
+        let use_q8k_lm = hidden_dim.is_multiple_of(256)
+            && self.lm_head_weight.qtype == GGUF_TYPE_Q4_K;
+        if use_q8k_lm {
+            use crate::quantize::{
+                fused_q4k_q8k_parallel_matvec_into, quantize_activations_q8k_into,
+            };
+            let hidden_sb = hidden_dim / 256;
+            quantize_activations_q8k_into(
+                &scratch.normed[..hidden_dim],
+                &mut scratch.q8k_hidden_scales[..hidden_sb],
+                &mut scratch.q8k_hidden_quants[..hidden_dim],
+            )?;
+            fused_q4k_q8k_parallel_matvec_into(
+                &self.lm_head_weight.data,
+                &scratch.q8k_hidden_scales[..hidden_sb],
+                &scratch.q8k_hidden_quants[..hidden_dim],
+                self.lm_head_weight.in_dim,
+                self.lm_head_weight.out_dim,
+                &mut scratch.logits,
+            )?;
+        } else {
+            self.fused_matmul_into(
+                &scratch.normed[..hidden_dim],
+                &self.lm_head_weight,
+                &mut scratch.logits,
+            )?;
+        }
 
         Ok(())
     }

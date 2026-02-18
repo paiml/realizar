@@ -312,7 +312,8 @@ impl OwnedQuantizedModel {
     /// Q8K QKV matmul into buffer
     ///
     /// Uses pre-quantized Q8K activations for faster matmul with Q4K weights.
-    #[allow(unused_variables)]
+    /// Dispatches to `fused_q4k_q8k_parallel_matvec_into` (maddubs-based, 32 vals/instr)
+    /// instead of the f32 dequant path (8 vals/instr) for ~3-4x speedup on QKV projections.
     pub fn qkv_matmul_q8k_into(
         &self,
         input: &[f32],
@@ -321,8 +322,73 @@ impl OwnedQuantizedModel {
         scales: &[f32],
         quants: &[i8],
     ) -> Result<()> {
-        // Fall back to regular qkv_matmul_into (Q8K acceleration deferred)
-        self.qkv_matmul_into(input, qkv, output)
+        use crate::quantize::fused_q4k_q8k_parallel_matvec_into;
+
+        match qkv {
+            OwnedQKVWeights::Fused(ref weight) => {
+                if weight.qtype == GGUF_TYPE_Q4_K {
+                    fused_q4k_q8k_parallel_matvec_into(
+                        &weight.data,
+                        scales,
+                        quants,
+                        weight.in_dim,
+                        weight.out_dim,
+                        output,
+                    )
+                } else {
+                    self.fused_matmul_into(input, weight, output)
+                }
+            }
+            OwnedQKVWeights::Separate {
+                ref q,
+                ref k,
+                ref v,
+            } => {
+                let q_dim = q.out_dim;
+                let k_dim = k.out_dim;
+                if q.qtype == GGUF_TYPE_Q4_K {
+                    fused_q4k_q8k_parallel_matvec_into(
+                        &q.data,
+                        scales,
+                        quants,
+                        q.in_dim,
+                        q_dim,
+                        &mut output[..q_dim],
+                    )?;
+                } else {
+                    self.fused_matmul_into(input, q, &mut output[..q_dim])?;
+                }
+                if k.qtype == GGUF_TYPE_Q4_K {
+                    fused_q4k_q8k_parallel_matvec_into(
+                        &k.data,
+                        scales,
+                        quants,
+                        k.in_dim,
+                        k_dim,
+                        &mut output[q_dim..q_dim + k_dim],
+                    )?;
+                } else {
+                    self.fused_matmul_into(input, k, &mut output[q_dim..q_dim + k_dim])?;
+                }
+                if v.qtype == GGUF_TYPE_Q4_K {
+                    fused_q4k_q8k_parallel_matvec_into(
+                        &v.data,
+                        scales,
+                        quants,
+                        v.in_dim,
+                        v.out_dim,
+                        &mut output[q_dim + k_dim..q_dim + k_dim + v.out_dim],
+                    )?;
+                } else {
+                    self.fused_matmul_into(
+                        input,
+                        v,
+                        &mut output[q_dim + k_dim..q_dim + k_dim + v.out_dim],
+                    )?;
+                }
+                Ok(())
+            }
+        }
     }
 
     /// Helper to dequantize weights for CUDA GEMM
