@@ -129,6 +129,10 @@ mod tests {
             attn_k_bias_len: 64,
             attn_v_bias_ptr: 0xC000,
             attn_v_bias_len: 64,
+            attn_q_norm_ptr: 0,
+            attn_q_norm_len: 0,
+            attn_k_norm_ptr: 0,
+            attn_k_norm_len: 0,
         };
 
         let bound = BoundLayerWeights::bind(&indexed, 256, 256, 64, 512);

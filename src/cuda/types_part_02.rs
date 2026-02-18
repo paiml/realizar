@@ -98,6 +98,10 @@ mod tests {
             attn_k_bias_len: 0,
             attn_v_bias_ptr: 0,
             attn_v_bias_len: 0,
+            attn_q_norm_ptr: 0,
+            attn_q_norm_len: 0,
+            attn_k_norm_ptr: 0,
+            attn_k_norm_len: 0,
         }
     }
 
@@ -351,6 +355,10 @@ mod tests {
             attn_k_bias_len: 0,
             attn_v_bias_ptr: 0,
             attn_v_bias_len: 0,
+            attn_q_norm_ptr: 0,
+            attn_q_norm_len: 0,
+            attn_k_norm_ptr: 0,
+            attn_k_norm_len: 0,
         };
 
         assert_eq!(weights.attn_q_ptr, 100);

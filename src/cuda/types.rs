@@ -80,6 +80,14 @@ pub struct IndexedLayerWeights {
     pub attn_v_bias_ptr: u64,
     /// V projection bias size in elements (0 if no bias)
     pub attn_v_bias_len: usize,
+    /// GH-279: Per-head Q RMSNorm gamma device pointer (FP32, optional - 0 if no QkNorm)
+    pub attn_q_norm_ptr: u64,
+    /// Per-head Q RMSNorm gamma size in elements (0 if no QkNorm)
+    pub attn_q_norm_len: usize,
+    /// GH-279: Per-head K RMSNorm gamma device pointer (FP32, optional - 0 if no QkNorm)
+    pub attn_k_norm_ptr: u64,
+    /// Per-head K RMSNorm gamma size in elements (0 if no QkNorm)
+    pub attn_k_norm_len: usize,
 }
 
 /// Weight quantization type for GGUF tensors
@@ -336,6 +344,14 @@ pub struct BoundLayerWeights {
     pub attn_v_bias_ptr: u64,
     /// V bias length in elements (0 if no bias)
     pub attn_v_bias_len: usize,
+    /// GH-279: Per-head Q RMSNorm gamma pointer (0 if no QkNorm)
+    pub attn_q_norm_ptr: u64,
+    /// Per-head Q RMSNorm gamma length in elements (0 if no QkNorm)
+    pub attn_q_norm_len: usize,
+    /// GH-279: Per-head K RMSNorm gamma pointer (0 if no QkNorm)
+    pub attn_k_norm_ptr: u64,
+    /// Per-head K RMSNorm gamma length in elements (0 if no QkNorm)
+    pub attn_k_norm_len: usize,
 }
 
 impl BoundLayerWeights {
@@ -410,6 +426,10 @@ impl BoundLayerWeights {
             attn_k_bias_len: src.attn_k_bias_len,
             attn_v_bias_ptr: src.attn_v_bias_ptr,
             attn_v_bias_len: src.attn_v_bias_len,
+            attn_q_norm_ptr: src.attn_q_norm_ptr,
+            attn_q_norm_len: src.attn_q_norm_len,
+            attn_k_norm_ptr: src.attn_k_norm_ptr,
+            attn_k_norm_len: src.attn_k_norm_len,
         }
     }
 }
