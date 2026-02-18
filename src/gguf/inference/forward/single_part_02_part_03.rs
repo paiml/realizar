@@ -133,7 +133,7 @@ impl OwnedQuantizedModel {
     #[cfg(feature = "gpu")]
     fn adaptive_layer_attention_cuda(
         &self,
-        hidden: &mut Vec<f32>,
+        hidden: &mut [f32],
         layer: &OwnedQuantizedLayer,
         layer_idx: usize,
         normed: &[f32],
@@ -233,7 +233,7 @@ impl OwnedQuantizedModel {
     #[cfg(feature = "gpu")]
     fn adaptive_layer_attention_cpu(
         &self,
-        hidden: &mut Vec<f32>,
+        hidden: &mut [f32],
         layer: &OwnedQuantizedLayer,
         layer_idx: usize,
         normed: &[f32],

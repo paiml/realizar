@@ -224,8 +224,14 @@ impl<'a> QuantizedGGUFTransformer<'a> {
         let num_elements: usize = tensor.dims.iter().map(|&d| d as usize).product();
         let offset = model.tensor_data_start + tensor.offset as usize;
         let byte_size = Self::tensor_byte_size(tensor.qtype, num_elements, &tensor.dims)?;
-        let (byte_size, actual_qtype) =
-            Self::resolve_qtype(name, tensor.qtype, byte_size, num_elements, offset, data.len());
+        let (byte_size, actual_qtype) = Self::resolve_qtype(
+            name,
+            tensor.qtype,
+            byte_size,
+            num_elements,
+            offset,
+            data.len(),
+        );
 
         if offset + byte_size > data.len() {
             return Err(RealizarError::InvalidShape {

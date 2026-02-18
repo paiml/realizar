@@ -148,9 +148,9 @@ pub fn gpu_supported_ops() -> HashSet<RequiredOp> {
 ///
 /// - `Ok(())` if all required ops are supported
 /// - `Err(missing)` with the set of unsupported operations
-pub fn check_capability(
-    required: &HashSet<RequiredOp>,
-    supported: &HashSet<RequiredOp>,
+pub fn check_capability<S: std::hash::BuildHasher>(
+    required: &HashSet<RequiredOp, S>,
+    supported: &HashSet<RequiredOp, S>,
 ) -> std::result::Result<(), Vec<RequiredOp>> {
     let missing: Vec<RequiredOp> = required.difference(supported).copied().collect();
     if missing.is_empty() {

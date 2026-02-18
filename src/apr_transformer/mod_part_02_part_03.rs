@@ -268,15 +268,15 @@ impl AprTransformer {
 
     /// Log LM head quantization path (debug only)
     fn debug_log_lm_head_quant(
-        lm_head_weight_q4k: &Option<Vec<u8>>,
-        lm_head_weight_q6k: &Option<Vec<u8>>,
+        lm_head_weight_q4k: Option<&[u8]>,
+        lm_head_weight_q6k: Option<&[u8]>,
     ) {
-        if let Some(ref bytes) = lm_head_weight_q4k {
+        if let Some(bytes) = lm_head_weight_q4k {
             eprintln!(
                 "[APR-LOAD] LM head using Q4K fused kernel ({} bytes)",
                 bytes.len()
             );
-        } else if let Some(ref bytes) = lm_head_weight_q6k {
+        } else if let Some(bytes) = lm_head_weight_q6k {
             eprintln!(
                 "[APR-LOAD] LM head using Q6K fused kernel ({} bytes)",
                 bytes.len()
@@ -380,7 +380,7 @@ impl AprTransformer {
         let lm_head_weight_q6k =
             lookup.get_q6k("lm_head.weight").or_else(|| lookup.get_q6k("output.weight"));
         if debug_enabled {
-            Self::debug_log_lm_head_quant(&lm_head_weight_q4k, &lm_head_weight_q6k);
+            Self::debug_log_lm_head_quant(lm_head_weight_q4k.as_deref(), lm_head_weight_q6k.as_deref());
         }
 
         Ok((lm_head_weight, lm_head_weight_q4k, lm_head_weight_q6k))
