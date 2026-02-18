@@ -73,6 +73,9 @@ pub fn fused_q6k_parallel_matvec_into(
 ///
 /// Uses rayon parallel iterators for multi-core acceleration and TCB tiling
 /// pattern for cache optimization.
+///
+/// Contract: quantized-dot-product-v1.yaml — precomputes Q8K bsums once per
+/// token for the fallback path (4-row AVX512 VNNI path has internal precomputation).
 pub fn fused_q4k_q8k_parallel_matvec_into(
     weight_data: &[u8],
     q8k_scales: &[f32],
@@ -108,6 +111,11 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
             ),
         });
     }
+
+    // CONTRACT-DERIVED P1: Precompute Q8K bsums ONCE per token (weight-independent)
+    // The offset term dmin*m*Σ(q_x) depends only on activation sub-block sums.
+    // Precomputing saves ~50 SIMD instructions per superblock per row.
+    let bsums = precompute_q8k_bsums(q8k_quants, super_blocks_per_row).ok();
 
     // TCB Tiling Parameters (from trueno::tiling::TilingConfig::cpu_avx512_vnni_q4k_q8k)
     // - Midi-tile: 64 rows (fits in L2 cache with Q8K input)
@@ -176,25 +184,43 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
                     midi_chunk[local_base + 3] = outputs[3];
                 }
 
-                // Handle remainder rows (< 4) with single-row kernel
+                // Handle remainder rows (< 4) with bsum-aware single-row kernel
                 for r in 0..remainder {
                     let row = midi_start + full_micro_tiles * MICRO_TILE_M + r;
                     let row_start = row * bytes_per_row;
                     let row_data = &weight_data[row_start..row_start + bytes_per_row];
                     let local_idx = full_micro_tiles * MICRO_TILE_M + r;
-                    midi_chunk[local_idx] =
-                        fused_q4k_q8k_dot_simd(row_data, q8k_scales, q8k_quants).unwrap_or(0.0);
+                    midi_chunk[local_idx] = if let Some(ref bs) = bsums {
+                        fused_q4k_q8k_dot_with_bsums_simd(
+                            row_data, q8k_scales, q8k_quants, bs,
+                        )
+                        .unwrap_or(0.0)
+                    } else {
+                        fused_q4k_q8k_dot_simd(row_data, q8k_scales, q8k_quants).unwrap_or(0.0)
+                    };
                 }
             });
     } else {
-        // Fallback: per-row execution (no TCB optimization)
+        // Fallback: per-row execution with precomputed bsums
         output[..out_dim]
-            .par_iter_mut()
+            .par_chunks_mut(MIDI_TILE_M)
             .enumerate()
-            .for_each(|(o, out)| {
-                let row_start = o * bytes_per_row;
-                let row_data = &weight_data[row_start..row_start + bytes_per_row];
-                *out = fused_q4k_q8k_dot_simd(row_data, q8k_scales, q8k_quants).unwrap_or(0.0);
+            .for_each(|(midi_idx, midi_chunk)| {
+                let midi_start = midi_idx * MIDI_TILE_M;
+
+                for (local_idx, out) in midi_chunk.iter_mut().enumerate() {
+                    let row = midi_start + local_idx;
+                    let row_start = row * bytes_per_row;
+                    let row_data = &weight_data[row_start..row_start + bytes_per_row];
+                    *out = if let Some(ref bs) = bsums {
+                        fused_q4k_q8k_dot_with_bsums_simd(
+                            row_data, q8k_scales, q8k_quants, bs,
+                        )
+                        .unwrap_or(0.0)
+                    } else {
+                        fused_q4k_q8k_dot_simd(row_data, q8k_scales, q8k_quants).unwrap_or(0.0)
+                    };
+                }
             });
     }
 
@@ -257,6 +283,9 @@ pub fn fused_q4k_q8k_ffn_up_gate_into(
         });
     }
 
+    // CONTRACT-DERIVED P1: Precompute Q8K bsums ONCE (shared by up + gate)
+    let bsums = precompute_q8k_bsums(q8k_quants, super_blocks_per_row).ok();
+
     // Process both up and gate in a single parallel region
     // Each thread handles a midi-tile of rows for BOTH projections
     // We use zip + par_chunks_mut to ensure thread-safe non-overlapping access
@@ -273,13 +302,23 @@ pub fn fused_q4k_q8k_ffn_up_gate_into(
                 let row = midi_start + local_row;
                 let row_start = row * bytes_per_row;
 
-                // Compute up projection for this row
+                // Compute up projection for this row (with precomputed bsums)
                 let up_row = &up_weight[row_start..row_start + bytes_per_row];
-                *up_out = fused_q4k_q8k_dot_simd(up_row, q8k_scales, q8k_quants).unwrap_or(0.0);
+                *up_out = if let Some(ref bs) = bsums {
+                    fused_q4k_q8k_dot_with_bsums_simd(up_row, q8k_scales, q8k_quants, bs)
+                        .unwrap_or(0.0)
+                } else {
+                    fused_q4k_q8k_dot_simd(up_row, q8k_scales, q8k_quants).unwrap_or(0.0)
+                };
 
-                // Compute gate projection for this row
+                // Compute gate projection for this row (with precomputed bsums)
                 let gate_row = &gate_weight[row_start..row_start + bytes_per_row];
-                *gate_out = fused_q4k_q8k_dot_simd(gate_row, q8k_scales, q8k_quants).unwrap_or(0.0);
+                *gate_out = if let Some(ref bs) = bsums {
+                    fused_q4k_q8k_dot_with_bsums_simd(gate_row, q8k_scales, q8k_quants, bs)
+                        .unwrap_or(0.0)
+                } else {
+                    fused_q4k_q8k_dot_simd(gate_row, q8k_scales, q8k_quants).unwrap_or(0.0)
+                };
             }
         });
 
