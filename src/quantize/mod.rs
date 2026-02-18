@@ -120,14 +120,12 @@ pub use parallel_dequant::{
 pub use simd::{extract_scale_min, extract_scale_min_from_slice, read_f16};
 
 // Re-export format trait and generic kernels (Contract: quantized-dot-product-v1.yaml)
-pub use format_trait::{QuantBlockFormat, QuantFamily, Q4K, Q4_0Fmt, Q5K, Q6K, Q8_0Fmt};
+pub use format_trait::{Q4_0Fmt, Q8_0Fmt, QuantBlockFormat, QuantFamily, Q4K, Q5K, Q6K};
 pub use generic_dot::{compute_bsums, generic_fused_dot_scalar};
 pub use generic_matvec::{generic_parallel_matvec, generic_parallel_matvec_into};
 
 // Re-export bsum precomputation (Contract: quantized-dot-product-v1.yaml, Step 3)
-pub use bsum_precompute::{
-    fused_q4k_q8k_parallel_matvec_with_bsums_into, precompute_q8k_bsums,
-};
+pub use bsum_precompute::{fused_q4k_q8k_parallel_matvec_with_bsums_into, precompute_q8k_bsums};
 
 // Re-export encoding functions (Toyota Way: ONE source of truth)
 // aprender imports these for format conversion - NEVER duplicates

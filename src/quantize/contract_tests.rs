@@ -15,7 +15,7 @@
 #[cfg(test)]
 mod tests {
     use crate::quantize::format_trait::{
-        QuantBlockFormat, QuantFamily, ALL_FORMAT_IDS, Q4K, Q4_0Fmt, Q5K, Q6K, Q8_0Fmt,
+        Q4_0Fmt, Q8_0Fmt, QuantBlockFormat, QuantFamily, ALL_FORMAT_IDS, Q4K, Q5K, Q6K,
     };
     use crate::quantize::generic_dot::{compute_bsums, generic_fused_dot_scalar};
     use crate::quantize::simd::{extract_scale_min, read_f16};
@@ -75,12 +75,12 @@ mod tests {
         let acts = vec![1.0f32; 256];
 
         // Generic scalar
-        let generic_result = generic_fused_dot_scalar::<Q4K>(&sb, &acts)
-            .expect("generic Q4K dot should succeed");
+        let generic_result =
+            generic_fused_dot_scalar::<Q4K>(&sb, &acts).expect("generic Q4K dot should succeed");
 
         // Format-specific scalar (existing implementation)
-        let specific_result = crate::quantize::fused_q4k_dot(&sb, &acts)
-            .expect("specific Q4K dot should succeed");
+        let specific_result =
+            crate::quantize::fused_q4k_dot(&sb, &acts).expect("specific Q4K dot should succeed");
 
         // They should produce the same result (both are scalar, deterministic)
         let diff = (generic_result - specific_result).abs();
@@ -118,11 +118,11 @@ mod tests {
 
         let acts = vec![1.0f32; 256];
 
-        let generic_result = generic_fused_dot_scalar::<Q6K>(&sb, &acts)
-            .expect("generic Q6K dot should succeed");
+        let generic_result =
+            generic_fused_dot_scalar::<Q6K>(&sb, &acts).expect("generic Q6K dot should succeed");
 
-        let specific_result = crate::quantize::fused_q6k_dot(&sb, &acts)
-            .expect("specific Q6K dot should succeed");
+        let specific_result =
+            crate::quantize::fused_q6k_dot(&sb, &acts).expect("specific Q6K dot should succeed");
 
         let diff = (generic_result - specific_result).abs();
         let tolerance = 0.01 * specific_result.abs().max(1.0);
@@ -146,8 +146,8 @@ mod tests {
         }
 
         let acts = vec![1.0f32; 32];
-        let result = generic_fused_dot_scalar::<Q8_0Fmt>(&sb, &acts)
-            .expect("Q8_0 dot should succeed");
+        let result =
+            generic_fused_dot_scalar::<Q8_0Fmt>(&sb, &acts).expect("Q8_0 dot should succeed");
 
         assert!(
             (result - 640.0).abs() < 1.0,
@@ -182,8 +182,8 @@ mod tests {
         let acts = vec![1.0f32; 256];
 
         // Correct result (Q6K kernel)
-        let correct = generic_fused_dot_scalar::<Q6K>(&q6k_data, &acts)
-            .expect("Q6K dot should succeed");
+        let correct =
+            generic_fused_dot_scalar::<Q6K>(&q6k_data, &acts).expect("Q6K dot should succeed");
 
         // Now try to interpret this Q6_K data as Q4_K
         // Q4_K expects 144 bytes, but Q6_K is 210 bytes.

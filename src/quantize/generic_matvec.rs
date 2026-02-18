@@ -164,7 +164,14 @@ pub fn generic_parallel_matvec<F: QuantBlockFormat>(
     dot_fn: FusedDotFn,
 ) -> Result<Vec<f32>> {
     let mut output = vec![0.0f32; out_dim];
-    generic_parallel_matvec_into::<F>(weight_data, activations, in_dim, out_dim, &mut output, dot_fn)?;
+    generic_parallel_matvec_into::<F>(
+        weight_data,
+        activations,
+        in_dim,
+        out_dim,
+        &mut output,
+        dot_fn,
+    )?;
     Ok(output)
 }
 
@@ -200,7 +207,12 @@ mod tests {
         let mut output = vec![0.0f32; out_dim];
 
         let result = generic_parallel_matvec_into::<Q4K>(
-            &weights, &acts, in_dim, out_dim, &mut output, q4k_scalar_dot,
+            &weights,
+            &acts,
+            in_dim,
+            out_dim,
+            &mut output,
+            q4k_scalar_dot,
         );
         assert!(result.is_ok());
         // All zero weights → all zero outputs
@@ -218,7 +230,12 @@ mod tests {
         let mut output = vec![0.0f32; out_dim];
 
         let result = generic_parallel_matvec_into::<Q6K>(
-            &weights, &acts, in_dim, out_dim, &mut output, q6k_scalar_dot,
+            &weights,
+            &acts,
+            in_dim,
+            out_dim,
+            &mut output,
+            q6k_scalar_dot,
         );
         assert!(result.is_ok());
     }
@@ -230,7 +247,12 @@ mod tests {
         let mut output = vec![0.0f32; 64];
 
         let result = generic_parallel_matvec_into::<Q4K>(
-            &weights, &acts, 256, 64, &mut output, q4k_scalar_dot,
+            &weights,
+            &acts,
+            256,
+            64,
+            &mut output,
+            q4k_scalar_dot,
         );
         assert!(result.is_err());
     }
@@ -242,7 +264,12 @@ mod tests {
         let mut output = vec![0.0f32; 64];
 
         let result = generic_parallel_matvec_into::<Q4K>(
-            &weights, &acts, 256, 64, &mut output, q4k_scalar_dot,
+            &weights,
+            &acts,
+            256,
+            64,
+            &mut output,
+            q4k_scalar_dot,
         );
         assert!(result.is_err());
     }
@@ -254,7 +281,12 @@ mod tests {
         let mut output = vec![0.0f32; 32]; // Too small
 
         let result = generic_parallel_matvec_into::<Q4K>(
-            &weights, &acts, 256, 64, &mut output, q4k_scalar_dot,
+            &weights,
+            &acts,
+            256,
+            64,
+            &mut output,
+            q4k_scalar_dot,
         );
         assert!(result.is_err());
     }
@@ -279,7 +311,12 @@ mod tests {
         let mut output = vec![0.0f32; out_dim];
 
         let result = generic_parallel_matvec_into::<Q4K>(
-            &weights, &acts, in_dim, out_dim, &mut output, q4k_scalar_dot,
+            &weights,
+            &acts,
+            in_dim,
+            out_dim,
+            &mut output,
+            q4k_scalar_dot,
         );
         assert!(result.is_ok());
     }
@@ -296,7 +333,12 @@ mod tests {
         let mut output = vec![0.0f32; out_dim];
 
         let result = generic_parallel_matvec_into::<Q4K>(
-            &weights, &acts, in_dim, out_dim, &mut output, q4k_scalar_dot,
+            &weights,
+            &acts,
+            in_dim,
+            out_dim,
+            &mut output,
+            q4k_scalar_dot,
         );
         assert!(result.is_ok());
     }

@@ -10,12 +10,12 @@
 //! - GEBP (General Block Panel) tiling maximizes cache reuse
 //! - Tile size should fit in L2 cache (~256KB-512KB typically)
 
+use super::bsum_precompute::{fused_q4k_q8k_dot_with_bsums_simd, precompute_q8k_bsums};
+use super::format_trait::{Q4K, Q5K, Q6K};
 use super::fused_k::{
     fused_q4k_dot_simd, fused_q4k_q8k_dot_4rows_avx512vnni, fused_q4k_q8k_dot_simd,
 };
 use super::fused_q5k_q6k::{fused_q5k_dot_simd, fused_q6k_dot_simd};
-use super::bsum_precompute::{fused_q4k_q8k_dot_with_bsums_simd, precompute_q8k_bsums};
-use super::format_trait::{Q4K, Q5K, Q6K};
 use super::generic_matvec::{generic_parallel_matvec, generic_parallel_matvec_into};
 use super::types::QK_K;
 use crate::error::{RealizarError, Result};
@@ -193,7 +193,13 @@ pub fn fused_q4k_parallel_matvec(
 ) -> Result<Vec<f32>> {
     // Contract: quantized-dot-product-v1.yaml — delegates to generic matvec
     // with format-specific SIMD dot product (Phase 3: eliminate ~300 lines duplication)
-    generic_parallel_matvec::<Q4K>(weight_data, activations, in_dim, out_dim, fused_q4k_dot_simd)
+    generic_parallel_matvec::<Q4K>(
+        weight_data,
+        activations,
+        in_dim,
+        out_dim,
+        fused_q4k_dot_simd,
+    )
 }
 
 /// Parallel fused Q4_K matrix-vector multiply - writes to pre-allocated buffer
@@ -248,7 +254,13 @@ pub fn fused_q5k_parallel_matvec(
     out_dim: usize,
 ) -> Result<Vec<f32>> {
     // Contract: quantized-dot-product-v1.yaml — delegates to generic matvec
-    generic_parallel_matvec::<Q5K>(weight_data, activations, in_dim, out_dim, fused_q5k_dot_simd)
+    generic_parallel_matvec::<Q5K>(
+        weight_data,
+        activations,
+        in_dim,
+        out_dim,
+        fused_q5k_dot_simd,
+    )
 }
 
 include!("parallel_k_part_02.rs");

@@ -31,12 +31,12 @@ use trueno_gpu::kernels::{
     IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
     LayerNormKernel, MultiWarpIncrementalAttentionKernel, MultiWarpVectorizedQ4KGemvKernel,
     MwvDp4aQ4KGemvKernel, PackedDp4aQ4KQ8Kernel, PerHeadRmsNormKernel, PreciseRmsNormKernel,
-    PreciseRopeIndirectKernel,
-    Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel,
-    Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel,
-    ResidualAddKernel, RmsNormKernel, RopeIndirectKernel, RopeKernel, RopeNeoxIndirectKernel,
-    RopeNeoxKernel, SiluKernel, SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel,
-    TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel, VectorizedRmsNormKernel, WideQ4KGemvKernel,
+    PreciseRopeIndirectKernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
+    Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
+    Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
+    RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel, SiluKernel, SoftmaxKernel,
+    TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel,
+    VectorizedRmsNormKernel, WideQ4KGemvKernel,
 };
 
 include!("kernels_part_02.rs");
