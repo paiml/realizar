@@ -278,7 +278,7 @@ impl OwnedQuantizedModel {
         if layer_idx != 0 {
             return;
         }
-        if !std::env::var("APR_TRACE_LAYERS").is_ok() {
+        if std::env::var("APR_TRACE_LAYERS").is_err() {
             return;
         }
         let num_kv_heads = self.config.num_kv_heads;
@@ -301,7 +301,7 @@ impl OwnedQuantizedModel {
         layer_idx: usize,
         hidden_dim: usize,
     ) {
-        if layer_idx != 0 || !std::env::var("APR_TRACE_LAYERS").is_ok() {
+        if layer_idx != 0 || std::env::var("APR_TRACE_LAYERS").is_err() {
             return;
         }
         let num_kv_heads = self.config.num_kv_heads;
@@ -348,7 +348,7 @@ impl OwnedQuantizedModel {
         position: usize,
         head_dim: usize,
     ) {
-        if layer_idx != 0 || position < 1 || !std::env::var("CPU_DEBUG").is_ok() {
+        if layer_idx != 0 || position < 1 || std::env::var("CPU_DEBUG").is_err() {
             return;
         }
         eprintln!(
