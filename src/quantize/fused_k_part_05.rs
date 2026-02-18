@@ -244,12 +244,20 @@ pub(crate) unsafe fn fused_q4k_q8k_dot_4rows_avx512vnni(
         let q8_start = sb_idx * QK_K;
         let sb_start = sb_idx * SUPER_BLOCK_BYTES;
 
-        // Prefetch next Q8K superblock (shared across all 4 rows)
+        // Prefetch next superblock data (Q8K shared + 4 weight rows)
         if sb_idx + 1 < num_super_blocks {
+            let next_sb = (sb_idx + 1) * SUPER_BLOCK_BYTES;
             _mm_prefetch(
                 q8k_quants.as_ptr().add((sb_idx + 1) * QK_K).cast::<i8>(),
                 _MM_HINT_T0,
             );
+            // Prefetch next superblock for all 4 weight rows
+            for row in 0..4 {
+                _mm_prefetch(
+                    row_ptrs[row].add(next_sb).cast::<i8>(),
+                    _MM_HINT_T0,
+                );
+            }
         }
 
         let q8_scale = q8k_scales[sb_idx];

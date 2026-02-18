@@ -65,11 +65,14 @@ unsafe fn fused_q4k_dot_avx2(q4k_data: &[u8], activations: &[f32]) -> Result<f32
     for sb_idx in 0..num_super_blocks {
         let sb_start = sb_idx * SUPER_BLOCK_BYTES;
 
-        // Prefetch next super-block while processing current
+        // Prefetch next super-block (dual: Q4_K weights + activations)
         if sb_idx + 1 < num_super_blocks {
             let next_sb = (sb_idx + 1) * SUPER_BLOCK_BYTES;
-            // SAFETY: Prefetch is a hint, pointer arithmetic is in bounds (checked above)
             _mm_prefetch(q4k_data.as_ptr().add(next_sb).cast::<i8>(), _MM_HINT_T0);
+            _mm_prefetch(
+                activations.as_ptr().add((sb_idx + 1) * QK_K).cast::<i8>(),
+                _MM_HINT_T0,
+            );
         }
 
         // Read d and dmin (f16 -> f32)
