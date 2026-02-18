@@ -87,9 +87,9 @@ impl CudaExecutor {
         let mut ptr_a = weight_ptr;
         let mut ptr_b = input_buf.as_ptr();
         let mut ptr_c = output_buf.as_ptr();
-        let mut m_val = m as i32;
-        let mut n_val = n as i32;
-        let mut k_val = k as i32;
+        let mut m_val = m ;
+        let mut n_val = n ;
+        let mut k_val = k ;
 
         // SAFETY: Buffers valid, caller ensures lifetime
         unsafe {
@@ -246,9 +246,9 @@ impl CudaExecutor {
         let mut ptr_a = weight_ptr; // From cache!
         let mut ptr_b = buf_b.as_ptr();
         let mut ptr_c = buf_c.as_ptr();
-        let mut m_val = m as i32;
-        let mut n_val = n as i32;
-        let mut k_val = k as i32;
+        let mut m_val = m ;
+        let mut n_val = n ;
+        let mut k_val = k ;
 
         // Launch kernel
         // SAFETY: Buffers are valid, config matches kernel expectations
@@ -363,9 +363,10 @@ impl CudaExecutor {
         let mut ptr_a = buf_a.as_ptr();
         let mut ptr_b = weight_ptr; // From cache!
         let mut ptr_c = buf_c.as_ptr();
-        let mut m_val = m as i32;
-        let mut n_val = n as i32;
-        let mut k_val = k as i32;
+        // GH-282: Keep as u32 to match kernel .param .u32 declarations
+        let mut m_val = m;
+        let mut n_val = n;
+        let mut k_val = k;
 
         // Launch kernel: C = A × B where B is cached
         // SAFETY: Buffers are valid, config matches kernel expectations

@@ -124,9 +124,10 @@ impl CudaExecutor {
             } else {
                 // GEMM kernel: C = A × B
                 // Args: a_ptr, b_ptr, c_ptr, m, n, k
-                let mut m_val = m as i32;
-                let mut n_val_i32 = n as i32;
-                let mut k_val_i32 = k as i32;
+                // GH-282: Keep as u32 to match kernel .param .u32 declarations
+                let mut m_val = m;
+                let mut n_val_i32 = n;
+                let mut k_val_i32 = k;
                 self.stream.launch_kernel(
                     module,
                     kernel_name,
@@ -341,9 +342,10 @@ impl CudaExecutor {
         let mut ptr_a = buf_a.as_ptr();
         let mut ptr_b = buf_b.as_ptr();
         let mut ptr_c = buf_c.as_ptr();
-        let mut m_val = m as i32;
-        let mut n_val = n as i32;
-        let mut k_val = k as i32;
+        // GH-282: Keep as u32 to match kernel .param .u32 declarations
+        let mut m_val = m;
+        let mut n_val = n;
+        let mut k_val = k;
 
         // Launch kernel
         // SAFETY: Buffers are valid, config matches kernel expectations

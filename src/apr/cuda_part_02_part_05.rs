@@ -17,6 +17,14 @@ impl AprV2ModelCuda {
     ///
     /// The token ID with the highest logit value.
     pub fn forward_cuda_to_token(&mut self, token_id: u32) -> Result<u32> {
+        // GH-282: Ensure CUDA context is current for this thread
+        self.executor
+            .make_current()
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "cuda_make_current".to_string(),
+                reason: format!("Failed to set CUDA context current: {e}"),
+            })?;
+
         if !self.model.metadata.is_transformer() {
             return Err(RealizarError::FormatError {
                 reason: "Model is not a transformer (missing config)".to_string(),
