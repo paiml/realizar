@@ -15,21 +15,42 @@ use std::path::Path;
 
 /// RMS normalization
 ///
-/// Thin wrapper: delegates to `gpu::scheduler::ops::layer_norm_static` (canonical
-/// RMSNorm implementation) with a zero bias vector, keeping a single source of
-/// truth for the normalization math.
+/// When the `gpu` feature is enabled, delegates to `gpu::layer_norm_static`
+/// (canonical RMSNorm). Otherwise, uses an inline implementation.
+///
+/// Five-Whys (whisper.apr compile failure): `crate::gpu` is `#[cfg(feature = "gpu")]`
+/// but this function was called unconditionally. Crates without `gpu` feature
+/// (e.g. whisper-apr) got E0433 unresolved import.
 pub(crate) fn rms_norm(x: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
-    let hidden_dim = weight.len();
-    let zero_bias = vec![0.0f32; hidden_dim];
-    crate::gpu::layer_norm_static(x, weight, &zero_bias, hidden_dim, eps)
+    #[cfg(feature = "gpu")]
+    {
+        let hidden_dim = weight.len();
+        let zero_bias = vec![0.0f32; hidden_dim];
+        crate::gpu::layer_norm_static(x, weight, &zero_bias, hidden_dim, eps)
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        let hidden_dim = weight.len();
+        let n_tokens = x.len() / hidden_dim;
+        let mut output = vec![0.0f32; x.len()];
+        for t in 0..n_tokens {
+            let offset = t * hidden_dim;
+            let slice = &x[offset..offset + hidden_dim];
+            let ss: f32 = slice.iter().map(|v| v * v).sum::<f32>() / hidden_dim as f32;
+            let rms = (ss + eps).sqrt();
+            for i in 0..hidden_dim {
+                output[offset + i] = slice[i] / rms * weight[i];
+            }
+        }
+        output
+    }
 }
 
 /// Matrix multiplication: x @ w^T
 /// [seq, in_dim] @ [out_dim, in_dim]^T -> [seq, out_dim]
 ///
-/// Thin wrapper: delegates to `gpu::metrics::cpu_matmul_transpose_b` (canonical
-/// A @ B^T implementation) so the matmul-with-transposed-B logic lives in one
-/// place.  The parameter mapping is: a=x, b=w, m=seq_len, k=in_dim, n=out_dim.
+/// When the `gpu` feature is enabled, delegates to `gpu::cpu_matmul_transpose_b`.
+/// Otherwise, uses an inline triple-loop implementation.
 pub(crate) fn matmul(
     x: &[f32],
     w: &[f32],
@@ -37,7 +58,24 @@ pub(crate) fn matmul(
     in_dim: usize,
     out_dim: usize,
 ) -> Vec<f32> {
-    crate::gpu::cpu_matmul_transpose_b(x, w, seq_len, in_dim, out_dim)
+    #[cfg(feature = "gpu")]
+    {
+        crate::gpu::cpu_matmul_transpose_b(x, w, seq_len, in_dim, out_dim)
+    }
+    #[cfg(not(feature = "gpu"))]
+    {
+        let mut output = vec![0.0f32; seq_len * out_dim];
+        for m in 0..seq_len {
+            for n in 0..out_dim {
+                let mut sum = 0.0f32;
+                for k in 0..in_dim {
+                    sum += x[m * in_dim + k] * w[n * in_dim + k];
+                }
+                output[m * out_dim + n] = sum;
+            }
+        }
+        output
+    }
 }
 
 /// Transpose a matrix from [rows, cols] to [cols, rows] for GEMM compatibility.
