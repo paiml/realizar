@@ -1,40 +1,38 @@
-//! GH-279: Per-architecture required weight roles.
+//! Per-architecture required weight roles.
 //!
-//! Generated from `provable-contracts/contracts/architecture-requirements-v1.yaml`.
-//! DO NOT EDIT — regenerate from the contract YAML.
+//! Generated from architecture-requirements-v1.yaml — DO NOT EDIT.
+//! See: provable-contracts/contracts/architecture-requirements-v1.yaml
 //!
-//! This module defines:
-//! - `WeightRole`: Every possible weight role in a transformer layer
-//! - `required_roles()`: Returns the required roles for a given `ArchConstraints`
-//!
-//! The match in `required_roles()` is exhaustive on `(has_qk_norm, has_bias)`.
-//! Adding a new boolean field to `ArchConstraints` that affects weight roles
-//! MUST update this match — the compiler will NOT catch it automatically, but
-//! the contract test FALSIFY-ARCH-001 will.
+//! UCBD §4 / GH-279: Compile-time enforcement that every loader
+//! provides all tensors required by the target architecture.
 
 use crate::gguf::ArchConstraints;
 
-/// A weight role in a transformer layer.
-///
-/// Each variant maps to a (ptr, len) pair in `IndexedLayerWeights`.
-/// `required_roles()` returns the subset that MUST be non-zero for a
-/// given architecture.
+/// Weight roles that may be required for a transformer layer.
+/// Each architecture requires a subset of these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WeightRole {
+    // Norms (all architectures)
     /// Pre-attention layer normalization gamma
     AttnNorm,
     /// Pre-FFN layer normalization gamma
     FfnNorm,
+
+    // QK norm (Qwen3 family)
     /// Per-head Q RMSNorm gamma (Qwen3)
     AttnQNorm,
     /// Per-head K RMSNorm gamma (Qwen3)
     AttnKNorm,
+
+    // Biases (Qwen2)
     /// Q projection bias (Qwen2, phi)
     AttnQBias,
     /// K projection bias (Qwen2, phi)
     AttnKBias,
     /// V projection bias (Qwen2, phi)
     AttnVBias,
+
+    // Projections (all architectures)
     /// Query projection weights
     QProj,
     /// Key projection weights
@@ -43,6 +41,8 @@ pub enum WeightRole {
     VProj,
     /// Output projection weights
     OProj,
+
+    // FFN (all SwiGLU architectures)
     /// FFN gate projection (SwiGLU/GatedMLP)
     FfnGate,
     /// FFN up projection
@@ -51,7 +51,30 @@ pub enum WeightRole {
     FfnDown,
 }
 
-/// Base roles required by ALL transformer architectures.
+impl WeightRole {
+    /// Returns the field name prefix as it appears in `IndexedLayerWeights`.
+    #[must_use]
+    pub const fn field_name(&self) -> &'static str {
+        match self {
+            Self::AttnNorm => "attn_norm",
+            Self::FfnNorm => "ffn_norm",
+            Self::AttnQNorm => "attn_q_norm",
+            Self::AttnKNorm => "attn_k_norm",
+            Self::AttnQBias => "attn_q_bias",
+            Self::AttnKBias => "attn_k_bias",
+            Self::AttnVBias => "attn_v_bias",
+            Self::QProj => "attn_q (q_proj)",
+            Self::KProj => "attn_k (k_proj)",
+            Self::VProj => "attn_v (v_proj)",
+            Self::OProj => "attn_output (o_proj)",
+            Self::FfnGate => "ffn_gate",
+            Self::FfnUp => "ffn_up",
+            Self::FfnDown => "ffn_down",
+        }
+    }
+}
+
+/// Base roles required by ALL architectures.
 const BASE_ROLES: &[WeightRole] = &[
     WeightRole::AttnNorm,
     WeightRole::FfnNorm,
@@ -125,30 +148,6 @@ pub fn required_roles(arch: &ArchConstraints) -> &'static [WeightRole] {
         (true, false) => ROLES_QK_NORM_NO_BIAS,
         (false, true) => ROLES_BIAS_NO_QK_NORM,
         (false, false) => BASE_ROLES,
-    }
-}
-
-/// Human-readable name for a weight role (used in error messages).
-impl WeightRole {
-    /// Returns the field name prefix as it appears in `IndexedLayerWeights`.
-    #[must_use]
-    pub const fn field_name(&self) -> &'static str {
-        match self {
-            Self::AttnNorm => "attn_norm",
-            Self::FfnNorm => "ffn_norm",
-            Self::AttnQNorm => "attn_q_norm",
-            Self::AttnKNorm => "attn_k_norm",
-            Self::AttnQBias => "attn_q_bias",
-            Self::AttnKBias => "attn_k_bias",
-            Self::AttnVBias => "attn_v_bias",
-            Self::QProj => "attn_q (q_proj)",
-            Self::KProj => "attn_k (k_proj)",
-            Self::VProj => "attn_v (v_proj)",
-            Self::OProj => "attn_output (o_proj)",
-            Self::FfnGate => "ffn_gate",
-            Self::FfnUp => "ffn_up",
-            Self::FfnDown => "ffn_down",
-        }
     }
 }
 
@@ -231,6 +230,25 @@ mod tests {
                     base_role
                 );
             }
+        }
+    }
+
+    #[test]
+    fn test_all_roles_have_field_names() {
+        let arch = ArchConstraints::from_architecture("qwen3");
+        for role in required_roles(&arch) {
+            assert!(!role.field_name().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_no_duplicate_roles() {
+        let mut arch = ArchConstraints::from_architecture("qwen3");
+        arch.has_bias = true; // Synthetic: both flags set
+        let roles = required_roles(&arch);
+        let mut seen = std::collections::HashSet::new();
+        for role in roles {
+            assert!(seen.insert(role), "Duplicate role: {:?}", role);
         }
     }
 }

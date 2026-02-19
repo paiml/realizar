@@ -257,7 +257,7 @@ fn validate_block_completeness(
     let roles = required_roles(constraints);
 
     for (layer_idx, block) in blocks.iter().enumerate() {
-        for role in roles {
+        for &role in roles {
             let missing = match role {
                 // FFN gate is optional in BlockWeights but required by SwiGLU architectures
                 WeightRole::FfnGate => block.ffn_gate_weight.is_none(),
