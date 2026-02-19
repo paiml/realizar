@@ -147,6 +147,11 @@ libc = "0.2"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { version = "1", features = ["v4", "serde", "js"] }
 
+[build-dependencies]
+# Parsing provable-contracts binding.yaml for CONTRACT_* env vars (build.rs)
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+
 [dev-dependencies]
 # Visual regression testing framework (playbooks, TUI testing, GPU pixel verification)
 jugar-probar = { version = "0.4", features = ["tui", "gpu"] }

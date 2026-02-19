@@ -14,29 +14,22 @@ use std::fs;
 use std::path::Path;
 
 /// RMS normalization
+///
+/// Thin wrapper: delegates to `gpu::scheduler::ops::layer_norm_static` (canonical
+/// RMSNorm implementation) with a zero bias vector, keeping a single source of
+/// truth for the normalization math.
 pub(crate) fn rms_norm(x: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
     let hidden_dim = weight.len();
-    let seq_len = x.len() / hidden_dim;
-    let mut output = Vec::with_capacity(x.len());
-
-    for s in 0..seq_len {
-        let start = s * hidden_dim;
-        let slice = &x[start..start + hidden_dim];
-
-        // Compute RMS
-        let sum_sq: f32 = slice.iter().map(|&v| v * v).sum();
-        let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
-
-        // Normalize and scale
-        for (i, &v) in slice.iter().enumerate() {
-            output.push((v / rms) * weight.get(i).copied().unwrap_or(1.0));
-        }
-    }
-    output
+    let zero_bias = vec![0.0f32; hidden_dim];
+    crate::gpu::layer_norm_static(x, weight, &zero_bias, hidden_dim, eps)
 }
 
-/// Matrix multiplication with SIMD dot products
+/// Matrix multiplication: x @ w^T
 /// [seq, in_dim] @ [out_dim, in_dim]^T -> [seq, out_dim]
+///
+/// Thin wrapper: delegates to `gpu::metrics::cpu_matmul_transpose_b` (canonical
+/// A @ B^T implementation) so the matmul-with-transposed-B logic lives in one
+/// place.  The parameter mapping is: a=x, b=w, m=seq_len, k=in_dim, n=out_dim.
 pub(crate) fn matmul(
     x: &[f32],
     w: &[f32],
@@ -44,28 +37,7 @@ pub(crate) fn matmul(
     in_dim: usize,
     out_dim: usize,
 ) -> Vec<f32> {
-    let mut output = vec![0.0; seq_len * out_dim];
-
-    for s in 0..seq_len {
-        let x_start = s * in_dim;
-        let x_end = x_start + in_dim;
-        if x_end > x.len() {
-            continue; // Skip if out of bounds
-        }
-        let x_row = &x[x_start..x_end];
-
-        for o in 0..out_dim {
-            let w_start = o * in_dim;
-            let w_end = w_start + in_dim;
-            if w_end > w.len() {
-                continue; // Skip if out of bounds
-            }
-            let w_row = &w[w_start..w_end];
-            // SIMD dot product
-            output[s * out_dim + o] = simd_dot(x_row, w_row);
-        }
-    }
-    output
+    crate::gpu::cpu_matmul_transpose_b(x, w, seq_len, in_dim, out_dim)
 }
 
 /// Transpose a matrix from [rows, cols] to [cols, rows] for GEMM compatibility.
@@ -178,6 +150,14 @@ fn weighted_value_sum(v: &[f32], scores: &[f32], v_base: usize, d: usize, s: usi
 }
 
 /// Simplified multi-head attention (no RoPE, causal mask)
+///
+/// NOTE: This is the **multi-sequence** variant — Q/K/V are `[seq_len, dim]`
+/// and causal masking iterates over all sequence positions.  In contrast,
+/// `gpu::scheduler::ops::gqa_multihead_attention` is the **single-position**
+/// (incremental decode) variant where Q is `[num_heads * head_dim]` and K/V
+/// come from a KV cache of length `kv_len`.  The two have fundamentally
+/// different loop structures and cannot be unified without a mode flag that
+/// would hurt clarity, so this implementation is intentionally kept separate.
 pub(crate) fn simple_attention(
     q: &[f32],
     k: &[f32],

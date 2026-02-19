@@ -270,23 +270,23 @@
     // =========================================================================
 
     #[test]
+    #[should_panic(expected = "index out of bounds")]
     fn test_matmul_out_of_bounds_x() {
-        // x is shorter than expected
+        // x is shorter than expected — canonical cpu_matmul_transpose_b
+        // correctly panics on dimension mismatch (programming error).
         let x = vec![1.0, 2.0]; // Only 2 elements, but seq=1, in_dim=4
         let w = vec![1.0; 8]; // 2 output dims, 4 input dims
-        let result = crate::apr::matmul(&x, &w, 1, 4, 2);
-        // Should handle gracefully (skip or produce zeros)
-        assert_eq!(result.len(), 2);
+        let _result = crate::apr::matmul(&x, &w, 1, 4, 2);
     }
 
     #[test]
+    #[should_panic(expected = "index out of bounds")]
     fn test_matmul_out_of_bounds_w() {
-        // w is shorter than expected
+        // w is shorter than expected — canonical cpu_matmul_transpose_b
+        // correctly panics on dimension mismatch (programming error).
         let x = vec![1.0; 4]; // seq=1, in_dim=4
         let w = vec![1.0, 2.0]; // Too short
-        let result = crate::apr::matmul(&x, &w, 1, 4, 2);
-        // Should handle gracefully
-        assert_eq!(result.len(), 2);
+        let _result = crate::apr::matmul(&x, &w, 1, 4, 2);
     }
 
     // =========================================================================
