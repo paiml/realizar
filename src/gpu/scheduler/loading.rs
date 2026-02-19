@@ -47,7 +47,7 @@ pub fn load_weights_from_gguf(mapped: &crate::gguf::MappedGGUFModel) -> Result<G
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
-        constraints: Some(gguf_config.constraints.clone()),
+        constraints: Some(gguf_config.constraints),
     };
 
     let data = mapped.data();
@@ -267,7 +267,7 @@ fn validate_block_completeness(
                 WeightRole::FfnNorm => block.ffn_norm_weight.is_empty(),
                 WeightRole::QProj | WeightRole::KProj | WeightRole::VProj => {
                     block.qkv_weight.is_empty()
-                }
+                },
                 WeightRole::OProj => block.out_weight.is_empty(),
                 WeightRole::FfnUp => block.ffn_fc1_weight.is_empty(),
                 WeightRole::FfnDown => block.ffn_fc2_weight.is_empty(),
@@ -277,13 +277,13 @@ fn validate_block_completeness(
                     // QK norm not supported in GpuModel scheduler path yet.
                     // If architecture requires it, that's a gap we must flag.
                     constraints.has_qk_norm
-                }
+                },
                 WeightRole::AttnQBias | WeightRole::AttnKBias | WeightRole::AttnVBias => {
                     // Bias is loaded via unwrap_or_else (zero-filled), which is acceptable
                     // for architectures that require bias — the weight exists even if all-zero
                     // from the GGUF fallback. Not a structural gap.
                     false
-                }
+                },
             };
 
             if missing {

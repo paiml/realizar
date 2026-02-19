@@ -55,22 +55,22 @@ pub use trueno::contracts::{
 /// at the per-layer level.
 #[derive(Debug, Clone)]
 pub struct ModelLoadProof {
-    /// Private — construction only through validate_model_load()
-    _architecture: String,
-    _num_layers: usize,
+    /// Construction only through validate_model_load()
+    architecture: String,
+    num_layers: usize,
 }
 
 impl ModelLoadProof {
     /// Architecture that was validated.
     #[must_use]
     pub fn architecture(&self) -> &str {
-        &self._architecture
+        &self.architecture
     }
 
     /// Number of layers that was validated.
     #[must_use]
     pub fn num_layers(&self) -> usize {
-        self._num_layers
+        self.num_layers
     }
 }
 
@@ -159,7 +159,9 @@ impl From<ModelLoadError> for RealizarError {
 /// # Errors
 ///
 /// Returns `ModelLoadError` with gate name and detailed reason.
-pub fn validate_model_load(config: &ModelLoadConfig) -> std::result::Result<ModelLoadProof, ModelLoadError> {
+pub fn validate_model_load(
+    config: &ModelLoadConfig,
+) -> std::result::Result<ModelLoadProof, ModelLoadError> {
     // Gate 1: Dimension plausibility
     validate_dimensions(config)?;
 
@@ -172,8 +174,8 @@ pub fn validate_model_load(config: &ModelLoadConfig) -> std::result::Result<Mode
     }
 
     Ok(ModelLoadProof {
-        _architecture: config.architecture.clone(),
-        _num_layers: config.num_layers,
+        architecture: config.architecture.clone(),
+        num_layers: config.num_layers,
     })
 }
 
@@ -224,7 +226,7 @@ fn validate_dimensions(config: &ModelLoadConfig) -> std::result::Result<(), Mode
             reason: "num_heads is 0".to_string(),
         });
     }
-    if config.hidden_dim % config.num_heads != 0 {
+    if !config.hidden_dim.is_multiple_of(config.num_heads) {
         return Err(ModelLoadError {
             gate: "dimension_plausibility",
             reason: format!(
@@ -394,10 +396,8 @@ mod tests {
 
     #[test]
     fn test_basic_convenience() {
-        let proof = validate_model_load_basic(
-            "qwen2", 28, 1536, 12, 2, 8960, 151936,
-        )
-        .expect("should pass");
+        let proof =
+            validate_model_load_basic("qwen2", 28, 1536, 12, 2, 8960, 151936).expect("should pass");
         assert_eq!(proof.architecture(), "qwen2");
     }
 
@@ -485,10 +485,8 @@ mod tests {
 
     #[test]
     fn test_unknown_architecture_uses_base() {
-        let proof = validate_model_load_basic(
-            "unknown_future_arch", 1, 128, 4, 4, 512, 1000,
-        )
-        .expect("unknown arch should pass with base constraints");
+        let proof = validate_model_load_basic("unknown_future_arch", 1, 128, 4, 4, 512, 1000)
+            .expect("unknown arch should pass with base constraints");
         assert_eq!(proof.architecture(), "unknown_future_arch");
     }
 
@@ -514,7 +512,7 @@ mod tests {
         match r_err {
             RealizarError::UnsupportedOperation { operation, .. } => {
                 assert!(operation.contains("contract_gate"));
-            }
+            },
             _ => panic!("expected UnsupportedOperation"),
         }
     }

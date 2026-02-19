@@ -211,7 +211,9 @@ use crate::cuda::kernels::{CudaKernels, KernelType};
 use crate::cuda::memory::{
     GpuMemoryPool, PinnedHostBuffer, PoolStats, StagingBufferPool, StagingPoolStats,
 };
-use crate::cuda::types::{IndexedLayerWeights, TransformerWorkspace, ValidatedLayerWeights, WeightQuantType};
+use crate::cuda::types::{
+    IndexedLayerWeights, TransformerWorkspace, ValidatedLayerWeights, WeightQuantType,
+};
 
 /// Validate that a raw device pointer is non-null before kernel launch.
 ///
