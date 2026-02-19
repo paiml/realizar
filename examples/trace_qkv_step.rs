@@ -1,13 +1,6 @@
 //! Trace QKV projection step by step to find the bug
 use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel};
-
-fn rms_norm(x: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
-    let rms = (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32 + eps).sqrt();
-    x.iter()
-        .zip(weight.iter())
-        .map(|(v, w)| (v / rms) * w)
-        .collect()
-}
+use realizar::rms_norm;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = "/home/noah/.cache/huggingface/hub/models--Qwen--Qwen2-0.5B-Instruct-GGUF/snapshots/198f08841147e5196a6a69bd0053690fb1fd3857/qwen2-0_5b-instruct-q4_0.gguf";

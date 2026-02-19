@@ -1,5 +1,6 @@
 //! Test individual Q, K, V matmuls
 use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel};
+use realizar::rms_norm;
 
 fn stats(name: &str, v: &[f32]) {
     let sum: f32 = v.iter().sum();
@@ -68,12 +69,3 @@ fn main() {
     }
 }
 
-fn rms_norm(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
-    let n = input.len();
-    let rms = (input.iter().map(|x| x * x).sum::<f32>() / n as f32 + eps).sqrt();
-    input
-        .iter()
-        .zip(weight.iter())
-        .map(|(x, w)| (x / rms) * w)
-        .collect()
-}

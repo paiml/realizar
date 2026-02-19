@@ -405,6 +405,9 @@ pub use safetensors::ShardedSafeTensorsModel;
 pub use safetensors::ValidatedAprTransformer;
 pub use tensor::Tensor;
 
+// UCBD §4: Canonical normalization functions (ONE PATH)
+pub use gguf::ops::{rms_norm, rms_norm_into};
+
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

@@ -6,6 +6,7 @@ use realizar::gguf::{
     MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedKVCache, OwnedQuantizedModel,
 };
 use realizar::quantize::{fused_q4k_parallel_matvec, fused_q6k_parallel_matvec};
+use realizar::rms_norm;
 
 const GGUF_TYPE_Q4_K: u32 = 12;
 const GGUF_TYPE_Q6_K: u32 = 14;
@@ -23,16 +24,6 @@ fn stats(name: &str, v: &[f32]) {
         "{}: L2={:.4}, min={:.4}, max={:.4}, mean={:.6}",
         name, l2, min, max, mean
     );
-}
-
-fn rms_norm(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
-    let n = input.len();
-    let rms = (input.iter().map(|x| x * x).sum::<f32>() / n as f32 + eps).sqrt();
-    input
-        .iter()
-        .zip(weight.iter())
-        .map(|(x, w)| (x / rms) * w)
-        .collect()
 }
 
 fn apply_rope(x: &mut [f32], position: usize, num_heads: usize, head_dim: usize, theta: f32) {
