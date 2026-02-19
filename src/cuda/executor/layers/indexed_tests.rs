@@ -240,8 +240,9 @@ fn test_transformer_layer_indexed_q6k_v_weight() {
     }
 
     // Modify layer weights to use Q6K for V projection
+    // GH-279: Use inner_mut() to modify validated weights in tests
     let mut layer_weights = exec.indexed_layer_weights[0].clone();
-    layer_weights.attn_v_qtype = WeightQuantType::Q6K;
+    layer_weights.inner_mut().attn_v_qtype = WeightQuantType::Q6K;
 
     let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
 

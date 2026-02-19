@@ -97,13 +97,17 @@ impl SafeTensorsCudaModel {
         executor.set_rope_type(0); // NORM style for Qwen2
 
         // 7. Upload weights based on mode
-        let (embedding_cache, gamma_cache, qkv_bias_cache, o_bias_cache) = if streaming_mode {
-            // GH-201: Streaming mode - only upload LM head and norms
-            Self::upload_weights_streaming(&mut executor, &st_model, &config)?
-        } else {
-            // Full cache mode - upload all weights
-            Self::upload_weights(&mut executor, &st_model, &config)?
-        };
+        // GH-279: Full cache returns qk_norm_cache; streaming mode doesn't load QK norm
+        let (embedding_cache, gamma_cache, qkv_bias_cache, o_bias_cache, qk_norm_loaded) =
+            if streaming_mode {
+                // GH-201: Streaming mode - only upload LM head and norms
+                let (emb, gamma, qkv_bias, o_bias) =
+                    Self::upload_weights_streaming(&mut executor, &st_model, &config)?;
+                (emb, gamma, qkv_bias, o_bias, std::collections::HashMap::new())
+            } else {
+                // Full cache mode - upload all weights (including QK norm)
+                Self::upload_weights(&mut executor, &st_model, &config)?
+            };
 
         // Keep path for streaming mode (to reload weights on-demand)
         let model_path = if streaming_mode {
@@ -123,7 +127,7 @@ impl SafeTensorsCudaModel {
             gamma_cache,
             qkv_bias_cache,
             o_bias_cache,
-            qk_norm_cache: std::collections::HashMap::new(),
+            qk_norm_cache: qk_norm_loaded,
             streaming_mode,
             model_path,
         })
@@ -210,8 +214,12 @@ impl SafeTensorsCudaModel {
             reason: "config.json missing vocab_size".to_string(),
         })?;
 
+        // GH-279: Derive architecture constraints for weight validation
+        let arch_name = json.architecture();
+        let arch_constraints = crate::gguf::ArchConstraints::from_architecture(&arch_name);
+
         Ok(SafeTensorsCudaConfig {
-            architecture: json.architecture(),
+            architecture: arch_name,
             hidden_dim,
             num_layers,
             num_heads,
@@ -222,6 +230,8 @@ impl SafeTensorsCudaModel {
             rope_theta: json.rope_theta.unwrap_or(10000.0),
             eps: json.rms_norm_eps.unwrap_or(1e-6),
             tie_word_embeddings: json.tie_word_embeddings.unwrap_or(false),
+            has_qk_norm: arch_constraints.has_qk_norm,
+            has_bias: arch_constraints.has_bias,
         })
     }
 
@@ -230,12 +240,14 @@ impl SafeTensorsCudaModel {
     /// Returns (embedding_table, gamma_cache, qkv_bias_cache, o_bias_cache) - embedding kept on CPU
     /// for token lookup, gamma_cache kept on CPU for RMS norm operations, bias caches for attention.
     #[allow(clippy::type_complexity)]
+    #[allow(clippy::type_complexity)]
     fn upload_weights(
         executor: &mut CudaExecutor,
         st_model: &MappedSafeTensorsModel,
         config: &SafeTensorsCudaConfig,
     ) -> Result<(
         Vec<f32>,
+        std::collections::HashMap<String, Vec<f32>>,
         std::collections::HashMap<String, Vec<f32>>,
         std::collections::HashMap<String, Vec<f32>>,
         std::collections::HashMap<String, Vec<f32>>,
@@ -254,6 +266,8 @@ impl SafeTensorsCudaModel {
         // PMAT-120 FIX: Bias caches for attention projections
         let mut qkv_bias_cache = std::collections::HashMap::new();
         let mut o_bias_cache = std::collections::HashMap::new();
+        // GH-279: QK norm weight cache (Qwen3 per-head RMSNorm)
+        let mut qk_norm_cache = std::collections::HashMap::new();
 
         // Embedding table (keep on CPU for token lookup)
         let embedding = st_model.get_tensor_auto("model.embed_tokens.weight")?;
@@ -334,6 +348,32 @@ impl SafeTensorsCudaModel {
             qkv_bias.extend_from_slice(&v_bias);
             qkv_bias_cache.insert(format!("qkv_bias.{layer_idx}"), qkv_bias);
 
+            // GH-279: QK norm weights (Qwen3 per-head RMSNorm on Q and K)
+            if let Ok(q_norm) =
+                st_model.get_tensor_auto(&format!("{prefix}.self_attn.q_norm.weight"))
+            {
+                qk_norm_cache.insert(format!("q_norm.{layer_idx}"), q_norm.clone());
+                let q_norm_key = format!("blk.{layer_idx}.attn_q_norm.gamma");
+                executor
+                    .cache_rmsnorm_gamma(&q_norm_key, &q_norm)
+                    .map_err(|e| RealizarError::UnsupportedOperation {
+                        operation: "cache_rmsnorm_gamma".to_string(),
+                        reason: format!("Failed to upload layer {layer_idx} q_norm: {e}"),
+                    })?;
+            }
+            if let Ok(k_norm) =
+                st_model.get_tensor_auto(&format!("{prefix}.self_attn.k_norm.weight"))
+            {
+                qk_norm_cache.insert(format!("k_norm.{layer_idx}"), k_norm.clone());
+                let k_norm_key = format!("blk.{layer_idx}.attn_k_norm.gamma");
+                executor
+                    .cache_rmsnorm_gamma(&k_norm_key, &k_norm)
+                    .map_err(|e| RealizarError::UnsupportedOperation {
+                        operation: "cache_rmsnorm_gamma".to_string(),
+                        reason: format!("Failed to upload layer {layer_idx} k_norm: {e}"),
+                    })?;
+            }
+
             // Output projection
             // PMAT-120 FIX: Use actual transpose for GEMM
             let o_raw = st_model.get_tensor_auto(&format!("{prefix}.self_attn.o_proj.weight"))?;
@@ -397,6 +437,21 @@ impl SafeTensorsCudaModel {
                 })?;
         }
 
-        Ok((embedding, gamma_cache, qkv_bias_cache, o_bias_cache))
+        // GH-279: Validate QK norm completeness — if architecture requires it,
+        // ALL layers must have Q and K norm weights loaded
+        if config.has_qk_norm && qk_norm_cache.len() < 2 * num_layers {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "upload_weights".to_string(),
+                reason: format!(
+                    "GH-279: Architecture requires QK norm but only {}/{} norm weights found. \
+                     Expected q_norm + k_norm for all {} layers.",
+                    qk_norm_cache.len(),
+                    2 * num_layers,
+                    num_layers
+                ),
+            });
+        }
+
+        Ok((embedding, gamma_cache, qkv_bias_cache, o_bias_cache, qk_norm_cache))
     }
 }

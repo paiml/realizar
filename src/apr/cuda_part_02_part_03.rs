@@ -278,6 +278,21 @@ impl AprV2ModelCuda {
                     ],
                     "ffn_norm.gamma",
                 ),
+                // GH-279: QK norm weights (Qwen3 per-head RMSNorm on Q and K)
+                (
+                    vec![
+                        format!("model.layers.{layer_idx}.self_attn.q_norm.weight"),
+                        format!("blk.{layer_idx}.attn_q_norm.weight"),
+                    ],
+                    "attn_q_norm.gamma",
+                ),
+                (
+                    vec![
+                        format!("model.layers.{layer_idx}.self_attn.k_norm.weight"),
+                        format!("blk.{layer_idx}.attn_k_norm.weight"),
+                    ],
+                    "attn_k_norm.gamma",
+                ),
             ];
 
             for (patterns, suffix) in norm_mappings {
@@ -360,9 +375,12 @@ impl AprV2ModelCuda {
         // Build indexed weight lookup table for O(1) access during decode
         // This is the key optimization that enables fast token generation
         if quantized_count > 0 {
+            // GH-279: Derive ArchConstraints from APR metadata for weight validation
+            let arch_name = self.model.metadata.model_type.as_deref().unwrap_or("llama");
+            let arch = crate::gguf::ArchConstraints::from_architecture(arch_name);
             if let Err(e) = self
                 .executor
-                .build_indexed_weights(num_layers, |i| format!("blk.{i}"))
+                .build_indexed_weights(num_layers, |i| format!("blk.{i}"), &arch)
             {
                 eprintln!("[AprV2ModelCuda] Warning: Could not build indexed weights: {e}");
                 // Continue anyway - fallback path will be used

@@ -285,6 +285,21 @@ impl AprV2ModelCuda {
                 ],
                 "ffn_norm.gamma",
             ),
+            // GH-279: QK norm weights (Qwen3 per-head RMSNorm on Q and K)
+            (
+                vec![
+                    format!("model.layers.{layer_idx}.self_attn.q_norm.weight"),
+                    format!("blk.{layer_idx}.attn_q_norm.weight"),
+                ],
+                "attn_q_norm.gamma",
+            ),
+            (
+                vec![
+                    format!("model.layers.{layer_idx}.self_attn.k_norm.weight"),
+                    format!("blk.{layer_idx}.attn_k_norm.weight"),
+                ],
+                "attn_k_norm.gamma",
+            ),
         ];
 
         for (patterns, suffix) in norm_mappings {

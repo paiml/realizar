@@ -23,7 +23,7 @@ impl CudaExecutor {
         ffn_up_ptr: u64,
         ffn_act_ptr: u64,
         layer_idx: usize,
-        layer_weights: &IndexedLayerWeights,
+        layer_weights: &ValidatedLayerWeights,
         m: u32,
         positions: &[u32],
         hidden_dim: u32,

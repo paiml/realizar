@@ -135,7 +135,11 @@ mod tests {
             attn_k_norm_len: 0,
         };
 
-        let bound = BoundLayerWeights::bind(&indexed, 256, 256, 64, 512);
+        // GH-279: Validate before binding (use qwen2 arch since test has bias fields set)
+        let arch = crate::gguf::ArchConstraints::from_architecture("qwen2");
+        let validated = crate::cuda::types::ValidatedLayerWeights::validate(indexed, &arch, 0)
+            .expect("test weights should validate for qwen2 arch");
+        let bound = BoundLayerWeights::bind(&validated, 256, 256, 64, 512);
 
         // Verify kernels were bound correctly based on qtypes
         assert_eq!(bound.q_proj.kernel(), GemvKernel::Q4K);

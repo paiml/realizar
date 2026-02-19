@@ -502,7 +502,9 @@ fn test_tqa017h_indexed_weights_build() {
 
     // Build indexed weights (this exercises the build_indexed_weights function)
     // Takes num_layers and a closure that generates layer prefixes
-    let result = executor.build_indexed_weights(2, |layer_idx| format!("blk.{}", layer_idx));
+    // GH-279: Use default arch for test
+    let arch = realizar::gguf::ArchConstraints::from_architecture("llama");
+    let result = executor.build_indexed_weights(2, |layer_idx| format!("blk.{}", layer_idx), &arch);
 
     // Note: This may fail if weight naming convention doesn't match
     // That's OK for coverage - we're testing the code path
@@ -1216,7 +1218,8 @@ fn test_tqa017n_indexed_weights() {
         }
     }
 
-    let _ = executor.build_indexed_weights(2, |layer_idx| format!("blk.{}", layer_idx));
+    let arch = realizar::gguf::ArchConstraints::from_architecture("llama");
+    let _ = executor.build_indexed_weights(2, |layer_idx| format!("blk.{}", layer_idx), &arch);
     eprintln!(
         "T-QA-017n: has_indexed_weights = {}",
         executor.has_indexed_weights()
@@ -1673,7 +1676,8 @@ fn test_tqa017o_live_fire_synthetic_forward() {
     );
 
     // Build indexed weights for O(1) lookup
-    let _ = executor.build_indexed_weights(num_layers, |i| format!("blk.{}", i));
+    let arch = realizar::gguf::ArchConstraints::from_architecture("llama");
+    let _ = executor.build_indexed_weights(num_layers, |i| format!("blk.{}", i), &arch);
 
     // Enable profiling to verify cublasSgemm calls
     executor.enable_profiling();

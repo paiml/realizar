@@ -171,7 +171,11 @@ impl CudaExecutor {
     // PAR-043: Indexed Weight Access (eliminate HashMap/string overhead)
     // ========================================================================
 
-    /// Build indexed weight lookup table from loaded caches
+    /// Build indexed weight lookup table from loaded caches.
+    ///
+    /// GH-279: Now takes `ArchConstraints` and validates every layer's weights
+    /// against the architecture's required roles. If any required weight is
+    /// missing (ptr=0, len=0), returns a descriptive error — never silent garbage.
     ///
     /// MUST be called after all weights are loaded via `load_quantized_weights()` and
     /// `load_rmsnorm_gamma()`. This pre-computes device pointers for O(1) access
@@ -181,14 +185,17 @@ impl CudaExecutor {
     ///
     /// * `num_layers` - Number of transformer layers in the model
     /// * `layer_prefix_fn` - Function to generate layer prefix from index (e.g., `|i| format!("blk.{}", i)`)
+    /// * `arch` - Architecture constraints for weight validation (GH-279)
     ///
     /// # Errors
     ///
-    /// Returns error if any required weight is not cached.
+    /// Returns error if any required weight is not cached, or if architecture
+    /// validation fails (missing required weight for the declared architecture).
     pub fn build_indexed_weights<F>(
         &mut self,
         num_layers: usize,
         layer_prefix_fn: F,
+        arch: &crate::gguf::ArchConstraints,
     ) -> Result<(), GpuError>
     where
         F: Fn(usize) -> String,
@@ -292,7 +299,7 @@ impl CudaExecutor {
                 .get(&k_norm_name)
                 .map_or((0, 0), |b| (b.as_ptr(), b.len()));
 
-            indexed.push(IndexedLayerWeights {
+            let raw = IndexedLayerWeights {
                 attn_q_ptr,
                 attn_q_len,
                 attn_q_qtype,
@@ -330,7 +337,16 @@ impl CudaExecutor {
                 attn_q_norm_len,
                 attn_k_norm_ptr,
                 attn_k_norm_len,
-            });
+            };
+
+            // GH-279: Validate that all architecture-required fields are non-zero.
+            // This is the Poka-Yoke enforcement point — if a loader forgot to
+            // populate a required field, we fail HERE (not during inference).
+            use crate::cuda::types::ValidatedLayerWeights;
+            let validated = ValidatedLayerWeights::validate(raw, arch, layer_idx)
+                .map_err(|e| GpuError::InvalidLaunchConfig(e.to_string()))?;
+
+            indexed.push(validated);
         }
 
         self.indexed_layer_weights = indexed;
@@ -344,13 +360,16 @@ impl CudaExecutor {
         !self.indexed_layer_weights.is_empty()
     }
 
-    /// Get indexed weights for a specific layer
+    /// Get validated indexed weights for a specific layer.
+    ///
+    /// GH-279: Returns `&ValidatedLayerWeights` — all architecture-required fields
+    /// are guaranteed non-zero by construction.
     ///
     /// # Panics
     ///
     /// Panics if `layer_idx >= num_layers` or if `build_indexed_weights()` hasn't been called.
     #[must_use]
-    pub fn get_indexed_layer(&self, layer_idx: usize) -> &IndexedLayerWeights {
+    pub fn get_indexed_layer(&self, layer_idx: usize) -> &ValidatedLayerWeights {
         &self.indexed_layer_weights[layer_idx]
     }
 

@@ -9,7 +9,7 @@ impl CudaExecutor {
         k_buf: &GpuBuffer<f32>,
         v_buf: &GpuBuffer<f32>,
         layer_idx: usize,
-        layer_weights: &IndexedLayerWeights,
+        layer_weights: &ValidatedLayerWeights,
         hidden_dim: u32,
         q_dim: u32,
         kv_dim: u32,
@@ -205,7 +205,7 @@ impl CudaExecutor {
         k_buf: &GpuBuffer<f32>,
         v_buf: &GpuBuffer<f32>,
         layer_idx: usize,
-        layer_weights: &IndexedLayerWeights,
+        layer_weights: &ValidatedLayerWeights,
         q_dim: u32,
         kv_dim: u32,
         skip_debug: bool,
@@ -310,7 +310,7 @@ impl CudaExecutor {
         &mut self,
         q_buf: &GpuBuffer<f32>,
         k_buf: &GpuBuffer<f32>,
-        layer_weights: &IndexedLayerWeights,
+        layer_weights: &ValidatedLayerWeights,
         epsilon: f32,
     ) -> Result<(), GpuError> {
         if layer_weights.attn_q_norm_len > 0 {

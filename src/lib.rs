@@ -113,6 +113,12 @@
 #![allow(clippy::field_reassign_with_default)] // Allow field reassign after default
 #![allow(dead_code)] // Allow unused fields/variants in test structs
 
+/// GH-279: Per-architecture required weight roles.
+///
+/// Defines which weight fields are required for each architecture
+/// (e.g., Qwen3 requires QK norm, Qwen2 requires bias).
+/// Used by `ValidatedLayerWeights::validate()` to enforce at construction time.
+pub mod arch_requirements;
 #[cfg(feature = "server")]
 pub mod api;
 /// Aprender .apr format support (PRIMARY inference format)

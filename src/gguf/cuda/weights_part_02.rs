@@ -84,8 +84,10 @@ impl OwnedQuantizedModelCuda {
         // This eliminates ~10ms constant CPU overhead per token from string formatting + HashMap lookups
         // PAR-107: Skip if already indexed to preserve CUDA graph (graph captures buffer addresses)
         if !self.executor.has_indexed_weights() {
+            // GH-279: Pass ArchConstraints for ValidatedLayerWeights enforcement
+            let arch = &self.model.config.constraints;
             self.executor
-                .build_indexed_weights(num_layers, |i| format!("blk.{}", i))
+                .build_indexed_weights(num_layers, |i| format!("blk.{}", i), arch)
                 .map_err(|e| RealizarError::UnsupportedOperation {
                     operation: "preload_weights_gpu".to_string(),
                     reason: format!("PAR-043: Failed to build indexed weights: {}", e),

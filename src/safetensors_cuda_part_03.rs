@@ -258,6 +258,8 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-6,
             tie_word_embeddings: true,
+            has_qk_norm: false,
+            has_bias: true,
         };
 
         let debug_str = format!("{:?}", config);
@@ -280,6 +282,8 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             tie_word_embeddings: false,
+            has_qk_norm: false,
+            has_bias: false,
         };
 
         let cloned = config.clone();
@@ -337,6 +341,8 @@ mod tests {
             rope_theta: 1000000.0,
             eps: 1e-6,
             tie_word_embeddings: true,
+            has_qk_norm: false,
+            has_bias: true,
         };
 
         let vram = SafeTensorsCudaModel::estimate_vram_bytes(&config, 2048);
@@ -375,6 +381,8 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-6,
             tie_word_embeddings: false,
+            has_qk_norm: false,
+            has_bias: false,
         };
 
         let config_24 = SafeTensorsCudaConfig {
@@ -409,6 +417,8 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-6,
             tie_word_embeddings: false,
+            has_qk_norm: false,
+            has_bias: false,
         };
 
         let vram_1k = SafeTensorsCudaModel::estimate_vram_bytes(&config, 1024);
