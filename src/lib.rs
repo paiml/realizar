@@ -125,11 +125,10 @@ pub mod apr;
 /// Provides F32 transformer weights for fair APR vs GGUF comparison.
 /// Designed for WASM compatibility - no SIMD requirements.
 pub mod apr_transformer;
-/// GH-279: Per-architecture required weight roles.
+/// Per-architecture required weight roles (GH-279).
 ///
-/// Defines which weight fields are required for each architecture
-/// (e.g., Qwen3 requires QK norm, Qwen2 requires bias).
-/// Used by `ValidatedLayerWeights::validate()` to enforce at construction time.
+/// UCBD §4 / GH-279: Compile-time enforcement that every loader
+/// provides all tensors required by the target architecture.
 pub mod arch_requirements;
 /// Audit trail and provenance logging
 ///
@@ -393,6 +392,7 @@ pub mod tokenizer;
 pub mod uri;
 
 // Re-exports for convenience
+pub use arch_requirements::*;
 pub use error::{RealizarError, Result};
 pub use infer::{run_inference, InferenceConfig, InferenceResult, PreparedTokens};
 pub use inference_trace::{InferenceTracer, ModelInfo, TraceConfig, TraceStep};
