@@ -1,8 +1,8 @@
 //! Test generation WITHOUT QKV bias
 use realizar::gguf::{
-use realizar::rms_norm;
     MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedKVCache, OwnedQuantizedModel,
 };
+use realizar::rms_norm;
 
 fn main() {
     let path = "../aprender/models/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf";
