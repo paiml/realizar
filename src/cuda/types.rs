@@ -355,12 +355,13 @@ pub struct BoundLayerWeights {
 }
 
 impl BoundLayerWeights {
-    /// Bind all layer weights from IndexedLayerWeights.
+    /// Bind all layer weights from ValidatedLayerWeights.
     ///
-    /// This is the compilation step: quant types are resolved to kernels ONCE.
-    /// After this, the forward pass has zero dispatch.
+    /// GH-279: Takes `&ValidatedLayerWeights` to ensure only validated weights
+    /// can be bound to kernels. This is the compilation step: quant types are
+    /// resolved to kernels ONCE. After this, the forward pass has zero dispatch.
     pub fn bind(
-        src: &IndexedLayerWeights,
+        src: &ValidatedLayerWeights,
         hidden_dim: u32,
         q_dim: u32,
         kv_dim: u32,
@@ -430,6 +431,157 @@ impl BoundLayerWeights {
             attn_q_norm_len: src.attn_q_norm_len,
             attn_k_norm_ptr: src.attn_k_norm_ptr,
             attn_k_norm_len: src.attn_k_norm_len,
+        }
+    }
+}
+
+// =============================================================================
+// GH-279: ValidatedLayerWeights — Poka-Yoke sealed constructor
+// =============================================================================
+//
+// The problem: IndexedLayerWeights uses (0, 0) as both "optional field" and
+// "loader bug". The type system cannot distinguish them.
+//
+// The solution: ValidatedLayerWeights wraps IndexedLayerWeights with a private
+// inner field. The ONLY constructor (`validate()`) checks every architecture-
+// required field against `required_roles()`. If any required field is (0, 0),
+// construction FAILS with a descriptive error — not a silent garbage inference.
+//
+// The forward pass ONLY accepts ValidatedLayerWeights. Passing unvalidated
+// weights is a compile error.
+
+use crate::arch_requirements::{required_roles, WeightRole};
+use crate::gguf::ArchConstraints;
+use std::fmt;
+
+/// Error returned when `ValidatedLayerWeights::validate()` finds a missing required field.
+#[derive(Debug, Clone)]
+pub struct WeightValidationError {
+    /// The weight role that is missing
+    pub role: WeightRole,
+    /// Human-readable field name
+    pub field: &'static str,
+    /// Architecture name (for error messages)
+    pub arch_name: String,
+    /// Layer index
+    pub layer_idx: usize,
+}
+
+impl fmt::Display for WeightValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "GH-279: Missing required weight '{}' for architecture '{}' at layer {} \
+             (ValidatedLayerWeights Poka-Yoke: (0, 0) is not allowed for required roles)",
+            self.field, self.arch_name, self.layer_idx
+        )
+    }
+}
+
+impl std::error::Error for WeightValidationError {}
+
+/// PMAT-235 Poka-Yoke: Validated layer weights.
+///
+/// Private inner field = IMPOSSIBLE to construct without passing validation.
+/// The forward pass ONLY accepts this type — compile error if anyone passes
+/// unvalidated `IndexedLayerWeights`.
+///
+/// # Invariant
+///
+/// Every field required by `required_roles(arch)` has non-zero ptr AND len.
+/// This invariant is established by `validate()` and preserved by immutability.
+#[derive(Debug, Clone)]
+pub struct ValidatedLayerWeights {
+    /// Private — construction only through `validate()`.
+    inner: IndexedLayerWeights,
+}
+
+impl std::ops::Deref for ValidatedLayerWeights {
+    type Target = IndexedLayerWeights;
+
+    fn deref(&self) -> &IndexedLayerWeights {
+        &self.inner
+    }
+}
+
+impl ValidatedLayerWeights {
+    /// The ONLY constructor. Validates all architecture-required fields are non-zero.
+    ///
+    /// If any required field has ptr == 0 AND len == 0, returns
+    /// `Err(WeightValidationError)` with the field name, architecture, and layer index.
+    ///
+    /// # Errors
+    ///
+    /// Returns `WeightValidationError` if a required weight role is missing (ptr=0, len=0).
+    pub fn validate(
+        raw: IndexedLayerWeights,
+        arch: &ArchConstraints,
+        layer_idx: usize,
+    ) -> Result<Self, WeightValidationError> {
+        let roles = required_roles(arch);
+
+        for &role in roles {
+            let (ptr, len) = Self::get_field(&raw, role);
+            if ptr == 0 && len == 0 {
+                return Err(WeightValidationError {
+                    role,
+                    field: role.field_name(),
+                    arch_name: Self::arch_display_name(arch),
+                    layer_idx,
+                });
+            }
+        }
+
+        Ok(Self { inner: raw })
+    }
+
+    /// Access the validated inner weights (read-only).
+    #[must_use]
+    pub fn inner(&self) -> &IndexedLayerWeights {
+        &self.inner
+    }
+
+    /// Mutable access to inner weights (test-only).
+    ///
+    /// Production code MUST NOT use this — validation invariants are not
+    /// re-checked after mutation. Only available in test builds.
+    #[cfg(test)]
+    #[must_use]
+    pub fn inner_mut(&mut self) -> &mut IndexedLayerWeights {
+        &mut self.inner
+    }
+
+    /// Extract (ptr, len) for a given weight role from raw `IndexedLayerWeights`.
+    fn get_field(raw: &IndexedLayerWeights, role: WeightRole) -> (u64, usize) {
+        match role {
+            WeightRole::AttnNorm => (raw.attn_norm_ptr, raw.attn_norm_len),
+            WeightRole::FfnNorm => (raw.ffn_norm_ptr, raw.ffn_norm_len),
+            WeightRole::AttnQNorm => (raw.attn_q_norm_ptr, raw.attn_q_norm_len),
+            WeightRole::AttnKNorm => (raw.attn_k_norm_ptr, raw.attn_k_norm_len),
+            WeightRole::AttnQBias => (raw.attn_q_bias_ptr, raw.attn_q_bias_len),
+            WeightRole::AttnKBias => (raw.attn_k_bias_ptr, raw.attn_k_bias_len),
+            WeightRole::AttnVBias => (raw.attn_v_bias_ptr, raw.attn_v_bias_len),
+            WeightRole::QProj => (raw.attn_q_ptr, raw.attn_q_len),
+            WeightRole::KProj => (raw.attn_k_ptr, raw.attn_k_len),
+            WeightRole::VProj => (raw.attn_v_ptr, raw.attn_v_len),
+            WeightRole::OProj => (raw.attn_output_ptr, raw.attn_output_len),
+            WeightRole::FfnGate => (raw.ffn_gate_ptr, raw.ffn_gate_len),
+            WeightRole::FfnUp => (raw.ffn_up_ptr, raw.ffn_up_len),
+            WeightRole::FfnDown => (raw.ffn_down_ptr, raw.ffn_down_len),
+        }
+    }
+
+    /// Human-readable architecture name for error messages.
+    fn arch_display_name(arch: &ArchConstraints) -> String {
+        // Reconstruct name from constraints
+        if arch.has_qk_norm && !arch.has_bias {
+            "qwen3".to_string()
+        } else if !arch.has_qk_norm && arch.has_bias {
+            "qwen2/phi (has_bias)".to_string()
+        } else if arch.has_qk_norm && arch.has_bias {
+            "unknown (has_qk_norm + has_bias)".to_string()
+        } else {
+            "llama/mistral/gemma (base)".to_string()
         }
     }
 }

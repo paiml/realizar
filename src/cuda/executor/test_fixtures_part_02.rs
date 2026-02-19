@@ -38,8 +38,10 @@ pub fn setup_executor_harness(
     }
 
     // 5. Load LM head and build indexed weights
+    // GH-279: Use default (LLaMA-like) arch for test fixtures
+    let arch = crate::gguf::ArchConstraints::from_architecture("llama");
     load_zero_weights(exec, "output.weight", config.vocab_size, config.hidden_dim)?;
-    exec.build_indexed_weights(config.num_layers, |i| format!("blk.{}", i))?;
+    exec.build_indexed_weights(config.num_layers, |i| format!("blk.{}", i), &arch)?;
 
     Ok(())
 }

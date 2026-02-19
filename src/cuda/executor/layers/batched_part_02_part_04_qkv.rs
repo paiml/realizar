@@ -55,7 +55,7 @@ impl CudaExecutor {
         v_buf_ptr: u64,
         hidden_buf1_ptr: u64,
         layer_idx: usize,
-        layer_weights: &IndexedLayerWeights,
+        layer_weights: &ValidatedLayerWeights,
         m: u32,
         positions: &[u32],
         hidden_dim: u32,

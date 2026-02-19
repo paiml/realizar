@@ -86,8 +86,10 @@ fn test_tqa012d_forward_all_layers_gpu() {
         .expect("CUDA operation failed");
 
     // Build indexed weights for forward_all_layers_gpu
+    // GH-279: Use default (LLaMA-like) arch for test fixtures
+    let arch = crate::gguf::ArchConstraints::from_architecture("llama");
     executor
-        .build_indexed_weights(num_layers, |layer_idx| format!("blk.{}", layer_idx))
+        .build_indexed_weights(num_layers, |layer_idx| format!("blk.{}", layer_idx), &arch)
         .expect("T-QA-012d: Build indexed weights");
 
     // Input/output slices (forward_all_layers_gpu uses slices, not GpuBuffer)

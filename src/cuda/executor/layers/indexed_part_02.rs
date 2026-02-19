@@ -30,7 +30,7 @@ impl CudaExecutor {
         &mut self,
         input: &GpuBuffer<f32>,
         layer_idx: usize,
-        layer_weights: &IndexedLayerWeights,
+        layer_weights: &ValidatedLayerWeights,
         hidden_dim: u32,
         intermediate_dim: u32,
         epsilon: f32,

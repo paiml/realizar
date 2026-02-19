@@ -199,6 +199,10 @@ pub struct SafeTensorsCudaConfig {
     pub eps: f32,
     /// F-GT-002: Whether to use tied embeddings (lm_head = embed_tokens)
     pub tie_word_embeddings: bool,
+    /// GH-279: Whether Q/K projections have per-head RMSNorm (Qwen3)
+    pub has_qk_norm: bool,
+    /// GH-279: Whether attention projections have bias terms (Qwen2, phi)
+    pub has_bias: bool,
 }
 
 include!("safetensors_cuda_part_02.rs");

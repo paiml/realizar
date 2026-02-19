@@ -211,7 +211,7 @@ use crate::cuda::kernels::{CudaKernels, KernelType};
 use crate::cuda::memory::{
     GpuMemoryPool, PinnedHostBuffer, PoolStats, StagingBufferPool, StagingPoolStats,
 };
-use crate::cuda::types::{IndexedLayerWeights, TransformerWorkspace, WeightQuantType};
+use crate::cuda::types::{IndexedLayerWeights, TransformerWorkspace, ValidatedLayerWeights, WeightQuantType};
 
 /// Validate that a raw device pointer is non-null before kernel launch.
 ///
@@ -336,7 +336,9 @@ pub struct CudaExecutor {
     bias_cache: HashMap<String, GpuBuffer<f32>>,
     // PAR-043: Pre-indexed layer weights for O(1) access during decode
     // Eliminates ~10ms per-token overhead from string formatting + HashMap lookups
-    indexed_layer_weights: Vec<IndexedLayerWeights>,
+    // GH-279: Now stores ValidatedLayerWeights — construction validates all
+    // architecture-required fields are non-zero. Forward pass ONLY accepts this type.
+    indexed_layer_weights: Vec<ValidatedLayerWeights>,
     // PAR-043: Output norm and LM head weights (not per-layer)
     output_norm_ptr: u64,
     output_norm_len: usize,
