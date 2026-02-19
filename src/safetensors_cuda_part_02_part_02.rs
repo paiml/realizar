@@ -34,7 +34,19 @@ impl SafeTensorsCudaModel {
         // 3. Extract config (F-LOAD-064, F-LOAD-065)
         let config = Self::extract_config(&json_config)?;
 
-        // 3b. GH-279: Architecture completeness gate — validate all required
+        // 3b. GH-279: Contract gate — validate architecture and dimensions
+        let _proof = crate::contract_gate::validate_model_load_basic(
+            &config.architecture,
+            config.num_layers,
+            config.hidden_dim,
+            config.num_heads,
+            config.num_kv_heads,
+            config.intermediate_dim,
+            config.vocab_size,
+        )
+        .map_err(crate::contract_gate::gate_error)?;
+
+        // 3c. GH-279: Architecture completeness gate — validate all required
         // tensors exist in the SafeTensors file BEFORE GPU initialization.
         Self::validate_safetensors_completeness(&st_model, &config)?;
 

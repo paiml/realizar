@@ -277,10 +277,18 @@ fn test_apr_q4_to_gpu_no_layers() {
     };
 
     let result = AprToGpuAdapter::to_gpu_model(&apr);
-    assert!(result.is_ok());
-
-    let gpu_model = result.unwrap();
-    assert_eq!(gpu_model.config.num_layers, 0);
+    // GH-279: Contract gate now correctly rejects 0-layer models
+    assert!(result.is_err(), "0-layer models should be rejected by contract gate");
+    match result {
+        Err(e) => {
+            let err_msg = format!("{e}");
+            assert!(
+                err_msg.contains("num_layers") || err_msg.contains("contract_gate"),
+                "Error should mention num_layers or contract_gate: {err_msg}"
+            );
+        }
+        Ok(_) => unreachable!("already asserted is_err"),
+    }
 }
 
 // ============================================================================

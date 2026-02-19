@@ -31,6 +31,33 @@ impl AprV2ModelCuda {
     ) -> Result<Self> {
         use crate::cuda::{check_vram_sufficient, CudaExecutor, StreamingConfig, StreamingMode};
 
+        // Extract metadata dimensions early for contract gate
+        let num_layers = model.metadata.num_layers.unwrap_or(0);
+        let num_heads = model.metadata.num_heads.unwrap_or(1);
+        let num_kv_heads = model.metadata.num_kv_heads.unwrap_or(num_heads);
+        let hidden_dim = model.metadata.hidden_size.unwrap_or(0);
+        let vocab_size = model.metadata.vocab_size.unwrap_or(0);
+        let intermediate_dim = model.metadata.intermediate_size.unwrap_or(hidden_dim * 4);
+
+        // GH-279: Contract gate — validate architecture and dimensions before CUDA init
+        let arch_name = model
+            .metadata
+            .architecture
+            .as_deref()
+            .unwrap_or("qwen2");
+        if num_layers > 0 && hidden_dim > 0 && num_heads > 0 && vocab_size > 0 {
+            let _proof = crate::contract_gate::validate_model_load_basic(
+                arch_name,
+                num_layers,
+                hidden_dim,
+                num_heads,
+                num_kv_heads,
+                intermediate_dim,
+                vocab_size,
+            )
+            .map_err(crate::contract_gate::gate_error)?;
+        }
+
         let mut executor =
             CudaExecutor::new(device_ordinal).map_err(|e| RealizarError::UnsupportedOperation {
                 operation: "CudaExecutor::new".to_string(),
@@ -41,14 +68,6 @@ impl AprV2ModelCuda {
             .device_name()
             .unwrap_or_else(|_| "Unknown GPU".to_string());
         let memory_info = executor.memory_info().unwrap_or((0, 0));
-
-        // Initialize GPU-resident KV cache for attention acceleration
-        let num_layers = model.metadata.num_layers.unwrap_or(0);
-        let num_heads = model.metadata.num_heads.unwrap_or(1);
-        let num_kv_heads = model.metadata.num_kv_heads.unwrap_or(num_heads);
-        let hidden_dim = model.metadata.hidden_size.unwrap_or(0);
-        let vocab_size = model.metadata.vocab_size.unwrap_or(0);
-        let intermediate_dim = model.metadata.intermediate_size.unwrap_or(hidden_dim * 4);
         let head_dim = if num_heads > 0 {
             hidden_dim / num_heads
         } else {

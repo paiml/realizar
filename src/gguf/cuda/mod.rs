@@ -211,6 +211,22 @@ impl OwnedQuantizedModelCuda {
     ) -> std::result::Result<Self, CudaInitError> {
         use crate::cuda::CudaExecutor;
 
+        // GH-279: Contract gate — validate architecture and dimensions before CUDA init
+        if let Err(e) = crate::contract_gate::validate_model_load_basic(
+            &model.config.architecture,
+            model.config.num_layers,
+            model.config.hidden_dim,
+            model.config.num_heads,
+            model.config.num_kv_heads,
+            model.config.intermediate_dim,
+            model.config.vocab_size,
+        ) {
+            return Err(CudaInitError {
+                error: crate::contract_gate::gate_error(e),
+                model,
+            });
+        }
+
         // GH-280: Capability gate — refuse GPU if model requires unsupported ops.
         let model = Self::check_gpu_capability(model)?;
 

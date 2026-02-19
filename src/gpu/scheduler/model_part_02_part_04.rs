@@ -66,6 +66,21 @@ impl GpuModel {
     /// ```
     pub fn from_mapped_gguf(mapped: &crate::gguf::MappedGGUFModel) -> Result<Self> {
         let w = super::loading::load_weights_from_gguf(mapped)?;
+
+        // GH-279: Contract gate — validate architecture and dimensions
+        let _proof = crate::contract_gate::validate_model_load_basic(
+            w.config.constraints.as_ref().map_or("llama", |c| {
+                if c.has_qk_norm { "qwen3" } else if c.has_bias { "qwen2" } else { "llama" }
+            }),
+            w.config.num_layers,
+            w.config.hidden_dim,
+            w.config.num_heads,
+            w.config.num_kv_heads,
+            w.config.intermediate_dim,
+            w.config.vocab_size,
+        )
+        .map_err(crate::contract_gate::gate_error)?;
+
         let scheduler = HybridScheduler::new()?;
 
         // Pre-compute transposed LM head for fast CPU inference
@@ -120,6 +135,20 @@ impl GpuModel {
         lm_head_weight_t: Vec<f32>,
         lm_head_bias: Vec<f32>,
     ) -> Result<Self> {
+        // GH-279: Contract gate — validate architecture and dimensions
+        let _proof = crate::contract_gate::validate_model_load_basic(
+            config.constraints.as_ref().map_or("llama", |c| {
+                if c.has_qk_norm { "qwen3" } else if c.has_bias { "qwen2" } else { "llama" }
+            }),
+            config.num_layers,
+            config.hidden_dim,
+            config.num_heads,
+            config.num_kv_heads,
+            config.intermediate_dim,
+            config.vocab_size,
+        )
+        .map_err(crate::contract_gate::gate_error)?;
+
         let scheduler = HybridScheduler::new()?;
 
         // Phase 21: Initialize CudaScheduler for GPU-accelerated matmul

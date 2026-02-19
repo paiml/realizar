@@ -192,6 +192,7 @@ pub mod cli;
 ///
 /// Converts GGUF models to APR format for fair comparison.
 /// All weights are dequantized to F32 for WASM compatibility.
+pub mod contract_gate;
 pub mod convert;
 /// CUDA PTX generation for NVIDIA GPUs
 ///
