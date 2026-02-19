@@ -169,9 +169,11 @@ impl OwnedQuantizedModel {
     }
 
     /// GELU activation
+    ///
+    /// ONE PATH: Per-element delegates to `trueno::gelu_scalar` (UCBD §4).
     pub fn gelu(&self, input: &mut [f32]) {
         for x in input.iter_mut() {
-            *x = 0.5 * *x * (1.0 + (*x * 0.797_884_6 * (1.0 + 0.044715 * *x * *x)).tanh());
+            *x = trueno::gelu_scalar(*x);
         }
     }
 

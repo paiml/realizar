@@ -862,15 +862,19 @@ fn l2_normalize(x: &[f32]) -> Vec<f32> {
 }
 
 /// SiLU (Sigmoid Linear Unit): x · σ(x)
+///
+/// ONE PATH: Delegates to `trueno::silu_scalar` (UCBD §4).
 #[inline]
 fn silu(x: f32) -> f32 {
-    x / (1.0 + (-x).exp())
+    trueno::silu_scalar(x)
 }
 
 /// Sigmoid: σ(x) = 1 / (1 + exp(-x))
+///
+/// ONE PATH: Delegates to `trueno::sigmoid_scalar` (UCBD §4).
 #[inline]
 fn sigmoid(x: f32) -> f32 {
-    1.0 / (1.0 + (-x).exp())
+    trueno::sigmoid_scalar(x)
 }
 
 /// Softplus: log(1 + exp(x))

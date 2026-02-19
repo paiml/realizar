@@ -292,14 +292,11 @@ pub(crate) fn add_bias_inplace(data: &mut [f32], bias: &[f32]) {
 }
 
 /// GELU activation in-place (tanh approximation)
+///
+/// ONE PATH: Per-element delegates to `trueno::gelu_scalar` (UCBD §4).
 pub(crate) fn gelu_inplace(data: &mut [f32]) {
-    const SQRT_2_OVER_PI: f32 = 0.797_884_6;
-    const GELU_COEFF: f32 = 0.044_715;
-
     for x in data.iter_mut() {
-        let x3 = *x * *x * *x;
-        let inner = SQRT_2_OVER_PI * (*x + GELU_COEFF * x3);
-        *x = 0.5 * *x * (1.0 + inner.tanh());
+        *x = trueno::gelu_scalar(*x);
     }
 }
 

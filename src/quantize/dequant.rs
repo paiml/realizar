@@ -144,51 +144,10 @@ pub fn dequantize_q8_0(data: &[u8]) -> Result<Vec<f32>> {
 
 /// Convert IEEE 754 half-precision (f16) to single-precision (f32)
 ///
-/// Handles normal values, subnormals, infinities, and NaN.
+/// ONE PATH: Delegates to `trueno::f16_to_f32` (UCBD §4).
 #[inline]
 pub fn f16_to_f32(h: u16) -> f32 {
-    let sign = (h >> 15) & 1;
-    let exp = (h >> 10) & 0x1F;
-    let mantissa = h & 0x3FF;
-
-    if exp == 0 {
-        // Subnormal or zero
-        if mantissa == 0 {
-            // Zero (preserve sign)
-            if sign == 1 {
-                -0.0
-            } else {
-                0.0
-            }
-        } else {
-            // Subnormal: (mantissa / 1024) * 2^-14
-            let value = (mantissa as f32 / 1024.0) * (2.0_f32).powi(-14);
-            if sign == 1 {
-                -value
-            } else {
-                value
-            }
-        }
-    } else if exp == 31 {
-        // Infinity or NaN
-        if mantissa == 0 {
-            if sign == 1 {
-                f32::NEG_INFINITY
-            } else {
-                f32::INFINITY
-            }
-        } else {
-            f32::NAN
-        }
-    } else {
-        // Normal value: (1 + mantissa/1024) * 2^(exp-15)
-        let value = (1.0 + mantissa as f32 / 1024.0) * (2.0_f32).powi(exp as i32 - 15);
-        if sign == 1 {
-            -value
-        } else {
-            value
-        }
-    }
+    trueno::f16_to_f32(h)
 }
 
 /// Dequantize `F16` format weights to `F32`

@@ -155,8 +155,9 @@ pub fn simd_mul(a: &mut [f32], b: &[f32]) {
 /// ```
 #[inline]
 pub fn simd_silu(data: &mut [f32]) {
+    // ONE PATH: Per-element delegates to trueno::silu_scalar (UCBD §4).
     for x in data.iter_mut() {
-        *x = *x / (1.0 + (-*x).exp());
+        *x = trueno::silu_scalar(*x);
     }
 }
 
@@ -177,14 +178,9 @@ pub fn simd_silu(data: &mut [f32]) {
 /// ```
 #[inline]
 pub fn simd_gelu(data: &mut [f32]) {
-    // Approximate GELU: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
-    const SQRT_2_OVER_PI: f32 = 0.797_884_6; // sqrt(2/π)
-    const COEF: f32 = 0.044715;
-
+    // ONE PATH: Per-element delegates to trueno::gelu_scalar (UCBD §4).
     for x in data.iter_mut() {
-        let x3 = *x * *x * *x;
-        let inner = SQRT_2_OVER_PI * (*x + COEF * x3);
-        *x = 0.5 * *x * (1.0 + inner.tanh());
+        *x = trueno::gelu_scalar(*x);
     }
 }
 

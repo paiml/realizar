@@ -1,14 +1,18 @@
 
 /// SiLU activation: x * sigmoid(x)
+///
+/// ONE PATH: Delegates to `trueno::silu_scalar` (UCBD §4).
 #[inline]
 pub(crate) fn silu(x: f32) -> f32 {
-    x / (1.0 + (-x).exp())
+    trueno::silu_scalar(x)
 }
 
 /// GELU activation (tanh approximation)
+///
+/// ONE PATH: Delegates to `trueno::gelu_scalar` (UCBD §4).
 #[inline]
 pub(crate) fn gelu(x: f32) -> f32 {
-    0.5 * x * (1.0 + ((2.0 / std::f32::consts::PI).sqrt() * (x + 0.044715 * x.powi(3))).tanh())
+    trueno::gelu_scalar(x)
 }
 
 #[cfg(test)]

@@ -196,16 +196,10 @@ pub fn gelu(input: &Tensor<f32>) -> Result<Tensor<f32>> {
         });
     }
 
-    // Apply GELU activation using approximation
+    // ONE PATH: Per-element delegates to trueno::gelu_scalar (UCBD §4).
     let output: Vec<f32> = data
         .iter()
-        .map(|&x| {
-            // GELU approximation: 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x³)))
-            let sqrt_2_over_pi = 0.797_884_6; // sqrt(2/π)
-            let c = 0.044_715;
-            let inner = sqrt_2_over_pi * (x + c * x * x * x);
-            0.5 * x * (1.0 + inner.tanh())
-        })
+        .map(|&x| trueno::gelu_scalar(x))
         .collect();
 
     Tensor::from_vec(input.shape().to_vec(), output)
