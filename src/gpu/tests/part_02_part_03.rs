@@ -27,6 +27,7 @@ fn test_imp_1006b_block_incremental_uses_cuda() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut cuda_model =
@@ -128,6 +129,7 @@ fn test_imp_1006c_generate_throughput_improved() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut cuda_model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -193,6 +195,7 @@ fn test_imp_1006d_all_matmuls_routed_to_cuda() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut cuda_model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -254,6 +257,7 @@ fn test_imp_1007a_no_clone_matmul() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut model = GpuModel::new_with_cuda(config).expect("Failed to create model");
@@ -296,6 +300,7 @@ fn test_imp_1007b_incremental_no_clone_speedup() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut model = GpuModel::new_with_cuda(config.clone()).expect("Failed to create model");
@@ -375,6 +380,7 @@ fn test_imp_1007c_generate_throughput_improved() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut model = GpuModel::new_with_cuda(config).expect("Failed to create model");
@@ -438,6 +444,7 @@ fn test_imp_1008a_refcell_scheduler_matmul() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");

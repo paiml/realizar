@@ -192,6 +192,8 @@ pub struct GpuModelConfig {
     pub linear_num_value_heads: Option<usize>,
     /// GH-278: Conv1D kernel size for linear attention (Qwen3.5: 4)
     pub linear_conv_kernel_dim: Option<usize>,
+    /// GH-279: Architecture constraints for weight validation
+    pub constraints: Option<crate::gguf::ArchConstraints>,
 }
 
 impl GpuModelConfig {

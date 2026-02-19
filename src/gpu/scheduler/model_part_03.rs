@@ -37,6 +37,7 @@ mod tests {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
         };
         assert_eq!(config.head_dim(), 32);
     }
@@ -59,6 +60,7 @@ mod tests {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
         };
         // kv_dim = num_kv_heads * head_dim = 4 * 32 = 128
         assert_eq!(config.kv_dim(), 128);
@@ -83,6 +85,7 @@ mod tests {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
         };
         // MHA: qkv_dim = hidden_dim + 2 * kv_dim = 256 + 2 * 256 = 768
         assert_eq!(config.qkv_dim(), 768);
@@ -107,6 +110,7 @@ mod tests {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
         };
         // GQA: qkv_dim = hidden_dim + 2 * kv_dim = 256 + 2 * 64 = 384
         assert_eq!(config.qkv_dim(), 384);
@@ -131,6 +135,7 @@ mod tests {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
         };
         assert!(!mha_config.is_gqa());
 
@@ -151,6 +156,7 @@ mod tests {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
         };
         assert!(gqa_config.is_gqa());
     }
@@ -173,6 +179,7 @@ mod tests {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
         };
         let cloned = config.clone();
         assert_eq!(cloned.vocab_size, 32000);
@@ -197,6 +204,7 @@ mod tests {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
         };
         let debug_str = format!("{:?}", config);
         assert!(debug_str.contains("GpuModelConfig"));
@@ -275,6 +283,7 @@ mod tests {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
         };
         let buffers = AttentionBuffers::new(&model_config, 512);
         assert_eq!(buffers.q_buffer.len(), 64); // hidden_dim
@@ -303,6 +312,7 @@ mod tests {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
         };
         let mut buffers = AttentionBuffers::new(&model_config, 128);
 
@@ -342,6 +352,7 @@ mod tests {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
         };
         let buffers = AttentionBuffers::new(&model_config, 128);
         let debug_str = format!("{:?}", buffers);

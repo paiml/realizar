@@ -135,6 +135,7 @@ fn test_imp_1004c_full_forward_benchmark() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut cuda_model =
@@ -210,6 +211,7 @@ fn test_imp_1004d_token_generation_throughput() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut cuda_model =

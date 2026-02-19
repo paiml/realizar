@@ -43,6 +43,7 @@ fn test_gpu_model_multi_layer_forward() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     let mut model = GpuModel::new(config.clone()).unwrap();
 
@@ -73,6 +74,7 @@ fn test_gpu_model_all_blocks_forward_idx() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     let mut model = GpuModel::new(config.clone()).unwrap();
 
@@ -111,6 +113,7 @@ fn test_gpu_model_gqa_multiple_q_per_kv() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     let mut model = GpuModel::new(config.clone()).unwrap();
 
@@ -286,6 +289,7 @@ fn test_gpu_model_different_eps() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
         };
         let mut model = GpuModel::new(config.clone()).unwrap();
 
@@ -346,6 +350,7 @@ fn test_gpu_model_block_incremental_all_layers() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     let mut model = GpuModel::new(config.clone()).unwrap();
 

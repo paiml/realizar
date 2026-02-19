@@ -129,6 +129,7 @@ fn test_imp_026_gguf_gpu_weight_loading() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     // Test 1: GpuModel::from_gguf_config creates model with correct dimensions
@@ -256,6 +257,7 @@ fn test_imp_027_gpu_text_generation() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut model = GpuModel::from_gguf_config(config).expect("IMP-027: Should create model");
@@ -351,6 +353,7 @@ fn test_imp_028_real_forward_pass() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut model =

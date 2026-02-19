@@ -17,6 +17,7 @@ fn test_gpu_model_config_edge_case_single_head() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     assert_eq!(config.head_dim(), 64);

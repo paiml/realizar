@@ -285,6 +285,7 @@ fn test_gpu_model_config_derived() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     // Test derived dimensions
@@ -311,6 +312,7 @@ fn test_gpu_model_config_mha() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     assert_eq!(config.head_dim(), 64);

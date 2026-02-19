@@ -213,6 +213,7 @@ fn test_gpu_model_config() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     assert_eq!(config.head_dim(), 64); // 2048/32
@@ -239,6 +240,7 @@ fn test_gpu_model_config_mha() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     assert!(!config.is_gqa());
@@ -306,6 +308,7 @@ fn test_attention_buffers_creation() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let buffers = AttentionBuffers::new(&config, 512);
@@ -336,6 +339,7 @@ fn test_attention_buffers_reset() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let mut buffers = AttentionBuffers::new(&config, 128);
@@ -438,6 +442,7 @@ fn test_gpu_model_creation() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let model = GpuModel::new(config);
@@ -654,6 +659,7 @@ fn test_gpu_model_with_test_executor() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();
@@ -688,6 +694,7 @@ fn test_gpu_model_do_matmul_with_mock() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();
@@ -725,6 +732,7 @@ fn test_gpu_model_clear_test_executor() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();
@@ -757,6 +765,7 @@ fn test_gpu_model_mock_failure() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();

@@ -30,6 +30,7 @@ fn test_imp_1005a_do_matmul_uses_cuda_scheduler() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut cuda_model =
@@ -89,6 +90,7 @@ fn test_imp_1005b_forward_gpu_speedup_with_cuda() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut cuda_model =
@@ -172,6 +174,7 @@ fn test_imp_1005c_token_generation_with_cuda_forward() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut cuda_model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -237,6 +240,7 @@ fn test_imp_1005d_forward_block_uses_do_matmul() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut cuda_model =
@@ -319,6 +323,7 @@ fn test_imp_1006a_incremental_forward_uses_cuda() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let mut cuda_model =

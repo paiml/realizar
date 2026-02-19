@@ -1082,6 +1082,7 @@ mod tests {
             linear_num_key_heads: Some(2),
             linear_num_value_heads: Some(4),
             linear_conv_kernel_dim: Some(4),
+            constraints: None,
         };
 
         let state = LinearAttnState::new(&config);
@@ -1118,6 +1119,7 @@ mod tests {
             linear_num_key_heads: Some(2),
             linear_num_value_heads: Some(2),
             linear_conv_kernel_dim: Some(4),
+            constraints: None,
         };
 
         let mut state = LinearAttnState::new(&config);

@@ -32,6 +32,7 @@ impl GpuModel {
     ///     linear_num_key_heads: None,
     ///     linear_num_value_heads: None,
     ///     linear_conv_kernel_dim: None,
+    ///     constraints: None,
     /// };
     /// let model = GpuModel::from_gguf_config(config)?;
     /// ```

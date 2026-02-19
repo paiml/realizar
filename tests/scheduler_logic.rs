@@ -104,6 +104,7 @@ fn create_test_config(hidden_dim: usize, num_heads: usize, num_kv_heads: usize) 
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     }
 }
 

@@ -47,6 +47,7 @@ pub fn load_weights_from_gguf(mapped: &crate::gguf::MappedGGUFModel) -> Result<G
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: Some(gguf_config.constraints.clone()),
     };
 
     let data = mapped.data();
@@ -56,6 +57,13 @@ pub fn load_weights_from_gguf(mapped: &crate::gguf::MappedGGUFModel) -> Result<G
 
     // Load transformer blocks
     let block_weights = load_block_weights(mapped, &config, data)?;
+
+    // GH-279: Architecture completeness validation
+    // Verify that architecture-required weights were actually loaded
+    // (catches silent None defaults for required fields like ffn_gate)
+    if let Some(ref constraints) = config.constraints {
+        validate_block_completeness(&block_weights, constraints, &config)?;
+    }
 
     // Final layer norm
     let final_norm_weight = mapped.model.get_tensor_f32("output_norm.weight", data)?;
@@ -233,4 +241,68 @@ fn load_qkv_weights(
 
         Ok((qkv_weight, qkv_bias))
     }
+}
+
+/// GH-279: Validate that architecture-required block weights are present.
+///
+/// Catches cases where optional fields (like `ffn_gate_weight`) are silently `None`
+/// for architectures that actually require them (all SwiGLU architectures).
+fn validate_block_completeness(
+    blocks: &[BlockWeights],
+    constraints: &crate::gguf::ArchConstraints,
+    config: &GpuModelConfig,
+) -> Result<()> {
+    use crate::arch_requirements::{required_roles, WeightRole};
+
+    let roles = required_roles(constraints);
+
+    for (layer_idx, block) in blocks.iter().enumerate() {
+        for role in roles {
+            let missing = match role {
+                // FFN gate is optional in BlockWeights but required by SwiGLU architectures
+                WeightRole::FfnGate => block.ffn_gate_weight.is_none(),
+                // All other roles are loaded with `?` (hard error on missing),
+                // but validate shapes are non-empty as a safety net
+                WeightRole::AttnNorm => block.attn_norm_weight.is_empty(),
+                WeightRole::FfnNorm => block.ffn_norm_weight.is_empty(),
+                WeightRole::QProj | WeightRole::KProj | WeightRole::VProj => {
+                    block.qkv_weight.is_empty()
+                }
+                WeightRole::OProj => block.out_weight.is_empty(),
+                WeightRole::FfnUp => block.ffn_fc1_weight.is_empty(),
+                WeightRole::FfnDown => block.ffn_fc2_weight.is_empty(),
+                // QK norm and bias: not yet loaded in this path, but validate
+                // that the architecture doesn't require them (they would be zero-vectors)
+                WeightRole::AttnQNorm | WeightRole::AttnKNorm => {
+                    // QK norm not supported in GpuModel scheduler path yet.
+                    // If architecture requires it, that's a gap we must flag.
+                    constraints.has_qk_norm
+                }
+                WeightRole::AttnQBias | WeightRole::AttnKBias | WeightRole::AttnVBias => {
+                    // Bias is loaded via unwrap_or_else (zero-filled), which is acceptable
+                    // for architectures that require bias — the weight exists even if all-zero
+                    // from the GGUF fallback. Not a structural gap.
+                    false
+                }
+            };
+
+            if missing {
+                return Err(crate::error::RealizarError::UnsupportedOperation {
+                    operation: "validate_block_completeness".to_string(),
+                    reason: format!(
+                        "GH-279: Layer {} missing required weight '{}' for architecture \
+                         (has_qk_norm={}, has_bias={}, {} layers, hidden={})",
+                        layer_idx,
+                        role.field_name(),
+                        constraints.has_qk_norm,
+                        constraints.has_bias,
+                        config.num_layers,
+                        config.hidden_dim,
+                    ),
+                });
+            }
+        }
+    }
+
+    Ok(())
 }
