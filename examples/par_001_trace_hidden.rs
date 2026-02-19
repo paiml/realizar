@@ -4,22 +4,13 @@
 
 use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel};
 use realizar::quantize::{fused_q4k_parallel_matvec, fused_q6k_parallel_matvec};
+use realizar::rms_norm;
 
 const GGUF_TYPE_Q4_K: u32 = 12;
 const GGUF_TYPE_Q6_K: u32 = 14;
 
 fn l2_norm(v: &[f32]) -> f32 {
     (v.iter().map(|x| x * x).sum::<f32>()).sqrt()
-}
-
-fn rms_norm(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
-    let n = input.len();
-    let rms = (input.iter().map(|x| x * x).sum::<f32>() / n as f32 + eps).sqrt();
-    input
-        .iter()
-        .zip(weight.iter())
-        .map(|(x, w)| (x / rms) * w)
-        .collect()
 }
 
 fn silu(x: &mut [f32]) {

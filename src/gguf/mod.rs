@@ -56,7 +56,8 @@ mod types;
 pub(crate) mod utils;
 
 // Pure math operations (shared between CPU and GPU paths)
-pub(crate) mod ops;
+// UCBD §4: pub for re-export of rms_norm at crate root
+pub mod ops;
 
 // Test helpers module - shared utilities for GGUF tests
 #[cfg(test)]

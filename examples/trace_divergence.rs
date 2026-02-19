@@ -1,19 +1,10 @@
 //! Trace layer-by-layer divergence between CPU and GPU
 use realizar::gguf::{MappedGGUFModel, OwnedQKVWeights, OwnedQuantizedModel};
 use realizar::quantize::{fused_q4k_parallel_matvec, fused_q6k_parallel_matvec};
+use realizar::rms_norm;
 
 const GGUF_TYPE_Q4_K: u32 = 12;
 const GGUF_TYPE_Q6_K: u32 = 14;
-
-fn rms_norm(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
-    let n = input.len();
-    let rms = (input.iter().map(|x| x * x).sum::<f32>() / n as f32 + eps).sqrt();
-    input
-        .iter()
-        .zip(weight)
-        .map(|(x, w)| (x / rms) * w)
-        .collect()
-}
 
 fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: usize) -> Vec<f32> {
     match qtype {

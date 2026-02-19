@@ -3,19 +3,10 @@
 //! The output norm seems to cause a huge L2 increase. Let's investigate.
 
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
+use realizar::rms_norm;
 
 fn l2_norm(v: &[f32]) -> f32 {
     (v.iter().map(|x| x * x).sum::<f32>()).sqrt()
-}
-
-fn rms_norm(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
-    let n = input.len();
-    let rms = (input.iter().map(|x| x * x).sum::<f32>() / n as f32 + eps).sqrt();
-    input
-        .iter()
-        .zip(weight.iter())
-        .map(|(x, w)| (x / rms) * w)
-        .collect()
 }
 
 fn main() {
