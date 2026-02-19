@@ -16,8 +16,8 @@ mod types;
 pub use core::CudaScheduler;
 pub use model::GpuModel;
 pub use types::{
-    AttentionBuffers, BlockWeights, GpuGenerateConfig, GpuModelConfig, LinearAttnWeights,
-    WeightType,
+    AttentionBuffers, BlockWeights, GpuGenerateConfig, GpuModelConfig, GpuWeightError,
+    LinearAttnWeights, LmHeadWeight, LmHeadWeightTransposed, ValidatedGpuWeights, WeightType,
 };
 
 // Re-export linear attention state

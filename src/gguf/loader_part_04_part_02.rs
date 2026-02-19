@@ -1,15 +1,8 @@
 /// GH-278: Transpose a row-major f32 matrix from [rows x cols] to [cols x rows].
 ///
-/// Used to convert GPT-2 Conv1D weights from [in_dim x out_dim] layout
-/// to [out_dim x in_dim] layout expected by fused_matmul.
+/// PMAT-285: Delegates to `contract_gate::transpose_f32` (single source of truth).
 fn transpose_f32_matrix(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
-    let mut result = vec![0.0f32; rows * cols];
-    for r in 0..rows {
-        for c in 0..cols {
-            result[c * rows + r] = data[r * cols + c];
-        }
-    }
-    result
+    crate::contract_gate::transpose_f32(data, rows, cols)
 }
 
 /// Dequantize token embedding from APR format to f32 based on dtype.

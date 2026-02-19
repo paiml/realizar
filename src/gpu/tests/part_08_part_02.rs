@@ -198,7 +198,8 @@ fn test_gpu_model_config_from_apr_q4_dimensions() {
 
 #[test]
 fn test_apr_f32_to_gpu_multiple_layers() {
-    let config = create_minimal_apr_config();
+    let mut config = create_minimal_apr_config();
+    config.num_layers = 4; // PMAT-284: match actual layer count
     let hidden_dim = config.hidden_dim;
     let vocab_size = config.vocab_size;
 
@@ -219,8 +220,7 @@ fn test_apr_f32_to_gpu_multiple_layers() {
     assert!(result.is_ok());
 
     let gpu_model = result.unwrap();
-    // Config should still say num_layers from config, but model has 4 layers
-    assert_eq!(gpu_model.config.num_layers, 2); // Config says 2
+    assert_eq!(gpu_model.config.num_layers, 4);
 }
 
 #[test]

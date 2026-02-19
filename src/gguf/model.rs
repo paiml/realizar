@@ -282,21 +282,21 @@ pub struct GGUFTransformerLayer {
 /// `CudaExecutor` for GPU-accelerated matmul operations.
 pub struct OwnedQuantizedModel {
     /// Model configuration
-    pub config: GGUFConfig,
+    pub(crate) config: GGUFConfig,
     /// Token embedding (f32 for fast lookup)
-    pub token_embedding: Vec<f32>,
+    pub(crate) token_embedding: Vec<f32>,
     /// GH-278: Position embedding [context_length, hidden_dim] (GPT-2 only)
-    pub position_embedding: Option<Vec<f32>>,
+    pub(crate) position_embedding: Option<Vec<f32>>,
     /// Owned quantized layers
-    pub layers: Vec<OwnedQuantizedLayer>,
+    pub(crate) layers: Vec<OwnedQuantizedLayer>,
     /// Output norm weight (f32)
-    pub output_norm_weight: Vec<f32>,
+    pub(crate) output_norm_weight: Vec<f32>,
     /// Output norm bias (optional)
-    pub output_norm_bias: Option<Vec<f32>>,
+    pub(crate) output_norm_bias: Option<Vec<f32>>,
     /// LM head weight (owned quantized)
-    pub lm_head_weight: OwnedQuantizedTensor,
+    pub(crate) lm_head_weight: OwnedQuantizedTensor,
     /// LM head bias (optional, f32)
-    pub lm_head_bias: Option<Vec<f32>>,
+    pub(crate) lm_head_bias: Option<Vec<f32>>,
     /// PARITY-113: Optional CUDA executor for GPU acceleration
     /// When present, fused_matmul routes to CUDA GEMM kernels
     /// Uses Mutex for thread-safety in async handlers
@@ -366,6 +366,54 @@ impl Clone for OwnedQuantizedModel {
             #[cfg(feature = "cuda")]
             cached_weight_names: std::sync::Mutex::new(std::collections::HashSet::new()),
         }
+    }
+}
+
+// =============================================================================
+// PMAT-283: Public read-only accessors (fields sealed to pub(crate))
+// =============================================================================
+
+impl OwnedQuantizedModel {
+    /// Token embedding weights (f32, read-only).
+    #[must_use]
+    pub fn token_embedding(&self) -> &[f32] {
+        &self.token_embedding
+    }
+
+    /// Position embedding weights (GPT-2 only, read-only).
+    #[must_use]
+    pub fn position_embedding(&self) -> Option<&[f32]> {
+        self.position_embedding.as_deref()
+    }
+
+    /// Transformer layers (read-only).
+    #[must_use]
+    pub fn layers(&self) -> &[OwnedQuantizedLayer] {
+        &self.layers
+    }
+
+    /// Output layer norm weight (f32, read-only).
+    #[must_use]
+    pub fn output_norm_weight(&self) -> &[f32] {
+        &self.output_norm_weight
+    }
+
+    /// Output layer norm bias (optional, read-only).
+    #[must_use]
+    pub fn output_norm_bias(&self) -> Option<&[f32]> {
+        self.output_norm_bias.as_deref()
+    }
+
+    /// LM head weight (quantized, read-only).
+    #[must_use]
+    pub fn lm_head_weight(&self) -> &OwnedQuantizedTensor {
+        &self.lm_head_weight
+    }
+
+    /// LM head bias (optional f32, read-only).
+    #[must_use]
+    pub fn lm_head_bias(&self) -> Option<&[f32]> {
+        self.lm_head_bias.as_deref()
     }
 }
 

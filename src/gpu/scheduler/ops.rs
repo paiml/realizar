@@ -177,15 +177,11 @@ pub fn sample_topk(logits: &[f32], temperature: f32, top_k: usize) -> usize {
     indexed.first().map_or(0, |&(idx, _)| idx)
 }
 
-/// Transpose weight matrix from [rows, cols] to [cols, rows]
+/// Transpose weight matrix from [rows, cols] to [cols, rows].
+///
+/// PMAT-285: Delegates to `contract_gate::transpose_f32` (single source of truth).
 pub fn transpose_weights(weights: &[f32], rows: usize, cols: usize) -> Vec<f32> {
-    let mut transposed = vec![0.0f32; rows * cols];
-    for i in 0..rows {
-        for j in 0..cols {
-            transposed[j * rows + i] = weights[i * cols + j];
-        }
-    }
-    transposed
+    crate::contract_gate::transpose_f32(weights, rows, cols)
 }
 
 #[cfg(test)]
