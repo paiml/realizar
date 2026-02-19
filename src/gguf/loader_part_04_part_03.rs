@@ -180,6 +180,18 @@ impl OwnedQuantizedModel {
             bos_token_id: apr.metadata.get_embedded_bos_token_id(),
         };
 
+        // GH-279: Contract gate — validate architecture and dimensions before loading weights
+        let _proof = crate::contract_gate::validate_model_load_basic(
+            &config.architecture,
+            config.num_layers,
+            config.hidden_dim,
+            config.num_heads,
+            config.num_kv_heads,
+            config.intermediate_dim,
+            config.vocab_size,
+        )
+        .map_err(crate::contract_gate::gate_error)?;
+
         // GH-278: Detect Conv1D layout from contract (not string matching)
         let transpose = config.constraints.needs_transpose();
 

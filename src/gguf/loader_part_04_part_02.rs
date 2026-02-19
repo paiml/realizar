@@ -53,6 +53,18 @@ impl OwnedQuantizedModel {
         let hidden_dim = config.hidden_dim;
         let vocab_size = config.vocab_size;
 
+        // GH-279: Contract gate — validate architecture and dimensions before proceeding
+        let _proof = crate::contract_gate::validate_model_load_basic(
+            &config.architecture,
+            config.num_layers,
+            config.hidden_dim,
+            config.num_heads,
+            config.num_kv_heads,
+            config.intermediate_dim,
+            config.vocab_size,
+        )
+        .map_err(crate::contract_gate::gate_error)?;
+
         // Convert layers to owned (passing config for dimensions)
         // GH-278: Conv1D weight transpose is NOT needed for GGUF files.
         // Both llama.cpp (convert_hf_to_gguf.py) and aprender (transpose_weights: true)
