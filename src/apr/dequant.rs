@@ -3,40 +3,11 @@
 //! Extracted from mod.rs for file health compliance.
 
 /// Convert F16 (IEEE 754 half-precision) to F32
+///
+/// ONE PATH: Delegates to `trueno::f16_to_f32` (UCBD §4).
 #[inline]
 pub fn f16_to_f32(bits: u16) -> f32 {
-    let sign = u32::from((bits >> 15) & 1);
-    let exp = u32::from((bits >> 10) & 0x1F);
-    let mant = u32::from(bits & 0x3FF);
-
-    if exp == 0 {
-        if mant == 0 {
-            // Zero
-            f32::from_bits(sign << 31)
-        } else {
-            // Subnormal - convert to normalized f32
-            let mut m = mant;
-            let mut e = 0i32;
-            while (m & 0x400) == 0 {
-                m <<= 1;
-                e -= 1;
-            }
-            m &= 0x3FF;
-            let f32_exp = (127 - 15 + 1 + e) as u32;
-            f32::from_bits((sign << 31) | (f32_exp << 23) | (m << 13))
-        }
-    } else if exp == 31 {
-        // Inf or NaN
-        if mant == 0 {
-            f32::from_bits((sign << 31) | (0xFF << 23))
-        } else {
-            f32::from_bits((sign << 31) | (0xFF << 23) | (mant << 13))
-        }
-    } else {
-        // Normal number
-        let f32_exp = (exp as i32 - 15 + 127) as u32;
-        f32::from_bits((sign << 31) | (f32_exp << 23) | (mant << 13))
-    }
+    trueno::f16_to_f32(bits)
 }
 
 /// Dequantize F16 data to F32

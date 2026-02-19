@@ -190,12 +190,9 @@ pub fn layer_norm_into(
 /// * `input` - Input tensor (modified in-place)
 #[inline]
 pub fn gelu(input: &mut [f32]) {
-    const SQRT_2_OVER_PI: f32 = 0.797_884_6;
-    const C: f32 = 0.044_715;
-
+    // ONE PATH: Per-element delegates to trueno::gelu_scalar (UCBD §4).
     for x in input.iter_mut() {
-        let inner = SQRT_2_OVER_PI * (*x + C * *x * *x * *x);
-        *x = 0.5 * *x * (1.0 + inner.tanh());
+        *x = trueno::gelu_scalar(*x);
     }
 }
 
@@ -208,8 +205,9 @@ pub fn gelu(input: &mut [f32]) {
 /// * `input` - Input tensor (modified in-place)
 #[inline]
 pub fn silu(input: &mut [f32]) {
+    // ONE PATH: Per-element delegates to trueno::silu_scalar (UCBD §4).
     for x in input.iter_mut() {
-        *x = *x * (1.0 / (1.0 + (-*x).exp()));
+        *x = trueno::silu_scalar(*x);
     }
 }
 
