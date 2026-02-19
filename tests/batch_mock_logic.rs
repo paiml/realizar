@@ -36,6 +36,7 @@ fn create_small_config() -> GpuModelConfig {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     }
 }
 
@@ -369,6 +370,7 @@ fn test_large_vocab_uses_cpu_path() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let mut model = GpuModel::new(config).expect("Failed to create model");
@@ -713,6 +715,7 @@ fn test_model_config_is_gqa() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
     assert!(gqa_config.is_gqa());
 }
@@ -789,6 +792,7 @@ fn test_generate_gpu_large_vocab_uses_greedy_path() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let mut model = GpuModel::new(config).expect("Failed to create model");
@@ -829,6 +833,7 @@ fn test_forward_single_token_large_vocab_cpu_path() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let mut model = GpuModel::new(config).expect("Failed to create model");
@@ -865,6 +870,7 @@ fn test_forward_block_single_gqa_head_repetition() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let mut model = GpuModel::new(config).expect("Failed to create model");
@@ -900,6 +906,7 @@ fn test_optimized_gqa_attention_gqa_config() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let mut model = GpuModel::new(config).expect("Failed to create model");

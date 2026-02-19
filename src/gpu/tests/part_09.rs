@@ -37,6 +37,7 @@ fn create_kv_test_config() -> GpuModelConfig {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     }
 }
 
@@ -58,6 +59,7 @@ fn create_kv_gqa_config() -> GpuModelConfig {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     }
 }
 
@@ -79,6 +81,7 @@ fn create_kv_single_layer_config() -> GpuModelConfig {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     }
 }
 
@@ -100,6 +103,7 @@ fn create_kv_deep_config() -> GpuModelConfig {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     }
 }
 

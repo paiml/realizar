@@ -374,27 +374,27 @@ impl AprV2ModelCuda {
 
         // Build indexed weight lookup table for O(1) access during decode
         // This is the key optimization that enables fast token generation
-        if quantized_count > 0 {
-            // GH-279: Derive ArchConstraints from APR metadata for weight validation
+        // GH-279: Always build + validate, even for F32-only models.
+        // The validation catches missing architecture-required weights.
+        {
             let arch_name = self.model.metadata.model_type.as_deref().unwrap_or("llama");
             let arch = crate::gguf::ArchConstraints::from_architecture(arch_name);
-            if let Err(e) = self
-                .executor
+            self.executor
                 .build_indexed_weights(num_layers, |i| format!("blk.{i}"), &arch)
-            {
-                eprintln!("[AprV2ModelCuda] Warning: Could not build indexed weights: {e}");
-                // Continue anyway - fallback path will be used
-            } else {
-                eprintln!(
-                    "[AprV2ModelCuda] Built indexed weights for {} layers",
-                    num_layers
-                );
-            }
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!(
+                        "GH-279: Architecture weight validation failed: {e}"
+                    ),
+                })?;
+            eprintln!(
+                "[AprV2ModelCuda] Built indexed weights for {} layers (arch={})",
+                num_layers, arch_name
+            );
+        }
 
-            // Initialize workspace for zero-allocation forward pass
-            if let Err(e) = self.executor.init_workspace(hidden_dim, intermediate_dim) {
-                eprintln!("[AprV2ModelCuda] Warning: Could not init workspace: {e}");
-            }
+        // Initialize workspace for zero-allocation forward pass
+        if let Err(e) = self.executor.init_workspace(hidden_dim, intermediate_dim) {
+            eprintln!("[AprV2ModelCuda] Warning: Could not init workspace: {e}");
         }
 
         // PMAT-113: Log both quantized and F32 weight counts

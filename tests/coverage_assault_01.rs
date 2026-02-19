@@ -178,6 +178,7 @@ fn test_simplified_attention_single_token() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     // Single token, seq_len=1
@@ -216,6 +217,7 @@ fn test_simplified_attention_two_tokens() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     // Two tokens, seq_len=2
@@ -258,6 +260,7 @@ fn test_gpu_model_config_helpers() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     // Test head_dim
@@ -292,6 +295,7 @@ fn test_gpu_model_config_mha() {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     // Test is_gqa returns false for MHA

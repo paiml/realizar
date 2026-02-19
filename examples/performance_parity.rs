@@ -880,6 +880,7 @@ fn bench_gpu_token_generation() -> BenchResult {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let mut gpu_model = GpuModel::new(config).expect("test");
@@ -941,6 +942,7 @@ fn bench_large_model_simulation() -> BenchResult {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let mut gpu_model = GpuModel::new(config).expect("test");
@@ -1126,6 +1128,7 @@ fn bench_production_parity() -> BenchResult {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let mut gpu_model = GpuModel::new(config).expect("test");
@@ -1534,6 +1537,7 @@ fn bench_gguf_gpu_loading() -> BenchResult {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let start = Instant::now();
@@ -1591,6 +1595,7 @@ fn bench_e2e_text_generation() -> BenchResult {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let model_result = GpuModel::from_gguf_config(config);
@@ -1660,6 +1665,7 @@ fn bench_apples_to_apples() -> BenchResult {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let model_result = GpuModel::from_gguf_config(config);
@@ -1759,6 +1765,7 @@ fn bench_kv_cached_generation() -> BenchResult {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     let model_result = GpuModel::from_gguf_config(config);
@@ -2759,6 +2766,7 @@ fn bench_memory_compute_optimization() -> BenchResult {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     // Test 1: Contiguous attention buffer
@@ -2859,6 +2867,7 @@ fn bench_fused_kernels() -> BenchResult {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     // Create model with attention buffers
@@ -2996,6 +3005,7 @@ fn bench_optimized_generation() -> BenchResult {
         linear_num_key_heads: None,
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
+        constraints: None,
     };
 
     // Create model with pre-allocated attention buffers (M17)

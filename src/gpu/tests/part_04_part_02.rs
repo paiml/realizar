@@ -126,6 +126,7 @@ fn test_gpu_model_config_head_dim_ext_cov() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     assert_eq!(config.head_dim(), 32); // 256 / 8
 }
@@ -148,6 +149,7 @@ fn test_gpu_model_config_kv_dim_ext_cov() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     assert_eq!(config.kv_dim(), 128); // 4 * 32 (num_kv_heads * head_dim)
 }
@@ -170,6 +172,7 @@ fn test_gpu_model_config_qkv_dim_ext_cov() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     // qkv_dim = hidden_dim + 2 * kv_dim = 256 + 2 * 128 = 512
     assert_eq!(config.qkv_dim(), 512);
@@ -193,6 +196,7 @@ fn test_gpu_model_config_is_gqa_true_ext_cov() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     assert!(config.is_gqa());
 }
@@ -215,6 +219,7 @@ fn test_gpu_model_config_is_gqa_false_ext_cov() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     assert!(!config.is_gqa());
 }
@@ -281,6 +286,7 @@ fn test_attention_buffers_new_ext_cov() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     let buffers = AttentionBuffers::new(&config, 100);
 
@@ -310,6 +316,7 @@ fn test_attention_buffers_reset_ext_cov() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     let mut buffers = AttentionBuffers::new(&config, 100);
 

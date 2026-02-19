@@ -36,6 +36,7 @@ fn test_generation_config_from_model() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
 
     let gen_config = GenerationConfig::from_model(&model_config, 50);
@@ -62,6 +63,7 @@ fn test_generation_config_from_model() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     let small_gen = GenerationConfig::from_model(&small_config, 100);
     assert_eq!(small_gen.vocab_size, 1000);
@@ -209,6 +211,7 @@ fn test_block_forward_plan_attention_output_size() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     let plan = BlockForwardPlan::from_config(&config, 0, true);
     assert_eq!(plan.attention_output_size(), 2048);
@@ -232,6 +235,7 @@ fn test_block_forward_plan_all_fields() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     let plan = BlockForwardPlan::from_config(&config, 10, true);
 
@@ -265,6 +269,7 @@ fn test_block_forward_plan_mqa() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     let plan = BlockForwardPlan::from_config(&config, 0, false);
     assert!(plan.is_gqa());
@@ -290,6 +295,7 @@ fn test_block_forward_plan_clone_eq() {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     };
     let p1 = BlockForwardPlan::from_config(&config, 0, true);
     let p2 = BlockForwardPlan::from_config(&config, 0, true);

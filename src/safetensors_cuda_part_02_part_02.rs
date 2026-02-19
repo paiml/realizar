@@ -34,6 +34,10 @@ impl SafeTensorsCudaModel {
         // 3. Extract config (F-LOAD-064, F-LOAD-065)
         let config = Self::extract_config(&json_config)?;
 
+        // 3b. GH-279: Architecture completeness gate — validate all required
+        // tensors exist in the SafeTensors file BEFORE GPU initialization.
+        Self::validate_safetensors_completeness(&st_model, &config)?;
+
         // 4. Initialize CUDA executor (F-CUDA-011)
         let mut executor =
             CudaExecutor::new(device_ordinal).map_err(|e| RealizarError::UnsupportedOperation {
@@ -233,6 +237,83 @@ impl SafeTensorsCudaModel {
             has_qk_norm: arch_constraints.has_qk_norm,
             has_bias: arch_constraints.has_bias,
         })
+    }
+
+    /// GH-279: Validate that all architecture-required tensors exist in the SafeTensors file.
+    ///
+    /// This runs BEFORE GPU initialization so we fail fast with a clear error
+    /// instead of discovering missing tensors halfway through weight upload.
+    fn validate_safetensors_completeness(
+        st_model: &MappedSafeTensorsModel,
+        config: &SafeTensorsCudaConfig,
+    ) -> Result<()> {
+        let mut missing = Vec::new();
+
+        for layer_idx in 0..config.num_layers {
+            let prefix = format!("model.layers.{layer_idx}");
+
+            // Always required: norms, QKV projections, output proj, FFN
+            let required = [
+                format!("{prefix}.input_layernorm.weight"),
+                format!("{prefix}.post_attention_layernorm.weight"),
+                format!("{prefix}.self_attn.q_proj.weight"),
+                format!("{prefix}.self_attn.k_proj.weight"),
+                format!("{prefix}.self_attn.v_proj.weight"),
+                format!("{prefix}.self_attn.o_proj.weight"),
+                format!("{prefix}.mlp.gate_proj.weight"),
+                format!("{prefix}.mlp.up_proj.weight"),
+                format!("{prefix}.mlp.down_proj.weight"),
+            ];
+            for name in &required {
+                if !st_model.has_tensor(name) {
+                    missing.push(name.clone());
+                }
+            }
+
+            // Architecture-conditional: QK norm (Qwen3)
+            if config.has_qk_norm {
+                let q_norm = format!("{prefix}.self_attn.q_norm.weight");
+                let k_norm = format!("{prefix}.self_attn.k_norm.weight");
+                if !st_model.has_tensor(&q_norm) {
+                    missing.push(q_norm);
+                }
+                if !st_model.has_tensor(&k_norm) {
+                    missing.push(k_norm);
+                }
+            }
+
+            // Architecture-conditional: attention bias (Qwen2, Phi)
+            if config.has_bias {
+                let q_bias = format!("{prefix}.self_attn.q_proj.bias");
+                let k_bias = format!("{prefix}.self_attn.k_proj.bias");
+                let v_bias = format!("{prefix}.self_attn.v_proj.bias");
+                if !st_model.has_tensor(&q_bias) {
+                    missing.push(q_bias);
+                }
+                if !st_model.has_tensor(&k_bias) {
+                    missing.push(k_bias);
+                }
+                if !st_model.has_tensor(&v_bias) {
+                    missing.push(v_bias);
+                }
+            }
+        }
+
+        if !missing.is_empty() {
+            let first_few: Vec<&str> = missing.iter().take(5).map(String::as_str).collect();
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "validate_safetensors_completeness".to_string(),
+                reason: format!(
+                    "GH-279: SafeTensors model missing {} required tensor(s) for architecture '{}'. \
+                     First missing: [{}]",
+                    missing.len(),
+                    config.architecture,
+                    first_few.join(", ")
+                ),
+            });
+        }
+
+        Ok(())
     }
 
     /// Upload all model weights to GPU.

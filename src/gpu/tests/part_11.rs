@@ -35,6 +35,7 @@ fn create_large_vocab_greedy_config() -> GpuModelConfig {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     }
 }
 
@@ -56,6 +57,7 @@ fn create_cpu_fallback_config() -> GpuModelConfig {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     }
 }
 
@@ -77,6 +79,7 @@ fn create_small_config() -> GpuModelConfig {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     }
 }
 
@@ -98,6 +101,7 @@ fn create_gqa_4_to_1_config() -> GpuModelConfig {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            constraints: None,
     }
 }
 
