@@ -26,3 +26,6 @@ pub use linear_attn::LinearAttnState;
 // Re-export KV cache functions for external use (public API)
 #[allow(unused_imports)]
 pub use kv::{forward_gpu_incremental, forward_gpu_with_cache, generate_with_cache};
+
+// Re-export ops for crate-internal use (apr::helpers delegation)
+pub(crate) use ops::layer_norm_static;

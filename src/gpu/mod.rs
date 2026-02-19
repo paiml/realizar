@@ -94,8 +94,11 @@ pub use metrics::{
     AsyncGpuResult, ComputeBackend, GpuBufferPool, GpuCompute, GpuPoolStats, HealthChecker,
     HybridScheduler, InferenceMetrics, ShutdownCoordinator,
 };
-// Internal-only matmul functions (used by scheduler module)
-pub(crate) use metrics::{cpu_matmul, cpu_matmul_transposed_simd};
+// Internal-only matmul functions (used by scheduler module and apr::helpers)
+pub(crate) use metrics::{cpu_matmul, cpu_matmul_transpose_b, cpu_matmul_transposed_simd};
+
+// Internal-only RMSNorm (canonical impl, used by apr::helpers delegation)
+pub(crate) use scheduler::layer_norm_static;
 
 // Batch scheduling exports (M25, M26, M27)
 pub use batch_scheduling::{
