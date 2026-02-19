@@ -228,7 +228,8 @@ fn test_apr_f32_to_gpu_gqa_config_preserved() {
 
 #[test]
 fn test_apr_f32_to_gpu_with_optional_biases() {
-    let config = create_minimal_apr_config();
+    let mut config = create_minimal_apr_config();
+    config.num_layers = 1; // PMAT-284: match actual layer count
     let hidden_dim = config.hidden_dim;
     let vocab_size = config.vocab_size;
 
@@ -269,7 +270,8 @@ fn test_apr_f32_to_gpu_with_optional_biases() {
 
 #[test]
 fn test_apr_f32_to_gpu_without_optional_biases() {
-    let config = create_minimal_apr_config();
+    let mut config = create_minimal_apr_config();
+    config.num_layers = 1; // PMAT-284: match actual layer count
     let hidden_dim = config.hidden_dim;
     let vocab_size = config.vocab_size;
 
@@ -319,7 +321,8 @@ fn test_apr_f32_to_gpu_with_swiglu_gate() {
 
 #[test]
 fn test_apr_f32_to_gpu_without_swiglu_gate() {
-    let config = create_minimal_apr_config();
+    let mut config = create_minimal_apr_config();
+    config.num_layers = 1; // PMAT-284: match actual layer count
     let hidden_dim = config.hidden_dim;
     let vocab_size = config.vocab_size;
 

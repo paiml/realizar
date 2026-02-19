@@ -125,6 +125,68 @@ impl GpuModel {
     ///
     /// Returns error if GPU scheduler initialization fails
     #[allow(clippy::too_many_arguments)]
+    /// Create GpuModel from validated APR weights (PMAT-284).
+    ///
+    /// Accepts `ValidatedGpuWeights` which proves dimensions match config.
+    /// LM head newtypes (`LmHeadWeight` / `LmHeadWeightTransposed`) prevent
+    /// the PMAT-216 argument swap at compile time.
+    pub fn from_validated_weights(weights: ValidatedGpuWeights) -> Result<Self> {
+        // GH-279: Contract gate — validate architecture and dimensions
+        let _proof = crate::contract_gate::validate_model_load_basic(
+            weights.config.constraints.as_ref().map_or("llama", |c| {
+                if c.has_qk_norm { "qwen3" } else if c.has_bias { "qwen2" } else { "llama" }
+            }),
+            weights.config.num_layers,
+            weights.config.hidden_dim,
+            weights.config.num_heads,
+            weights.config.num_kv_heads,
+            weights.config.intermediate_dim,
+            weights.config.vocab_size,
+        )
+        .map_err(crate::contract_gate::gate_error)?;
+
+        let scheduler = HybridScheduler::new()?;
+
+        #[cfg(feature = "cuda")]
+        let cuda_scheduler = match CudaScheduler::new() {
+            Ok(cs) => {
+                eprintln!("[PHASE21] CudaScheduler initialized for APR model");
+                Some(cs)
+            },
+            Err(e) => {
+                eprintln!(
+                    "[PHASE21] CudaScheduler init failed (using HybridScheduler fallback): {}",
+                    e
+                );
+                None
+            },
+        };
+
+        let lm_head_weight = weights.lm_head_weight.into_inner();
+        let lm_head_weight_t = weights.lm_head_weight_t.into_inner();
+
+        Ok(Self {
+            embedding_weights: weights.embedding_weights,
+            block_weights: weights.block_weights,
+            final_norm_weight: weights.final_norm_weight,
+            final_norm_bias: weights.final_norm_bias,
+            lm_head_weight,
+            lm_head_weight_t,
+            lm_head_bias: weights.lm_head_bias,
+            scheduler,
+            #[cfg(feature = "cuda")]
+            cuda_scheduler,
+            config: weights.config,
+            attention_buffers: None,
+            test_executor: None,
+            linear_attn_state: None,
+        })
+    }
+
+    /// Legacy constructor — accepts raw Vec<f32> for backwards compatibility.
+    ///
+    /// Prefer `from_validated_weights()` for new code. This function retains
+    /// the PMAT-216 runtime transpose check for callers that haven't migrated.
     pub fn from_apr_weights(
         config: GpuModelConfig,
         embedding_weights: Vec<f32>,
@@ -151,7 +213,6 @@ impl GpuModel {
 
         let scheduler = HybridScheduler::new()?;
 
-        // Phase 21: Initialize CudaScheduler for GPU-accelerated matmul
         #[cfg(feature = "cuda")]
         let cuda_scheduler = match CudaScheduler::new() {
             Ok(cs) => {
@@ -167,17 +228,11 @@ impl GpuModel {
             },
         };
 
-        // Validate that lm_head_weight_t is actually transposed.
-        // Ensures the original and transposed weights have consistent argument order at runtime.
-        // lm_head_weight: [vocab_size, hidden_dim] - row i is vocab token i's projection
-        // lm_head_weight_t: [hidden_dim, vocab_size] - column i is vocab token i's projection
-        //
-        // Validation: first row of original should equal first column of transposed
-        // Original[0, 0..hidden_dim] == Transposed[0..hidden_dim, 0] (strided access)
+        // PMAT-216: Runtime transpose check (legacy path only — new code should use
+        // from_validated_weights with LmHeadWeight/LmHeadWeightTransposed newtypes)
         if lm_head_weight.len() >= config.hidden_dim
             && lm_head_weight_t.len() >= config.vocab_size * config.hidden_dim
         {
-            // Check first element (should be same in both)
             let orig_00 = lm_head_weight[0];
             let trans_00 = lm_head_weight_t[0];
             if (orig_00 - trans_00).abs() > 1e-6 {
@@ -190,14 +245,11 @@ impl GpuModel {
                 });
             }
 
-            // Check that second elements differ (proves transpose happened)
-            // Original[0,1] should equal Transposed[1,0] (not Transposed[0,1])
             if config.hidden_dim > 1 && config.vocab_size > 1 {
-                let orig_01 = lm_head_weight[1]; // [0, 1] in row-major
-                let trans_01 = lm_head_weight_t[1]; // [0, 1] in row-major = [1, 0] if transposed
-                let trans_10 = lm_head_weight_t[config.vocab_size]; // [1, 0] in row-major
+                let orig_01 = lm_head_weight[1];
+                let trans_01 = lm_head_weight_t[1];
+                let trans_10 = lm_head_weight_t[config.vocab_size];
 
-                // If properly transposed: orig_01 should equal trans_10 (not trans_01)
                 let is_transposed = (orig_01 - trans_10).abs() < 1e-5;
                 let is_same = (orig_01 - trans_01).abs() < 1e-5;
 

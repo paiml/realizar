@@ -21,7 +21,10 @@ use crate::apr_transformer::{
     QuantizedAprTransformerQ4,
 };
 use crate::error::Result;
-use crate::gpu::scheduler::{BlockWeights, GpuModel, GpuModelConfig};
+use crate::gpu::scheduler::{
+    BlockWeights, GpuModel, GpuModelConfig, LmHeadWeight, LmHeadWeightTransposed,
+    ValidatedGpuWeights,
+};
 use crate::quantize::dequantize_q4_0;
 use thiserror::Error;
 
@@ -111,20 +114,21 @@ impl AprF32ToGpuAdapter {
             .clone()
             .unwrap_or_else(|| vec![0.0; config.vocab_size]);
 
-        // Create GpuModel using internal constructor
-        // PMAT-216 FIX: from_apr_weights signature is (lm_head_weight, lm_head_weight_t)
-        // where lm_head_weight_t is used for GPU matmul (transposed layout)
-        // APR stores as [vocab_size, hidden_dim], GPU needs [hidden_dim, vocab_size]
-        GpuModel::from_apr_weights(
+        // PMAT-284: Validated weights — newtypes prevent lm_head swap at compile time
+        let validated = ValidatedGpuWeights::new(
             config,
             embedding_weights,
             block_weights,
             final_norm_weight,
             final_norm_bias,
-            lm_head_weight,   // Original [vocab_size, hidden_dim]
-            lm_head_weight_t, // Transposed [hidden_dim, vocab_size] for GPU matmul
+            LmHeadWeight(lm_head_weight),
+            LmHeadWeightTransposed(lm_head_weight_t),
             lm_head_bias,
         )
+        .map_err(|e| crate::error::RealizarError::InvalidShape {
+            reason: e.to_string(),
+        })?;
+        GpuModel::from_validated_weights(validated)
     }
 
     /// Convert a single F32 layer to BlockWeights
@@ -394,33 +398,30 @@ impl AprToGpuAdapter {
         // LM head bias
         let lm_head_bias = vec![0.0; config.vocab_size];
 
-        // Create GpuModel using internal constructor
-        // PMAT-216 FIX: from_apr_weights signature is (lm_head_weight, lm_head_weight_t)
-        // where lm_head_weight_t is used for GPU matmul (transposed layout)
-        // APR stores as [vocab_size, hidden_dim], GPU needs [hidden_dim, vocab_size]
-        GpuModel::from_apr_weights(
+        // PMAT-284: Validated weights — newtypes prevent lm_head swap at compile time
+        let validated = ValidatedGpuWeights::new(
             config,
             embedding_weights,
             block_weights,
             final_norm_weight,
             final_norm_bias,
-            lm_head_weight,   // Original [vocab_size, hidden_dim]
-            lm_head_weight_t, // Transposed [hidden_dim, vocab_size] for GPU matmul
+            LmHeadWeight(lm_head_weight),
+            LmHeadWeightTransposed(lm_head_weight_t),
             lm_head_bias,
         )
+        .map_err(|e| crate::error::RealizarError::InvalidShape {
+            reason: e.to_string(),
+        })?;
+        GpuModel::from_validated_weights(validated)
     }
 }
 
-/// Transpose a row-major matrix
+/// Transpose a row-major matrix.
+///
+/// PMAT-285: Delegates to `contract_gate::transpose_f32` (single source of truth).
 #[must_use]
 pub fn transpose_matrix(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
-    let mut transposed = vec![0.0; rows * cols];
-    for i in 0..rows {
-        for j in 0..cols {
-            transposed[j * rows + i] = data[i * cols + j];
-        }
-    }
-    transposed
+    crate::contract_gate::transpose_f32(data, rows, cols)
 }
 
 include!("apr_part_02.rs");

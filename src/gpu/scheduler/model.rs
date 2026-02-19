@@ -9,7 +9,10 @@ use super::super::{
 #[cfg(feature = "cuda")]
 use super::core::CudaScheduler;
 use super::linear_attn::LinearAttnState;
-use super::types::{AttentionBuffers, BlockWeights, GpuGenerateConfig, GpuModelConfig, WeightType};
+use super::types::{
+    AttentionBuffers, BlockWeights, GpuGenerateConfig, GpuModelConfig, ValidatedGpuWeights,
+    WeightType,
+};
 use crate::apr_transformer::{ActivationStats, ForwardTrace, LayerActivation};
 use crate::error::{RealizarError, Result};
 

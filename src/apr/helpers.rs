@@ -69,21 +69,11 @@ pub(crate) fn matmul(
 }
 
 /// Transpose a matrix from [rows, cols] to [cols, rows] for GEMM compatibility.
-/// Weight matrices are stored as [out_dim, in_dim] but GEMM needs [in_dim, out_dim].
+///
+/// PMAT-285: Delegates to `contract_gate::transpose_f32` (single source of truth).
 #[cfg(feature = "cuda")]
 pub(crate) fn transpose_matrix(m: &[f32], rows: usize, cols: usize) -> Vec<f32> {
-    let mut transposed = vec![0.0f32; rows * cols];
-    for r in 0..rows {
-        for c in 0..cols {
-            // m[r, c] -> transposed[c, r]
-            let src_idx = r * cols + c;
-            let dst_idx = c * rows + r;
-            if src_idx < m.len() && dst_idx < transposed.len() {
-                transposed[dst_idx] = m[src_idx];
-            }
-        }
-    }
-    transposed
+    crate::contract_gate::transpose_f32(m, rows, cols)
 }
 
 /// SIMD-accelerated dot product

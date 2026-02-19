@@ -360,3 +360,134 @@ impl AttentionBuffers {
         self.ffn_buffer.fill(0.0);
     }
 }
+
+// =============================================================================
+// PMAT-284: ValidatedGpuWeights — Poka-Yoke for GpuModel construction
+// =============================================================================
+
+/// PMAT-284: Validated weight bundle for GpuModel construction.
+///
+/// Groups all weight tensors with their config and validates dimensions
+/// at construction. Makes it impossible to:
+/// 1. Swap lm_head_weight and lm_head_weight_t (newtypes)
+/// 2. Pass mismatched embedding/norm sizes (dimension checks)
+/// 3. Pass wrong number of block weights (layer count check)
+///
+/// Private inner fields — can ONLY be constructed via `ValidatedGpuWeights::new()`.
+pub struct ValidatedGpuWeights {
+    pub(crate) config: GpuModelConfig,
+    pub(crate) embedding_weights: Vec<f32>,
+    pub(crate) block_weights: Vec<BlockWeights>,
+    pub(crate) final_norm_weight: Vec<f32>,
+    pub(crate) final_norm_bias: Vec<f32>,
+    pub(crate) lm_head_weight: LmHeadWeight,
+    pub(crate) lm_head_weight_t: LmHeadWeightTransposed,
+    pub(crate) lm_head_bias: Vec<f32>,
+}
+
+/// Error from weight validation.
+#[derive(Debug)]
+pub struct GpuWeightError {
+    /// Which field failed
+    pub field: &'static str,
+    /// Expected vs actual
+    pub reason: String,
+}
+
+impl std::fmt::Display for GpuWeightError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "PMAT-284 weight validation '{}': {}",
+            self.field, self.reason
+        )
+    }
+}
+
+impl std::error::Error for GpuWeightError {}
+
+impl ValidatedGpuWeights {
+    /// Validate and construct a weight bundle.
+    ///
+    /// Checks:
+    /// 1. embedding_weights.len() == vocab_size * hidden_dim
+    /// 2. block_weights.len() == num_layers
+    /// 3. final_norm_weight.len() == hidden_dim
+    /// 4. lm_head_weight.len() == vocab_size * hidden_dim
+    /// 5. lm_head_weight_t.len() == hidden_dim * vocab_size
+    pub fn new(
+        config: GpuModelConfig,
+        embedding_weights: Vec<f32>,
+        block_weights: Vec<BlockWeights>,
+        final_norm_weight: Vec<f32>,
+        final_norm_bias: Vec<f32>,
+        lm_head_weight: LmHeadWeight,
+        lm_head_weight_t: LmHeadWeightTransposed,
+        lm_head_bias: Vec<f32>,
+    ) -> std::result::Result<Self, GpuWeightError> {
+        let expected_embed = config.vocab_size * config.hidden_dim;
+        if embedding_weights.len() != expected_embed {
+            return Err(GpuWeightError {
+                field: "embedding_weights",
+                reason: format!(
+                    "expected {} (vocab_size={} * hidden_dim={}), got {}",
+                    expected_embed, config.vocab_size, config.hidden_dim, embedding_weights.len()
+                ),
+            });
+        }
+
+        if block_weights.len() != config.num_layers {
+            return Err(GpuWeightError {
+                field: "block_weights",
+                reason: format!(
+                    "expected {} layers, got {}",
+                    config.num_layers,
+                    block_weights.len()
+                ),
+            });
+        }
+
+        if final_norm_weight.len() != config.hidden_dim {
+            return Err(GpuWeightError {
+                field: "final_norm_weight",
+                reason: format!(
+                    "expected {} (hidden_dim), got {}",
+                    config.hidden_dim,
+                    final_norm_weight.len()
+                ),
+            });
+        }
+
+        let expected_lm = config.vocab_size * config.hidden_dim;
+        if lm_head_weight.0.len() != expected_lm {
+            return Err(GpuWeightError {
+                field: "lm_head_weight",
+                reason: format!(
+                    "expected {} (vocab_size={} * hidden_dim={}), got {}",
+                    expected_lm, config.vocab_size, config.hidden_dim, lm_head_weight.0.len()
+                ),
+            });
+        }
+
+        if lm_head_weight_t.0.len() != expected_lm {
+            return Err(GpuWeightError {
+                field: "lm_head_weight_t",
+                reason: format!(
+                    "expected {} (hidden_dim={} * vocab_size={}), got {}",
+                    expected_lm, config.hidden_dim, config.vocab_size, lm_head_weight_t.0.len()
+                ),
+            });
+        }
+
+        Ok(Self {
+            config,
+            embedding_weights,
+            block_weights,
+            final_norm_weight,
+            final_norm_bias,
+            lm_head_weight,
+            lm_head_weight_t,
+            lm_head_bias,
+        })
+    }
+}

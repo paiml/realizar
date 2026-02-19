@@ -310,6 +310,34 @@ fn validate_completeness(
 }
 
 // ============================================================================
+// PMAT-285: Canonical transpose (single source of truth)
+// ============================================================================
+
+/// Transpose a row-major f32 matrix [rows, cols] → [cols, rows].
+///
+/// This is THE canonical transpose for all model weight operations in realizar.
+/// Delegates to trueno's cache-blocked implementation for matrices ≥64 elements.
+///
+/// # Panics
+///
+/// Panics if `data.len() != rows * cols`.
+#[must_use]
+pub fn transpose_f32(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
+    assert_eq!(
+        data.len(),
+        rows * cols,
+        "transpose_f32: data.len()={} != rows*cols={}",
+        data.len(),
+        rows * cols
+    );
+    let mut out = vec![0.0f32; rows * cols];
+    // trueno::blis::transpose handles cache-blocking for large matrices
+    trueno::blis::transpose::transpose(rows, cols, data, &mut out)
+        .expect("transpose_f32: dimension mismatch (should be impossible after assert)");
+    out
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 

@@ -328,15 +328,11 @@ pub(crate) fn cpu_matmul_transpose_b(
     c
 }
 
-/// Transpose a matrix from [rows, cols] to [cols, rows]
+/// Transpose a matrix from [rows, cols] to [cols, rows].
+///
+/// PMAT-285: Delegates to `contract_gate::transpose_f32` (single source of truth).
 pub(crate) fn transpose(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
-    let mut result = vec![0.0; data.len()];
-    for i in 0..rows {
-        for j in 0..cols {
-            result[j * rows + i] = data[i * cols + j];
-        }
-    }
-    result
+    crate::contract_gate::transpose_f32(data, rows, cols)
 }
 
 /// IMP-096: Parallel SIMD vector-matrix multiply using transposed weights
