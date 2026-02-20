@@ -176,5 +176,5 @@ impl AprInferenceScratch {
     }
 }
 
-include!("q4_simd_part_02.rs");
-include!("q4_simd_part_03.rs");
+include!("attention_kernels.rs");
+include!("q4_simd_tests.rs");

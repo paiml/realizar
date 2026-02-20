@@ -420,5 +420,5 @@ impl DryConfig {
 }
 
 include!("dry_penalty.rs");
-include!("algorithms_part_03.rs");
+include!("classifier_free_guidance.rs");
 include!("sampling_tests.rs");

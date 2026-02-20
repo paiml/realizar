@@ -66,5 +66,5 @@ mod tests {
         assert!(json.contains("total_entries"));
         assert!(json.contains("realizar"));
     }
-include!("matrix_part_03_part_02.rs");
+include!("compute_backend_type_tests.rs");
 }

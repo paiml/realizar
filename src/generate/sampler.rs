@@ -401,7 +401,7 @@ impl Default for PromptCache {
     }
 }
 
-include!("sampler_part_02.rs");
-include!("sampler_part_03.rs");
+include!("prompt_cache.rs");
+include!("dynamic_temperature.rs");
 include!("sampler_topk.rs");
 include!("sampler_logit_chain.rs");
