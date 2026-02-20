@@ -433,5 +433,5 @@ unsafe fn dequantize_q8_0_avx2_parallel(data: &[u8]) -> Result<Vec<f32>> {
     Ok(result)
 }
 
-include!("parallel_dequant_part_02.rs");
+include!("rope.rs");
 include!("parallel_dequant_part_03.rs");

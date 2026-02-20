@@ -184,4 +184,4 @@ pub fn fused_ffn_swiglu_gpu_true_dp4a(
     Ok(output)
 }
 
-include!("ffn_part_02.rs");
+include!("helper.rs");

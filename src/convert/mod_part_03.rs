@@ -36,7 +36,7 @@ mod convert_tests_part_09;
 
 // T-COV-95 Coverage Bridge (Part 10 - CRC32, checksum, metadata alignment, error paths)
 #[cfg(test)]
-#[path = "tests_part_10.rs"]
+#[path = "transform_from_tests_part_10.rs"]
 mod convert_tests_part_10;
 
 // T-COV-95 Coverage Bridge (Part 11 - ConversionStats, RawTensor, Q4KConversionStats, CRC32)

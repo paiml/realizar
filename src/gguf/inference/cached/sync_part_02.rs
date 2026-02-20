@@ -343,6 +343,6 @@ impl OwnedQuantizedModelCachedSync {
     }
 }
 
-include!("sync_part_02_part_02.rs");
-include!("sync_part_02_part_03.rs");
+include!("thread-safe.rs");
+include!("hidden_dim.rs");
 include!("sync_part_02_part_04.rs");

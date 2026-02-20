@@ -286,6 +286,6 @@ impl CudaExecutor {
 }
 
 include!("indexed_part_02_part_02.rs");
-include!("indexed_part_02_qkv.rs");
-include!("indexed_part_02_attn.rs");
+include!("apply.rs");
+include!("phase_attention.rs");
 include!("indexed_part_02_ffn.rs");

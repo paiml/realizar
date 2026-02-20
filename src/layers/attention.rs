@@ -34,7 +34,7 @@ pub struct Attention {
     scale: f32,
 }
 
-include!("attention_part_02.rs");
+include!("product.rs");
 include!("attention_part_03.rs");
 include!("attention_part_04.rs");
 include!("attention_part_05.rs");

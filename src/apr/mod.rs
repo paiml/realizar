@@ -406,6 +406,6 @@ impl TensorEntry {
     }
 }
 
-include!("mod_part_02.rs");
+include!("metadata.rs");
 include!("mod_part_03.rs");
 include!("mod_part_04.rs");

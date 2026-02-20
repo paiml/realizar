@@ -41,6 +41,6 @@ use trueno_gpu::kernels::{
 
 include!("kernels_part_02.rs");
 include!("kernels_part_03.rs");
-include!("kernels_part_04.rs");
+include!("kernel.rs");
 include!("kernels_part_05.rs");
 include!("kernels_part_06.rs");

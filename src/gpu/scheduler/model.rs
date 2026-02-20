@@ -67,5 +67,5 @@ pub struct GpuModel {
     pub(crate) linear_attn_state: Option<LinearAttnState>,
 }
 
-include!("model_part_02.rs");
+include!("wrapper.rs");
 include!("model_part_03.rs");
