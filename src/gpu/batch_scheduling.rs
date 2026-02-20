@@ -439,5 +439,5 @@ pub struct PriorityRequest<T> {
     data: T,
 }
 
-include!("batch_scheduling_part_02.rs");
+include!("priority_queue.rs");
 include!("batch_scheduling_part_03.rs");
