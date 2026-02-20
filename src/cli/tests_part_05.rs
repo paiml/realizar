@@ -219,5 +219,5 @@ mod tests {
         assert!(names.contains(&"tokenizer"));
         assert!(names.contains(&"quantize"));
     }
-include!("tests_part_05_part_02.rs");
+include!("benchmarks.rs");
 }
