@@ -145,4 +145,4 @@ impl CudaExecutor {
 
 include!("swiglu.rs");
 include!("cached.rs");
-include!("layer_part_02_part_04.rs");
+include!("layer_trace_and_output_norm.rs");

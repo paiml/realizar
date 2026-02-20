@@ -401,6 +401,6 @@ pub struct ValidatedEmbedding {
     stats: TensorStats,
 }
 
-include!("validation_part_02.rs");
+include!("validation_embedding.rs");
 include!("inner.rs");
 include!("validation_part_04.rs");
