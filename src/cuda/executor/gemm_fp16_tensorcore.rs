@@ -137,7 +137,7 @@ impl CudaExecutor {
     }
 }
 
-include!("attention_part_02_part_02.rs");
+include!("attention_async.rs");
 include!("kv_scatter.rs");
 include!("batch.rs");
 include!("flash_decoding_graphed.rs");

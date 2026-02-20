@@ -338,5 +338,5 @@ use crate::gguf::{
     QuantizedGGUFTransformer,
 };
 
-include!("loader_part_02_part_02.rs");
+include!("loader_parse.rs");
 include!("metadata.rs");

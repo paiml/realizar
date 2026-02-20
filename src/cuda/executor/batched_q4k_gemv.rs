@@ -233,4 +233,4 @@ impl CudaExecutor {
 
 include!("activations_part_02_part_02.rs");
 include!("activations_part_02_part_03.rs");
-include!("activations_part_02_part_04.rs");
+include!("rope_indirect.rs");
