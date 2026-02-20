@@ -343,4 +343,4 @@ pub fn detect_format<P: AsRef<Path>>(path: P) -> &'static str {
     format_from_extension(path).unwrap_or_else(|| format_from_magic(path))
 }
 
-include!("helpers_part_02.rs");
+include!("helpers_tests.rs");
