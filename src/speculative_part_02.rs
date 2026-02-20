@@ -263,5 +263,5 @@ mod tests {
     }
 include!("speculative_part_02_part_02.rs");
 include!("speculative_part_02_part_03.rs");
-include!("speculative_part_02_part_04.rs");
+include!("speculative_tests.rs");
 }

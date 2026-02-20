@@ -129,5 +129,5 @@ pub struct SafetensorsModel {
 }
 
 include!("mod_part_02.rs");
-include!("mod_part_03.rs");
+include!("mapped_model.rs");
 include!("shard.rs");

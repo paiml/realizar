@@ -417,5 +417,5 @@ pub struct RawTensor {
 /// This is essential for achieving 2X Ollama performance.
 pub struct GgufToAprQ4KConverter;
 
-include!("mod_part_02.rs");
+include!("q4k_converter_helpers.rs");
 include!("mod_part_03.rs");
