@@ -8,122 +8,249 @@ struct AprTensorLookup<'a> {
     tensors: &'a std::collections::BTreeMap<String, (usize, usize, Vec<usize>, u8)>,
 }
 
+/// Dequantize Q4K/Q5K tensor data, handling per-row padding for 2D tensors (GH-202).
+fn dequant_q4k_tensor(tensor_data: &[u8], dims: &[usize]) -> Vec<f32> {
+    if dims.len() == 2 && dims[1] % 256 != 0 {
+        dequant_perrow(tensor_data, dims, 256, 144, |block, out| {
+            dequant_q4k_block(block, out);
+        })
+    } else {
+        let num_elements: usize = dims.iter().product();
+        dequantize_q4_k_apr(tensor_data, num_elements)
+    }
+}
+
+/// Dequantize Q6K tensor data, handling per-row padding for 2D tensors (GH-202).
+fn dequant_q6k_tensor(tensor_data: &[u8], dims: &[usize]) -> Vec<f32> {
+    if dims.len() == 2 && dims[1] % 256 != 0 {
+        dequant_perrow(tensor_data, dims, 256, 210, |block, out| {
+            dequant_q6k_block(block, out);
+        })
+    } else {
+        let num_elements: usize = dims.iter().product();
+        dequantize_q6_k_apr(tensor_data, num_elements)
+    }
+}
+
+/// Dequantize a single tensor's raw bytes based on GGML dtype.
+/// GH-191: Match on GGML dtype values written by converter.
+fn dequant_by_dtype(tensor_data: &[u8], dims: &[usize], dtype: u8) -> Vec<f32> {
+    match dtype {
+        12 | 13 => dequant_q4k_tensor(tensor_data, dims),
+        14 => dequant_q6k_tensor(tensor_data, dims),
+        // GH-239: dtype=8 is ambiguous — either GGML Q8_0 or APR Q4 native.
+        8 => {
+            let num_elements: usize = dims.iter().product();
+            let num_blocks = num_elements.div_ceil(32);
+            if tensor_data.len() == num_blocks * 34 {
+                dequantize_q8_0_apr(tensor_data, num_elements)
+            } else {
+                dequantize_apr_q4_native(tensor_data, num_elements)
+            }
+        },
+        9 => {
+            let num_elements: usize = dims.iter().product();
+            dequantize_apr_q8_native(tensor_data, num_elements)
+        },
+        1 => tensor_data
+            .chunks_exact(2)
+            .map(|c| f16_to_f32(u16::from_le_bytes([c[0], c[1]])))
+            .collect(),
+        _ => tensor_data
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect(),
+    }
+}
+
 impl AprTensorLookup<'_> {
-    /// Extract tensor as f32 values (with dequantization for Q4K/Q5K/Q6K/Q8_0/APR Q4/Q8).
-    fn get_f32(&self, name: &str) -> Option<Vec<f32>> {
-        self.tensors.get(name).map(|(offset, size, dims, dtype)| {
+    /// Retrieve the raw byte slice for a named tensor, or None if missing/out-of-bounds.
+    fn raw_bytes(&self, name: &str) -> Option<(&[u8], &Vec<usize>, u8)> {
+        self.tensors.get(name).and_then(|(offset, size, dims, dtype)| {
             let end = offset + size;
             if end > self.data.len() {
-                return Vec::new();
+                return None;
             }
-            let tensor_data = &self.data[*offset..end];
-
-            // GH-191 FIX: Match on GGML dtype values written by converter.
-            match dtype {
-                // Q4_K (GGML type 12)
-                12 => {
-                    // GH-202 FIX: Handle per-row padding for 2D tensors.
-                    if dims.len() == 2 && dims[1] % 256 != 0 {
-                        dequant_perrow(tensor_data, dims, 256, 144, |block, out| {
-                            dequant_q4k_block(block, out);
-                        })
-                    } else {
-                        let num_elements: usize = dims.iter().product();
-                        dequantize_q4_k_apr(tensor_data, num_elements)
-                    }
-                },
-                // Q5_K (GGML type 13) - use Q4_K dequant (compatible layout)
-                13 => {
-                    if dims.len() == 2 && dims[1] % 256 != 0 {
-                        dequant_perrow(tensor_data, dims, 256, 144, |block, out| {
-                            dequant_q4k_block(block, out);
-                        })
-                    } else {
-                        let num_elements: usize = dims.iter().product();
-                        dequantize_q4_k_apr(tensor_data, num_elements)
-                    }
-                },
-                // Q6_K (GGML type 14)
-                14 => {
-                    // GH-202 FIX: Handle per-row padding for 2D tensors.
-                    if dims.len() == 2 && dims[1] % 256 != 0 {
-                        dequant_perrow(tensor_data, dims, 256, 210, |block, out| {
-                            dequant_q6k_block(block, out);
-                        })
-                    } else {
-                        let num_elements: usize = dims.iter().product();
-                        dequantize_q6_k_apr(tensor_data, num_elements)
-                    }
-                },
-                // GH-239: dtype=8 is ambiguous — either GGML Q8_0 or APR Q4 native.
-                8 => {
-                    let num_elements: usize = dims.iter().product();
-                    let num_blocks = num_elements.div_ceil(32);
-                    if tensor_data.len() == num_blocks * 34 {
-                        // GGML Q8_0: [f16 scale (2B) + 32×i8 quants] = 34 bytes/block
-                        dequantize_q8_0_apr(tensor_data, num_elements)
-                    } else {
-                        // APR Q4: [f16 scale (2B) + 16 nibble bytes] = 18 bytes/block
-                        dequantize_apr_q4_native(tensor_data, num_elements)
-                    }
-                },
-                // GH-239: APR Q8 native (dtype=9)
-                9 => {
-                    let num_elements: usize = dims.iter().product();
-                    dequantize_apr_q8_native(tensor_data, num_elements)
-                },
-                // F16 (GGML type 1): convert f16 to f32
-                1 => tensor_data
-                    .chunks_exact(2)
-                    .map(|c| f16_to_f32(u16::from_le_bytes([c[0], c[1]])))
-                    .collect(),
-                // F32 (dtype=0) or other: interpret as raw F32
-                _ => tensor_data
-                    .chunks_exact(4)
-                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                    .collect(),
-            }
+            Some((&self.data[*offset..end], dims, *dtype))
         })
+    }
+
+    /// Extract tensor as f32 values (with dequantization for Q4K/Q5K/Q6K/Q8_0/APR Q4/Q8).
+    fn get_f32(&self, name: &str) -> Option<Vec<f32>> {
+        self.raw_bytes(name)
+            .map(|(tensor_data, dims, dtype)| dequant_by_dtype(tensor_data, dims, dtype))
     }
 
     /// Extract raw Q4K bytes (no dequantization) for fused kernel.
     /// GH-191 FIX: Use GGML dtype values (12=Q4_K, 13=Q5_K).
     fn get_q4k(&self, name: &str) -> Option<Vec<u8>> {
-        self.tensors.get(name).and_then(|(offset, size, _dims, dtype)| {
-            if *dtype != 12 && *dtype != 13 {
-                return None;
-            }
-            let end = offset + size;
-            if end > self.data.len() {
-                return None;
-            }
-            Some(self.data[*offset..end].to_vec())
+        self.raw_bytes(name).and_then(|(data, _, dtype)| {
+            if dtype != 12 && dtype != 13 { return None; }
+            Some(data.to_vec())
         })
     }
 
     /// Extract raw Q6K bytes (no dequantization) for fused kernel.
     /// GH-191 FIX: Use GGML dtype value 14=Q6_K.
     fn get_q6k(&self, name: &str) -> Option<Vec<u8>> {
-        self.tensors.get(name).and_then(|(offset, size, _dims, dtype)| {
-            if *dtype != 14 {
-                return None;
-            }
-            let end = offset + size;
-            if end > self.data.len() {
-                return None;
-            }
-            Some(self.data[*offset..end].to_vec())
+        self.raw_bytes(name).and_then(|(data, _, dtype)| {
+            if dtype != 14 { return None; }
+            Some(data.to_vec())
         })
     }
 }
 
-impl AprTransformer {
+/// HF and GGUF naming prefixes for a single layer.
+struct LayerPrefixes {
+    hf: String,
+    gguf: String,
+}
 
+impl LayerPrefixes {
+    fn new(layer_idx: usize) -> Self {
+        Self {
+            hf: format!("model.layers.{layer_idx}"),
+            gguf: format!("blk.{layer_idx}"),
+        }
+    }
+}
+
+impl AprTensorLookup<'_> {
+    /// Look up a tensor by HF name first, then GGUF name, returning f32 values.
+    fn get_hf_or_gguf(&self, hf_name: &str, gguf_name: &str) -> Option<Vec<f32>> {
+        self.get_f32(hf_name).or_else(|| self.get_f32(gguf_name))
+    }
+
+    /// Load fused or separate QKV weight for a layer.
+    fn load_qkv_weight(
+        &self,
+        pfx: &LayerPrefixes,
+        hidden_dim: usize,
+        kv_dim: usize,
+    ) -> Vec<f32> {
+        if let Some(qkv) = self.get_f32(&format!("{}.self_attn.qkv_proj.weight", pfx.hf)) {
+            return qkv;
+        }
+        let q = self.get_hf_or_gguf(
+            &format!("{}.self_attn.q_proj.weight", pfx.hf),
+            &format!("{}.attn_q.weight", pfx.gguf),
+        ).unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
+        let k = self.get_hf_or_gguf(
+            &format!("{}.self_attn.k_proj.weight", pfx.hf),
+            &format!("{}.attn_k.weight", pfx.gguf),
+        ).unwrap_or_else(|| vec![0.0; hidden_dim * kv_dim]);
+        let v = self.get_hf_or_gguf(
+            &format!("{}.self_attn.v_proj.weight", pfx.hf),
+            &format!("{}.attn_v.weight", pfx.gguf),
+        ).unwrap_or_else(|| vec![0.0; hidden_dim * kv_dim]);
+        let mut qkv = Vec::with_capacity(q.len() + k.len() + v.len());
+        qkv.extend_from_slice(&q);
+        qkv.extend_from_slice(&k);
+        qkv.extend_from_slice(&v);
+        qkv
+    }
+
+    /// Load fused or separate QKV bias for a layer (optional, for Qwen models).
+    fn load_qkv_bias(&self, pfx: &LayerPrefixes) -> Option<Vec<f32>> {
+        if let Some(fused) = self.get_f32(&format!("{}.self_attn.qkv_proj.bias", pfx.hf)) {
+            return Some(fused);
+        }
+        let q = self.get_hf_or_gguf(
+            &format!("{}.self_attn.q_proj.bias", pfx.hf),
+            &format!("{}.attn_q.bias", pfx.gguf),
+        );
+        let k = self.get_hf_or_gguf(
+            &format!("{}.self_attn.k_proj.bias", pfx.hf),
+            &format!("{}.attn_k.bias", pfx.gguf),
+        );
+        let v = self.get_hf_or_gguf(
+            &format!("{}.self_attn.v_proj.bias", pfx.hf),
+            &format!("{}.attn_v.bias", pfx.gguf),
+        );
+        match (&q, &k, &v) {
+            (Some(q), Some(k), Some(v)) => {
+                let mut bias = Vec::with_capacity(q.len() + k.len() + v.len());
+                bias.extend_from_slice(q);
+                bias.extend_from_slice(k);
+                bias.extend_from_slice(v);
+                Some(bias)
+            },
+            _ => None,
+        }
+    }
+
+    /// Load Q4K/Q6K raw bytes for all layer weights (PMAT-103).
+    fn load_quantized_layer_weights(&self, pfx: &LayerPrefixes) -> Q4KLayerWeights {
+        let get_q4k_hf_or_gguf = |hf: &str, gguf: &str| -> Option<Vec<u8>> {
+            self.get_q4k(hf).or_else(|| self.get_q4k(gguf))
+        };
+        let get_q6k_hf_or_gguf = |hf: &str, gguf: &str| -> Option<Vec<u8>> {
+            self.get_q6k(hf).or_else(|| self.get_q6k(gguf))
+        };
+        Q4KLayerWeights {
+            qkv_weight: None,
+            attn_q_weight: get_q4k_hf_or_gguf(
+                &format!("{}.self_attn.q_proj.weight", pfx.hf),
+                &format!("{}.attn_q.weight", pfx.gguf),
+            ),
+            attn_k_weight: get_q4k_hf_or_gguf(
+                &format!("{}.self_attn.k_proj.weight", pfx.hf),
+                &format!("{}.attn_k.weight", pfx.gguf),
+            ),
+            attn_v_weight: get_q4k_hf_or_gguf(
+                &format!("{}.self_attn.v_proj.weight", pfx.hf),
+                &format!("{}.attn_v.weight", pfx.gguf),
+            ),
+            attn_v_weight_q6k: get_q6k_hf_or_gguf(
+                &format!("{}.self_attn.v_proj.weight", pfx.hf),
+                &format!("{}.attn_v.weight", pfx.gguf),
+            ),
+            attn_output_weight: get_q4k_hf_or_gguf(
+                &format!("{}.self_attn.o_proj.weight", pfx.hf),
+                &format!("{}.attn_output.weight", pfx.gguf),
+            ),
+            ffn_gate_weight: get_q4k_hf_or_gguf(
+                &format!("{}.mlp.gate_proj.weight", pfx.hf),
+                &format!("{}.ffn_gate.weight", pfx.gguf),
+            ),
+            ffn_up_weight: get_q4k_hf_or_gguf(
+                &format!("{}.mlp.up_proj.weight", pfx.hf),
+                &format!("{}.ffn_up.weight", pfx.gguf),
+            ),
+            ffn_down_weight: get_q4k_hf_or_gguf(
+                &format!("{}.mlp.down_proj.weight", pfx.hf),
+                &format!("{}.ffn_down.weight", pfx.gguf),
+            ),
+            ffn_down_weight_q6k: get_q6k_hf_or_gguf(
+                &format!("{}.mlp.down_proj.weight", pfx.hf),
+                &format!("{}.ffn_down.weight", pfx.gguf),
+            ),
+            ffn_up_weight_q6k: get_q6k_hf_or_gguf(
+                &format!("{}.mlp.up_proj.weight", pfx.hf),
+                &format!("{}.ffn_up.weight", pfx.gguf),
+            ),
+        }
+    }
+}
+
+/// Check if a `Q4KLayerWeights` has any quantized data.
+fn has_quantized_data(w: &Q4KLayerWeights) -> bool {
+    w.attn_q_weight.is_some()
+        || w.attn_k_weight.is_some()
+        || w.attn_output_weight.is_some()
+        || w.ffn_gate_weight.is_some()
+        || w.ffn_up_weight.is_some()
+        || w.ffn_down_weight.is_some()
+        || w.ffn_down_weight_q6k.is_some()
+        || w.ffn_up_weight_q6k.is_some()
+        || w.attn_v_weight_q6k.is_some()
+}
+
+impl AprTransformer {
     /// Build transformer layers from APR tensor data.
     ///
     /// Loads Q/K/V weights, attention output, FFN weights, and norms for each layer.
     /// Also extracts Q4K/Q6K raw bytes for fused kernel inference.
-    #[allow(clippy::too_many_arguments)]
     fn build_apr_layers(
         lookup: &AprTensorLookup<'_>,
         num_layers: usize,
@@ -135,132 +262,42 @@ impl AprTransformer {
         let mut layers = Vec::with_capacity(num_layers);
         let mut q4k_layer_weights: Vec<Q4KLayerWeights> = Vec::with_capacity(num_layers);
         let mut has_any_q4k = false;
-        let qkv_out_dim = hidden_dim + kv_dim + kv_dim;
 
         for i in 0..num_layers {
-            let hf_prefix = format!("model.layers.{i}");
-            let gguf_prefix = format!("blk.{i}");
+            let pfx = LayerPrefixes::new(i);
 
-            // Detect GGUF vs HF naming
-            let is_gguf = lookup.tensors.contains_key(&format!("{gguf_prefix}.attn_q.weight"));
+            let qkv_weight = lookup.load_qkv_weight(&pfx, hidden_dim, kv_dim);
+            let qkv_bias = lookup.load_qkv_bias(&pfx);
+            let attn_output = lookup.get_hf_or_gguf(
+                &format!("{}.self_attn.o_proj.weight", pfx.hf),
+                &format!("{}.attn_output.weight", pfx.gguf),
+            ).unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
+            let attn_norm = lookup.get_hf_or_gguf(
+                &format!("{}.input_layernorm.weight", pfx.hf),
+                &format!("{}.attn_norm.weight", pfx.gguf),
+            ).unwrap_or_else(|| vec![1.0; hidden_dim]);
+            let ffn_norm = lookup.get_hf_or_gguf(
+                &format!("{}.post_attention_layernorm.weight", pfx.hf),
+                &format!("{}.ffn_norm.weight", pfx.gguf),
+            );
+            let ffn_gate = lookup.get_hf_or_gguf(
+                &format!("{}.mlp.gate_proj.weight", pfx.hf),
+                &format!("{}.ffn_gate.weight", pfx.gguf),
+            );
+            let ffn_up = lookup.get_hf_or_gguf(
+                &format!("{}.mlp.up_proj.weight", pfx.hf),
+                &format!("{}.ffn_up.weight", pfx.gguf),
+            ).unwrap_or_else(|| vec![0.0; hidden_dim * intermediate_dim]);
+            let ffn_down = lookup.get_hf_or_gguf(
+                &format!("{}.mlp.down_proj.weight", pfx.hf),
+                &format!("{}.ffn_down.weight", pfx.gguf),
+            ).unwrap_or_else(|| vec![0.0; intermediate_dim * hidden_dim]);
 
-            let qkv_weight = if let Some(qkv) =
-                lookup.get_f32(&format!("{hf_prefix}.self_attn.qkv_proj.weight"))
-            {
-                qkv
-            } else {
-                let q_raw = lookup.get_f32(&format!("{hf_prefix}.self_attn.q_proj.weight"))
-                    .or_else(|| lookup.get_f32(&format!("{gguf_prefix}.attn_q.weight")))
-                    .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
-                let k_raw = lookup.get_f32(&format!("{hf_prefix}.self_attn.k_proj.weight"))
-                    .or_else(|| lookup.get_f32(&format!("{gguf_prefix}.attn_k.weight")))
-                    .unwrap_or_else(|| vec![0.0; hidden_dim * kv_dim]);
-                let v_raw = lookup.get_f32(&format!("{hf_prefix}.self_attn.v_proj.weight"))
-                    .or_else(|| lookup.get_f32(&format!("{gguf_prefix}.attn_v.weight")))
-                    .unwrap_or_else(|| vec![0.0; hidden_dim * kv_dim]);
-
-                let _ = is_gguf; // Suppress unused warning
-                let mut qkv = Vec::with_capacity(qkv_out_dim * hidden_dim);
-                qkv.extend_from_slice(&q_raw);
-                qkv.extend_from_slice(&k_raw);
-                qkv.extend_from_slice(&v_raw);
-                qkv
-            };
-
-            // Get Q/K/V biases (optional, for Qwen models)
-            let qkv_bias = if let Some(fused_bias) =
-                lookup.get_f32(&format!("{hf_prefix}.self_attn.qkv_proj.bias"))
-            {
-                Some(fused_bias)
-            } else {
-                let q_bias = lookup.get_f32(&format!("{hf_prefix}.self_attn.q_proj.bias"))
-                    .or_else(|| lookup.get_f32(&format!("{gguf_prefix}.attn_q.bias")));
-                let k_bias = lookup.get_f32(&format!("{hf_prefix}.self_attn.k_proj.bias"))
-                    .or_else(|| lookup.get_f32(&format!("{gguf_prefix}.attn_k.bias")));
-                let v_bias = lookup.get_f32(&format!("{hf_prefix}.self_attn.v_proj.bias"))
-                    .or_else(|| lookup.get_f32(&format!("{gguf_prefix}.attn_v.bias")));
-
-                match (&q_bias, &k_bias, &v_bias) {
-                    (Some(q), Some(k), Some(v)) => {
-                        let mut bias = Vec::with_capacity(qkv_out_dim);
-                        bias.extend_from_slice(q);
-                        bias.extend_from_slice(k);
-                        bias.extend_from_slice(v);
-                        Some(bias)
-                    },
-                    _ => None,
-                }
-            };
-
-            let attn_output = lookup.get_f32(&format!("{hf_prefix}.self_attn.o_proj.weight"))
-                .or_else(|| lookup.get_f32(&format!("{gguf_prefix}.attn_output.weight")))
-                .unwrap_or_else(|| vec![0.0; hidden_dim * hidden_dim]);
-
-            let attn_norm = lookup.get_f32(&format!("{hf_prefix}.input_layernorm.weight"))
-                .or_else(|| lookup.get_f32(&format!("{gguf_prefix}.attn_norm.weight")))
-                .unwrap_or_else(|| vec![1.0; hidden_dim]);
-
-            let ffn_norm = lookup.get_f32(&format!("{hf_prefix}.post_attention_layernorm.weight"))
-                .or_else(|| lookup.get_f32(&format!("{gguf_prefix}.ffn_norm.weight")));
-
-            let ffn_gate = lookup.get_f32(&format!("{hf_prefix}.mlp.gate_proj.weight"))
-                .or_else(|| lookup.get_f32(&format!("{gguf_prefix}.ffn_gate.weight")));
-            let ffn_up = lookup.get_f32(&format!("{hf_prefix}.mlp.up_proj.weight"))
-                .or_else(|| lookup.get_f32(&format!("{gguf_prefix}.ffn_up.weight")))
-                .unwrap_or_else(|| vec![0.0; hidden_dim * intermediate_dim]);
-            let ffn_down = lookup.get_f32(&format!("{hf_prefix}.mlp.down_proj.weight"))
-                .or_else(|| lookup.get_f32(&format!("{gguf_prefix}.ffn_down.weight")))
-                .unwrap_or_else(|| vec![0.0; intermediate_dim * hidden_dim]);
-
-            // PMAT-103 FIX: Extract Q4K and Q6K raw bytes for fused kernel
-            let q4k_attn_q = lookup.get_q4k(&format!("{hf_prefix}.self_attn.q_proj.weight"))
-                .or_else(|| lookup.get_q4k(&format!("{gguf_prefix}.attn_q.weight")));
-            let q4k_attn_k = lookup.get_q4k(&format!("{hf_prefix}.self_attn.k_proj.weight"))
-                .or_else(|| lookup.get_q4k(&format!("{gguf_prefix}.attn_k.weight")));
-            let q4k_attn_v = lookup.get_q4k(&format!("{hf_prefix}.self_attn.v_proj.weight"))
-                .or_else(|| lookup.get_q4k(&format!("{gguf_prefix}.attn_v.weight")));
-            let q6k_attn_v = lookup.get_q6k(&format!("{hf_prefix}.self_attn.v_proj.weight"))
-                .or_else(|| lookup.get_q6k(&format!("{gguf_prefix}.attn_v.weight")));
-            let q4k_attn_output =
-                lookup.get_q4k(&format!("{hf_prefix}.self_attn.o_proj.weight"))
-                    .or_else(|| lookup.get_q4k(&format!("{gguf_prefix}.attn_output.weight")));
-            let q4k_ffn_gate = lookup.get_q4k(&format!("{hf_prefix}.mlp.gate_proj.weight"))
-                .or_else(|| lookup.get_q4k(&format!("{gguf_prefix}.ffn_gate.weight")));
-            let q4k_ffn_up = lookup.get_q4k(&format!("{hf_prefix}.mlp.up_proj.weight"))
-                .or_else(|| lookup.get_q4k(&format!("{gguf_prefix}.ffn_up.weight")));
-            let q4k_ffn_down = lookup.get_q4k(&format!("{hf_prefix}.mlp.down_proj.weight"))
-                .or_else(|| lookup.get_q4k(&format!("{gguf_prefix}.ffn_down.weight")));
-            let q6k_ffn_down = lookup.get_q6k(&format!("{hf_prefix}.mlp.down_proj.weight"))
-                .or_else(|| lookup.get_q6k(&format!("{gguf_prefix}.ffn_down.weight")));
-            let q6k_ffn_up = lookup.get_q6k(&format!("{hf_prefix}.mlp.up_proj.weight"))
-                .or_else(|| lookup.get_q6k(&format!("{gguf_prefix}.ffn_up.weight")));
-
-            let has_q4k_weights = q4k_attn_q.is_some()
-                || q4k_attn_k.is_some()
-                || q4k_attn_output.is_some()
-                || q4k_ffn_gate.is_some()
-                || q4k_ffn_up.is_some()
-                || q4k_ffn_down.is_some();
-            let has_q6k_weights =
-                q6k_ffn_down.is_some() || q6k_ffn_up.is_some() || q6k_attn_v.is_some();
-
-            if has_q4k_weights || has_q6k_weights {
+            let quant_weights = lookup.load_quantized_layer_weights(&pfx);
+            if has_quantized_data(&quant_weights) {
                 has_any_q4k = true;
             }
-
-            q4k_layer_weights.push(Q4KLayerWeights {
-                qkv_weight: None,
-                attn_q_weight: q4k_attn_q,
-                attn_k_weight: q4k_attn_k,
-                attn_v_weight: q4k_attn_v,
-                attn_v_weight_q6k: q6k_attn_v,
-                attn_output_weight: q4k_attn_output,
-                ffn_gate_weight: q4k_ffn_gate,
-                ffn_up_weight: q4k_ffn_up,
-                ffn_down_weight: q4k_ffn_down,
-                ffn_down_weight_q6k: q6k_ffn_down,
-                ffn_up_weight_q6k: q6k_ffn_up,
-            });
+            q4k_layer_weights.push(quant_weights);
 
             layers.push(AprTransformerLayer {
                 attn_norm_weight: attn_norm,
