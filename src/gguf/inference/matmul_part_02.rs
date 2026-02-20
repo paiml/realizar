@@ -459,4 +459,4 @@ impl OwnedQuantizedModel {
     }
 }
 
-include!("matmul_part_02_part_02.rs");
+include!("matmul_fused.rs");

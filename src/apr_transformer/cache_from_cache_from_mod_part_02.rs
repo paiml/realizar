@@ -25,5 +25,5 @@ include!("from_apr_file.rs");
 include!("embedding.rs");
 include!("mod_part_02_part_04.rs");
 include!("pmat-260.rs");
-include!("mod_part_02_part_06.rs");
+include!("inference.rs");
 include!("cache_from_mod_part_02_part_07.rs");
