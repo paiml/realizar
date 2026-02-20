@@ -401,5 +401,5 @@ fn test_fused_q4k_dot_scale_extraction() {
 }
 
 include!("fused_k_tests_part_02.rs");
-include!("fused_k_tests_part_03.rs");
+include!("fused_k_tests_dot_errors.rs");
 include!("fused_k_tests_part_04.rs");

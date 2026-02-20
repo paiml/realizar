@@ -256,5 +256,5 @@ mod tests {
 
         AprV2Model::from_bytes(data).expect("should create transformer APR model")
     }
-    include!("cuda_tests_part_02.rs");
+    include!("cuda_tests_binary.rs");
 }

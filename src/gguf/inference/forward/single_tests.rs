@@ -428,4 +428,4 @@ fn test_forward_single_with_scratch_reuses_buffers() {
 }
 
 include!("single_tests_part_02.rs");
-include!("single_tests_part_03.rs");
+include!("single_tests_q8k.rs");

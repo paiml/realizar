@@ -135,5 +135,5 @@ impl CudaExecutor {
     }
 }
 
-include!("batched_part_02_part_04_qkv.rs");
-include!("batched_part_02_part_04_ffn.rs");
+include!("batched_qkv.rs");
+include!("batched_ffn.rs");
