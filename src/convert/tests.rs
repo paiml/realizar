@@ -165,7 +165,7 @@ mod tests {
             num_kv_heads
         );
     }
-include!("tests_part_15.rs");
+include!("tests_gguf_field_preservation.rs");
 include!("tests_part_16.rs");
 include!("tests_part_17.rs");
 include!("tests_part_18.rs");

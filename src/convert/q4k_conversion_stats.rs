@@ -443,5 +443,5 @@ mod convert_tests;
 
 // T-COV-95 Coverage Bridge tests (Part 02 - B5)
 #[cfg(test)]
-#[path = "tests_part_02.rs"]
-mod convert_tests_part_02;
+#[path = "tests_gguf_roundtrip.rs"]
+mod convert_tests_gguf_roundtrip;

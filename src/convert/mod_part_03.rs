@@ -26,8 +26,8 @@ mod convert_tests_part_07;
 
 // T-COV-95 Semantic Divergence (Part 08 - Architecture Mismatch Tests)
 #[cfg(test)]
-#[path = "tests_part_08.rs"]
-mod convert_tests_part_08;
+#[path = "tests_semantic_divergence.rs"]
+mod convert_tests_semantic_divergence;
 
 // T-COV-95 Generative Falsification (Part 09 - Proptest Byte-Smasher)
 #[cfg(test)]
@@ -36,8 +36,8 @@ mod convert_tests_byte_smasher;
 
 // T-COV-95 Coverage Bridge (Part 10 - CRC32, checksum, metadata alignment, error paths)
 #[cfg(test)]
-#[path = "transform_from_tests_part_10.rs"]
-mod convert_tests_part_10;
+#[path = "tests_checksum_and_q4k.rs"]
+mod convert_tests_checksum_and_q4k;
 
 // T-COV-95 Coverage Bridge (Part 11 - ConversionStats, RawTensor, Q4KConversionStats, CRC32)
 #[cfg(test)]
