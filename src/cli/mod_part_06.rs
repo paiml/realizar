@@ -31,8 +31,8 @@ mod cli_tests_part_06;
 
 // T-COV-95 Deep Coverage Bridge (Part 07 - mod.rs: bench, viz, load, format, parse)
 #[cfg(test)]
-#[path = "tests_part_07.rs"]
-mod cli_tests_part_07;
+#[path = "tests_format_size.rs"]
+mod cli_tests_format_size;
 
 // T-COV-95 Extended Coverage (Part 08 - mod.rs: format_size, is_local_file_path, validate_suite_name, display_model_info)
 #[cfg(test)]
@@ -41,8 +41,8 @@ mod cli_tests_part_08;
 
 // T-COV-95 Synthetic Falsification (Part 09 - inference.rs via Pygmy GGUF models)
 #[cfg(test)]
-#[path = "tests_part_09.rs"]
-mod cli_tests_part_09;
+#[path = "tests_pygmy_inference.rs"]
+mod cli_tests_pygmy_inference;
 
 // T-COV-95 CLI Inference Additional Coverage
 #[cfg(test)]
