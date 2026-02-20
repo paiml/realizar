@@ -375,4 +375,4 @@ impl OwnedQuantizedModel {
 }
 
 include!("forward_from_core_part_02_part_02.rs");
-include!("core_part_02_part_03.rs");
+include!("forward_profiled.rs");

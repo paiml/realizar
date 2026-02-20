@@ -12,5 +12,5 @@ use crate::gguf::{
 };
 use rand::Rng;
 
-include!("generation_part_02.rs");
+include!("generate_scratch.rs");
 include!("generation_part_03.rs");

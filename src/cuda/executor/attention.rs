@@ -8,5 +8,5 @@
 
 use super::*;
 
-include!("attention_part_02.rs");
-include!("attention_part_03.rs");
+include!("gemm_fp16_tensorcore.rs");
+include!("incremental_attention_tests.rs");

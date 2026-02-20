@@ -130,4 +130,4 @@ pub struct SafetensorsModel {
 
 include!("mod_part_02.rs");
 include!("mod_part_03.rs");
-include!("mod_part_04.rs");
+include!("shard.rs");
