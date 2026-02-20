@@ -344,4 +344,4 @@ include!("q4k_dot_avx2.rs");
 include!("fused_k_part_03.rs");
 include!("horizontal.rs");
 include!("requires.rs");
-include!("fused_k_part_06.rs");
+include!("q4_q8_dot_avx2.rs");

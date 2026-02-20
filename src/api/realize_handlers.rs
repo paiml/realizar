@@ -411,5 +411,5 @@ pub struct CompletionChoice {
 }
 
 include!("realize_handlers_part_02.rs");
-include!("realize_handlers_part_03.rs");
+include!("gpu_completions_handler.rs");
 include!("realize_handlers_part_04.rs");

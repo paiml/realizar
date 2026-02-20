@@ -250,4 +250,4 @@ impl Drop for CudaExecutor {
 }
 
 include!("executor_api.rs");
-include!("core_part_03.rs");
+include!("core_executor_tests.rs");
