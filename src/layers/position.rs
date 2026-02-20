@@ -273,6 +273,6 @@ pub struct ScaledRoPE {
     mscale: f32,
 }
 
-include!("position_part_02.rs");
+include!("scaled_rope.rs");
 include!("position_part_03.rs");
 include!("position_part_04.rs");

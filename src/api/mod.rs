@@ -171,5 +171,5 @@ impl crate::audit::AuditSink for InMemorySinkWrapper {
 
 include!("mod_part_02.rs");
 include!("mod_part_03.rs");
-include!("mod_part_04.rs");
-include!("mod_part_05.rs");
+include!("router.rs");
+include!("dispatch_metrics.rs");

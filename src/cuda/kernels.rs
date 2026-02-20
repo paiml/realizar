@@ -40,7 +40,7 @@ use trueno_gpu::kernels::{
 };
 
 include!("kernels_part_02.rs");
-include!("kernels_part_03.rs");
+include!("kernel_generator.rs");
 include!("kernel.rs");
 include!("layout.rs");
 include!("kernels_part_06.rs");

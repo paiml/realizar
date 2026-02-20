@@ -425,5 +425,5 @@ pub struct RequestCapture {
     params: HashMap<String, String>,
 }
 
-include!("diagnostics_part_02.rs");
+include!("request_capture.rs");
 include!("diagnostics_part_03.rs");
