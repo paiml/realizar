@@ -409,5 +409,5 @@ fn try_cached_backend(
     ))
 }
 
-include!("openai_handlers_part_02.rs");
+include!("cuda_chat_backend.rs");
 include!("openai_handlers_part_03.rs");

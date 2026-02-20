@@ -419,6 +419,6 @@ impl DryConfig {
     }
 }
 
-include!("algorithms_part_02.rs");
+include!("dry_penalty.rs");
 include!("algorithms_part_03.rs");
 include!("algorithms_part_04.rs");
