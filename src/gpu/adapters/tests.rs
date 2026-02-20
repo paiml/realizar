@@ -337,4 +337,4 @@ fn test_extract_ffn_weights_large() {
     assert_eq!(fc2.len(), 4096 * 1024);
 }
 
-include!("tests_part_02.rs");
+include!("tests_gpu_model_q4.rs");

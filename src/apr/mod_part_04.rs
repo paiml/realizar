@@ -271,5 +271,5 @@ mod apr_tests_part_05;
 
 // T-COV-95 Coverage Bridge (Part 06 - from_bytes edge cases, predict, tensor access, metadata aliases)
 #[cfg(test)]
-#[path = "tests_part_06.rs"]
-mod apr_tests_part_06;
+#[path = "tests_apr_v2_bytes.rs"]
+mod apr_tests_v2_bytes;

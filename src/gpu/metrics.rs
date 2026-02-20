@@ -280,6 +280,6 @@ pub struct GpuCompute {
     gpu: Option<trueno::backends::gpu::GpuBackend>,
 }
 
-include!("metrics_part_02.rs");
+include!("gpu_compute.rs");
 include!("metrics_part_03.rs");
 include!("metrics_part_04.rs");

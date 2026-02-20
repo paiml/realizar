@@ -83,7 +83,7 @@ include!("tests_part_10.rs");
 include!("tests_part_11.rs");
 include!("tests_part_12.rs");
 include!("tests_part_13.rs");
-include!("tests_part_14.rs");
+include!("tests_tensor_entry_dequant.rs");
 include!("tests_part_15.rs");
 include!("transform.rs");
 include!("tests_part_17.rs");
