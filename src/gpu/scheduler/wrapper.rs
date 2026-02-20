@@ -207,7 +207,7 @@ impl GpuModel {
 }
 
 include!("matmul.rs");
-include!("model_part_02_part_03.rs");
+include!("forward_block.rs");
 include!("model_part_02_part_04.rs");
 include!("model_part_02_part_05.rs");
 include!("forward_from_forward_from_model_part_02_part_06.rs");

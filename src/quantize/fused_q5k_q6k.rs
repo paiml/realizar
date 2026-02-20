@@ -438,5 +438,5 @@ pub fn fused_q5k_dot_simd(q5k_data: &[u8], activations: &[f32]) -> Result<f32> {
     fused_q5k_dot(q5k_data, activations)
 }
 
-include!("fused_q5k_q6k_part_02.rs");
+include!("fused_q4k_q8_dot.rs");
 include!("create.rs");

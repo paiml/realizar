@@ -439,7 +439,7 @@ fn test_imp_1000d_optimization_hints_default() {
 }
 
 include!("proptests_part_02.rs");
-include!("proptests_part_03.rs");
+include!("proptests_kernels.rs");
 include!("proptests_part_04.rs");
 include!("proptests_part_05.rs");
 include!("proptests_part_06.rs");

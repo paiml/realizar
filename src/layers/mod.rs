@@ -378,5 +378,5 @@ pub struct Linear {
     bias: Vec<f32>,
 }
 
-include!("mod_part_02.rs");
+include!("linear.rs");
 include!("fused_layer_norm_linear.rs");
