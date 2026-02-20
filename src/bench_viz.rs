@@ -167,5 +167,5 @@ pub struct BenchmarkGrid {
 }
 
 include!("bench_viz_part_02.rs");
-include!("bench_viz_part_03.rs");
+include!("bench_viz_runner.rs");
 include!("bench_viz_part_04.rs");

@@ -31,8 +31,8 @@ mod convert_tests_part_08;
 
 // T-COV-95 Generative Falsification (Part 09 - Proptest Byte-Smasher)
 #[cfg(test)]
-#[path = "tests_part_09.rs"]
-mod convert_tests_part_09;
+#[path = "tests_byte_smasher.rs"]
+mod convert_tests_byte_smasher;
 
 // T-COV-95 Coverage Bridge (Part 10 - CRC32, checksum, metadata alignment, error paths)
 #[cfg(test)]
@@ -56,5 +56,5 @@ mod convert_tests_part_13;
 
 // T-COV-95 Coverage Bridge (Part 14 - GgufToAprQ4KConverter::convert full pipeline + roundtrip)
 #[cfg(test)]
-#[path = "tests_part_14.rs"]
-mod convert_tests_part_14;
+#[path = "tests_q4k_converter.rs"]
+mod convert_tests_q4k_converter;

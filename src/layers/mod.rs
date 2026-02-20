@@ -379,4 +379,4 @@ pub struct Linear {
 }
 
 include!("mod_part_02.rs");
-include!("mod_part_03.rs");
+include!("fused_layer_norm_linear.rs");
