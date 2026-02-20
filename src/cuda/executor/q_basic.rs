@@ -8,5 +8,5 @@
 
 use super::*;
 
-include!("q_basic_part_02.rs");
+include!("device.rs");
 include!("q_basic_part_03.rs");

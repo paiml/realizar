@@ -139,6 +139,6 @@ impl CudaExecutor {
 
 include!("attention_part_02_part_02.rs");
 include!("attention_part_02_part_03.rs");
-include!("attention_part_02_part_04.rs");
+include!("batch.rs");
 include!("attention_part_02_part_05.rs");
-include!("attention_part_02_part_06.rs");
+include!("head_dim.rs");

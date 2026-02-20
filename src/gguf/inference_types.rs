@@ -427,5 +427,5 @@ pub struct DispatchMetrics {
     start_time_ms: std::sync::atomic::AtomicU64,
 }
 
-include!("inference_types_part_02.rs");
+include!("latency.rs");
 include!("inference_types_part_03.rs");

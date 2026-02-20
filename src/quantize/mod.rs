@@ -324,7 +324,7 @@ pub struct InterleavedQ4K {
     pub num_super_blocks: usize,
 }
 
-include!("mod_part_02.rs");
-include!("mod_part_03.rs");
+include!("product.rs");
+include!("q4_0.rs");
 include!("mod_part_04.rs");
 include!("mod_part_05.rs");

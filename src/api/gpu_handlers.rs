@@ -432,5 +432,5 @@ async fn batch_processor_task(
 }
 
 include!("gpu_handlers_part_02.rs");
-include!("gpu_handlers_part_03.rs");
+include!("batch.rs");
 include!("gpu_handlers_part_04.rs");

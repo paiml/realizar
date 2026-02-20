@@ -14,7 +14,7 @@ use crate::gguf::{
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 
-include!("loader_part_02.rs");
+include!("token.rs");
 include!("loader_part_03.rs");
-include!("loader_part_04.rs");
+include!("dtype.rs");
 include!("loader_part_05.rs");
