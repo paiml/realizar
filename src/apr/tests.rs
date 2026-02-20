@@ -77,7 +77,7 @@ mod tests {
             gqa_ratio, num_heads, num_kv_heads
         );
     }
-include!("tests_part_08.rs");
+include!("tests_header_parsing.rs");
 include!("tests_part_09.rs");
 include!("tests_part_10.rs");
 include!("tests_part_11.rs");

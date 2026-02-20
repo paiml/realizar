@@ -415,4 +415,4 @@ fn build_divergent_pygmy_zero_vocab() -> Vec<u8> {
     data
 }
 
-include!("tests_part_08_part_02.rs");
+include!("tests_signed_metadata.rs");

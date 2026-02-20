@@ -186,5 +186,5 @@ mod mapped_tests {
         assert_eq!(model.tensor_count(), 0);
         assert!(model.tensor_names().is_empty());
     }
-include!("tests_part_04_part_02.rs");
+include!("tests_temp_file_helper.rs");
 }
