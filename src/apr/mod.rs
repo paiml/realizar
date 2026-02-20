@@ -407,5 +407,5 @@ impl TensorEntry {
 }
 
 include!("metadata.rs");
-include!("mod_part_03.rs");
+include!("tokenizer_loading.rs");
 include!("special_tokens.rs");

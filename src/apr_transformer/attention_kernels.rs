@@ -395,5 +395,5 @@ fn apply_rope_quad(
     x[idx2_start + i + 3] = x1_3 * sin3 + x2_3 * cos3;
 }
 
-include!("q4_simd_part_02_part_02.rs");
-include!("q4_simd_part_02_part_03.rs");
+include!("q4_simd_from_gguf.rs");
+include!("q4_simd_activations_cache.rs");

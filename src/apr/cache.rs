@@ -354,6 +354,6 @@ impl AprV2ModelCuda {
 
 include!("cuda_model_init.rs");
 include!("weight.rs");
-include!("cuda_part_02_part_04.rs");
+include!("cuda_streaming_weights.rs");
 include!("forward_cuda_to_token.rs");
 include!("forward_cuda.rs");
