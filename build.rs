@@ -58,10 +58,7 @@ fn main() {
         .join("binding.yaml");
 
     // Always tell Cargo to re-run if the file appears or changes
-    println!(
-        "cargo:rerun-if-changed={}",
-        binding_path.display()
-    );
+    println!("cargo:rerun-if-changed={}", binding_path.display());
 
     if !binding_path.exists() {
         // Graceful fallback: CI/crates.io builds won't have the sibling repo.
@@ -85,7 +82,7 @@ fn main() {
             );
             println!("cargo:rustc-env=CONTRACT_BINDING_SOURCE=none");
             return;
-        }
+        },
     };
 
     let bindings: BindingFile = match serde_yaml::from_str(&yaml_content) {
@@ -97,7 +94,7 @@ fn main() {
             );
             println!("cargo:rustc-env=CONTRACT_BINDING_SOURCE=none");
             return;
-        }
+        },
     };
 
     // Counters for the summary
@@ -116,12 +113,12 @@ fn main() {
 
         // Keep the best status seen so far for this (contract, equation) pair
         let dominated = match (seen.get(&var_name).map(|s| s.as_str()), status) {
-            (None, _) => false,                            // first time
-            (Some("implemented"), _) => true,              // already best
-            (Some("partial"), "implemented") => false,     // upgrade
-            (Some("partial"), _) => true,                  // keep partial
+            (None, _) => false,                        // first time
+            (Some("implemented"), _) => true,          // already best
+            (Some("partial"), "implemented") => false, // upgrade
+            (Some("partial"), _) => true,              // keep partial
             (Some("not_implemented"), "not_implemented") => true,
-            (Some("not_implemented"), _) => false,         // upgrade
+            (Some("not_implemented"), _) => false, // upgrade
             _ => false,
         };
 
@@ -152,10 +149,8 @@ fn main() {
                     .find(|b| &env_var_name(&b.contract, &b.equation) == var_name)
                     .and_then(|b| b.notes.as_deref())
                     .unwrap_or("");
-                println!(
-                    "cargo:warning=[contract] PARTIAL: {var_name} — {note}"
-                );
-            }
+                println!("cargo:warning=[contract] PARTIAL: {var_name} — {note}");
+            },
             "not_implemented" => {
                 not_implemented += 1;
                 // WarnOnGaps: warn but do NOT fail the build
@@ -165,15 +160,11 @@ fn main() {
                     .find(|b| &env_var_name(&b.contract, &b.equation) == var_name)
                     .and_then(|b| b.notes.as_deref())
                     .unwrap_or("");
-                println!(
-                    "cargo:warning=[contract] GAP: {var_name} — {note}"
-                );
-            }
+                println!("cargo:warning=[contract] GAP: {var_name} — {note}");
+            },
             other => {
-                println!(
-                    "cargo:warning=[contract] UNKNOWN STATUS '{other}': {var_name}"
-                );
-            }
+                println!("cargo:warning=[contract] UNKNOWN STATUS '{other}': {var_name}");
+            },
         }
     }
 
@@ -185,7 +176,10 @@ fn main() {
 
     // Set metadata env vars for the proc macro
     println!("cargo:rustc-env=CONTRACT_BINDING_SOURCE=binding.yaml");
-    println!("cargo:rustc-env=CONTRACT_BINDING_VERSION={}", bindings.version);
+    println!(
+        "cargo:rustc-env=CONTRACT_BINDING_VERSION={}",
+        bindings.version
+    );
     println!("cargo:rustc-env=CONTRACT_TOTAL={total}");
     println!("cargo:rustc-env=CONTRACT_IMPLEMENTED={implemented}");
     println!("cargo:rustc-env=CONTRACT_PARTIAL={partial}");

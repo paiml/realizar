@@ -68,4 +68,3 @@ fn main() {
         stats("QKV bias first 10", &bias[..10.min(bias.len())]);
     }
 }
-
