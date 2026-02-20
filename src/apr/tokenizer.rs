@@ -272,4 +272,4 @@ pub fn byte_to_bpe_char(b: u8) -> String {
     }
 }
 
-include!("tokenizer_part_02.rs");
+include!("tokenizer_tests.rs");
