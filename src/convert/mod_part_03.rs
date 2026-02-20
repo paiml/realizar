@@ -6,7 +6,7 @@ mod convert_tests_part_03;
 
 // T-COV-95 Coverage Bridge (Part 04 - ConversionStats, to_apr_bytes, from_apr_bytes)
 #[cfg(test)]
-#[path = "tests_part_04.rs"]
+#[path = "tests_conversion_stats.rs"]
 mod convert_tests_part_04;
 
 // T-COV-95 Extended Coverage (Part 05 - RawTensor, dtypes, edge cases)

@@ -409,5 +409,5 @@ pub fn simd_bf16_dot(a: &[u8], b: &[u8]) -> f32 {
     sum
 }
 
-include!("simd_part_02.rs");
+include!("simd_bf16_ops.rs");
 include!("simd_part_03.rs");

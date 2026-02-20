@@ -384,4 +384,4 @@ impl SafetensorsFixture {
     }
 }
 
-include!("fixtures_part_02.rs");
+include!("safetensors_fixture.rs");
