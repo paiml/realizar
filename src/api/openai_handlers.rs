@@ -410,4 +410,4 @@ fn try_cached_backend(
 }
 
 include!("cuda_chat_backend.rs");
-include!("openai_handlers_part_03.rs");
+include!("chat_completions_stream.rs");

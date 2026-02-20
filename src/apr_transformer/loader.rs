@@ -394,5 +394,5 @@ pub struct QuantizedAprTransformer {
     lm_head_weight: Vec<u8>,
 }
 
-include!("loader_part_02.rs");
+include!("quantized_transformer.rs");
 include!("loader_tests.rs");

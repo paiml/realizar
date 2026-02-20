@@ -249,5 +249,5 @@ impl Drop for CudaExecutor {
     }
 }
 
-include!("core_part_02.rs");
+include!("executor_api.rs");
 include!("core_part_03.rs");
