@@ -157,5 +157,5 @@ impl OwnedQuantizedModel {
     }
 }
 
-include!("attention_part_02_part_02.rs");
+include!("rope.rs");
 include!("cache.rs");

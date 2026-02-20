@@ -9,5 +9,5 @@
 
 use super::super::*;
 
-include!("indexed_part_02.rs");
+include!("gemv_dispatch.rs");
 include!("indexed_part_03.rs");
