@@ -366,5 +366,5 @@ pub struct AprTransformer {
     pub lm_head_weight_q4k: Option<Vec<u8>>,
 }
 
-include!("cache_from_mod_part_02.rs");
+include!("generation_delegates.rs");
 include!("traced_forward.rs");

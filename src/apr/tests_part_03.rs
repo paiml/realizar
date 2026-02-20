@@ -183,5 +183,5 @@ mod tests {
         assert!(result.is_infinite());
         assert!(result.is_sign_negative());
     }
-include!("tests_part_03_part_02.rs");
+include!("tests_dtype_and_tokenizer.rs");
 }
