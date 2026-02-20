@@ -12,4 +12,4 @@ use super::super::model::OwnedQuantizedModel;
 use super::{OwnedQuantizedKVCache, OwnedQuantizedModelCuda, QuantizedGenerateConfig};
 use crate::error::{RealizarError, Result};
 
-include!("generation_part_02.rs");
+include!("generate_1.rs");

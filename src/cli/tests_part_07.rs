@@ -442,4 +442,4 @@ fn test_run_bench_regression_invalid_json() {
     assert!(result.is_err());
 }
 
-include!("benchmarks_from_benchmarks_from_tests_part_07_part_02.rs");
+include!("benchmarks_1.rs");

@@ -205,7 +205,7 @@ pub struct FragmentationStats {
     pub avg_tokens_per_page: f32,
 }
 
-include!("mod_part_02.rs");
+include!("contiguous.rs");
 include!("mod_part_03.rs");
 include!("mod_part_04.rs");
 include!("mod_part_05.rs");

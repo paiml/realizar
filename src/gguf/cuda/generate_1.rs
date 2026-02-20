@@ -265,4 +265,4 @@ impl OwnedQuantizedModelCuda {
     }
 }
 
-include!("generation_part_02_part_02.rs");
+include!("generate_2.rs");
