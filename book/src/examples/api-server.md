@@ -475,5 +475,5 @@ Benchmarks on AMD64 with SIMD acceleration:
 
 ## Related Examples
 
-- See [`examples/api_server.rs`](../../../examples/api_server.rs) for complete working example
-- See [`tests/integration_multi_model_api.rs`](../../../tests/integration_multi_model_api.rs) for usage patterns
+- See [`examples/api_server.rs`](https://github.com/paiml/realizar/blob/main/examples/api_server.rs) for complete working example
+- See [`tests/integration_multi_model_api.rs`](https://github.com/paiml/realizar/blob/main/tests/integration_multi_model_api.rs) for usage patterns

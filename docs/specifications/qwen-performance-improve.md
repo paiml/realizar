@@ -354,7 +354,7 @@ let residual = executor.residual_add_gpu(input, &out_gpu, hidden_dim)?;
 
 **Target:** Fuse RMSNorm → Linear → SwiGLU in single kernel pass
 
-**Citation:** Op fusion: 1.2-1.5x speedup (entrenar benchmarks, `entrenar/book/src/examples/citl.md`)
+**Citation:** Op fusion: 1.2-1.5x speedup ([entrenar benchmarks](https://github.com/paiml/entrenar/blob/main/book/src/examples/citl.md))
 
 **Implementation Progress (2026-02-02):**
 
