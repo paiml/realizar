@@ -9,4 +9,4 @@
 use super::*;
 
 include!("q4k_tiled_gemv.rs");
-include!("q4k_part_03.rs");
+include!("q4k_tests_gemv_cached.rs");

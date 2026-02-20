@@ -232,7 +232,7 @@ mod tests {
         // Should merge a+b->ab, then ab+c->abc
         assert!(!result.is_empty());
     }
-include!("tests_part_07_part_02.rs");
+include!("tests_binary_tensor_helpers.rs");
 include!("tests_part_07_part_03.rs");
 include!("tests_part_07_part_04.rs");
 }
