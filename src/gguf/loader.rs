@@ -17,4 +17,4 @@ use std::io::{Cursor, Read};
 include!("token.rs");
 include!("loader_part_03.rs");
 include!("dtype.rs");
-include!("loader_part_05.rs");
+include!("loader_vocab_tests.rs");

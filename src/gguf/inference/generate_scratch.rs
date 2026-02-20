@@ -225,4 +225,4 @@ impl OwnedQuantizedModel {
     }
 }
 
-include!("generation_part_02_part_02.rs");
+include!("generate_quantized.rs");
