@@ -10,7 +10,7 @@ struct AprTensorLookup<'a> {
 
 /// Dequantize Q4K/Q5K tensor data, handling per-row padding for 2D tensors (GH-202).
 fn dequant_q4k_tensor(tensor_data: &[u8], dims: &[usize]) -> Vec<f32> {
-    if dims.len() == 2 && dims[1] % 256 != 0 {
+    if dims.len() == 2 && !dims[1].is_multiple_of(256) {
         dequant_perrow(tensor_data, dims, 256, 144, |block, out| {
             dequant_q4k_block(block, out);
         })
@@ -22,7 +22,7 @@ fn dequant_q4k_tensor(tensor_data: &[u8], dims: &[usize]) -> Vec<f32> {
 
 /// Dequantize Q6K tensor data, handling per-row padding for 2D tensors (GH-202).
 fn dequant_q6k_tensor(tensor_data: &[u8], dims: &[usize]) -> Vec<f32> {
-    if dims.len() == 2 && dims[1] % 256 != 0 {
+    if dims.len() == 2 && !dims[1].is_multiple_of(256) {
         dequant_perrow(tensor_data, dims, 256, 210, |block, out| {
             dequant_q6k_block(block, out);
         })

@@ -1,3 +1,108 @@
+/// Compute scaled dot-product scores between a query vector and key vectors.
+///
+/// For each key position `j` in `0..num_keys`, computes `dot(q, k[j]) * scale`.
+fn compute_attention_scores(
+    q: &[f32],
+    q_start: usize,
+    keys: &[f32],
+    kv_dim: usize,
+    kv_head_offset: usize,
+    head_dim: usize,
+    num_keys: usize,
+    scale: f32,
+) -> Vec<f32> {
+    let mut scores = Vec::with_capacity(num_keys);
+    for j in 0..num_keys {
+        let k_start = j * kv_dim + kv_head_offset;
+        let mut score = 0.0f32;
+        for d in 0..head_dim {
+            score += q[q_start + d] * keys[k_start + d];
+        }
+        scores.push(score * scale);
+    }
+    scores
+}
+
+/// Apply softmax normalization in-place.
+fn softmax_inplace(scores: &mut [f32]) {
+    let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let mut exp_sum = 0.0f32;
+    for s in scores.iter_mut() {
+        *s = (*s - max_score).exp();
+        exp_sum += *s;
+    }
+    for s in scores.iter_mut() {
+        *s /= exp_sum;
+    }
+}
+
+/// Accumulate weighted value vectors into the output buffer.
+///
+/// For each position `j`, adds `weight[j] * v[j]` element-wise into `output[out_start..]`.
+fn accumulate_weighted_values(
+    output: &mut [f32],
+    out_start: usize,
+    scores: &[f32],
+    values: &[f32],
+    kv_dim: usize,
+    kv_head_offset: usize,
+    head_dim: usize,
+) {
+    for (j, &weight) in scores.iter().enumerate() {
+        let v_start = j * kv_dim + kv_head_offset;
+        for d in 0..head_dim {
+            output[out_start + d] += weight * values[v_start + d];
+        }
+    }
+}
+
+/// Merge per-head output buffers into a single interleaved output tensor.
+///
+/// Each `head_out` has shape `[seq_len, head_dim]`; the merged output has
+/// shape `[seq_len, num_heads * head_dim]`.
+fn merge_head_outputs(
+    head_outputs: Vec<Vec<f32>>,
+    seq_len: usize,
+    head_dim: usize,
+    q_dim: usize,
+) -> Vec<f32> {
+    let mut output = vec![0.0f32; seq_len * q_dim];
+    for (head, head_out) in head_outputs.into_iter().enumerate() {
+        let head_offset = head * head_dim;
+        for i in 0..seq_len {
+            let src_start = i * head_dim;
+            let dst_start = i * q_dim + head_offset;
+            output[dst_start..dst_start + head_dim]
+                .copy_from_slice(&head_out[src_start..src_start + head_dim]);
+        }
+    }
+    output
+}
+
+/// Compute attention for one position of one head, writing into a per-head buffer.
+///
+/// Used by the parallel path where each head owns its own output buffer
+/// with stride `head_dim` (not `q_dim`).
+fn attend_position_per_head(
+    head_out: &mut [f32],
+    i: usize,
+    q: &[f32],
+    q_start: usize,
+    keys: &[f32],
+    values: &[f32],
+    kv_dim: usize,
+    kv_head_offset: usize,
+    head_dim: usize,
+    num_keys: usize,
+    scale: f32,
+) {
+    let mut scores = compute_attention_scores(
+        q, q_start, keys, kv_dim, kv_head_offset, head_dim, num_keys, scale,
+    );
+    softmax_inplace(&mut scores);
+    let out_start = i * head_dim;
+    accumulate_weighted_values(head_out, out_start, &scores, values, kv_dim, kv_head_offset, head_dim);
+}
 
 impl QuantizedAprTransformerQ4 {
 
@@ -27,7 +132,6 @@ impl QuantizedAprTransformerQ4 {
         const PARALLEL_HEAD_THRESHOLD: usize = 4;
 
         if num_heads < PARALLEL_HEAD_THRESHOLD {
-            // Sequential path
             let mut output = vec![0.0f32; new_seq_len * q_dim];
             for head in 0..num_heads {
                 let kv_head = head / group_size;
@@ -36,43 +140,19 @@ impl QuantizedAprTransformerQ4 {
 
                 for i in 0..new_seq_len {
                     let pos = cache_len + i;
-                    let mut scores = Vec::with_capacity(pos + 1);
                     let q_start = i * q_dim + q_head_offset;
-
-                    // Attend to all positions up to current (causal)
-                    for j in 0..=pos {
-                        let k_start = j * kv_dim + kv_head_offset;
-                        let mut score = 0.0f32;
-                        for d in 0..head_dim {
-                            score += new_q[q_start + d] * full_k[k_start + d];
-                        }
-                        scores.push(score * scale);
-                    }
-
-                    // Softmax
-                    let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                    let mut exp_sum = 0.0f32;
-                    for s in &mut scores {
-                        *s = (*s - max_score).exp();
-                        exp_sum += *s;
-                    }
-                    for s in &mut scores {
-                        *s /= exp_sum;
-                    }
-
-                    // Weighted sum
                     let out_start = i * q_dim + q_head_offset;
-                    for (j, &weight) in scores.iter().enumerate() {
-                        let v_start = j * kv_dim + kv_head_offset;
-                        for d in 0..head_dim {
-                            output[out_start + d] += weight * full_v[v_start + d];
-                        }
-                    }
+                    let mut scores = compute_attention_scores(
+                        new_q, q_start, full_k, kv_dim, kv_head_offset, head_dim, pos + 1, scale,
+                    );
+                    softmax_inplace(&mut scores);
+                    accumulate_weighted_values(
+                        &mut output, out_start, &scores, full_v, kv_dim, kv_head_offset, head_dim,
+                    );
                 }
             }
             output
         } else {
-            // Parallel path
             let head_outputs: Vec<Vec<f32>> = (0..num_heads)
                 .into_par_iter()
                 .map(|head| {
@@ -83,52 +163,18 @@ impl QuantizedAprTransformerQ4 {
 
                     for i in 0..new_seq_len {
                         let pos = cache_len + i;
-                        let mut scores = Vec::with_capacity(pos + 1);
                         let q_start = i * q_dim + q_head_offset;
-
-                        for j in 0..=pos {
-                            let k_start = j * kv_dim + kv_head_offset;
-                            let mut score = 0.0f32;
-                            for d in 0..head_dim {
-                                score += new_q[q_start + d] * full_k[k_start + d];
-                            }
-                            scores.push(score * scale);
-                        }
-
-                        let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                        let mut exp_sum = 0.0f32;
-                        for s in &mut scores {
-                            *s = (*s - max_score).exp();
-                            exp_sum += *s;
-                        }
-                        for s in &mut scores {
-                            *s /= exp_sum;
-                        }
-
-                        let out_start = i * head_dim;
-                        for (j, &weight) in scores.iter().enumerate() {
-                            let v_start = j * kv_dim + kv_head_offset;
-                            for d in 0..head_dim {
-                                head_out[out_start + d] += weight * full_v[v_start + d];
-                            }
-                        }
+                        attend_position_per_head(
+                            &mut head_out, i, new_q, q_start,
+                            full_k, full_v, kv_dim, kv_head_offset,
+                            head_dim, pos + 1, scale,
+                        );
                     }
                     head_out
                 })
                 .collect();
 
-            // Merge
-            let mut output = vec![0.0f32; new_seq_len * q_dim];
-            for (head, head_out) in head_outputs.into_iter().enumerate() {
-                let head_offset = head * head_dim;
-                for i in 0..new_seq_len {
-                    let src_start = i * head_dim;
-                    let dst_start = i * q_dim + head_offset;
-                    output[dst_start..dst_start + head_dim]
-                        .copy_from_slice(&head_out[src_start..src_start + head_dim]);
-                }
-            }
-            output
+            merge_head_outputs(head_outputs, new_seq_len, head_dim, q_dim)
         }
     }
 
@@ -167,8 +213,6 @@ impl QuantizedAprTransformerQ4 {
         let pos_f32 = position as f32;
         let head_dim_f32 = head_dim as f32;
 
-        // Apply rotation to each head with inline cos/sin computation
-        // Avoids allocation by computing cos/sin on the fly
         for h in 0..num_heads_in_x {
             let head_start = h * head_dim;
             let idx2_start = head_start + half_dim;
@@ -177,66 +221,7 @@ impl QuantizedAprTransformerQ4 {
                 continue;
             }
 
-            // Process 4 elements at a time for better ILP
-            let mut i = 0;
-            while i + 4 <= half_dim {
-                // Compute 4 frequencies
-                let freq0 = 1.0 / theta.powf(2.0 * i as f32 / head_dim_f32);
-                let freq1 = 1.0 / theta.powf(2.0 * (i + 1) as f32 / head_dim_f32);
-                let freq2 = 1.0 / theta.powf(2.0 * (i + 2) as f32 / head_dim_f32);
-                let freq3 = 1.0 / theta.powf(2.0 * (i + 3) as f32 / head_dim_f32);
-
-                // Compute 4 angles
-                let angle0 = pos_f32 * freq0;
-                let angle1 = pos_f32 * freq1;
-                let angle2 = pos_f32 * freq2;
-                let angle3 = pos_f32 * freq3;
-
-                // Compute cos/sin (use sincos if available for better performance)
-                let (sin0, cos0) = angle0.sin_cos();
-                let (sin1, cos1) = angle1.sin_cos();
-                let (sin2, cos2) = angle2.sin_cos();
-                let (sin3, cos3) = angle3.sin_cos();
-
-                // Load x1 and x2 values
-                let x1_0 = x[head_start + i];
-                let x1_1 = x[head_start + i + 1];
-                let x1_2 = x[head_start + i + 2];
-                let x1_3 = x[head_start + i + 3];
-
-                let x2_0 = x[idx2_start + i];
-                let x2_1 = x[idx2_start + i + 1];
-                let x2_2 = x[idx2_start + i + 2];
-                let x2_3 = x[idx2_start + i + 3];
-
-                // Apply rotation: [cos -sin; sin cos] * [x1; x2]
-                x[head_start + i] = x1_0 * cos0 - x2_0 * sin0;
-                x[head_start + i + 1] = x1_1 * cos1 - x2_1 * sin1;
-                x[head_start + i + 2] = x1_2 * cos2 - x2_2 * sin2;
-                x[head_start + i + 3] = x1_3 * cos3 - x2_3 * sin3;
-
-                x[idx2_start + i] = x1_0 * sin0 + x2_0 * cos0;
-                x[idx2_start + i + 1] = x1_1 * sin1 + x2_1 * cos1;
-                x[idx2_start + i + 2] = x1_2 * sin2 + x2_2 * cos2;
-                x[idx2_start + i + 3] = x1_3 * sin3 + x2_3 * cos3;
-
-                i += 4;
-            }
-
-            // Handle remaining elements
-            while i < half_dim {
-                let freq = 1.0 / theta.powf(2.0 * i as f32 / head_dim_f32);
-                let angle = pos_f32 * freq;
-                let (sin_val, cos_val) = angle.sin_cos();
-
-                let x1 = x[head_start + i];
-                let x2 = x[idx2_start + i];
-
-                x[head_start + i] = x1 * cos_val - x2 * sin_val;
-                x[idx2_start + i] = x1 * sin_val + x2 * cos_val;
-
-                i += 1;
-            }
+            apply_rope_to_head(x, head_start, idx2_start, half_dim, theta, pos_f32, head_dim_f32);
         }
     }
 
@@ -251,11 +236,7 @@ impl QuantizedAprTransformerQ4 {
         let num_kv_heads = self.config.num_kv_heads;
         let head_dim = self.config.hidden_dim / num_heads;
         let scale = 1.0 / (head_dim as f32).sqrt();
-
-        // GQA: multiple Q heads share each KV head
         let group_size = num_heads / num_kv_heads;
-
-        // Q has num_heads heads, K/V have num_kv_heads heads
         let q_dim = num_heads * head_dim;
         let kv_dim = num_kv_heads * head_dim;
 
@@ -274,33 +255,18 @@ impl QuantizedAprTransformerQ4 {
             return output;
         }
 
-        // General case for seq_len > 1
         use rayon::prelude::*;
-
-        // Parallel threshold - use parallel for 4+ heads
         const PARALLEL_HEAD_THRESHOLD: usize = 4;
 
         if num_heads < PARALLEL_HEAD_THRESHOLD {
-            // Sequential path for few heads
             let mut output = vec![0.0f32; seq_len * q_dim];
             for head in 0..num_heads {
                 self.compute_head_attention(
-                    head,
-                    group_size,
-                    head_dim,
-                    scale,
-                    q,
-                    k,
-                    v,
-                    seq_len,
-                    q_dim,
-                    kv_dim,
-                    &mut output,
+                    head, group_size, head_dim, scale, q, k, v, seq_len, q_dim, kv_dim, &mut output,
                 );
             }
             output
         } else {
-            // Parallel path - each head computes independently, then merge
             let head_outputs: Vec<Vec<f32>> = (0..num_heads)
                 .into_par_iter()
                 .map(|head| {
@@ -310,54 +276,18 @@ impl QuantizedAprTransformerQ4 {
                     let kv_head_offset = kv_head * head_dim;
 
                     for i in 0..seq_len {
-                        let mut scores = Vec::with_capacity(i + 1);
                         let q_start = i * q_dim + q_head_offset;
-
-                        for j in 0..=i {
-                            let k_start = j * kv_dim + kv_head_offset;
-                            let mut score = 0.0f32;
-                            for d in 0..head_dim {
-                                score += q[q_start + d] * k[k_start + d];
-                            }
-                            scores.push(score * scale);
-                        }
-
-                        // Softmax
-                        let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                        let mut exp_sum = 0.0f32;
-                        for s in &mut scores {
-                            *s = (*s - max_score).exp();
-                            exp_sum += *s;
-                        }
-                        for s in &mut scores {
-                            *s /= exp_sum;
-                        }
-
-                        // Weighted sum
-                        let out_start = i * head_dim;
-                        for (j, &weight) in scores.iter().enumerate() {
-                            let v_start = j * kv_dim + kv_head_offset;
-                            for d in 0..head_dim {
-                                head_out[out_start + d] += weight * v[v_start + d];
-                            }
-                        }
+                        attend_position_per_head(
+                            &mut head_out, i, q, q_start,
+                            k, v, kv_dim, kv_head_offset,
+                            head_dim, i + 1, scale,
+                        );
                     }
                     head_out
                 })
                 .collect();
 
-            // Merge head outputs into final output
-            let mut output = vec![0.0f32; seq_len * q_dim];
-            for (head, head_out) in head_outputs.into_iter().enumerate() {
-                let head_offset = head * head_dim;
-                for i in 0..seq_len {
-                    let src_start = i * head_dim;
-                    let dst_start = i * q_dim + head_offset;
-                    output[dst_start..dst_start + head_dim]
-                        .copy_from_slice(&head_out[src_start..src_start + head_dim]);
-                }
-            }
-            output
+            merge_head_outputs(head_outputs, seq_len, head_dim, q_dim)
         }
     }
 
@@ -382,37 +312,87 @@ impl QuantizedAprTransformerQ4 {
         let kv_head_offset = kv_head * head_dim;
 
         for i in 0..seq_len {
-            let mut scores = Vec::with_capacity(i + 1);
             let q_start = i * q_dim + q_head_offset;
-
-            for j in 0..=i {
-                let k_start = j * kv_dim + kv_head_offset;
-                let mut score = 0.0f32;
-                for d in 0..head_dim {
-                    score += q[q_start + d] * k[k_start + d];
-                }
-                scores.push(score * scale);
-            }
-
-            let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-            let mut exp_sum = 0.0f32;
-            for s in &mut scores {
-                *s = (*s - max_score).exp();
-                exp_sum += *s;
-            }
-            for s in &mut scores {
-                *s /= exp_sum;
-            }
-
             let out_start = i * q_dim + q_head_offset;
-            for (j, &weight) in scores.iter().enumerate() {
-                let v_start = j * kv_dim + kv_head_offset;
-                for d in 0..head_dim {
-                    output[out_start + d] += weight * v[v_start + d];
-                }
-            }
+            let mut scores = compute_attention_scores(
+                q, q_start, k, kv_dim, kv_head_offset, head_dim, i + 1, scale,
+            );
+            softmax_inplace(&mut scores);
+            accumulate_weighted_values(output, out_start, &scores, v, kv_dim, kv_head_offset, head_dim);
         }
     }
+}
+
+/// Apply RoPE rotation to a single head's dimensions, processing 4 elements at a time.
+fn apply_rope_to_head(
+    x: &mut [f32],
+    head_start: usize,
+    idx2_start: usize,
+    half_dim: usize,
+    theta: f32,
+    pos_f32: f32,
+    head_dim_f32: f32,
+) {
+    let mut i = 0;
+    while i + 4 <= half_dim {
+        apply_rope_quad(x, head_start, idx2_start, i, theta, pos_f32, head_dim_f32);
+        i += 4;
+    }
+    // Handle remaining elements
+    while i < half_dim {
+        let freq = 1.0 / theta.powf(2.0 * i as f32 / head_dim_f32);
+        let angle = pos_f32 * freq;
+        let (sin_val, cos_val) = angle.sin_cos();
+
+        let x1 = x[head_start + i];
+        let x2 = x[idx2_start + i];
+
+        x[head_start + i] = x1 * cos_val - x2 * sin_val;
+        x[idx2_start + i] = x1 * sin_val + x2 * cos_val;
+
+        i += 1;
+    }
+}
+
+/// Apply RoPE rotation to 4 consecutive dimension pairs (ILP-friendly).
+fn apply_rope_quad(
+    x: &mut [f32],
+    head_start: usize,
+    idx2_start: usize,
+    i: usize,
+    theta: f32,
+    pos_f32: f32,
+    head_dim_f32: f32,
+) {
+    let freq0 = 1.0 / theta.powf(2.0 * i as f32 / head_dim_f32);
+    let freq1 = 1.0 / theta.powf(2.0 * (i + 1) as f32 / head_dim_f32);
+    let freq2 = 1.0 / theta.powf(2.0 * (i + 2) as f32 / head_dim_f32);
+    let freq3 = 1.0 / theta.powf(2.0 * (i + 3) as f32 / head_dim_f32);
+
+    let (sin0, cos0) = (pos_f32 * freq0).sin_cos();
+    let (sin1, cos1) = (pos_f32 * freq1).sin_cos();
+    let (sin2, cos2) = (pos_f32 * freq2).sin_cos();
+    let (sin3, cos3) = (pos_f32 * freq3).sin_cos();
+
+    let x1_0 = x[head_start + i];
+    let x1_1 = x[head_start + i + 1];
+    let x1_2 = x[head_start + i + 2];
+    let x1_3 = x[head_start + i + 3];
+
+    let x2_0 = x[idx2_start + i];
+    let x2_1 = x[idx2_start + i + 1];
+    let x2_2 = x[idx2_start + i + 2];
+    let x2_3 = x[idx2_start + i + 3];
+
+    x[head_start + i] = x1_0 * cos0 - x2_0 * sin0;
+    x[head_start + i + 1] = x1_1 * cos1 - x2_1 * sin1;
+    x[head_start + i + 2] = x1_2 * cos2 - x2_2 * sin2;
+    x[head_start + i + 3] = x1_3 * cos3 - x2_3 * sin3;
+
+    x[idx2_start + i] = x1_0 * sin0 + x2_0 * cos0;
+    x[idx2_start + i + 1] = x1_1 * sin1 + x2_1 * cos1;
+    x[idx2_start + i + 2] = x1_2 * sin2 + x2_2 * cos2;
+    x[idx2_start + i + 3] = x1_3 * sin3 + x2_3 * cos3;
 }
 
 include!("q4_simd_part_02_part_02.rs");

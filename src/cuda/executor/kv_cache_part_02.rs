@@ -1,9 +1,129 @@
 
+/// Strides for Q8 dequantization head iteration.
+///
+/// Pre-computed byte strides for iterating over heads in
+/// the Q8 KV cache layout `[num_kv_heads, max_len, head_dim]`.
+struct Q8DequantStrides {
+    /// Source quantized data stride per head (bytes, i8)
+    src_quant: usize,
+    /// Source scale data stride per head (bytes, f32)
+    src_scale: usize,
+    /// Destination FP32 stride per head (bytes, f32)
+    dst: usize,
+}
+
+/// Launch Q8 dequant kernels for all heads of one buffer (K or V).
+///
+/// Iterates over `num_kv_heads` and dispatches one kernel per head, applying
+/// the pre-computed `strides` for pointer arithmetic.
+///
+/// # Safety
+///
+/// Caller must ensure `q8_base`, `scales_base`, and `out_base` point to
+/// allocations large enough for `num_kv_heads` heads at the given strides.
+#[allow(clippy::too_many_arguments)]
+fn launch_q8_dequant_per_head(
+    stream: &CudaStream,
+    module: &mut CudaModule,
+    kernel_name: &'static str,
+    config: &LaunchConfig,
+    num_kv_heads: usize,
+    elements_per_head: usize,
+    strides: &Q8DequantStrides,
+    q8_base: u64,
+    scales_base: u64,
+    out_base: u64,
+) -> Result<(), GpuError> {
+    for head in 0..num_kv_heads {
+        let src_quant_offset = head * strides.src_quant;
+        let src_scale_offset = head * strides.src_scale;
+        let dst_offset = head * strides.dst;
+
+        // SAFETY: Pointer arithmetic stays within allocated buffer bounds.
+        // The caller guarantees allocations cover all `num_kv_heads` heads.
+        unsafe {
+            let mut q8_ptr = q8_base + src_quant_offset as u64;
+            let mut scales_ptr = scales_base + src_scale_offset as u64;
+            let mut out_ptr = out_base + dst_offset as u64;
+            let mut n_val = elements_per_head as u32;
+
+            stream.launch_kernel(
+                module,
+                kernel_name,
+                config,
+                &mut [
+                    std::ptr::from_mut(&mut q8_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut scales_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut out_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+    }
+    Ok(())
+}
+
 impl CudaExecutor {
 
     // ========================================================================
     // QWEN-007 Phase 3: GPU-side Q8 Dequantization
     // ========================================================================
+
+    /// Validate Q8 KV cache preconditions and return cache geometry.
+    ///
+    /// Returns `(num_kv_heads, head_dim, max_len)`.
+    fn validate_q8_dequant_params(
+        &self,
+        seq_len: usize,
+    ) -> Result<(usize, usize, usize), GpuError> {
+        if !self.kv_cache_q8_enabled {
+            return Err(GpuError::InvalidParameter(
+                "Q8 KV cache not enabled. Call init_kv_cache_q8_gpu first.".to_string(),
+            ));
+        }
+        let max_len = self.kv_cache_max_len;
+        if seq_len > max_len {
+            return Err(GpuError::InvalidParameter(format!(
+                "seq_len {} exceeds max_len {}",
+                seq_len, max_len
+            )));
+        }
+        Ok((self.kv_num_kv_heads, self.kv_head_dim, max_len))
+    }
+
+    /// Look up Q8 quantized buffer and its scales for one component (K or V).
+    ///
+    /// `component` must be `"k"` or `"v"`.
+    fn get_q8_buffer_pair(
+        &self,
+        layer_idx: usize,
+        component: &str,
+    ) -> Result<(u64, u64), GpuError> {
+        let data_key = format!("kv_{}_{}", layer_idx, component);
+        let scales_key = format!("kv_{}_{}_scales", layer_idx, component);
+
+        let (data_map, scales_map) = if component == "k" {
+            (&self.kv_cache_q8_k, &self.kv_cache_q8_k_scales)
+        } else {
+            (&self.kv_cache_q8_v, &self.kv_cache_q8_v_scales)
+        };
+
+        let data_buf = data_map.get(&data_key).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!(
+                "Q8 {} cache for layer {} not found",
+                component.to_uppercase(),
+                layer_idx,
+            ))
+        })?;
+        let scales_buf = scales_map.get(&scales_key).ok_or_else(|| {
+            GpuError::InvalidLaunchConfig(format!(
+                "Q8 {} scales for layer {} not found",
+                component.to_uppercase(),
+                layer_idx,
+            ))
+        })?;
+        Ok((data_buf.as_ptr(), scales_buf.as_ptr()))
+    }
 
     /// Dequantize Q8 KV cache to FP32 on GPU
     ///
@@ -28,66 +148,19 @@ impl CudaExecutor {
         layer_idx: usize,
         seq_len: usize,
     ) -> Result<(GpuBuffer<f32>, GpuBuffer<f32>), GpuError> {
-        if !self.kv_cache_q8_enabled {
-            return Err(GpuError::InvalidParameter(
-                "Q8 KV cache not enabled. Call init_kv_cache_q8_gpu first.".to_string(),
-            ));
-        }
+        let (num_kv_heads, head_dim, max_len) = self.validate_q8_dequant_params(seq_len)?;
 
-        let num_kv_heads = self.kv_num_kv_heads;
-        let head_dim = self.kv_head_dim;
-        let max_len = self.kv_cache_max_len;
-
-        if seq_len > max_len {
-            return Err(GpuError::InvalidParameter(format!(
-                "seq_len {} exceeds max_len {}",
-                seq_len, max_len
-            )));
-        }
-
-        // Total elements to dequantize per K/V (output is contiguous)
         let total_elements = seq_len * num_kv_heads * head_dim;
         let blocks_per_head = head_dim / 32;
+        let elements_per_head = seq_len * head_dim;
 
-        // Get Q8 buffer keys
-        let k_key = format!("kv_{}_k", layer_idx);
-        let v_key = format!("kv_{}_v", layer_idx);
-        let k_scales_key = format!("kv_{}_k_scales", layer_idx);
-        let v_scales_key = format!("kv_{}_v_scales", layer_idx);
-
-        // Get Q8 buffer pointers
-        let k_q8_buf = self.kv_cache_q8_k.get(&k_key).ok_or_else(|| {
-            GpuError::InvalidLaunchConfig(format!("Q8 K cache for layer {} not found", layer_idx))
-        })?;
-        let k_scales_buf = self
-            .kv_cache_q8_k_scales
-            .get(&k_scales_key)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "Q8 K scales for layer {} not found",
-                    layer_idx
-                ))
-            })?;
-        let v_q8_buf = self.kv_cache_q8_v.get(&v_key).ok_or_else(|| {
-            GpuError::InvalidLaunchConfig(format!("Q8 V cache for layer {} not found", layer_idx))
-        })?;
-        let v_scales_buf = self
-            .kv_cache_q8_v_scales
-            .get(&v_scales_key)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "Q8 V scales for layer {} not found",
-                    layer_idx
-                ))
-            })?;
+        // Look up Q8 source buffers
+        let (k_q8_base, k_scales_base) = self.get_q8_buffer_pair(layer_idx, "k")?;
+        let (v_q8_base, v_scales_base) = self.get_q8_buffer_pair(layer_idx, "v")?;
 
         // Allocate output FP32 buffers
         let k_fp32_buf = GpuBuffer::<f32>::new(&self.context, total_elements)?;
         let v_fp32_buf = GpuBuffer::<f32>::new(&self.context, total_elements)?;
-
-        // Elements to process per head (seq_len positions × head_dim values)
-        let elements_per_head = seq_len * head_dim;
-        let _scales_per_head = seq_len * blocks_per_head;
 
         // Generate and compile Q8 dequant kernel for per-head processing
         let kernel_type = crate::cuda::KernelType::Q8Dequant {
@@ -110,66 +183,42 @@ impl CudaExecutor {
         let threads_per_block = 256u32;
         let config = LaunchConfig::linear(elements_per_head as u32, threads_per_block);
 
-        // Get base pointers
-        let k_q8_base = k_q8_buf.as_ptr();
-        let k_scales_base = k_scales_buf.as_ptr();
-        let k_out_base = k_fp32_buf.as_ptr();
-        let v_q8_base = v_q8_buf.as_ptr();
-        let v_scales_base = v_scales_buf.as_ptr();
-        let v_out_base = v_fp32_buf.as_ptr();
+        // Pre-compute strides for head iteration
+        // Input layout:  [num_kv_heads, max_len, head_dim]
+        // Output layout: [num_kv_heads, seq_len, head_dim]
+        let strides = Q8DequantStrides {
+            src_quant: max_len * head_dim,              // bytes for i8
+            src_scale: max_len * blocks_per_head * 4,   // bytes for f32
+            dst: elements_per_head * 4,                 // bytes for f32
+        };
 
-        // Process each head separately with correct offsets
-        // Input layout: [num_kv_heads, max_len, head_dim] - stride = max_len * head_dim per head
-        // Output layout: [num_kv_heads, seq_len, head_dim] - stride = seq_len * head_dim per head
-        let src_quant_stride = max_len * head_dim; // bytes for i8
-        let src_scale_stride = max_len * blocks_per_head * 4; // bytes for f32
-        let dst_stride = elements_per_head * 4; // bytes for f32
+        // Dequantize K across all heads
+        launch_q8_dequant_per_head(
+            &self.compute_stream,
+            module,
+            kernel_name,
+            &config,
+            num_kv_heads,
+            elements_per_head,
+            &strides,
+            k_q8_base,
+            k_scales_base,
+            k_fp32_buf.as_ptr(),
+        )?;
 
-        for head in 0..num_kv_heads {
-            // Calculate offsets for this head
-            let src_quant_offset = head * src_quant_stride;
-            let src_scale_offset = head * src_scale_stride;
-            let dst_offset = head * dst_stride;
-
-            // SAFETY: Pointer arithmetic to access head-specific regions
-            // The offsets are within allocated buffer bounds
-            unsafe {
-                // Dequantize K for this head
-                let mut k_q8_ptr = k_q8_base + src_quant_offset as u64;
-                let mut k_scales_ptr = k_scales_base + src_scale_offset as u64;
-                let mut k_out_ptr = k_out_base + dst_offset as u64;
-                let mut n_val = elements_per_head as u32;
-
-                self.compute_stream.launch_kernel(
-                    module,
-                    kernel_name,
-                    &config,
-                    &mut [
-                        std::ptr::from_mut(&mut k_q8_ptr) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut k_scales_ptr) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut k_out_ptr) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
-                    ],
-                )?;
-
-                // Dequantize V for this head
-                let mut v_q8_ptr = v_q8_base + src_quant_offset as u64;
-                let mut v_scales_ptr = v_scales_base + src_scale_offset as u64;
-                let mut v_out_ptr = v_out_base + dst_offset as u64;
-
-                self.compute_stream.launch_kernel(
-                    module,
-                    kernel_name,
-                    &config,
-                    &mut [
-                        std::ptr::from_mut(&mut v_q8_ptr) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut v_scales_ptr) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut v_out_ptr) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
-                    ],
-                )?;
-            }
-        }
+        // Dequantize V across all heads
+        launch_q8_dequant_per_head(
+            &self.compute_stream,
+            module,
+            kernel_name,
+            &config,
+            num_kv_heads,
+            elements_per_head,
+            &strides,
+            v_q8_base,
+            v_scales_base,
+            v_fp32_buf.as_ptr(),
+        )?;
 
         // Synchronize to ensure all head dequantizations are complete
         self.compute_stream.synchronize()?;
