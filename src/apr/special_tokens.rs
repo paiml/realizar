@@ -259,10 +259,10 @@ mod apr_tests_part_02;
 #[path = "tests_part_03.rs"]
 mod apr_tests_part_03;
 
-// T-COV-95 Active APR Pygmy: Cross-Format Dynamic Falsification (tests_part_04.rs)
+// T-COV-95 Active APR Pygmy: Cross-Format Dynamic Falsification (tests_pygmy_apr.rs)
 #[cfg(test)]
-#[path = "tests_part_04.rs"]
-mod apr_tests_part_04;
+#[path = "tests_pygmy_apr.rs"]
+mod apr_tests_pygmy_apr;
 
 // T-COV-95 Coverage Bridge (Part 05 - AprFlags, AprHeader, TensorEntry, AprMetadata, dtype_to_qtype)
 #[cfg(test)]
