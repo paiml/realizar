@@ -265,6 +265,70 @@ impl ArchConstraints {
                 has_qk_norm: false,
                 default_eps: 1e-5,
             },
+            // qwen3_5.yaml: rmsnorm, silu, rope, swiglu, has_bias=false, tied=false
+            // Unlike Qwen3, Qwen3.5 does NOT use QK norm (has_qk_norm=false)
+            "qwen3_5" | "qwen3.5" => Self {
+                norm_type: NormType::RmsNorm,
+                activation: Activation::Silu,
+                positional_encoding: PositionalEncoding::Rope,
+                mlp_type: MlpType::SwiGlu,
+                weight_layout: WeightLayout::Linear,
+                has_bias: false,
+                tied_embeddings: false,
+                has_qk_norm: false,
+                default_eps: 1e-6,
+            },
+            // falcon_h1.yaml: rmsnorm, silu, rope, swiglu, has_bias=false, tied=false
+            // Hybrid GQA attention + Mamba-2 SSM (SSM portion not yet supported)
+            "falcon_h1" | "falcon-h1" => Self {
+                norm_type: NormType::RmsNorm,
+                activation: Activation::Silu,
+                positional_encoding: PositionalEncoding::Rope,
+                mlp_type: MlpType::SwiGlu,
+                weight_layout: WeightLayout::Linear,
+                has_bias: false,
+                tied_embeddings: false,
+                has_qk_norm: false,
+                default_eps: 1e-6,
+            },
+            // openelm.yaml: rmsnorm, silu, rope, swiglu, has_bias=false, tied=false
+            // Variable-width attention (per-layer num_heads)
+            "openelm" => Self {
+                norm_type: NormType::RmsNorm,
+                activation: Activation::Silu,
+                positional_encoding: PositionalEncoding::Rope,
+                mlp_type: MlpType::SwiGlu,
+                weight_layout: WeightLayout::Linear,
+                has_bias: false,
+                tied_embeddings: false,
+                has_qk_norm: false,
+                default_eps: 1e-6,
+            },
+            // moonshine.yaml: layernorm, silu, rope, gated_mlp, has_bias=false, tied=true
+            "moonshine" => Self {
+                norm_type: NormType::LayerNorm,
+                activation: Activation::Silu,
+                positional_encoding: PositionalEncoding::Rope,
+                mlp_type: MlpType::GatedMlp,
+                weight_layout: WeightLayout::Linear,
+                has_bias: false,
+                tied_embeddings: true,
+                has_qk_norm: false,
+                default_eps: 1e-5,
+            },
+            // rwkv7.yaml: layernorm, gelu, none, gelu_mlp, has_bias=false, tied=false
+            // Not a transformer — linear recurrence, no attention or positional encoding
+            "rwkv7" | "rwkv" => Self {
+                norm_type: NormType::LayerNorm,
+                activation: Activation::Gelu,
+                positional_encoding: PositionalEncoding::None,
+                mlp_type: MlpType::GeluMlp,
+                weight_layout: WeightLayout::Linear,
+                has_bias: false,
+                tied_embeddings: false,
+                has_qk_norm: false,
+                default_eps: 1e-5,
+            },
             // Default: LLaMA-like (most common pattern in modern LLMs)
             _ => Self {
                 norm_type: NormType::RmsNorm,
