@@ -128,6 +128,6 @@ pub struct SafetensorsModel {
     pub data: Vec<u8>,
 }
 
-include!("mod_part_02.rs");
+include!("safetensors_parser.rs");
 include!("mapped_model.rs");
 include!("shard.rs");
