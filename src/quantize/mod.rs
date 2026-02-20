@@ -326,5 +326,5 @@ pub struct InterleavedQ4K {
 
 include!("product.rs");
 include!("q4_0.rs");
-include!("mod_part_04.rs");
-include!("mod_part_05.rs");
+include!("fused_q4_0_q8_0.rs");
+include!("fused_q8_0_q8_0.rs");

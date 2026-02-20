@@ -438,7 +438,7 @@ pub const BENCHMARK_SUITES: &[(&str, &str)] = &[
     ),
 ];
 
-include!("mod_part_02.rs");
+include!("display_utils.rs");
 include!("mod_part_03.rs");
 include!("mod_part_04.rs");
 include!("mod_part_05.rs");

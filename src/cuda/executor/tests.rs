@@ -453,8 +453,8 @@ fn test_parity043_multi_head_attention_causal_ptx() {
     assert!(ptx.contains("kv_loop")); // KV block loop with causal skip
 }
 
-include!("tests_part_07.rs");
-include!("tests_part_08.rs");
-include!("tests_part_09.rs");
+include!("tests_multi_head_attention.rs");
+include!("tests_cuda_vs_wgpu.rs");
+include!("tests_gemm_fused.rs");
 include!("tests_part_10.rs");
 include!("tests_part_11.rs");
