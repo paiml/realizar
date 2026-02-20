@@ -356,4 +356,4 @@ include!("cuda_model_init.rs");
 include!("weight.rs");
 include!("cuda_part_02_part_04.rs");
 include!("cuda_part_02_part_05.rs");
-include!("cuda_part_02_part_06.rs");
+include!("forward_cuda.rs");

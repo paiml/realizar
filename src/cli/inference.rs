@@ -409,4 +409,4 @@ pub fn run_gguf_inference(
 
 include!("gguf_inference_gpu.rs");
 include!("apr_inference.rs");
-include!("inference_part_04.rs");
+include!("apr_gpu_inference.rs");

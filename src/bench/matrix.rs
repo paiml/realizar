@@ -420,5 +420,5 @@ pub struct MatrixSummary {
     pub overall_highest_throughput: Option<(String, String)>,
 }
 
-include!("matrix_part_02.rs");
+include!("matrix_summary.rs");
 include!("matrix_part_03.rs");
