@@ -13,5 +13,9 @@ comply:
       reason: "CB-021 flags _mm256_ in doc comments/code comments; actual SIMD functions already have #[target_feature(enable = avx2)]"
 
     - rules: ["CB-501"]
-      files: ["src/**/tests_part_*.rs"]
-      reason: "tests_part_*.rs files are test modules split for File Health; unwrap() is standard in tests"
+      files: ["src/**/tests_part_*.rs", "src/**/tests_*.rs"]
+      reason: "test files split for File Health; unwrap() is standard in tests"
+
+    - rules: ["CB-506"]
+      files: ["src/quantize/format_trait.rs", "src/quantize/parallel_dequant.rs"]
+      reason: "CB-506 targets &str byte indexing; these are &[u8] slices with bounds guaranteed by SUPERBLOCK_BYTES trait constants and explicit length checks"
