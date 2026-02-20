@@ -422,5 +422,5 @@ mod tests {
     include!("tests_part_04.rs");
     include!("tests_part_05.rs");
     include!("tests_part_06.rs");
-    include!("tests_part_07.rs");
+    include!("logit_processor_tests.rs");
 }

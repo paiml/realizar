@@ -261,7 +261,7 @@ mod tests {
         assert_eq!(stats.draft_time_ms, 0.0);
         assert_eq!(stats.target_time_ms, 0.0);
     }
-include!("speculative_part_02_part_02.rs");
+include!("speculative_mock_tests.rs");
 include!("speculative_part_02_part_03.rs");
 include!("speculative_tests.rs");
 }
