@@ -180,6 +180,12 @@ impl ValidatedAprTransformer {
             }
         }
 
+        // PMAT-298/299: Architecture completeness gate for CPU inference path.
+        // Checks that architecture-required optional fields are actually present.
+        // For Qwen3: attn_q_norm_weight and attn_k_norm_weight MUST be Some.
+        // For Qwen2: qkv_bias MUST be Some.
+        validate_architecture_completeness(&transformer)?;
+
         Ok(Self { inner: transformer })
     }
 
@@ -207,4 +213,72 @@ impl std::ops::Deref for ValidatedAprTransformer {
     fn deref(&self) -> &AprTransformer {
         &self.inner
     }
+}
+
+/// PMAT-298/299: Architecture completeness check for CPU inference path.
+///
+/// Uses `ArchConstraints::from_architecture()` to determine which optional fields
+/// are actually REQUIRED for this architecture, then checks they're present.
+/// This closes the gap where `ValidatedAprTransformer::validate()` treated all
+/// `Option<Vec<f32>>` fields as truly optional, allowing Qwen3 models without
+/// QK norm to pass validation and produce garbage output.
+fn validate_architecture_completeness(
+    transformer: &AprTransformer,
+) -> std::result::Result<(), ContractValidationError> {
+    let arch = crate::gguf::ArchConstraints::from_architecture(&transformer.config.architecture);
+
+    for (i, layer) in transformer.layers.iter().enumerate() {
+        // QK norm: required for Qwen3
+        if arch.has_qk_norm {
+            if layer.attn_q_norm_weight.is_none() {
+                return Err(ContractValidationError {
+                    tensor_name: format!("layers.{i}.attn_q_norm_weight"),
+                    rule_id: "PMAT-299-ARCH-COMPLETENESS".to_string(),
+                    message: format!(
+                        "Architecture '{}' requires QK norm (attn_q_norm_weight) but layer {i} \
+                         has None. This would produce garbage output during inference.",
+                        transformer.config.architecture
+                    ),
+                });
+            }
+            if layer.attn_k_norm_weight.is_none() {
+                return Err(ContractValidationError {
+                    tensor_name: format!("layers.{i}.attn_k_norm_weight"),
+                    rule_id: "PMAT-299-ARCH-COMPLETENESS".to_string(),
+                    message: format!(
+                        "Architecture '{}' requires QK norm (attn_k_norm_weight) but layer {i} \
+                         has None. This would produce garbage output during inference.",
+                        transformer.config.architecture
+                    ),
+                });
+            }
+        }
+
+        // QKV bias: required for Qwen2/Phi
+        if arch.has_bias && layer.qkv_bias.is_none() {
+            return Err(ContractValidationError {
+                tensor_name: format!("layers.{i}.qkv_bias"),
+                rule_id: "PMAT-299-ARCH-COMPLETENESS".to_string(),
+                message: format!(
+                    "Architecture '{}' requires attention bias (qkv_bias) but layer {i} \
+                     has None. This would produce incorrect output during inference.",
+                    transformer.config.architecture
+                ),
+            });
+        }
+
+        // FFN norm: required for all architectures
+        if layer.ffn_norm_weight.is_none() {
+            return Err(ContractValidationError {
+                tensor_name: format!("layers.{i}.ffn_norm_weight"),
+                rule_id: "PMAT-299-ARCH-COMPLETENESS".to_string(),
+                message: format!(
+                    "Architecture '{}' requires ffn_norm_weight but layer {i} has None.",
+                    transformer.config.architecture
+                ),
+            });
+        }
+    }
+
+    Ok(())
 }
