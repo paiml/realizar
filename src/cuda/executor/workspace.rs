@@ -276,4 +276,4 @@ impl CudaExecutor {
     }
 }
 
-include!("workspace_part_02.rs");
+include!("workspace_tests.rs");

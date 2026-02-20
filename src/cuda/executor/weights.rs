@@ -462,4 +462,4 @@ impl CudaExecutor {
     }
 }
 
-include!("weights_part_02.rs");
+include!("weights_tests.rs");

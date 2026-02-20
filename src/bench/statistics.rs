@@ -368,5 +368,5 @@ pub struct WelchTTestResult {
     pub significant: bool,
 }
 
-include!("statistics_part_02.rs");
+include!("welch_t_test.rs");
 include!("statistics_part_03.rs");
