@@ -148,5 +148,5 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap().len(), out_dim);
     }
-include!("parallel_k_part_03_part_02.rs");
+include!("parallel_k_test_helpers.rs");
 }

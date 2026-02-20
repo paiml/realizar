@@ -407,6 +407,6 @@ pub fn run_gguf_inference(
     Ok(())
 }
 
-include!("inference_part_02.rs");
-include!("inference_part_03.rs");
+include!("gguf_inference_gpu.rs");
+include!("apr_inference.rs");
 include!("inference_part_04.rs");
