@@ -442,4 +442,4 @@ fn test_qkv_matmul_separate_multi_position() {
     assert_eq!(output.len(), 768);
 }
 
-include!("matmul_tests_part_02.rs");
+include!("matmul_qkv_norm_tests.rs");

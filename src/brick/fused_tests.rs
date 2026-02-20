@@ -118,5 +118,5 @@ mod tests {
             "Budget should be met with lenient budget"
         );
     }
-include!("fused_tests_part_02.rs");
+include!("coalesced_dp4a_tests.rs");
 }

@@ -436,5 +436,5 @@ fn test_dequant_stats_debug() {
 }
 
 include!("tests_coverage_part_02.rs");
-include!("tests_coverage_part_03.rs");
+include!("q8_block_tests.rs");
 include!("tests_coverage_part_04.rs");

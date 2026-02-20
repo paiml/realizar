@@ -10,4 +10,4 @@ use crate::gguf::types::{
 };
 use crate::gguf::{ops, OwnedQKVWeights, OwnedQuantizedModel, OwnedQuantizedTensor};
 
-include!("matmul_part_02.rs");
+include!("fused_matmul_into.rs");

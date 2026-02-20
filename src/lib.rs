@@ -335,7 +335,7 @@ pub mod quantize;
 #[cfg(feature = "server")]
 pub mod registry;
 #[cfg(all(test, feature = "server"))]
-mod registry_tests_part_02;
+mod registry_tests;
 pub mod safetensors;
 /// SafeTensors CUDA inference (PMAT-116)
 ///

@@ -154,5 +154,5 @@ mod artifact_falsification {
         );
         assert!(result.is_ok());
     }
-include!("inference_tests_part_04_part_02.rs");
+include!("inference_tests.rs");
 }

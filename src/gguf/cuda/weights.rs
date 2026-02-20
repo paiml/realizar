@@ -9,4 +9,4 @@
 use super::{OwnedQKVWeights, OwnedQuantizedModelCuda};
 use crate::error::{RealizarError, Result};
 
-include!("weights_part_02.rs");
+include!("weights_preload_gpu.rs");
