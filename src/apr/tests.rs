@@ -84,10 +84,10 @@ include!("tests_part_11.rs");
 include!("tests_part_12.rs");
 include!("tests_part_13.rs");
 include!("tests_tensor_entry_dequant.rs");
-include!("tests_part_15.rs");
+include!("tests_q8_f16_and_trait_impls.rs");
 include!("transform.rs");
 include!("tests_part_17.rs");
 include!("tests_part_18.rs");
-include!("tests_part_19.rs");
+include!("tests_mapped_model.rs");
 include!("tests_part_20.rs");
 }

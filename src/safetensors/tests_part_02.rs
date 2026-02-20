@@ -430,4 +430,4 @@ fn test_from_bytes_multiple_metadata_keys_skipped() {
 }
 
 include!("tests_part_02_part_02.rs");
-include!("tests_part_02_part_03.rs");
+include!("tests_sharded_loading.rs");
