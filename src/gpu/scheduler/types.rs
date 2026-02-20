@@ -431,7 +431,10 @@ impl ValidatedGpuWeights {
                 field: "embedding_weights",
                 reason: format!(
                     "expected {} (vocab_size={} * hidden_dim={}), got {}",
-                    expected_embed, config.vocab_size, config.hidden_dim, embedding_weights.len()
+                    expected_embed,
+                    config.vocab_size,
+                    config.hidden_dim,
+                    embedding_weights.len()
                 ),
             });
         }
@@ -464,7 +467,10 @@ impl ValidatedGpuWeights {
                 field: "lm_head_weight",
                 reason: format!(
                     "expected {} (vocab_size={} * hidden_dim={}), got {}",
-                    expected_lm, config.vocab_size, config.hidden_dim, lm_head_weight.0.len()
+                    expected_lm,
+                    config.vocab_size,
+                    config.hidden_dim,
+                    lm_head_weight.0.len()
                 ),
             });
         }
@@ -474,7 +480,10 @@ impl ValidatedGpuWeights {
                 field: "lm_head_weight_t",
                 reason: format!(
                     "expected {} (hidden_dim={} * vocab_size={}), got {}",
-                    expected_lm, config.hidden_dim, config.vocab_size, lm_head_weight_t.0.len()
+                    expected_lm,
+                    config.hidden_dim,
+                    config.vocab_size,
+                    lm_head_weight_t.0.len()
                 ),
             });
         }

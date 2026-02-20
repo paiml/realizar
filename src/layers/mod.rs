@@ -197,10 +197,7 @@ pub fn gelu(input: &Tensor<f32>) -> Result<Tensor<f32>> {
     }
 
     // ONE PATH: Per-element delegates to trueno::gelu_scalar (UCBD §4).
-    let output: Vec<f32> = data
-        .iter()
-        .map(|&x| trueno::gelu_scalar(x))
-        .collect();
+    let output: Vec<f32> = data.iter().map(|&x| trueno::gelu_scalar(x)).collect();
 
     Tensor::from_vec(input.shape().to_vec(), output)
 }
