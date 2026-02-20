@@ -428,5 +428,5 @@ impl ModelHttpClient {
 }
 
 include!("mod_part_02.rs");
-include!("mod_part_03.rs");
+include!("benchmark_runner.rs");
 include!("mod_part_04.rs");
