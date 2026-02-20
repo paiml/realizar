@@ -22,7 +22,7 @@ impl AprTransformer {
 }
 
 include!("mod_part_02_part_02.rs");
-include!("mod_part_02_part_03.rs");
+include!("embedding.rs");
 include!("mod_part_02_part_04.rs");
 include!("pmat-260.rs");
 include!("mod_part_02_part_06.rs");

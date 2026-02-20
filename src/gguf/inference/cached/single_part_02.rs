@@ -297,5 +297,5 @@ impl OwnedQuantizedModelCached {
 }
 
 include!("scheduler.rs");
-include!("single_part_02_part_03.rs");
+include!("attention.rs");
 include!("single_part_02_part_04.rs");

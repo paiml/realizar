@@ -10,5 +10,5 @@
 use super::*;
 use crate::quantize::Q8_0Block;
 
-include!("kv_cache_part_02.rs");
+include!("q8dequant_strides.rs");
 include!("kv_cache_part_03.rs");
