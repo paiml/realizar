@@ -349,5 +349,5 @@ impl CudaExecutor {
     }
 }
 
-include!("forward_part_02_lmhead.rs");
+include!("logits.rs");
 include!("forward_from_forward_from_forward_part_02_part_02.rs");

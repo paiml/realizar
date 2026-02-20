@@ -87,7 +87,7 @@ impl OwnedQuantizedModel {
     }
 }
 
-include!("batch_part_02_part_02.rs");
-include!("batch_part_02_part_03.rs");
-include!("batch_part_02_part_04.rs");
-include!("batch_part_02_part_05.rs");
+include!("batched.rs");
+include!("batch_size.rs");
+include!("acceleration.rs");
+include!("attention.rs");
