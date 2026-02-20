@@ -176,7 +176,7 @@ Supported quantizations:
 
 ## See Also
 
-- [SIMD Optimization Spec](../../../docs/specifications/simd-optimization-spec.md) - Detailed optimization documentation
+- [SIMD Optimization Spec](https://github.com/paiml/realizar/blob/main/docs/specifications/simd-optimization-spec.md) - Detailed optimization documentation
 - [Quantization Overview](../quantization/what-is-quantization.md) - Q4_0/Q8_0 format details
 - [GPU Acceleration](../gpu/simd.md) - SIMD backend information
 - [Performance Benchmarks](../performance/inference.md) - General inference performance
