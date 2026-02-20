@@ -8,4 +8,4 @@ use crate::error::Result;
 use crate::gguf::ops;
 use crate::gguf::OwnedQuantizedModel;
 
-include!("core_part_02.rs");
+include!("forward_cached.rs");

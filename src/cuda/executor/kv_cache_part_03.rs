@@ -386,5 +386,5 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("overflow"));
     }
-include!("kv_cache_part_03_part_02.rs");
+include!("kv_cache_init_tests.rs");
 }
