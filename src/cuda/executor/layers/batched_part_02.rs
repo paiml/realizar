@@ -52,6 +52,6 @@ impl CudaExecutor {
     }
 }
 
-include!("batched_part_02_part_02.rs");
+include!("batched_forward.rs");
 include!("par-121.rs");
 include!("transformer_layer_batched.rs");

@@ -300,5 +300,5 @@ mod tests {
             assert_eq!(name, "fused_rmsnorm_gate_up_swiglu_q4k");
         }
     }
-include!("activations_part_03_part_02.rs");
+include!("activations_tests.rs");
 }

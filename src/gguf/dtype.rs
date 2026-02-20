@@ -325,4 +325,4 @@ impl OwnedQuantizedModel {
 }
 
 include!("embedding.rs");
-include!("loader_part_04_part_03.rs");
+include!("loader_apr_quantized.rs");

@@ -12,4 +12,4 @@
 use super::*;
 
 include!("fused.rs");
-include!("gemm_part_03.rs");
+include!("gemm_tests.rs");
