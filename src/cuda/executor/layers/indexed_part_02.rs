@@ -288,4 +288,4 @@ impl CudaExecutor {
 include!("indexed_part_02_part_02.rs");
 include!("apply.rs");
 include!("phase_attention.rs");
-include!("indexed_part_02_ffn.rs");
+include!("indexed_ffn.rs");
