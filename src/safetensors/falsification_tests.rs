@@ -405,6 +405,91 @@ mod tests {
             "GH-46: Failure message must mention NaN"
         );
     }
+
+    // =========================================================================
+    // PMAT-299: Architecture completeness falsification tests
+    // =========================================================================
+
+    /// FALSIFY-GAP4-001: Qwen3 without QK norm MUST be rejected.
+    /// This is the exact GH-279 root cause — Qwen3 missing attn_q_norm produced garbage.
+    #[test]
+    fn falsify_gap4_001_qwen3_without_qk_norm_rejected() {
+        let mut t = make_valid_transformer(2);
+        t.config.architecture = "qwen3".to_string();
+        // QK norm is None — Qwen3 REQUIRES it
+        assert!(t.layers[0].attn_q_norm_weight.is_none());
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(), "Qwen3 without QK norm must be rejected");
+        let err = result.unwrap_err();
+        assert!(
+            err.message.contains("QK norm") || err.message.contains("attn_q_norm"),
+            "Error must mention QK norm: {}",
+            err.message
+        );
+    }
+
+    /// FALSIFY-GAP4-002: Qwen3 WITH QK norm passes.
+    #[test]
+    fn falsify_gap4_002_qwen3_with_qk_norm_passes() {
+        let mut t = make_valid_transformer(2);
+        t.config.architecture = "qwen3".to_string();
+        let head_dim = t.config.hidden_dim / t.config.num_heads;
+        for layer in &mut t.layers {
+            layer.attn_q_norm_weight = Some(vec![1.0; head_dim]);
+            layer.attn_k_norm_weight = Some(vec![1.0; head_dim]);
+        }
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(
+            result.is_ok(),
+            "Qwen3 with QK norm should pass: {:?}",
+            result.err()
+        );
+    }
+
+    /// FALSIFY-GAP4-003: Qwen2 without bias MUST be rejected.
+    #[test]
+    fn falsify_gap4_003_qwen2_without_bias_rejected() {
+        let mut t = make_valid_transformer(1);
+        t.config.architecture = "qwen2".to_string();
+        assert!(t.layers[0].qkv_bias.is_none());
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(), "Qwen2 without bias must be rejected");
+    }
+
+    /// FALSIFY-GAP4-004: LLaMA without QK norm or bias is fine.
+    #[test]
+    fn falsify_gap4_004_llama_without_optional_passes() {
+        let mut t = make_valid_transformer(2);
+        t.config.architecture = "llama".to_string();
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(
+            result.is_ok(),
+            "LLaMA should pass without QK norm or bias: {:?}",
+            result.err()
+        );
+    }
+
+    /// FALSIFY-GAP4-005: Missing QK norm detected on ANY layer, not just layer 0.
+    #[test]
+    fn falsify_gap4_005_qwen3_missing_norm_on_later_layer() {
+        let mut t = make_valid_transformer(4);
+        t.config.architecture = "qwen3".to_string();
+        let head_dim = t.config.hidden_dim / t.config.num_heads;
+        for layer in &mut t.layers {
+            layer.attn_q_norm_weight = Some(vec![1.0; head_dim]);
+            layer.attn_k_norm_weight = Some(vec![1.0; head_dim]);
+        }
+        // Remove QK norm from layer 3 only
+        t.layers[3].attn_k_norm_weight = None;
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(), "Must catch missing QK norm on layer 3");
+        let err = result.unwrap_err();
+        assert!(
+            err.tensor_name.contains("3"),
+            "Error must identify layer 3: {}",
+            err.tensor_name
+        );
+    }
 }
 
 // T-COV-95 Coverage Bridge (Part 02 - Accessors, error paths, optional biases)
