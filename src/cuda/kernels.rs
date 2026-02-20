@@ -39,7 +39,7 @@ use trueno_gpu::kernels::{
     VectorizedRmsNormKernel, WideQ4KGemvKernel,
 };
 
-include!("kernels_part_02.rs");
+include!("kernel_type.rs");
 include!("kernel_generator.rs");
 include!("kernel.rs");
 include!("layout.rs");

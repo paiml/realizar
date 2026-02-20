@@ -401,4 +401,4 @@ impl SpeculativeConfig {
     }
 }
 
-include!("speculative_part_02.rs");
+include!("speculative_decoder_tests.rs");

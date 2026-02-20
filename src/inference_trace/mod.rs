@@ -442,6 +442,6 @@ pub struct InferenceTracer {
     last_entered_id: Option<u64>,
 }
 
-include!("mod_part_02.rs");
+include!("model_info.rs");
 include!("mod_part_03.rs");
 include!("mod_part_04.rs");
