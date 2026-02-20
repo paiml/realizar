@@ -9,5 +9,5 @@
 
 use super::super::*;
 
-include!("batched_part_02.rs");
+include!("rmsnorm_ptr.rs");
 include!("batched_part_03.rs");

@@ -566,5 +566,5 @@ impl OwnedQuantizedModel {
     }
 }
 
-include!("single_part_02_part_02.rs");
-include!("single_part_02_part_03.rs");
+include!("ffn_block.rs");
+include!("adaptive_ffn.rs");
