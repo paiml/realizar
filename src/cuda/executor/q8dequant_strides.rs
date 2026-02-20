@@ -374,5 +374,5 @@ impl CudaExecutor {
 }
 
 include!("kv_cache_gpu_init.rs");
-include!("kv_cache_part_02_part_03.rs");
-include!("kv_cache_part_02_part_04.rs");
+include!("flash_attention_cached.rs");
+include!("kv_cache_q8_init.rs");

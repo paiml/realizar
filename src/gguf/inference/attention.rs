@@ -6,4 +6,4 @@
 use crate::error::{RealizarError, Result};
 use crate::gguf::{GGUFConfig, OwnedQuantizedModel};
 
-include!("attention_part_02.rs");
+include!("flash_attention_dispatch.rs");
