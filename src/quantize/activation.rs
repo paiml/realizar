@@ -422,5 +422,5 @@ pub fn fused_rmsnorm_ffn_up_gate(
     Ok((up_output, gate_output))
 }
 
-include!("activation_part_02.rs");
+include!("quantize_rmsnorm_into.rs");
 include!("activation_part_03.rs");

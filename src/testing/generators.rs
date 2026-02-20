@@ -363,4 +363,4 @@ impl TokenGenerator {
     }
 }
 
-include!("generators_part_02.rs");
+include!("generators_tests.rs");

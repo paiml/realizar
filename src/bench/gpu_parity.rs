@@ -423,5 +423,5 @@ pub struct GemmPerformanceResult {
     pub efficiency: f64,
 }
 
-include!("gpu_parity_part_02.rs");
+include!("gemm_performance.rs");
 include!("gpu_parity_part_03.rs");
