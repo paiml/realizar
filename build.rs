@@ -104,7 +104,7 @@ fn role_to_variant(s: &str) -> String {
                     Some(c) => {
                         let upper: String = c.to_uppercase().collect();
                         format!("{upper}{}", chars.as_str())
-                    }
+                    },
                     None => String::new(),
                 }
             })
@@ -393,7 +393,7 @@ fn generate_arch_requirements_file() {
                 "cargo:warning=[PMAT-228] Failed to read architecture-requirements-v1.yaml: {e}"
             );
             return;
-        }
+        },
     };
 
     let req: ArchRequirements = match serde_yaml::from_str(&yaml_content) {
@@ -403,7 +403,7 @@ fn generate_arch_requirements_file() {
                 "cargo:warning=[PMAT-228] Failed to parse architecture-requirements-v1.yaml: {e}"
             );
             return;
-        }
+        },
     };
 
     let generated = generate_arch_requirements(&req);
