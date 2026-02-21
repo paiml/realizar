@@ -446,4 +446,4 @@ pub mod presets {
     }
 }
 
-include!("pipeline_part_02.rs");
+include!("pipeline_memory_pattern.rs");

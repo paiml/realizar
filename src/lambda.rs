@@ -436,4 +436,4 @@ impl std::fmt::Display for LambdaError {
 impl std::error::Error for LambdaError {}
 
 include!("lambda_arm64_optimizations.rs");
-include!("lambda_part_03.rs");
+include!("lambda_batch_handler.rs");

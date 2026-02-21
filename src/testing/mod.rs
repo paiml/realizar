@@ -394,4 +394,4 @@ impl fmt::Debug for ModelTestCase {
     }
 }
 
-include!("mod_part_02.rs");
+include!("mod_model.rs");

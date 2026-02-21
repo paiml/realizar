@@ -444,4 +444,4 @@ fn test_dispatch_metrics_zero_latency_min() {
     assert_eq!(m.gpu_latency_min_us(), 0);
 }
 
-include!("inference_types_tests_part_02.rs");
+include!("inference_types_tests_dispatch_metrics.rs");

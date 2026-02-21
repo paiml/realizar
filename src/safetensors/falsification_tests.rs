@@ -494,5 +494,5 @@ mod tests {
 
 // T-COV-95 Coverage Bridge (Part 02 - Accessors, error paths, optional biases)
 #[cfg(test)]
-#[path = "validation_tests_part_02.rs"]
-mod validation_tests_part_02;
+#[path = "validation_tests_02.rs"]
+mod validation_tests_02;

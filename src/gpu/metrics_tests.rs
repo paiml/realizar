@@ -443,4 +443,4 @@ fn test_inference_metrics_throughput_immediate() {
     assert!(throughput >= 0.0);
 }
 
-include!("metrics_tests_part_02.rs");
+include!("metrics_tests_compute_backend.rs");

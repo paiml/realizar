@@ -197,14 +197,14 @@ mod tests {
         assert_eq!(cloned.successful_requests, result.successful_requests);
         assert!((cloned.error_rate - result.error_rate).abs() < 0.0001);
     }
-include!("tests_part_05.rs");
+include!("tests_dynamic_sampler.rs");
 include!("tests_convoy_saturation.rs");
-include!("tests_part_07.rs");
-include!("tests_part_08.rs");
-include!("tests_part_09.rs");
-include!("tests_part_10.rs");
-include!("tests_part_11.rs");
-include!("tests_part_12.rs");
-include!("tests_part_13.rs");
-include!("tests_part_14.rs");
+include!("tests_thermal_guard.rs");
+include!("tests_mock_backend_registry.rs");
+include!("tests_welch_thermal_guard.rs");
+include!("tests_distributed_bench.rs");
+include!("tests_benchmark_matrix.rs");
+include!("tests_036.rs");
+include!("tests_050.rs");
+include!("tests_imp900.rs");
 }

@@ -431,4 +431,4 @@ fn test_transformer_layer_batched_m8() {
     let _ = result;
 }
 
-include!("batched_tests_part_02.rs");
+include!("batched_tests_workspace.rs");

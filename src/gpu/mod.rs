@@ -437,7 +437,7 @@ pub fn quantized_dot_q4(block_a: &[u8], block_b: &[u8]) -> f32 {
     (acc as f32) * scale_a * scale_b
 }
 
-include!("mod_part_02.rs");
-include!("mod_part_03.rs");
-include!("mod_part_04.rs");
+include!("mod_quantized_dot.rs");
+include!("mod_max_error_recovery.rs");
+include!("mod_connection_state.rs");
 include!("resource_monitor.rs");

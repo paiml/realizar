@@ -444,5 +444,5 @@ fn test_reduce_op_all_variants_ext_cov() {
     }
 }
 
-include!("tests_part_02.rs");
-include!("tests_part_03.rs");
+include!("tests_reduce.rs");
+include!("tests_pipeline_parallel.rs");

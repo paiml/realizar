@@ -445,4 +445,4 @@ fn test_kv_cache_append_single_position() {
     assert!(!cache.is_empty());
 }
 
-include!("tests_mock_part_02.rs");
+include!("tests_mock_cache.rs");

@@ -319,9 +319,9 @@ mod tests {
             assert!(output.iter().all(|&v| !v.is_nan()));
         }
     }
-include!("tests_part_04.rs");
-include!("tests_part_05.rs");
-include!("tests_part_06.rs");
-include!("tests_part_07.rs");
-include!("tests_part_08.rs");
+include!("tests_f001_brick_f002.rs");
+include!("tests_f056_fused_f057.rs");
+include!("tests_r006_fused.rs");
+include!("tests_f083_timing_f084.rs");
+include!("tests_layer_timing.rs");
 }

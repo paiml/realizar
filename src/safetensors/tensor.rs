@@ -191,5 +191,5 @@ pub use validation::{
 mod tests;
 
 #[cfg(test)]
-#[path = "tests_part_02.rs"]
+#[path = "tests_find_sibling.rs"]
 mod safetensors_tests_part_02;

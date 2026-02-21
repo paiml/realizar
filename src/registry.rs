@@ -314,4 +314,4 @@ impl ModelRegistry {
     }
 }
 
-include!("registry_part_02.rs");
+include!("registry_get_info.rs");

@@ -426,4 +426,4 @@ pub struct RequestCapture {
 }
 
 include!("request_capture.rs");
-include!("diagnostics_part_03.rs");
+include!("diagnostics_request_capture.rs");

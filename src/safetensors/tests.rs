@@ -436,6 +436,6 @@ fn test_cov_get_tensor_f16_not_found() {
     assert!(result.is_err());
 }
 
-include!("tests_part_03.rs");
-include!("tests_part_04.rs");
-include!("tests_part_05.rs");
+include!("tests_cov_get.rs");
+include!("tests_mapped_get.rs");
+include!("tests_cov_safetensors.rs");

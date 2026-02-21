@@ -443,4 +443,4 @@ fn test_eta_config_with_min_p() {
     assert!((config.min_p - 0.01).abs() < 1e-6);
 }
 
-include!("algorithms_tests_part_02.rs");
+include!("algorithms_tests_sample_eta.rs");

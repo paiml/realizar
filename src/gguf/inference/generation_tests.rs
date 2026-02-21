@@ -450,4 +450,4 @@ fn test_generate_streaming_empty_prompt_error() {
     assert!(result.is_err(), "Empty prompt should return error");
 }
 
-include!("generation_tests_part_02.rs");
+include!("generation_tests_generate_streaming.rs");

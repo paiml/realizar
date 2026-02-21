@@ -418,4 +418,4 @@ pub struct RawTensor {
 pub struct GgufToAprQ4KConverter;
 
 include!("q4k_converter_helpers.rs");
-include!("mod_part_03.rs");
+include!("mod_03.rs");

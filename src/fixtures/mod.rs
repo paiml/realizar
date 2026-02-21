@@ -244,5 +244,5 @@ pub struct ModelFixture {
     config: ModelConfig,
 }
 
-include!("mod_part_02.rs");
-include!("mod_part_03.rs");
+include!("mod_generate_apr_model.rs");
+include!("mod_fixture_gguf.rs");

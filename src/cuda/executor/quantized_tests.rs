@@ -440,4 +440,4 @@ fn test_batched_rmsnorm_with_harness() {
     assert!(result.is_ok());
 }
 
-include!("quantized_tests_part_02.rs");
+include!("quantized_tests_fused_residual.rs");

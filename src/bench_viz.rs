@@ -166,6 +166,6 @@ pub struct BenchmarkGrid {
     pub gpu_vram_gb: f64,
 }
 
-include!("bench_viz_part_02.rs");
+include!("bench_viz_render_profiling_benchmark.rs");
 include!("bench_viz_runner.rs");
-include!("bench_viz_part_04.rs");
+include!("bench_viz_benchmark_grid.rs");

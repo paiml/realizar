@@ -428,4 +428,4 @@ pub struct DispatchMetrics {
 }
 
 include!("latency.rs");
-include!("inference_types_part_03.rs");
+include!("inference_types_config_default.rs");

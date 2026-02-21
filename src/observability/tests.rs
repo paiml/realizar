@@ -449,6 +449,6 @@ fn test_latency_histogram_percentile_empty() {
     assert!(hist.p99().is_none());
 }
 
-include!("tests_part_02.rs");
-include!("tests_part_03.rs");
-include!("tests_part_04.rs");
+include!("tests_latency_histogram.rs");
+include!("tests_observer_prometheus_trace.rs");
+include!("tests_serde_otel.rs");

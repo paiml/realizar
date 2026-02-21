@@ -423,4 +423,4 @@ pub fn fused_rmsnorm_ffn_up_gate(
 }
 
 include!("quantize_rmsnorm_into.rs");
-include!("activation_part_03.rs");
+include!("activation_quantize_activations.rs");

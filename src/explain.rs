@@ -242,5 +242,5 @@ pub struct ShapExplainer {
     feature_names: Vec<String>,
 }
 
-include!("explain_part_02.rs");
+include!("explain_nsamples_shap_explainer.rs");
 include!("simple.rs");

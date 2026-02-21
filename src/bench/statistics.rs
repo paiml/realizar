@@ -369,4 +369,4 @@ pub struct WelchTTestResult {
 }
 
 include!("welch_t_test.rs");
-include!("statistics_part_03.rs");
+include!("statistics_measurement_protocol.rs");

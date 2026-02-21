@@ -463,4 +463,4 @@ fn test_forward_gpu_with_cache_long_sequence() {
     assert!(result.is_ok());
 }
 
-include!("kv_tests_part_02_part_02.rs");
+include!("kv_tests_incremental_multiple.rs");

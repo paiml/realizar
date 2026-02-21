@@ -425,5 +425,5 @@ pub struct OtelAttribute {
     pub value: OtelValue,
 }
 
-include!("mod_part_02.rs");
-include!("mod_part_03.rs");
+include!("mod_otel_value.rs");
+include!("mod_variant.rs");

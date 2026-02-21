@@ -424,4 +424,4 @@ pub struct GemmPerformanceResult {
 }
 
 include!("gemm_performance.rs");
-include!("gpu_parity_part_03.rs");
+include!("gpu_parity_gpu_parity.rs");

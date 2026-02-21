@@ -245,5 +245,5 @@ fn gpu_to_host(buf: &GpuBuffer<f32>) -> Result<Vec<f32>> {
     Ok(host)
 }
 
-include!("apr_q4_part_02.rs");
+include!("apr_q4_apply_rope_gpu.rs");
 include!("activation.rs");

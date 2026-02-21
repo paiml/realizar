@@ -120,9 +120,9 @@ mod tests {
         assert!(config.verbose);
     }
 
-include!("tests_part_13.rs");
-include!("tests_part_14.rs");
-include!("tests_part_15.rs");
-include!("tests_part_16.rs");
-include!("tests_part_17.rs");
+include!("tests_inference_config.rs");
+include!("tests_inference_config_02.rs");
+include!("tests_clean_model.rs");
+include!("tests_file_stem_tok.rs");
+include!("tests_legacy.rs");
 }

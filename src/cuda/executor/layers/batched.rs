@@ -10,4 +10,4 @@
 use super::super::*;
 
 include!("rmsnorm_ptr.rs");
-include!("batched_part_03.rs");
+include!("batched_03.rs");

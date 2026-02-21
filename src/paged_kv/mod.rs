@@ -206,6 +206,6 @@ pub struct FragmentationStats {
 }
 
 include!("contiguous.rs");
-include!("mod_part_03.rs");
-include!("mod_part_04.rs");
-include!("mod_part_05.rs");
+include!("mod_compute_prefix.rs");
+include!("mod_quantized.rs");
+include!("mod_quantized_paged.rs");

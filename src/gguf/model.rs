@@ -417,4 +417,4 @@ impl OwnedQuantizedModel {
     }
 }
 
-include!("model_part_02.rs");
+include!("model_owned_quantized.rs");

@@ -20,31 +20,31 @@
 //! - part_15: T-COV-95 Directive 2: In-Process API Falsification (GPU/CUDA/quantized paths)
 //! - part_16: T-COV-95 Popper Phase 2: Combinatorial API Sweep (stream/temp/max_tokens/invalid)
 
-mod part_01;
-mod part_02;
-mod part_03;
-mod part_04;
-mod part_05;
-mod part_06;
-mod part_07;
-mod part_08;
-mod part_09;
-mod part_10;
-mod part_11;
-mod part_12;
-mod part_13;
-mod part_14;
-mod part_15;
-mod part_16;
-mod part_17;
-mod part_18; // T-COV-95 Coverage Bridge B2+B3 (GPU handlers, Realize/OpenAI handlers, AppState)
-mod part_19; // T-COV-95 Deep Coverage Bridge (BatchConfig, ContinuousBatchResponse, streaming types, endpoints)
-mod part_20; // T-COV-95 Deep Coverage Bridge (ContextWindow, format_chat, clean_chat, HTTP handlers, serde)
-mod part_21; // T-COV-95 Extended Coverage (build_trace_data, streaming types, request/response serde)
-mod part_22; // T-COV-95 APR handlers coverage (predict, explain, audit, serde, error paths)
-mod part_23; // T-COV-95 gpu_handlers + realize_handlers coverage (BatchConfig, ContextWindow, format_chat)
-mod part_24; // T-COV-95 Protocol Falsification: Potemkin Village GPU Mocks
-mod part_25; // T-COV-95 Chaotic Citizens: GPU Batch Resilience Falsification
-mod part_26; // T-COV-95 Interleaved Chaos: GPU Batch Processor Saturation
-mod part_27; // T-COV-95 Generative Falsification: Proptest API Request Assault
-mod part_28; // Coverage: realize_handlers pure functions, ContextWindow, clean_chat, build_trace_data, serde
+mod tests_01;
+mod tests_02;
+mod imp_134c;
+mod chat_delta;
+mod openai_models;
+mod tests_06;
+mod tests_07;
+mod tests_08;
+mod tests_09;
+mod tests_10;
+mod tests_11;
+mod completion_request;
+mod completions_invalid;
+mod chat_completion;
+mod tests_15;
+mod tests_16;
+mod gpu_warmup;
+mod serde; // T-COV-95 Coverage Bridge B2+B3 (GPU handlers, Realize/OpenAI handlers, AppState)
+mod tests_19; // T-COV-95 Deep Coverage Bridge (BatchConfig, ContinuousBatchResponse, streaming types, endpoints)
+mod context_window_serde; // T-COV-95 Deep Coverage Bridge (ContextWindow, format_chat, clean_chat, HTTP handlers, serde)
+mod build_trace; // T-COV-95 Extended Coverage (build_trace_data, streaming types, request/response serde)
+mod predict_request; // T-COV-95 APR handlers coverage (predict, explain, audit, serde, error paths)
+mod tests_23; // T-COV-95 gpu_handlers + realize_handlers coverage (BatchConfig, ContextWindow, format_chat)
+mod tests_24; // T-COV-95 Protocol Falsification: Potemkin Village GPU Mocks
+mod tests_25; // T-COV-95 Chaotic Citizens: GPU Batch Resilience Falsification
+mod tests_26; // T-COV-95 Interleaved Chaos: GPU Batch Processor Saturation
+mod tests_27; // T-COV-95 Generative Falsification: Proptest API Request Assault
+mod tests_28; // Coverage: realize_handlers pure functions, ContextWindow, clean_chat, build_trace_data, serde

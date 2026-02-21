@@ -426,4 +426,4 @@ fn test_qkv_out_dim_matches_gqa_formula() {
     assert_eq!(weights.out_dim(), 96);
 }
 
-include!("attention_gqa_tests_part_02.rs");
+include!("attention_gqa_tests_forward_cached.rs");

@@ -21,4 +21,4 @@ impl CudaKernels {
     }
 }
 
-include!("kernels_part_04_part_03.rs");
+include!("kernels_generate_gemm_cuda.rs");

@@ -364,4 +364,4 @@ pub fn dequantize_q5_1(data: &[u8]) -> Result<Vec<f32>> {
 }
 
 include!("dequant_q4k.rs");
-include!("dequant_part_03.rs");
+include!("dequant_f16.rs");

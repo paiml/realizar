@@ -438,10 +438,10 @@ fn test_imp_1000d_optimization_hints_default() {
     assert_eq!(hints.vector_width(), 1);
 }
 
-include!("proptests_part_02.rs");
+include!("proptests_imp_1000d.rs");
 include!("proptests_kernels.rs");
-include!("proptests_part_04.rs");
-include!("proptests_part_05.rs");
-include!("proptests_part_06.rs");
-include!("proptests_part_07.rs");
-include!("proptests_part_08.rs");
+include!("proptests_tqa012d_forward.rs");
+include!("proptests_tqa013e_batched.rs");
+include!("proptests_tcov001s_tcov001t_tcov001u.rs");
+include!("proptests_tcov002_kernel.rs");
+include!("proptests_tcov010_more.rs");

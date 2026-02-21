@@ -501,5 +501,5 @@ fn safetensors_arch_to_template_hint<'a>(architecture: &str, model_name: &'a str
 
 include!("inference_result.rs");
 include!("gguf_gpu_generate.rs");
-include!("mod_part_04.rs");
-include!("mod_part_05.rs");
+include!("mod_log_transformer_eos.rs");
+include!("mod_05.rs");

@@ -10,4 +10,4 @@
 use super::super::*;
 
 include!("gemv_dispatch.rs");
-include!("indexed_part_03.rs");
+include!("indexed_03.rs");

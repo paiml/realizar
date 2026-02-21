@@ -168,4 +168,4 @@ pub fn apply_rope(x: &mut [f32], hidden_dim: usize, num_heads: usize, position: 
     }
 }
 
-include!("norm_part_02.rs");
+include!("norm_layer.rs");

@@ -369,4 +369,4 @@ impl StreamingKVCacheFp16 {
     }
 }
 
-include!("streaming_kv_part_02.rs");
+include!("streaming_kv_streaming.rs");

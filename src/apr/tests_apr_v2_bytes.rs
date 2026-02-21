@@ -437,4 +437,4 @@ fn test_tensor_entry_element_count_4d() {
     assert_eq!(entry.element_count(), 120);
 }
 
-include!("tests_part_06_part_02.rs");
+include!("tests_apr_metadata_03.rs");

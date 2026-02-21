@@ -13,4 +13,4 @@
 use super::*;
 
 include!("residual.rs");
-include!("quantized_part_03.rs");
+include!("quantized_03.rs");

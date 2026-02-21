@@ -151,4 +151,4 @@ impl PagedKvCache {
     }
 }
 
-include!("mod_part_02_part_02.rs");
+include!("mod_paged.rs");

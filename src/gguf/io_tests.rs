@@ -448,4 +448,4 @@ fn test_read_f64_infinity() {
     assert!(read_f64(&mut cursor).unwrap().is_infinite());
 }
 
-include!("io_tests_part_02.rs");
+include!("io_tests_read_f64.rs");

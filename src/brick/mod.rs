@@ -437,6 +437,6 @@ pub trait ComputeBrick: Send + Sync {
 }
 
 include!("brick_impls.rs");
-include!("mod_part_03.rs");
-include!("mod_part_04.rs");
+include!("mod_tile_flash_attention.rs");
+include!("mod_per_activation_quant.rs");
 include!("graph.rs");

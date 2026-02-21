@@ -440,4 +440,4 @@ pub struct BuildTarget {
     pub features: Vec<String>,
 }
 
-include!("target_part_02.rs");
+include!("target_default_all_build.rs");

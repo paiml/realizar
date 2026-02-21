@@ -361,4 +361,4 @@ pub fn validate_model_type(expected: &str, actual: &str) -> Result<(), LoadError
     Ok(())
 }
 
-include!("model_loader_part_02.rs");
+include!("model_loader_load_error.rs");

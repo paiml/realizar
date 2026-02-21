@@ -155,9 +155,9 @@ mod tests {
         assert_eq!(cache.stats().used_pages, 0);
         assert_eq!(cache.stats().pages_freed, 2);
     }
-include!("tests_part_04.rs");
-include!("tests_part_05.rs");
-include!("tests_part_06.rs");
-include!("tests_part_07.rs");
-include!("tests_part_08.rs");
+include!("tests_seq.rs");
+include!("tests_fragmentation_stats.rs");
+include!("tests_quantized.rs");
+include!("tests_deep_pkcov.rs");
+include!("tests_cov_fragmentation_should.rs");
 }

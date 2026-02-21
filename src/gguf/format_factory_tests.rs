@@ -443,4 +443,4 @@ fn test_apr_builder_chaining() {
     assert_eq!(tensor_count, 4);
 }
 
-include!("format_factory_tests_part_02.rs");
+include!("format_factory_tests_safetensors_data.rs");

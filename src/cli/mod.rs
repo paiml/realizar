@@ -439,7 +439,7 @@ pub const BENCHMARK_SUITES: &[(&str, &str)] = &[
 ];
 
 include!("display_utils.rs");
-include!("mod_part_03.rs");
+include!("mod_print_benchmark.rs");
 include!("mod_gguf_info.rs");
 include!("mod_server_commands.rs");
-include!("mod_part_06.rs");
+include!("mod_06.rs");

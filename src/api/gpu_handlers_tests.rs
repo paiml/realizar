@@ -446,4 +446,4 @@ mod batch_config_tests {
     }
 }
 
-include!("gpu_handlers_tests_part_02.rs");
+include!("gpu_handlers_tests_continuous_batch.rs");

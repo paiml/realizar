@@ -257,6 +257,6 @@ pub struct GrammarStateMachine {
 }
 
 include!("grammar_state_machine.rs");
-include!("mod_part_03.rs");
+include!("mod_add_schema.rs");
 include!("tool.rs");
 include!("grammar.rs");

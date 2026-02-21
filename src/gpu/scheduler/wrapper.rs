@@ -209,5 +209,5 @@ impl GpuModel {
 include!("matmul.rs");
 include!("forward_block.rs");
 include!("from_gguf_config.rs");
-include!("model_part_02_part_05.rs");
+include!("model_forward_block_gpu.rs");
 include!("gpu_forward_pass.rs");

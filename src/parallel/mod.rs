@@ -378,5 +378,5 @@ pub struct Communicator {
     buffers: Arc<std::sync::RwLock<HashMap<usize, Vec<f32>>>>,
 }
 
-include!("mod_part_02.rs");
+include!("mod_all_reduce_communicator.rs");
 include!("distributed_context_impl.rs");

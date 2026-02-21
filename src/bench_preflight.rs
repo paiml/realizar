@@ -441,4 +441,4 @@ impl PreflightCheck for DeterminismCheck {
 }
 
 include!("check.rs");
-include!("bench_preflight_part_03.rs");
+include!("bench_preflight_model_check.rs");

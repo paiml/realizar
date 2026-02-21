@@ -374,4 +374,4 @@ pub(crate) fn rms_norm(
     output
 }
 
-include!("helpers_part_02.rs");
+include!("helpers_simd_dot.rs");

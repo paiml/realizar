@@ -408,7 +408,7 @@ pub struct ContinuousBatchScheduler {
     next_id: std::sync::atomic::AtomicU64,
 }
 
-include!("batch_scheduler_part_02.rs");
-include!("batch_scheduler_part_03.rs");
-include!("batch_scheduler_part_04.rs");
-include!("batch_scheduler_part_05.rs");
+include!("batch_scheduler_lock_slots_completed.rs");
+include!("batch_scheduler_counter_inc_load.rs");
+include!("batch_scheduler_prefix_cache.rs");
+include!("batch_scheduler_multi_request.rs");

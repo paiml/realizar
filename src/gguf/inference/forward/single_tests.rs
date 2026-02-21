@@ -427,5 +427,5 @@ fn test_forward_single_with_scratch_reuses_buffers() {
     assert_eq!(scratch.logits.capacity(), logits_cap);
 }
 
-include!("single_tests_part_02.rs");
+include!("single_tests_forward.rs");
 include!("single_tests_q8k.rs");

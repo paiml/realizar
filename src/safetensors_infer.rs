@@ -73,5 +73,5 @@ impl TensorSource for ShardedSafeTensorsModel {
 /// - GGUF-style: `token_embd.weight`, `blk.{i}.attn_q.weight`
 pub struct SafetensorsToAprConverter;
 
-include!("safetensors_infer_part_02.rs");
-include!("safetensors_infer_part_03.rs");
+include!("safetensors_infer_convert.rs");
+include!("safetensors_infer_convert_02.rs");

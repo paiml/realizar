@@ -412,4 +412,4 @@ pub struct CompletionChoice {
 
 include!("realize_handlers_embed_completion.rs");
 include!("gpu_completions_handler.rs");
-include!("realize_handlers_part_04.rs");
+include!("realize_handlers_model_lineage.rs");

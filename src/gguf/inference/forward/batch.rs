@@ -11,4 +11,4 @@ use crate::gguf::{
     GGUF_TYPE_Q6_K,
 };
 
-include!("batch_part_02.rs");
+include!("batch_tiled_causal_owned.rs");
