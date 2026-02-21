@@ -381,4 +381,4 @@ impl<'a> QuantizedGGUFTransformer<'a> {
     }
 }
 
-include!("transformer_part_02.rs");
+include!("transformer_quantized_layer_field.rs");

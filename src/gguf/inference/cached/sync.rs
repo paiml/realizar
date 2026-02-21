@@ -35,4 +35,4 @@ unsafe impl Send for OwnedQuantizedModelCachedSync {}
 #[cfg(feature = "gpu")]
 unsafe impl Sync for OwnedQuantizedModelCachedSync {}
 
-include!("sync_part_02.rs");
+include!("sync_owned_quantized.rs");

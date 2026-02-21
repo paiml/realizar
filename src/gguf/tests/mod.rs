@@ -31,39 +31,39 @@
 //! - `part_24.rs`: Phase 52 - GGUF Loader Metadata Types (state-space exhaustion)
 //! - `part_25.rs`: Phase 54 - Fixture-Based Loader Tests (ModelFixture pattern)
 
-mod loader_tests_part_03;
-mod part_01;
-mod part_02;
-mod part_03;
-mod part_04;
-mod part_05;
-mod part_06;
-mod part_07;
-mod part_08;
-mod part_09;
-mod part_10;
-mod part_11;
-mod part_12;
-mod part_13;
-mod part_14;
-mod part_15;
-mod part_16;
-mod part_17;
-mod part_18;
-mod part_19;
-mod part_20;
-mod part_21;
-mod part_22;
-mod part_23;
-mod part_24;
-mod part_25;
-mod part_26; // T-COV-95 Coverage Bridge B6 (loader.rs metadata, parsing, transformer)
-mod part_27; // T-COV-95 Deep Coverage Bridge (get_tensor_f32 qtypes, rope_type, tied embeddings)
-mod part_28; // T-COV-95 Deep Coverage Bridge (Q2_K/F16/Q4_1/Q5_0/Q5_1, metadata types, decode/encode)
-mod part_29; // T-COV-95 Synthetic Falsification (loader.rs via Pygmy GGUF models)
-mod part_30; // T-COV-95 Active Pygmy: Dynamic Falsification (forward_cached via F32 Pygmies)
-mod part_31; // T-COV-95 Data Storm: Multi-Tensor Pygmies for loader.rs
-mod part_32; // T-COV-95 Menagerie of Pygmies: Complex Structural GGUF Generators
-mod part_33; // T-COV-95 Ancestral Pygmies: GGUF Legacy Version & Alignment Assault
-mod part_34; // T-COV-95 Generative Falsification: Proptest GGUF Header Assault
-mod part_35; // Coverage: loader.rs decode/encode edge cases, rope_type paths, metadata accessors // Coverage: OwnedQuantizedModel::to_apr_bytes + from_apr roundtrip
+mod loader_tests_build_minimal;
+mod config;
+mod tests_02;
+mod tests_03;
+mod tests_04;
+mod imp_115a;
+mod imp_121a;
+mod parity005a_contiguous;
+mod parity011a_bench;
+mod tests_09;
+mod tests_10;
+mod tests_11;
+mod tests_12;
+mod tests_13;
+mod tests_14;
+mod tests_15;
+mod parity035a_chunked;
+mod phase_forward_pass_coverage;
+mod phase_gguf_loader_coverage;
+mod phase_thread_safe_cache;
+mod phase_matmul_coverage;
+mod phase_transformer_structure;
+mod phase_gguf_edge_cases;
+mod phase_gguf_parsing_error;
+mod phase_gguf_loader_metadata;
+mod phase_fixture_based_loader;
+mod bytes; // T-COV-95 Coverage Bridge B6 (loader.rs metadata, parsing, transformer)
+mod tests_27; // T-COV-95 Deep Coverage Bridge (get_tensor_f32 qtypes, rope_type, tied embeddings)
+mod tests_28; // T-COV-95 Deep Coverage Bridge (Q2_K/F16/Q4_1/Q5_0/Q5_1, metadata types, decode/encode)
+mod bytes_02; // T-COV-95 Synthetic Falsification (loader.rs via Pygmy GGUF models)
+mod tests_30; // T-COV-95 Active Pygmy: Dynamic Falsification (forward_cached via F32 Pygmies)
+mod tests_31; // T-COV-95 Data Storm: Multi-Tensor Pygmies for loader.rs
+mod tests_32; // T-COV-95 Menagerie of Pygmies: Complex Structural GGUF Generators
+mod tests_33; // T-COV-95 Ancestral Pygmies: GGUF Legacy Version & Alignment Assault
+mod tests_34; // T-COV-95 Generative Falsification: Proptest GGUF Header Assault
+mod tests_35; // Coverage: loader.rs decode/encode edge cases, rope_type paths, metadata accessors // Coverage: OwnedQuantizedModel::to_apr_bytes + from_apr roundtrip

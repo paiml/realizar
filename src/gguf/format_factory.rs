@@ -420,4 +420,4 @@ impl FormatType {
     }
 }
 
-include!("format_factory_part_02.rs");
+include!("format_factory_safetensors_builder.rs");

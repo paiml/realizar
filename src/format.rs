@@ -269,4 +269,4 @@ pub fn detect_and_verify_format(path: &Path, data: &[u8]) -> Result<ModelFormat,
     Ok(from_data)
 }
 
-include!("format_part_02.rs");
+include!("format_detect.rs");

@@ -396,7 +396,7 @@ mod generate_tests;
 
 // Additional tests for coverage (Part 2)
 #[cfg(test)]
-#[path = "tests_part_02.rs"]
+#[path = "tests_sample_greedy.rs"]
 mod generate_tests_part_02;
 
 // Algorithm-specific tests

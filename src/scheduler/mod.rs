@@ -217,7 +217,7 @@ pub struct Scheduler {
     total_wait_time_ms: f64,
 }
 
-include!("mod_part_02.rs");
-include!("mod_part_03.rs");
-include!("mod_part_04.rs");
-include!("mod_part_05.rs");
+include!("mod_max_scheduler.rs");
+include!("mod_num_slots_idle.rs");
+include!("mod_max_default_batch.rs");
+include!("mod_dynamic_scheduler.rs");

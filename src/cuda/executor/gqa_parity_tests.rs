@@ -458,4 +458,4 @@ fn test_q4_0_gemv_parity() {
     println!("Q4_0 GEMV parity VERIFIED");
 }
 
-include!("gqa_parity_tests_part_02.rs");
+include!("gqa_parity_tests_02.rs");

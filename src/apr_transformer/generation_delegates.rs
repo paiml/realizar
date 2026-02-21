@@ -23,7 +23,7 @@ impl AprTransformer {
 
 include!("from_apr_file.rs");
 include!("embedding.rs");
-include!("mod_part_02_part_04.rs");
+include!("mod_apr_transformer.rs");
 include!("pmat-260.rs");
 include!("inference.rs");
 include!("forward_with_cache.rs");

@@ -43,6 +43,6 @@ mod tests {
             .any(|e| e.event_type == AwsEventType::ExecutionFailed);
         assert!(has_failed);
     }
-include!("tests_part_02.rs");
-include!("tests_part_03.rs");
+include!("tests_trace_step_tensor.rs");
+include!("tests_cov_format.rs");
 }

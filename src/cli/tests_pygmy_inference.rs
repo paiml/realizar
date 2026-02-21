@@ -439,4 +439,4 @@ fn test_pygmy_gguf_long_prompt() {
     let _ = result;
 }
 
-include!("tests_part_09_part_02.rs");
+include!("tests_pygmy_gguf.rs");

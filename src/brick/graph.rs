@@ -203,12 +203,12 @@ mod brick_tests;
 
 // Additional tests in tests_part_02.rs
 #[cfg(test)]
-#[path = "tests_part_02.rs"]
+#[path = "tests_token_budget.rs"]
 mod brick_tests_part_02;
 
 // Additional tests in tests_part_03.rs
 #[cfg(test)]
-#[path = "tests_part_03.rs"]
+#[path = "tests_flash_attention.rs"]
 mod brick_tests_part_03;
 
 // tests_part_04 through tests_part_08 are now include!() fragments inside tests.rs

@@ -264,4 +264,4 @@ pub fn fused_q5k_parallel_matvec(
 }
 
 include!("q5k_q6k_matvec.rs");
-include!("parallel_k_part_03.rs");
+include!("parallel_k_fused_q4k.rs");

@@ -444,4 +444,4 @@ fn test_kernel_name_vectorized_rms_norm() {
     assert_eq!(kernels.kernel_name(&kernel), "rmsnorm_vectorized");
 }
 
-include!("kernels_tests_part_02.rs");
+include!("kernels_tests_kernel_name.rs");

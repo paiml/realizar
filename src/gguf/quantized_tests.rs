@@ -443,4 +443,4 @@ fn test_qkv_weights_clone() {
     assert_eq!(cloned.out_dim(10), original.out_dim(10));
 }
 
-include!("quantized_tests_part_02.rs");
+include!("quantized_tests_owned.rs");

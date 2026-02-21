@@ -294,9 +294,9 @@ pub mod metrics;
 /// Supports all 18 APR model types.
 pub mod model_loader;
 #[cfg(test)]
-mod model_loader_tests_part_02;
+mod model_loader_tests_02;
 #[cfg(test)]
-mod model_loader_tests_part_03;
+mod model_loader_tests_load_error;
 pub mod moe;
 /// Observability: metrics, tracing, and A/B testing
 ///

@@ -456,5 +456,5 @@ fn test_parity043_multi_head_attention_causal_ptx() {
 include!("tests_multi_head_attention.rs");
 include!("tests_cuda_vs_wgpu.rs");
 include!("tests_gemm_fused.rs");
-include!("tests_part_10.rs");
-include!("tests_part_11.rs");
+include!("tests_cov001_q6k.rs");
+include!("tests_cov001_weight.rs");

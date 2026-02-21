@@ -251,12 +251,12 @@ mod apr_tests;
 
 // Additional tests for coverage (tests_part_02.rs)
 #[cfg(test)]
-#[path = "tests_part_02.rs"]
+#[path = "tests_apr_flags.rs"]
 mod apr_tests_part_02;
 
 // T-COV-95 Additional coverage (tests_part_03.rs)
 #[cfg(test)]
-#[path = "tests_part_03.rs"]
+#[path = "tests_decode_tokens.rs"]
 mod apr_tests_part_03;
 
 // T-COV-95 Active APR Pygmy: Cross-Format Dynamic Falsification (tests_pygmy_apr.rs)
@@ -266,7 +266,7 @@ mod apr_tests_pygmy_apr;
 
 // T-COV-95 Coverage Bridge (Part 05 - AprFlags, AprHeader, TensorEntry, AprMetadata, dtype_to_qtype)
 #[cfg(test)]
-#[path = "tests_part_05.rs"]
+#[path = "tests_apr_flags_02.rs"]
 mod apr_tests_part_05;
 
 // T-COV-95 Coverage Bridge (Part 06 - from_bytes edge cases, predict, tensor access, metadata aliases)

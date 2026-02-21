@@ -25,4 +25,4 @@ pub struct OwnedQuantizedModelCached {
     cuda_scheduler: std::cell::RefCell<Option<crate::gpu::CudaScheduler>>,
 }
 
-include!("single_part_02.rs");
+include!("single_true_batched_owned.rs");

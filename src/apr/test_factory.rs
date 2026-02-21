@@ -447,4 +447,4 @@ fn build_apr_from_tensor_defs(
     data
 }
 
-include!("test_factory_part_02.rs");
+include!("test_factory_builds_apr.rs");

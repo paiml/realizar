@@ -43,4 +43,4 @@ include!("kernel_type.rs");
 include!("kernel_generator.rs");
 include!("kernel.rs");
 include!("layout.rs");
-include!("kernels_part_06.rs");
+include!("kernels_generate.rs");

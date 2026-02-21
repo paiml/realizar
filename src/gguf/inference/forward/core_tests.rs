@@ -444,4 +444,4 @@ fn test_forward_cached_deterministic() {
     }
 }
 
-include!("core_tests_part_02.rs");
+include!("core_tests_architecture_detection.rs");

@@ -13,4 +13,4 @@ use crate::gguf::{
 use rand::Rng;
 
 include!("generate_scratch.rs");
-include!("generation_part_03.rs");
+include!("generation_argmax_basic.rs");

@@ -448,8 +448,8 @@ impl ChatTemplateEngine for ChatMLTemplate {
     }
 }
 
-include!("chat_template_part_02.rs");
+include!("chat_template_llama2.rs");
 include!("chat_template_helpers.rs");
-include!("chat_template_part_04.rs");
-include!("chat_template_part_05.rs");
-include!("chat_template_part_06.rs");
+include!("chat_template_special_tokens.rs");
+include!("chat_template_prop_format.rs");
+include!("chat_template_alpaca_format.rs");

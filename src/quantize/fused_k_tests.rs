@@ -400,6 +400,6 @@ fn test_fused_q4k_dot_scale_extraction() {
     assert!(result.unwrap().abs() > 0.0);
 }
 
-include!("fused_k_tests_part_02.rs");
+include!("fused_k_tests_q4k.rs");
 include!("fused_k_tests_dot_errors.rs");
-include!("fused_k_tests_part_04.rs");
+include!("fused_k_tests_avx2_q4k.rs");

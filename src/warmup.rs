@@ -420,5 +420,5 @@ pub struct WarmupExecutor {
     config: WarmupConfig,
 }
 
-include!("warmup_part_02.rs");
-include!("warmup_part_03.rs");
+include!("warmup_config_simulate.rs");
+include!("warmup_config.rs");

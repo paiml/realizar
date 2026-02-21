@@ -447,4 +447,4 @@ fn test_generate_with_cache_empty_prompt_error() {
     assert!(result.is_err());
 }
 
-include!("apr_transformer_part_02.rs");
+include!("apr_transformer_generate.rs");

@@ -402,4 +402,4 @@ fn normal_cdf(x: f64) -> f64 {
     0.5 * (1.0 + sign * y)
 }
 
-include!("stats_part_02.rs");
+include!("stats_assign_ranks.rs");

@@ -195,4 +195,4 @@ impl LoadTestRunner {
     }
 }
 
-include!("load_testing_part_02.rs");
+include!("load_testing_config.rs");

@@ -448,4 +448,4 @@ fn test_request_capture_clone() {
     assert_eq!(cloned.params(), capture.params());
 }
 
-include!("diagnostics_tests_part_02.rs");
+include!("diagnostics_tests_state_dump.rs");

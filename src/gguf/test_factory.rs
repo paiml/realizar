@@ -428,6 +428,6 @@ impl GGUFBuilder {
     }
 }
 
-include!("test_factory_part_02.rs");
-include!("test_factory_part_03.rs");
-include!("test_factory_part_04.rs");
+include!("test_factory_create.rs");
+include!("test_factory_build_minimal.rs");
+include!("test_factory_gguf_builder.rs");

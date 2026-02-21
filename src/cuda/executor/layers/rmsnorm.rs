@@ -54,4 +54,3 @@ impl CudaExecutor {
 
 include!("batched_forward.rs");
 include!("par-121.rs");
-include!("transform_from_batched_part_02_part_04.rs");

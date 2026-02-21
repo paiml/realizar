@@ -170,6 +170,6 @@ impl crate::audit::AuditSink for InMemorySinkWrapper {
 }
 
 include!("mod_app_state_gpu.rs");
-include!("mod_part_03.rs");
+include!("mod_create_demo.rs");
 include!("router.rs");
 include!("dispatch_metrics.rs");

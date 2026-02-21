@@ -437,4 +437,4 @@ fn test_tiled_single_head_attention_matches_standard() {
     }
 }
 
-include!("batch_tests_part_02.rs");
+include!("batch_tests_tiled_single.rs");

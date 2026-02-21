@@ -465,4 +465,4 @@ fn test_gpu_model_large_vocab_forward() {
     assert_eq!(logits.len(), config.vocab_size);
 }
 
-include!("model_tests_part_02_part_02.rs");
+include!("model_tests_gpu.rs");

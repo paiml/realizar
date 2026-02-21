@@ -410,4 +410,4 @@ pub fn simd_bf16_dot(a: &[u8], b: &[u8]) -> f32 {
 }
 
 include!("simd_bf16_ops.rs");
-include!("simd_part_03.rs");
+include!("simd_bf16.rs");

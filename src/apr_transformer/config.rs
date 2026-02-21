@@ -412,4 +412,4 @@ pub struct Q4KLayerWeights {
     pub ffn_up_weight_q6k: Option<Vec<u8>>,
 }
 
-include!("config_part_02.rs");
+include!("config_apr.rs");

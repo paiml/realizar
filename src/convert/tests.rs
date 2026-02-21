@@ -166,8 +166,8 @@ mod tests {
         );
     }
 include!("tests_gguf_field_preservation.rs");
-include!("tests_part_16.rs");
-include!("tests_part_17.rs");
-include!("tests_part_18.rs");
-include!("tests_part_19.rs");
+include!("tests_get_string.rs");
+include!("tests_apr_bytes.rs");
+include!("tests_gguf.rs");
+include!("tests_deep_ccov.rs");
 }

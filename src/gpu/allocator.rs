@@ -427,4 +427,4 @@ impl ScratchBuffer {
     }
 }
 
-include!("allocator_part_02.rs");
+include!("allocator_cache_aligned.rs");

@@ -412,4 +412,4 @@ fn create_fixture(format: ModelFormat) -> Option<Box<dyn ModelFixture>> {
     }
 }
 
-include!("combinatorial_tests_part_02.rs");
+include!("combinatorial_tests_all_format.rs");

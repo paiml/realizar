@@ -47,8 +47,8 @@ mod tests {
         let calls = parser.parse(text);
         assert_eq!(calls.len(), 2);
     }
-include!("tests_part_02.rs");
-include!("tests_part_03.rs");
-include!("tests_part_04.rs");
-include!("tests_part_05.rs");
+include!("tests_grammar_element_alternative.rs");
+include!("tests_tool_parameter.rs");
+include!("tests_tool_definition_call.rs");
+include!("tests_deep_grcov.rs");
 }

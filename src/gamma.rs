@@ -256,5 +256,5 @@ impl SafeTensorsCudaModel {
     }
 }
 
-include!("safetensors_cuda_part_02_part_02.rs");
-include!("safetensors_cuda_part_02_part_03.rs");
+include!("safetensors_cuda_load_safe_tensors.rs");
+include!("safetensors_cuda_upload_weights_safe.rs");

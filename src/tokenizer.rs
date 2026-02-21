@@ -441,6 +441,6 @@ pub struct SentencePieceTokenizer {
     unk_token_id: u32,
 }
 
-include!("tokenizer_part_02.rs");
-include!("tokenizer_part_03.rs");
-include!("tokenizer_part_04.rs");
+include!("tokenizer_sentence_piece.rs");
+include!("tokenizer_sentencepiece_encode.rs");
+include!("tokenizer_04.rs");

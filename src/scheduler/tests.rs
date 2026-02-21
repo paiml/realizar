@@ -68,10 +68,10 @@ mod tests {
             assert_eq!(*s, parsed);
         }
     }
-include!("tests_part_04.rs");
-include!("tests_part_05.rs");
-include!("tests_part_06.rs");
-include!("tests_part_07.rs");
-include!("tests_part_08.rs");
-include!("tests_part_09.rs");
+include!("tests_priority_ordering_default.rs");
+include!("tests_slot_manager_batch.rs");
+include!("tests_dynamic_scheduler.rs");
+include!("tests_chunked_prefill.rs");
+include!("tests_deep_scov.rs");
+include!("tests_cov_batch.rs");
 }

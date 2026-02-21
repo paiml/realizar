@@ -11,5 +11,5 @@
 
 use super::*;
 
-include!("layer_part_02.rs");
+include!("layer_cuda_executor.rs");
 include!("layer_tests_ffn_swiglu.rs");

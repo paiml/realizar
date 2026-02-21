@@ -449,4 +449,4 @@ fn test_loader_tensor_info_dimension_reversal() {
     assert_eq!(model.tensors[0].dims, vec![256, 512]);
 }
 
-include!("loader_tests_part_01_part_02.rs");
+include!("loader_tests_tensor.rs");

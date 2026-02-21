@@ -16,15 +16,15 @@
 //! - part_11: IMP-208 through IMP-305 (Activation, KV cache, Trueno SIMD)
 //! - part_12: IMP-306 through IMP-400 (wgpu GPU, E2E comparison)
 
-mod part_01;
-mod part_02;
-mod part_03;
-mod part_04;
-mod part_05;
-mod part_06;
-mod part_07;
-mod part_08;
-mod part_09;
-mod part_10;
-mod part_11;
-mod part_12;
+mod client_creation_custom;
+mod performance_trend_entry;
+mod standard_benchmark;
+mod mad_outlier;
+mod cold_start;
+mod quantized_quality;
+mod timeout_gpu;
+mod success_thread_safety;
+mod benchmark_version;
+mod model_format_comparison;
+mod softmax_verification;
+mod check_imp306_gpu;

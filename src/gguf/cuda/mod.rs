@@ -439,4 +439,4 @@ impl OwnedQuantizedModelCuda {
 /// The 1.5B model achieves 0.999997; anything below 0.99 is catastrophically wrong.
 const PARITY_GATE_COSINE_MIN: f32 = 0.99;
 
-include!("mod_part_02.rs");
+include!("mod_parity_gate.rs");

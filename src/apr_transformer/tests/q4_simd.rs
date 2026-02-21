@@ -440,5 +440,5 @@ fn test_forward_with_cache_empty_tokens() {
     assert!(result.is_err());
 }
 
-include!("q4_simd_part_02.rs");
-include!("q4_simd_part_03.rs");
+include!("q4_simd_forward.rs");
+include!("q4_simd_gguf.rs");

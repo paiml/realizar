@@ -440,4 +440,4 @@ pub struct PriorityRequest<T> {
 }
 
 include!("priority_queue.rs");
-include!("batch_scheduling_part_03.rs");
+include!("batch_scheduling_token_rate.rs");

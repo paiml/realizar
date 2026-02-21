@@ -446,6 +446,6 @@ fn test_generate_config_default() {
     assert!((config.repetition_penalty - 1.0).abs() < 1e-6);
 }
 
-include!("coverage_part_02.rs");
-include!("coverage_part_03.rs");
-include!("coverage_part_04.rs");
+include!("coverage_generate_config.rs");
+include!("coverage_dequantize.rs");
+include!("coverage_apr_benchmark.rs");

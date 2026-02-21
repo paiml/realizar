@@ -377,4 +377,4 @@ macro_rules! profile_clear {
     };
 }
 
-include!("profiler_part_02.rs");
+include!("profiler_basic_profiling.rs");

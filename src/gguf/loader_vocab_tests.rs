@@ -365,7 +365,7 @@ mod tests {
         assert_eq!(model.config.num_kv_heads, 2);
         assert_eq!(model.config.hidden_dim, 128);
     }
-include!("loader_part_05_part_02.rs");
-include!("loader_part_05_part_03.rs");
-include!("loader_part_05_part_04.rs");
+include!("loader_gguf_model.rs");
+include!("loader_gguf_model_02.rs");
+include!("loader_gguf_read.rs");
 }

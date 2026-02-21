@@ -425,5 +425,5 @@ impl JsonFileAuditSink {
     }
 }
 
-include!("audit_part_02.rs");
-include!("audit_part_03.rs");
+include!("audit_write_batch.rs");
+include!("audit_record.rs");

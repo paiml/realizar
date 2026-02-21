@@ -418,9 +418,9 @@ mod tests {
         pipeline.model_mut().highest_token = 50;
         assert_eq!(pipeline.model().highest_token, 50);
     }
-    include!("tests_part_03.rs");
-    include!("tests_part_04.rs");
-    include!("tests_part_05.rs");
-    include!("tests_part_06.rs");
+    include!("tests_generation_config.rs");
+    include!("tests_sample_min.rs");
+    include!("tests_beam_search.rs");
+    include!("tests_prompt_cache.rs");
     include!("logit_processor_tests.rs");
 }
