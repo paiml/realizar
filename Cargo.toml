@@ -1,6 +1,6 @@
 [package]
 name = "realizar"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 rust-version = "1.89"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
@@ -150,7 +150,7 @@ uuid = { version = "1", features = ["v4", "serde", "js"] }
 [build-dependencies]
 # Parsing provable-contracts binding.yaml for CONTRACT_* env vars (build.rs)
 serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.9"
+serde_yaml_ng = "0.10"
 
 [dev-dependencies]
 # Visual regression testing framework (playbooks, TUI testing, GPU pixel verification)
