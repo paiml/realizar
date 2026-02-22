@@ -320,12 +320,13 @@ impl OwnedQuantizedLayer {
             ),
             attn_output_bias: layer.attn_output_bias.clone(),
             ffn_up_weight: {
-                // GH-306: When ffn_gate is absent, ffn_up is a fused gate_up tensor
-                // with out_dim = 2 * intermediate_dim. Detect from tensor byte size.
-                let is_fused_gate_up = layer.ffn_gate_weight.is_none();
+                // GH-306: When ffn_gate is absent AND the model uses SwiGLU (has_gate_ffn),
+                // ffn_up is a fused gate_up tensor with out_dim = 2 * intermediate_dim.
+                // GH-309: Models with GELU activation (Phi-2, GPT-2) also have no gate
+                // weight but their ffn_up is NOT fused — it's just intermediate_dim.
+                let is_fused_gate_up = layer.ffn_gate_weight.is_none()
+                    && config.constraints.has_gate_ffn();
                 let up_out_dim = if is_fused_gate_up {
-                    // Infer actual out_dim from tensor data size and qtype
-                    // For fused gate_up: out_dim = 2 * intermediate_dim
                     intermediate_dim * 2
                 } else {
                     intermediate_dim
