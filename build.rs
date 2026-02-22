@@ -378,11 +378,15 @@ fn generate_arch_requirements_file() {
     println!("cargo:rerun-if-changed={}", yaml_path.display());
 
     if !yaml_path.exists() {
-        // Graceful fallback for CI/crates.io — hand-written file stays as-is
+        // Graceful fallback for CI/crates.io — write a stub generated file
         println!(
             "cargo:warning=[PMAT-228] architecture-requirements-v1.yaml not found; \
              using hand-written arch_requirements.rs fallback"
         );
+        let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
+        let out_path = Path::new(&out_dir).join("arch_requirements_generated.rs");
+        std::fs::write(&out_path, include_str!("src/arch_requirements_fallback.rs"))
+            .expect("Failed to write fallback arch_requirements_generated.rs");
         return;
     }
 
