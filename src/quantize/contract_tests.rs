@@ -374,6 +374,96 @@ mod tests {
     }
 
     // =========================================================================
+    // FALSIFY-QDOT-008: Wrong-kernel garbage detection
+    // =========================================================================
+    //
+    // Claim: "Q6K weights dispatched through Q4K kernel produce garbage output"
+    // This proves format isolation is not accidental — the formats are truly
+    // incompatible and wrong dispatch produces meaningfully wrong results.
+
+    #[test]
+    fn falsify_qdot_008_q6k_through_q4k_produces_garbage() {
+        // Create a valid Q6_K super-block with a strong, non-trivial signal.
+        // Q6_K layout: ql(128) + qh(64) + scales(16) + d(2) = 210 bytes
+        let mut q6k_data = vec![0u8; Q6K::SUPERBLOCK_BYTES];
+
+        // Set Q6_K d (at offset 208) to 1.0
+        let d_f16 = half::f16::from_f32(1.0);
+        let d_bytes = d_f16.to_le_bytes();
+        q6k_data[208] = d_bytes[0];
+        q6k_data[209] = d_bytes[1];
+
+        // Set Q6_K scales (at offset 192, 16 signed i8 values) to 10
+        for i in 0..16 {
+            q6k_data[192 + i] = 10;
+        }
+
+        // Set ql values (low 4 bits of 6-bit quants) to varied pattern
+        for (idx, byte) in q6k_data[0..128].iter_mut().enumerate() {
+            *byte = ((idx % 15) as u8) | (((idx % 13) as u8) << 4);
+        }
+        // Set qh values (high 2 bits) to non-zero pattern
+        for (idx, byte) in q6k_data[128..192].iter_mut().enumerate() {
+            *byte = (idx % 255) as u8;
+        }
+
+        // Activations with a clear signal (not all zeros/ones)
+        let acts: Vec<f32> = (0..256).map(|i| (i as f32 * 0.1).sin()).collect();
+
+        // Correct result: Q6K kernel on Q6K data
+        let correct = generic_fused_dot_scalar::<Q6K>(&q6k_data, &acts)
+            .expect("Q6K dot on Q6K data should succeed");
+
+        // Wrong result: Q4K kernel on the SAME bytes (truncated to Q4K size)
+        // Q4K layout: d(2) + dmin(2) + scales(12) + qs(128) = 144 bytes
+        // Q4K reads d from offset 0 (which is Q6K's ql data, NOT a float16 scale!)
+        let q4k_data = &q6k_data[..Q4K::SUPERBLOCK_BYTES]; // truncate to 144
+        let wrong = generic_fused_dot_scalar::<Q4K>(q4k_data, &acts)
+            .expect("Q4K dot on wrong data should not panic (it computes garbage)");
+
+        // The results MUST be substantially different.
+        // Q4K reads ql[0..2] as f16 scale (garbage), Q6K reads offset 208 (1.0).
+        // The outputs should differ by much more than any reasonable tolerance.
+        let diff = (correct - wrong).abs();
+        let magnitude = correct.abs().max(wrong.abs()).max(1.0);
+        assert!(
+            diff / magnitude > 0.1,
+            "FALSIFY-008 FAILED: Q6K→Q4K cross-format SHOULD produce garbage.\n\
+             correct(Q6K)={correct}, wrong(Q4K)={wrong}, diff={diff}, ratio={}\n\
+             If these are close, format isolation is weaker than the contract claims.",
+            diff / magnitude
+        );
+    }
+
+    #[test]
+    fn falsify_qdot_008_q4k_through_q8_0_produces_garbage() {
+        // Second cross-format pair: Q4_K data through Q8_0 kernel
+        let q4k_data = create_q4k_superblock(1.5, 0.3, 15, 5, 9);
+        let acts_q4k = vec![1.0f32; Q4K::ELEMENTS_PER_SUPERBLOCK];
+
+        // Correct Q4K result
+        let correct = generic_fused_dot_scalar::<Q4K>(&q4k_data, &acts_q4k)
+            .expect("Q4K dot should succeed");
+
+        // Feed first 34 bytes of Q4K data (which is d + dmin + scales prefix)
+        // through Q8_0 kernel which expects d(2) + 32 signed i8 values
+        let q8_0_slice = &q4k_data[..Q8_0Fmt::SUPERBLOCK_BYTES]; // 34 bytes
+        let acts_q8 = vec![1.0f32; Q8_0Fmt::ELEMENTS_PER_SUPERBLOCK]; // 32 elements
+        let wrong = generic_fused_dot_scalar::<Q8_0Fmt>(q8_0_slice, &acts_q8)
+            .expect("Q8_0 dot on wrong data should not panic");
+
+        // Q4K processes 256 elements with scale/min/dequant algebra.
+        // Q8_0 processes 32 elements with simple scale*i8 algebra.
+        // The results should be meaningfully different (different element counts alone
+        // guarantee different magnitudes, plus the data interpretation differs).
+        assert!(
+            (correct - wrong).abs() > 1e-3 || correct.abs() > 10.0 * wrong.abs() || wrong.abs() > 10.0 * correct.abs(),
+            "FALSIFY-008 FAILED: Q4K→Q8_0 cross-format SHOULD produce different results.\n\
+             correct(Q4K)={correct}, wrong(Q8_0)={wrong}"
+        );
+    }
+
+    // =========================================================================
     // Additional structural tests
     // =========================================================================
 
@@ -406,6 +496,82 @@ mod tests {
         assert!(!Q6K::HAS_DMIN);
         assert!(!Q4_0Fmt::HAS_DMIN);
         assert!(!Q8_0Fmt::HAS_DMIN);
+    }
+
+    // =========================================================================
+    // FALSIFY-007: No catch-all in WeightQuantType dispatch sites
+    // =========================================================================
+    //
+    // Claim: "Every match on WeightQuantType MUST be EXHAUSTIVE with EXPLICIT arms.
+    //         `_ =>` catch-all is FORBIDDEN."
+    //
+    // Method: Read the source files listed in tensor-layout-v1.yaml dispatch_sites
+    //         and verify no `_ =>` arm exists in WeightQuantType matches.
+    //         This is a regression test — if someone adds `_ =>`, this test fails.
+    //
+    // The Rust compiler already enforces exhaustiveness when no `_ =>` exists,
+    // but this test prevents someone from ADDING a catch-all as a "convenience."
+
+    /// Check if a `_ =>` at line `catch_all_line` is inside a WeightQuantType match.
+    /// Scans backwards up to 30 lines looking for WeightQuantType within the same
+    /// match block (tracking brace depth to avoid crossing block boundaries).
+    fn is_in_weight_quant_match(lines: &[&str], catch_all_line: usize) -> bool {
+        let start = catch_all_line.saturating_sub(30);
+        let mut brace_depth = 0i32;
+
+        for j in (start..catch_all_line).rev() {
+            let l = lines[j].trim();
+            brace_depth += l.matches('}').count() as i32;
+            brace_depth -= l.matches('{').count() as i32;
+            if brace_depth < 0 {
+                return false; // exited the current match block
+            }
+            if l.contains("WeightQuantType") {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Scan a source file for `_ =>` catch-all arms inside WeightQuantType matches.
+    /// Returns a list of violation descriptions (empty = clean).
+    fn find_catch_all_violations(source: &str) -> Vec<String> {
+        let lines: Vec<&str> = source.lines().collect();
+        lines
+            .iter()
+            .enumerate()
+            .filter(|(_i, line)| line.trim().starts_with("_ =>"))
+            .filter(|(i, _line)| is_in_weight_quant_match(&lines, *i))
+            .map(|(i, line)| format!("  line {}: {}", i + 1, line.trim()))
+            .collect()
+    }
+
+    #[test]
+    fn falsify_007_no_catch_all_in_dispatch_sites() {
+        // Dispatch sites from tensor-layout-v1.yaml quant_dispatch.dispatch_sites
+        let dispatch_files = [
+            "src/cuda/executor/layers/gemv_dispatch.rs",
+            "src/cuda/types.rs",
+        ];
+
+        let crate_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+
+        for file_rel in &dispatch_files {
+            let path = crate_root.join(file_rel);
+            let source = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+                panic!("FALSIFY-007: Cannot read dispatch site {file_rel}: {e}");
+            });
+
+            let violations = find_catch_all_violations(&source);
+
+            assert!(
+                violations.is_empty(),
+                "FALSIFY-007 FAILED: Found catch-all `_ =>` in WeightQuantType match in {file_rel}:\n{}\n\
+                 WeightQuantType matches MUST be exhaustive — no catch-all allowed.\n\
+                 See contracts/tensor-layout-v1.yaml §quant_dispatch",
+                violations.join("\n")
+            );
+        }
     }
 
     #[test]
