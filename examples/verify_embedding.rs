@@ -7,12 +7,12 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
     let token_id = 450usize;
 
     // Get token 450's embedding
     let start = token_id * hidden_dim;
-    let embedding: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let embedding: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
     println!("Token 450 embedding stats:");
     println!("  First 10 values: {:?}", &embedding[..10]);
@@ -43,7 +43,8 @@ fn main() {
 
     // Also check BOS (token 1)
     let bos_start = hidden_dim;
-    let bos_embedding: Vec<f32> = model.token_embedding[bos_start..bos_start + hidden_dim].to_vec();
+    let bos_embedding: Vec<f32> =
+        model.token_embedding()[bos_start..bos_start + hidden_dim].to_vec();
     println!("\nBOS (token 1) embedding stats:");
     println!(
         "  L2 norm: {:.6}",

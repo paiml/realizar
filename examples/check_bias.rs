@@ -25,7 +25,7 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("load");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("model");
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
 
     let (q_dim, k_dim, v_dim) = match &layer.qkv_weight {
         OwnedQKVWeights::Separate { q, k, v } => (q.out_dim, k.out_dim, v.out_dim),

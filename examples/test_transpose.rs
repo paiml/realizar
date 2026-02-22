@@ -16,10 +16,10 @@ fn main() {
 
     // Get embedding
     let start = token_id as usize * hidden_dim;
-    let embedding = &model.token_embedding[start..start + hidden_dim];
+    let embedding = &model.token_embedding()[start..start + hidden_dim];
 
     // Try layer 0 attention Q projection
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let q_weight = match &layer.qkv_weight {
         realizar::gguf::OwnedQKVWeights::Separate { q, .. } => q,
         _ => panic!(""),

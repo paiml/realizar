@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
 
     let test_token: u32 = 791;
     eprintln!("Token: {}, hidden_dim: {}", test_token, hidden_dim);
@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // CPU: Get embedding (token_embedding is already f32)
     let embedding_offset = (test_token as usize) * hidden_dim;
     let cpu_embedding: Vec<f32> =
-        model.token_embedding[embedding_offset..embedding_offset + hidden_dim].to_vec();
+        model.token_embedding()[embedding_offset..embedding_offset + hidden_dim].to_vec();
 
     let embed_sum: f32 = cpu_embedding.iter().sum();
     eprintln!(
@@ -34,10 +34,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // CPU: RMSNorm on embedding
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let norm_weight = &layer.attn_norm_weight; // Already f32
 
-    let eps = model.config.eps;
+    let eps = model.config().eps;
     let sum_sq: f32 = cpu_embedding.iter().map(|x| x * x).sum();
     let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
 
@@ -89,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Embedding match: {}", embed_match);
 
         // Get GPU norm weight
-        let gpu_layer = &cuda_model.model().layers[0];
+        let gpu_layer = &cuda_model.model().layers()[0];
         let gpu_norm_weight = &gpu_layer.attn_norm_weight;
 
         let norm_weight_match = norm_weight

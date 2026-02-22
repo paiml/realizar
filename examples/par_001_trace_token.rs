@@ -50,12 +50,12 @@ fn main() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     println!("Config:");
-    println!("  hidden_dim: {}", model.config.hidden_dim);
-    println!("  num_heads: {}", model.config.num_heads);
-    println!("  num_kv_heads: {}", model.config.num_kv_heads);
-    println!("  intermediate_dim: {}", model.config.intermediate_dim);
-    println!("  rope_theta: {}", model.config.rope_theta);
-    println!("  eps: {}", model.config.eps);
+    println!("  hidden_dim: {}", model.config().hidden_dim);
+    println!("  num_heads: {}", model.config().num_heads);
+    println!("  num_kv_heads: {}", model.config().num_kv_heads);
+    println!("  intermediate_dim: {}", model.config().intermediate_dim);
+    println!("  rope_theta: {}", model.config().rope_theta);
+    println!("  eps: {}", model.config().eps);
 
     let token_id: u32 = 26222; // "Once"
     let vocab = mapped.model.vocabulary().expect("test");
@@ -72,9 +72,9 @@ fn main() {
 
     // Step 2: Attention layer norm
     println!("\n=== Step 2: Attention RMSNorm ===");
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     stats("attn_norm_weight", &layer.attn_norm_weight);
-    let normed = rms_norm(&hidden, &layer.attn_norm_weight, model.config.eps);
+    let normed = rms_norm(&hidden, &layer.attn_norm_weight, model.config().eps);
     stats("normed", &normed);
 
     // Step 3: QKV projection
@@ -108,9 +108,9 @@ fn main() {
 
     // Step 4: RoPE
     println!("\n=== Step 4: RoPE at position 0 ===");
-    let head_dim = model.config.hidden_dim / model.config.num_heads;
+    let head_dim = model.config().hidden_dim / model.config().num_heads;
     let half_dim = head_dim / 2;
-    let theta = model.config.rope_theta;
+    let theta = model.config().rope_theta;
 
     println!(
         "head_dim: {}, half_dim: {}, theta: {}",
@@ -129,12 +129,12 @@ fn main() {
 
     // Step 5: Attention at position 0 (just returns V with GQA expansion)
     println!("\n=== Step 5: Attention (position 0, V passthrough with GQA) ===");
-    let group_size = model.config.num_heads / model.config.num_kv_heads;
+    let group_size = model.config().num_heads / model.config().num_kv_heads;
     println!("GQA group_size: {} (32 heads / 4 kv_heads)", group_size);
 
     // Expand V for GQA: 4 kv_heads -> 32 heads
-    let mut attn_out = Vec::with_capacity(model.config.hidden_dim);
-    for h in 0..model.config.num_heads {
+    let mut attn_out = Vec::with_capacity(model.config().hidden_dim);
+    for h in 0..model.config().num_heads {
         let kv_head = h / group_size;
         let start = kv_head * head_dim;
         attn_out.extend_from_slice(&v[start..start + head_dim]);
@@ -167,7 +167,7 @@ fn main() {
         .as_ref()
         .expect("FFN norm weight missing");
     stats("ffn_norm_weight", ffn_norm);
-    let ffn_input = rms_norm(&residual, ffn_norm, model.config.eps);
+    let ffn_input = rms_norm(&residual, ffn_norm, model.config().eps);
     stats("ffn_input (normed)", &ffn_input);
 
     // Step 9: FFN up and gate
@@ -213,7 +213,7 @@ fn main() {
 
     // Step 11: Final residual for layer 0
     println!("\n=== Step 11: FFN Residual ===");
-    for i in 0..model.config.hidden_dim {
+    for i in 0..model.config().hidden_dim {
         residual[i] += ffn_output[i];
     }
     stats("after_ffn_residual (layer 0 complete)", &residual);

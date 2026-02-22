@@ -9,7 +9,7 @@ fn main() {
 
     println!("=== Tensor Dimensions (Layer 0) ===\n");
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
 
     // QKV weights
     match &layer.qkv_weight {
@@ -54,7 +54,9 @@ fn main() {
     println!("\n=== Output Layer ===");
     println!(
         "LM head: in={}, out={}, qtype={}",
-        model.lm_head_weight.in_dim, model.lm_head_weight.out_dim, model.lm_head_weight.qtype
+        model.lm_head_weight().in_dim,
+        model.lm_head_weight().out_dim,
+        model.lm_head_weight().qtype
     );
 
     println!("\n=== GGML Quant Types ===");

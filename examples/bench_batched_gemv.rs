@@ -37,7 +37,7 @@ fn main() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("model");
 
     // Get layer 0 FFN up weight for testing (typical large GEMV in decode)
-    let ffn_up_weight = &model.layers[0].ffn_up_weight;
+    let ffn_up_weight = &model.layers()[0].ffn_up_weight;
     let k = ffn_up_weight.in_dim; // Hidden dim (e.g., 1536)
     let n = ffn_up_weight.out_dim; // Intermediate dim (e.g., 8960)
 

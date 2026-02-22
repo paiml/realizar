@@ -7,14 +7,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
     let vocab = mapped.model.vocabulary().expect("vocab");
 
-    let hidden_dim = model.config.hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
 
     println!("=== Direct LM Head Test ===\n");
 
     // Get embedding for token 17 ("2")
     let tok = 17;
     let emb_start = tok * hidden_dim;
-    let emb = &model.token_embedding[emb_start..emb_start + hidden_dim];
+    let emb = &model.token_embedding()[emb_start..emb_start + hidden_dim];
 
     let emb_norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
     println!(
@@ -27,11 +27,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Apply RMSNorm with output_norm_weight
     let sum_sq: f32 = emb.iter().map(|x| x * x).sum();
     let mean_sq = sum_sq / hidden_dim as f32;
-    let inv_rms = 1.0 / (mean_sq + model.config.eps).sqrt();
+    let inv_rms = 1.0 / (mean_sq + model.config().eps).sqrt();
 
     let mut normed = vec![0.0f32; hidden_dim];
     for i in 0..hidden_dim {
-        normed[i] = emb[i] * inv_rms * model.output_norm_weight[i];
+        normed[i] = emb[i] * inv_rms * model.output_norm_weight()[i];
     }
 
     let normed_norm: f32 = normed.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut manual_logits = Vec::with_capacity(25);
     for i in 0..25 {
-        let tok_emb = &model.token_embedding[i * hidden_dim..(i + 1) * hidden_dim];
+        let tok_emb = &model.token_embedding()[i * hidden_dim..(i + 1) * hidden_dim];
         let logit: f32 = normed.iter().zip(tok_emb.iter()).map(|(a, b)| a * b).sum();
         let tok_str = vocab.get(i).map(|s| s.as_str()).unwrap_or("?");
         manual_logits.push((i, logit, tok_str.to_string()));

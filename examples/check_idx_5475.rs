@@ -37,18 +37,18 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let eps = model.config().eps;
     let token_id = 450u32;
     let start = token_id as usize * hidden_dim;
-    let mut hidden: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let mut hidden: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
     println!("=== Checking index 5475 across layers ===\n");
 
     // First, check the weights at row 5475 for each layer
     println!("Weight row 5475 (first superblock) across layers:");
     for layer_idx in 0..5 {
-        let layer = &model.layers[layer_idx];
+        let layer = &model.layers()[layer_idx];
         if let Some(ref gw) = layer.ffn_gate_weight {
             // Row 5475 starts at byte offset 5475 * bytes_per_row
             // For Q4_K with 2048 input: each row has 2048/256 = 8 superblocks = 8*144 = 1152 bytes
@@ -69,7 +69,7 @@ fn main() {
     println!("\nFFN output values at index 5475 per layer:");
 
     for layer_idx in 0..5 {
-        let layer = &model.layers[layer_idx];
+        let layer = &model.layers()[layer_idx];
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
         let (q_weight, _, v_weight) = match &layer.qkv_weight {
             OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
@@ -89,10 +89,10 @@ fn main() {
             v_weight.in_dim,
             v_weight.out_dim,
         );
-        let head_dim = hidden_dim / model.config.num_heads;
-        let group_size = model.config.num_heads / model.config.num_kv_heads;
+        let head_dim = hidden_dim / model.config().num_heads;
+        let group_size = model.config().num_heads / model.config().num_kv_heads;
         let mut attn_out = Vec::with_capacity(hidden_dim);
-        for h in 0..model.config.num_heads {
+        for h in 0..model.config().num_heads {
             let kv_head = h / group_size;
             attn_out.extend_from_slice(&v[kv_head * head_dim..(kv_head + 1) * head_dim]);
         }

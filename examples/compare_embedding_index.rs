@@ -10,21 +10,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let qwen_vocab = qwen_mapped.model.vocabulary().expect("vocab");
 
     println!("=== Qwen2 Model Info ===");
-    println!("Hidden dim: {}", qwen_model.config.hidden_dim);
-    println!("Vocab size: {}", qwen_model.config.vocab_size);
-    println!("Token embedding len: {}", qwen_model.token_embedding.len());
+    println!("Hidden dim: {}", qwen_model.config().hidden_dim);
+    println!("Vocab size: {}", qwen_model.config().vocab_size);
+    println!(
+        "Token embedding len: {}",
+        qwen_model.token_embedding().len()
+    );
     println!(
         "Expected vocab from embedding: {}",
-        qwen_model.token_embedding.len() / qwen_model.config.hidden_dim
+        qwen_model.token_embedding().len() / qwen_model.config().hidden_dim
     );
     println!("Actual vocab entries: {}", qwen_vocab.len());
 
     // Check if vocab size matches
-    let calc_vocab = qwen_model.token_embedding.len() / qwen_model.config.hidden_dim;
-    if calc_vocab != qwen_model.config.vocab_size {
+    let calc_vocab = qwen_model.token_embedding().len() / qwen_model.config().hidden_dim;
+    if calc_vocab != qwen_model.config().vocab_size {
         println!(
             "\n⚠️  MISMATCH: config.vocab_size ({}) != calculated vocab ({})",
-            qwen_model.config.vocab_size, calc_vocab
+            qwen_model.config().vocab_size,
+            calc_vocab
         );
     }
 
@@ -38,19 +42,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check the specific tokens that are buggy
     println!("\n=== Qwen2 Buggy Token Embeddings ===");
     let buggy_tokens = [3, 7, 12, 14, 15, 16, 18, 20, 28, 30];
-    let hidden_dim = qwen_model.config.hidden_dim;
+    let hidden_dim = qwen_model.config().hidden_dim;
 
     for tok in buggy_tokens {
         let name = qwen_vocab.get(tok).map(|s| s.as_str()).unwrap_or("?");
         let start = tok * hidden_dim;
         let end = start + hidden_dim;
 
-        if end > qwen_model.token_embedding.len() {
+        if end > qwen_model.token_embedding().len() {
             println!("  Token {} ({:?}): OUT OF BOUNDS", tok, name);
             continue;
         }
 
-        let emb = &qwen_model.token_embedding[start..end];
+        let emb = &qwen_model.token_embedding()[start..end];
         let norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
         let sum: f32 = emb.iter().sum();
         let mean = sum / hidden_dim as f32;
@@ -72,12 +76,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let start = tok * hidden_dim;
         let end = start + hidden_dim;
 
-        if end > qwen_model.token_embedding.len() {
+        if end > qwen_model.token_embedding().len() {
             println!("  Token {} ({:?}): OUT OF BOUNDS", tok, name);
             continue;
         }
 
-        let emb = &qwen_model.token_embedding[start..end];
+        let emb = &qwen_model.token_embedding()[start..end];
         let norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
         let sum: f32 = emb.iter().sum();
         let mean = sum / hidden_dim as f32;
@@ -92,10 +96,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check if all embeddings look similar (would indicate wrong indexing)
     println!("\n=== Embedding Similarity Check ===");
-    let emb0 = &qwen_model.token_embedding[0..hidden_dim];
-    let emb1 = &qwen_model.token_embedding[hidden_dim..2 * hidden_dim];
-    let emb15 = &qwen_model.token_embedding[15 * hidden_dim..16 * hidden_dim];
-    let emb16 = &qwen_model.token_embedding[16 * hidden_dim..17 * hidden_dim];
+    let emb0 = &qwen_model.token_embedding()[0..hidden_dim];
+    let emb1 = &qwen_model.token_embedding()[hidden_dim..2 * hidden_dim];
+    let emb15 = &qwen_model.token_embedding()[15 * hidden_dim..16 * hidden_dim];
+    let emb16 = &qwen_model.token_embedding()[16 * hidden_dim..17 * hidden_dim];
 
     // Compute cosine similarity
     fn cosine_sim(a: &[f32], b: &[f32]) -> f32 {
@@ -121,10 +125,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for tok in 0..100 {
         let start = tok * hidden_dim;
         let end = start + hidden_dim;
-        if end > qwen_model.token_embedding.len() {
+        if end > qwen_model.token_embedding().len() {
             break;
         }
-        let emb = &qwen_model.token_embedding[start..end];
+        let emb = &qwen_model.token_embedding()[start..end];
         let norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
         if norm < 0.001 {
             println!("  Token {} has near-zero embedding (norm={:.6})", tok, norm);

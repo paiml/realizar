@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("First 32 bytes: {:?}", &q4k_attn_output[..32]);
 
     // Get Q4K bytes from GGUF for comparison
-    let gguf_attn_output = &gguf_model.layers[0].attn_output_weight;
+    let gguf_attn_output = &gguf_model.layers()[0].attn_output_weight;
     println!("\n=== GGUF attn_output ===");
     println!("Bytes: {}", gguf_attn_output.data.len());
     println!("First 32 bytes: {:?}", &gguf_attn_output.data[..32]);

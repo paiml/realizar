@@ -74,13 +74,13 @@ fn main() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
     let vocab = mapped.model.vocabulary().expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads;
-    let num_kv_heads = model.config.num_kv_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads;
+    let num_kv_heads = model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
     let kv_dim = num_kv_heads * head_dim;
-    let theta = model.config.rope_theta;
-    let eps = model.config.eps;
+    let theta = model.config().rope_theta;
+    let eps = model.config().eps;
     let group_size = num_heads / num_kv_heads;
 
     println!(
@@ -108,7 +108,7 @@ fn main() {
             .unwrap_or("?")
     );
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
         OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
         _ => panic!("Expected separate QKV"),
@@ -252,8 +252,8 @@ fn main() {
     // Compare with model's attention
     println!("\n=== Compare with Model's forward_cached ===");
     let kv_dim_cache =
-        model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);
-    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim_cache, 128);
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads);
+    let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim_cache, 128);
 
     // Run position 0
     let _logits0 = model

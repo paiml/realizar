@@ -8,11 +8,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("=== Attention Weights Trace ===\n");
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads;
-    let num_kv_heads = model.config.num_kv_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads;
+    let num_kv_heads = model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
-    let eps = model.config.eps;
+    let eps = model.config().eps;
     let scale = 1.0 / (head_dim as f32).sqrt();
     let group_size = num_heads / num_kv_heads;
 
@@ -31,11 +31,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for &tok in &tokens {
         let start = tok as usize * hidden_dim;
         let end = start + hidden_dim;
-        hidden.extend_from_slice(&model.token_embedding[start..end]);
+        hidden.extend_from_slice(&model.token_embedding()[start..end]);
     }
 
     // Process through layer 0 to get QKV
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
 
     // RMSNorm
     let mut normed = vec![0.0f32; seq_len * hidden_dim];
@@ -79,7 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Apply RoPE (NEOX style, type=2)
-    let theta = model.config.rope_theta;
+    let theta = model.config().rope_theta;
     let half_dim = head_dim / 2;
 
     for pos in 0..seq_len {

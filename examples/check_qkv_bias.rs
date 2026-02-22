@@ -16,15 +16,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
     println!("Config:");
-    println!("  hidden_dim: {}", model.config.hidden_dim);
-    println!("  num_heads: {}", model.config.num_heads);
-    println!("  num_kv_heads: {}", model.config.num_kv_heads);
-    println!("  rope_theta: {}", model.config.rope_theta);
-    println!("  rope_type: {}", model.config.rope_type);
+    println!("  hidden_dim: {}", model.config().hidden_dim);
+    println!("  num_heads: {}", model.config().num_heads);
+    println!("  num_kv_heads: {}", model.config().num_kv_heads);
+    println!("  rope_theta: {}", model.config().rope_theta);
+    println!("  rope_type: {}", model.config().rope_type);
 
     println!("\n=== Checking QKV Bias ===");
 
-    for (i, layer) in model.layers.iter().enumerate().take(3) {
+    for (i, layer) in model.layers().iter().enumerate().take(3) {
         println!("\nLayer {}:", i);
         if let Some(ref bias) = layer.qkv_bias {
             println!("  QKV bias: len={}", bias.len());

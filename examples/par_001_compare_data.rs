@@ -13,7 +13,7 @@ fn main() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     // Get V weight from OwnedQuantizedModel
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     match &layer.qkv_weight {
         realizar::gguf::OwnedQKVWeights::Separate { q, k, v } => {
             println!("From OwnedQuantizedModel:");
@@ -135,7 +135,7 @@ fn main() {
 
     // Try interpreting V data as Q4_K to see if it makes more sense
     println!("\n\n=== Try interpreting V as Q4_K ===");
-    if let realizar::gguf::OwnedQKVWeights::Separate { v, .. } = &model.layers[0].qkv_weight {
+    if let realizar::gguf::OwnedQKVWeights::Separate { v, .. } = &model.layers()[0].qkv_weight {
         // If V was actually Q4_K, d would be at offset 0
         if v.data.len() >= 4 {
             let d_bytes = [v.data[0], v.data[1]];

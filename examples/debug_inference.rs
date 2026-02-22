@@ -10,7 +10,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     eprintln!(
         "Config: hidden_dim={}, num_heads={}, num_kv_heads={}",
-        model.config.hidden_dim, model.config.num_heads, model.config.num_kv_heads
+        model.config().hidden_dim,
+        model.config().num_heads,
+        model.config().num_kv_heads
     );
 
     // Generate with tokens
@@ -30,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!(
         "Logits shape: {} (expected {})",
         logits.len(),
-        model.config.vocab_size
+        model.config().vocab_size
     );
 
     // Find top 5 logits

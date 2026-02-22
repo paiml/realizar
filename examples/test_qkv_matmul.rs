@@ -23,7 +23,7 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("load");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("model");
 
-    let _hidden_dim = model.config.hidden_dim;
+    let _hidden_dim = model.config().hidden_dim;
 
     // Create test input: embedding for token 151644 (<|im_start|>)
     let token_id = 151644u32;
@@ -31,8 +31,8 @@ fn main() {
     stats("Input (embedding)", &input);
 
     // Apply RMSNorm using the attention norm weight
-    let layer = &model.layers[0];
-    let normed = rms_norm(&input, &layer.attn_norm_weight, model.config.eps);
+    let layer = &model.layers()[0];
+    let normed = rms_norm(&input, &layer.attn_norm_weight, model.config().eps);
     stats("After RMSNorm", &normed);
 
     // Compute QKV using the model's method

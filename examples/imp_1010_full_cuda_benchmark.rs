@@ -114,10 +114,10 @@ fn main() {
     let load_time = load_start.elapsed();
 
     println!("✅ Model loaded in {:.2}s", load_time.as_secs_f64());
-    println!("   Hidden dim: {}", owned_model.config.hidden_dim);
-    println!("   Num layers: {}", owned_model.config.num_layers);
-    println!("   Num heads: {}", owned_model.config.num_heads);
-    println!("   Vocab size: {}", owned_model.config.vocab_size);
+    println!("   Hidden dim: {}", owned_model.config().hidden_dim);
+    println!("   Num layers: {}", owned_model.config().num_layers);
+    println!("   Num heads: {}", owned_model.config().num_heads);
+    println!("   Vocab size: {}", owned_model.config().vocab_size);
     println!();
 
     // Create CUDA model wrapper

@@ -20,14 +20,14 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
-    let layer = &model.layers[0];
+    let hidden_dim = model.config().hidden_dim;
+    let layer = &model.layers()[0];
 
     // Get real input (normed hidden state for token "Once")
     let token_id: u32 = 26222;
     let hidden = model.embed(&[token_id]);
     let sum_sq: f32 = hidden.iter().map(|x| x * x).sum();
-    let rms = (sum_sq / hidden_dim as f32 + model.config.eps).sqrt();
+    let rms = (sum_sq / hidden_dim as f32 + model.config().eps).sqrt();
     let normed: Vec<f32> = hidden
         .iter()
         .zip(layer.attn_norm_weight.iter())

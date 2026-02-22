@@ -7,7 +7,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
     println!("=== Qwen2-0.5B Raw Forward Test ===\n");
-    println!("Config: {:?}\n", model.config);
+    println!("Config: {:?}\n", model.config());
 
     // Test with raw token IDs - "2+2=" should be straightforward
     // First, let's check what token IDs correspond to our input
@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let logits = model.forward(&tokens)?;
 
         // Get top 5 predictions
-        let last_logits = &logits[logits.len() - model.config.vocab_size..];
+        let last_logits = &logits[logits.len() - model.config().vocab_size..];
         let mut indexed: Vec<(usize, f32)> = last_logits
             .iter()
             .enumerate()

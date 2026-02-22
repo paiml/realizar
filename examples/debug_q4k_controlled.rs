@@ -219,14 +219,14 @@ fn test_real_q_weight() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads;
     let q_dim = num_heads * (hidden_dim / num_heads);
 
     eprintln!("hidden_dim={}, q_dim={}", hidden_dim, q_dim);
 
     // Get Q weight data
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let (q_data, q_in_dim, q_out_dim) = match &layer.qkv_weight {
         OwnedQKVWeights::Separate { q, .. } => (&q.data, q.in_dim, q.out_dim),
         OwnedQKVWeights::Fused(_) => {

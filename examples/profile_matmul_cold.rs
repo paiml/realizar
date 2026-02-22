@@ -13,16 +13,17 @@ fn main() -> Result<(), RealizarError> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let intermediate_dim = model.config.intermediate_dim;
+    let hidden_dim = model.config().hidden_dim;
+    let intermediate_dim = model.config().intermediate_dim;
 
     println!("=== PAR-126 Cold vs Warm Matmul Profiler ===\n");
     println!(
         "Model: {} layers, hidden={}",
-        model.config.num_layers, hidden_dim
+        model.config().num_layers,
+        hidden_dim
     );
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
 
     // Test: Measure FIRST iteration (cold cache) vs average of 100 (warm)
     println!("\n=== Cold vs Warm Timing ===\n");
@@ -209,7 +210,7 @@ fn main() -> Result<(), RealizarError> {
 
     let preallocated_per_layer_us = total_preallocated_us / runs as f64;
     let preallocated_full_model_ms =
-        preallocated_per_layer_us * model.config.num_layers as f64 / 1000.0;
+        preallocated_per_layer_us * model.config().num_layers as f64 / 1000.0;
 
     println!(
         "Pre-allocated matmuls per layer: {:.0} µs",

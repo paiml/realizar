@@ -17,8 +17,8 @@ fn main() {
 
     println!("=== First Q Projection Debug ===\n");
 
-    let hidden_dim = model.config.hidden_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let eps = model.config().eps;
 
     // Token: 450 = "▁The"
     let token_id = 450u32;
@@ -26,7 +26,7 @@ fn main() {
 
     // Step 1: Embedding lookup
     let start = token_id as usize * hidden_dim;
-    let embedding: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let embedding: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
     println!("Embedding:");
     println!("  L2: {:.6}", l2_norm(&embedding));
     println!("  First 10: {:?}", &embedding[0..10]);
@@ -37,7 +37,7 @@ fn main() {
     // (These are approximate - exact values depend on HF model)
 
     // Step 2: Layer 0 attention RMSNorm
-    let layer0 = &model.layers[0];
+    let layer0 = &model.layers()[0];
     let normed = rms_norm(&embedding, &layer0.attn_norm_weight, eps);
     println!("\nAfter attn RMSNorm:");
     println!("  L2: {:.6}", l2_norm(&normed));

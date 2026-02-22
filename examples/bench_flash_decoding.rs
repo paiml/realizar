@@ -38,12 +38,12 @@ fn main() {
     let mut cuda_model = OwnedQuantizedModelCuda::new(model, 0).expect("CUDA");
     cuda_model.preload_weights_gpu().expect("weights");
 
-    let hidden_dim = cuda_model.model().config.hidden_dim;
-    let intermediate_dim = cuda_model.model().layers[0].ffn_up_weight.out_dim;
+    let hidden_dim = cuda_model.model().config().hidden_dim;
+    let intermediate_dim = cuda_model.model().layers()[0].ffn_up_weight.out_dim;
     let num_layers = cuda_model.model().layers.len();
-    let vocab_size = cuda_model.model().lm_head_weight.out_dim;
-    let eps = cuda_model.model().config.eps;
-    let num_heads = cuda_model.model().config.num_heads;
+    let vocab_size = cuda_model.model().lm_head_weight().out_dim;
+    let eps = cuda_model.model().config().eps;
+    let num_heads = cuda_model.model().config().num_heads;
     let head_dim = hidden_dim / num_heads;
 
     println!(

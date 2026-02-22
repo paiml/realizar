@@ -9,17 +9,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Qwen2 QKV Trace ===\n");
 
     println!("Config:");
-    println!("  hidden_dim: {}", model.config.hidden_dim);
-    println!("  num_heads: {}", model.config.num_heads);
-    println!("  num_kv_heads: {}", model.config.num_kv_heads);
+    println!("  hidden_dim: {}", model.config().hidden_dim);
+    println!("  num_heads: {}", model.config().num_heads);
+    println!("  num_kv_heads: {}", model.config().num_kv_heads);
     println!(
         "  head_dim: {}",
-        model.config.hidden_dim / model.config.num_heads
+        model.config().hidden_dim / model.config().num_heads
     );
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads;
-    let num_kv_heads = model.config.num_kv_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads;
+    let num_kv_heads = model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
 
     println!(
@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Check layer 0 QKV structure
-    let layer0 = &model.layers[0];
+    let layer0 = &model.layers()[0];
 
     println!("\nLayer 0 QKV:");
     match &layer0.qkv_weight {
@@ -85,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tiny_mapped = MappedGGUFModel::from_path(tiny_path)?;
     let tiny_model = OwnedQuantizedModel::from_mapped(&tiny_mapped)?;
 
-    let tiny_layer0 = &tiny_model.layers[0];
+    let tiny_layer0 = &tiny_model.layers()[0];
 
     println!("\nTinyLlama Layer 0 QKV:");
     match &tiny_layer0.qkv_weight {

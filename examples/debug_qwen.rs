@@ -7,10 +7,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!(
         "Config: hidden_dim={}, num_heads={}, num_kv_heads={}, layers={}",
-        model.config.hidden_dim,
-        model.config.num_heads,
-        model.config.num_kv_heads,
-        model.config.num_layers
+        model.config().hidden_dim,
+        model.config().num_heads,
+        model.config().num_kv_heads,
+        model.config().num_layers
     );
 
     // Test with simple "Hi" prompt

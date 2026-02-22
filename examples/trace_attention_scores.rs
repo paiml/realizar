@@ -6,9 +6,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads; // 14
-    let num_kv_heads = model.config.num_kv_heads; // 2
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads; // 14
+    let num_kv_heads = model.config().num_kv_heads; // 2
     let head_dim = hidden_dim / num_heads; // 64
     let q_dim = num_heads * head_dim; // 896
     let k_dim = num_kv_heads * head_dim; // 128
@@ -18,13 +18,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get embedding and process through layer 0
     let tok = 17u32;
     let emb_start = tok as usize * hidden_dim;
-    let hidden = model.token_embedding[emb_start..emb_start + hidden_dim].to_vec();
+    let hidden = model.token_embedding()[emb_start..emb_start + hidden_dim].to_vec();
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
 
     // RMSNorm
     let sum_sq: f32 = hidden.iter().map(|x| x * x).sum();
-    let inv_rms = 1.0 / ((sum_sq / hidden_dim as f32) + model.config.eps).sqrt();
+    let inv_rms = 1.0 / ((sum_sq / hidden_dim as f32) + model.config().eps).sqrt();
     let mut normed = vec![0.0f32; hidden_dim];
     for i in 0..hidden_dim {
         normed[i] = hidden[i] * inv_rms * layer.attn_norm_weight[i];

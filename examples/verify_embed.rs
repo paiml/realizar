@@ -7,11 +7,11 @@ fn main() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("parse");
 
     let token_id = 791u32;
-    let hidden_dim = model.config.hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
 
     // Method 1: Direct token_embedding access
     let start = token_id as usize * hidden_dim;
-    let direct_embed: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let direct_embed: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
     // Method 2: Using embed() function
     let embed_result = model.embed(&[token_id]);

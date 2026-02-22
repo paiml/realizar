@@ -17,7 +17,7 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
 
     // Get QKV weights info
     match &layer.qkv_weight {

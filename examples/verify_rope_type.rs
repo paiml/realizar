@@ -8,16 +8,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let qwen_model = OwnedQuantizedModel::from_mapped(&qwen_mapped)?;
 
     println!("=== Qwen2 Config ===");
-    println!("Architecture: {}", qwen_model.config.architecture);
-    println!("Hidden dim: {}", qwen_model.config.hidden_dim);
-    println!("Num heads: {}", qwen_model.config.num_heads);
-    println!("Num KV heads: {}", qwen_model.config.num_kv_heads);
-    println!("RoPE theta: {}", qwen_model.config.rope_theta);
+    println!("Architecture: {}", qwen_model.config().architecture);
+    println!("Hidden dim: {}", qwen_model.config().hidden_dim);
+    println!("Num heads: {}", qwen_model.config().num_heads);
+    println!("Num KV heads: {}", qwen_model.config().num_kv_heads);
+    println!("RoPE theta: {}", qwen_model.config().rope_theta);
     println!(
         "RoPE type: {} (0=NORM adjacent pairs, 2=NEOX split halves)",
-        qwen_model.config.rope_type
+        qwen_model.config().rope_type
     );
-    println!("Epsilon: {}", qwen_model.config.eps);
+    println!("Epsilon: {}", qwen_model.config().eps);
 
     // Check raw metadata
     println!("\n=== Raw GGUF Metadata (RoPE related) ===");
@@ -34,16 +34,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tiny_model = OwnedQuantizedModel::from_mapped(&tiny_mapped)?;
 
         println!("\n=== TinyLlama Config (comparison) ===");
-        println!("Architecture: {}", tiny_model.config.architecture);
-        println!("Hidden dim: {}", tiny_model.config.hidden_dim);
-        println!("Num heads: {}", tiny_model.config.num_heads);
-        println!("Num KV heads: {}", tiny_model.config.num_kv_heads);
-        println!("RoPE theta: {}", tiny_model.config.rope_theta);
+        println!("Architecture: {}", tiny_model.config().architecture);
+        println!("Hidden dim: {}", tiny_model.config().hidden_dim);
+        println!("Num heads: {}", tiny_model.config().num_heads);
+        println!("Num KV heads: {}", tiny_model.config().num_kv_heads);
+        println!("RoPE theta: {}", tiny_model.config().rope_theta);
         println!(
             "RoPE type: {} (0=NORM adjacent pairs, 2=NEOX split halves)",
-            tiny_model.config.rope_type
+            tiny_model.config().rope_type
         );
-        println!("Epsilon: {}", tiny_model.config.eps);
+        println!("Epsilon: {}", tiny_model.config().eps);
 
         println!("\n=== TinyLlama Raw Metadata (RoPE related) ===");
         for (key, value) in tiny_mapped.model.metadata.iter() {
@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Manually test RoPE rotation
     println!("\n=== Manual RoPE Test ===");
-    let head_dim = qwen_model.config.hidden_dim / qwen_model.config.num_heads;
+    let head_dim = qwen_model.config().hidden_dim / qwen_model.config().num_heads;
     let half_dim = head_dim / 2;
     println!("Head dim: {}", head_dim);
     println!("Half dim: {}", half_dim);
@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut x_norm: Vec<f32> = x_neox.clone();
 
     // Pre-compute cos/sin for position 0
-    let theta = qwen_model.config.rope_theta;
+    let theta = qwen_model.config().rope_theta;
     let mut cos_vals = vec![0.0f32; half_dim];
     let mut sin_vals = vec![0.0f32; half_dim];
     let position = 0usize;

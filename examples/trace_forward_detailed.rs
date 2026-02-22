@@ -6,20 +6,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
     let bos = 151643u32;
 
     println!("=== Forward Pass Trace ===\n");
     println!("Config:");
-    println!("  hidden_dim: {}", model.config.hidden_dim);
-    println!("  num_heads: {}", model.config.num_heads);
-    println!("  num_kv_heads: {}", model.config.num_kv_heads);
-    println!("  eps: {:.1e}", model.config.eps);
-    println!("  rope_type: {}", model.config.rope_type);
+    println!("  hidden_dim: {}", model.config().hidden_dim);
+    println!("  num_heads: {}", model.config().num_heads);
+    println!("  num_kv_heads: {}", model.config().num_kv_heads);
+    println!("  eps: {:.1e}", model.config().eps);
+    println!("  rope_type: {}", model.config().rope_type);
 
     // 1. Check initial embedding
     let emb_start = bos as usize * hidden_dim;
-    let emb = &model.token_embedding[emb_start..emb_start + hidden_dim];
+    let emb = &model.token_embedding()[emb_start..emb_start + hidden_dim];
 
     let emb_norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
     let emb_sum: f32 = emb.iter().sum();
@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   first 8: {:?}", &emb[..8]);
 
     // Check token 0 embedding
-    let tok0_emb = &model.token_embedding[0..hidden_dim];
+    let tok0_emb = &model.token_embedding()[0..hidden_dim];
     let tok0_norm: f32 = tok0_emb.iter().map(|x| x * x).sum::<f32>().sqrt();
 
     println!("\n2. Token 0 (\"!\") Embedding:");
@@ -87,14 +87,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 6. Check LM head info
     println!("\n6. LM Head Weight:");
-    println!("   qtype: {}", model.lm_head_weight.qtype);
+    println!("   qtype: {}", model.lm_head_weight().qtype);
     println!(
         "   in_dim: {} (should be hidden_dim={})",
-        model.lm_head_weight.in_dim, hidden_dim
+        model.lm_head_weight().in_dim,
+        hidden_dim
     );
     println!(
         "   out_dim: {} (should be vocab_size)",
-        model.lm_head_weight.out_dim
+        model.lm_head_weight().out_dim
     );
 
     Ok(())

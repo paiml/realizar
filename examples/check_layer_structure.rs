@@ -17,16 +17,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  rope_type: {:?}", mapped.model.rope_type());
 
     println!("\nConfig:");
-    println!("  hidden_dim: {}", model.config.hidden_dim);
-    println!("  num_layers: {}", model.config.num_layers);
-    println!("  num_heads: {}", model.config.num_heads);
-    println!("  num_kv_heads: {}", model.config.num_kv_heads);
-    println!("  intermediate_dim: {}", model.config.intermediate_dim);
-    println!("  rope_theta: {}", model.config.rope_theta);
-    println!("  rope_type: {}", model.config.rope_type);
+    println!("  hidden_dim: {}", model.config().hidden_dim);
+    println!("  num_layers: {}", model.config().num_layers);
+    println!("  num_heads: {}", model.config().num_heads);
+    println!("  num_kv_heads: {}", model.config().num_kv_heads);
+    println!("  intermediate_dim: {}", model.config().intermediate_dim);
+    println!("  rope_theta: {}", model.config().rope_theta);
+    println!("  rope_type: {}", model.config().rope_type);
 
     println!("\nLayer 0 structure:");
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
 
     println!("  attn_norm_weight len: {}", layer.attn_norm_weight.len());
     println!(
@@ -114,11 +114,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Output Norm ===");
     println!(
         "  output_norm_weight len: {}",
-        model.output_norm_weight.len()
+        model.output_norm_weight().len()
     );
     println!(
         "  output_norm_bias: {:?}",
-        model.output_norm_bias.as_ref().map(|b| b.len())
+        model.output_norm_bias().map(|b| b.len())
     );
 
     // Check token embedding and LM head
@@ -133,16 +133,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!(
         "  lm_head_weight: qtype={}, in={}, out={}",
-        model.lm_head_weight.qtype, model.lm_head_weight.in_dim, model.lm_head_weight.out_dim
+        model.lm_head_weight().qtype,
+        model.lm_head_weight().in_dim,
+        model.lm_head_weight().out_dim
     );
     println!(
         "  lm_head_bias: {:?}",
-        model.lm_head_bias.as_ref().map(|b| b.len())
+        model.lm_head_bias().map(|b| b.len())
     );
-    println!("  token_embedding len: {}", model.token_embedding.len());
+    println!("  token_embedding len: {}", model.token_embedding().len());
     println!(
         "  vocab_size (derived): {}",
-        model.token_embedding.len() / model.config.hidden_dim
+        model.token_embedding().len() / model.config().hidden_dim
     );
 
     // Check if ffn_norm is being loaded

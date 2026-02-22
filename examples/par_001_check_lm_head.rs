@@ -18,31 +18,31 @@ fn main() {
     let vocab = mapped.model.vocabulary().expect("test");
 
     println!("Model config:");
-    println!("  hidden_dim: {}", model.config.hidden_dim);
-    println!("  vocab_size: {}", model.config.vocab_size);
+    println!("  hidden_dim: {}", model.config().hidden_dim);
+    println!("  vocab_size: {}", model.config().vocab_size);
 
     println!("\nLM head weight:");
-    println!("  in_dim: {}", model.lm_head_weight.in_dim);
-    println!("  out_dim: {}", model.lm_head_weight.out_dim);
+    println!("  in_dim: {}", model.lm_head_weight().in_dim);
+    println!("  out_dim: {}", model.lm_head_weight().out_dim);
     println!(
         "  qtype: {} ({})",
-        model.lm_head_weight.qtype,
-        if model.lm_head_weight.qtype == 12 {
+        model.lm_head_weight().qtype,
+        if model.lm_head_weight().qtype == 12 {
             "Q4_K"
-        } else if model.lm_head_weight.qtype == 14 {
+        } else if model.lm_head_weight().qtype == 14 {
             "Q6_K"
         } else {
             "other"
         }
     );
-    println!("  data size: {} bytes", model.lm_head_weight.data.len());
+    println!("  data size: {} bytes", model.lm_head_weight().data.len());
 
     println!("\nOutput norm weight:");
-    println!("  length: {}", model.output_norm_weight.len());
-    println!("  L2 norm: {:.4}", l2_norm(&model.output_norm_weight));
+    println!("  length: {}", model.output_norm_weight().len());
+    println!("  L2 norm: {:.4}", l2_norm(&model.output_norm_weight()));
     println!(
         "  first 5: {:?}",
-        &model.output_norm_weight[..5.min(model.output_norm_weight.len())]
+        &model.output_norm_weight()[..5.min(model.output_norm_weight().len())]
     );
 
     // Check vocabulary

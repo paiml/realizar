@@ -31,12 +31,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!(
         "GGUF config: hidden_dim={}, intermediate_dim={}",
-        gguf_model.config.hidden_dim, gguf_model.config.intermediate_dim
+        gguf_model.config().hidden_dim,
+        gguf_model.config().intermediate_dim
     );
 
     // Compare QKV weight sizes
     let apr_layer = &apr_model.layers[0];
-    let gguf_layer = &gguf_model.layers[0];
+    let gguf_layer = &gguf_model.layers()[0];
 
     println!("\nQKV weight sizes:");
     println!("  APR qkv_weight.len() = {}", apr_layer.qkv_weight.len());

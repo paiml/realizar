@@ -13,18 +13,20 @@ fn main() -> Result<(), RealizarError> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let intermediate_dim = model.config.intermediate_dim;
-    let num_heads = model.config.num_heads;
-    let _num_kv_heads = model.config.num_kv_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let intermediate_dim = model.config().intermediate_dim;
+    let num_heads = model.config().num_heads;
+    let _num_kv_heads = model.config().num_kv_heads;
     let _head_dim = hidden_dim / num_heads;
 
     println!(
         "Model: {} layers, hidden={}, intermediate={}",
-        model.config.num_layers, hidden_dim, intermediate_dim
+        model.config().num_layers,
+        hidden_dim,
+        intermediate_dim
     );
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let iterations = 100;
 
     // Input vectors
@@ -158,7 +160,7 @@ fn main() -> Result<(), RealizarError> {
         total_us / 1000.0
     );
 
-    let num_layers = model.config.num_layers as f64;
+    let num_layers = model.config().num_layers as f64;
     let model_matmul_ms = total_us * num_layers / 1000.0;
     println!("Full model (matmuls only): {:.1} ms", model_matmul_ms);
 

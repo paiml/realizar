@@ -27,8 +27,8 @@ fn run_q6k_test() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let vocab_size = model.config.vocab_size;
+    let hidden_dim = model.config().hidden_dim;
+    let vocab_size = model.config().vocab_size;
 
     eprintln!("=== Q6K GEMV LM Head Debug ===");
     eprintln!("hidden_dim: {}, vocab_size: {}", hidden_dim, vocab_size);
@@ -47,7 +47,7 @@ fn run_q6k_test() -> Result<(), Box<dyn std::error::Error>> {
 
     // CPU Q6K GEMV (first few rows)
     eprintln!("\n=== CPU Q6K GEMV ===");
-    let lm_head_data = &model.lm_head_weight.data;
+    let lm_head_data = &model.lm_head_weight().data;
     let test_rows: &[usize] = &[0, 1, 2, 3, 16, 74403, 74404];
 
     let mut cpu_results = Vec::new();

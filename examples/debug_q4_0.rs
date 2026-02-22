@@ -9,23 +9,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
     eprintln!("\n=== Model Config ===");
-    eprintln!("architecture: {}", model.config.architecture);
-    eprintln!("hidden_dim: {}", model.config.hidden_dim);
-    eprintln!("num_heads: {}", model.config.num_heads);
-    eprintln!("num_kv_heads: {}", model.config.num_kv_heads);
-    eprintln!("vocab_size: {}", model.config.vocab_size);
-    eprintln!("intermediate_dim: {}", model.config.intermediate_dim);
+    eprintln!("architecture: {}", model.config().architecture);
+    eprintln!("hidden_dim: {}", model.config().hidden_dim);
+    eprintln!("num_heads: {}", model.config().num_heads);
+    eprintln!("num_kv_heads: {}", model.config().num_kv_heads);
+    eprintln!("vocab_size: {}", model.config().vocab_size);
+    eprintln!("intermediate_dim: {}", model.config().intermediate_dim);
 
-    let hidden_dim = model.config.hidden_dim;
-    let head_dim = hidden_dim / model.config.num_heads;
-    let kv_dim = model.config.num_kv_heads * head_dim;
+    let hidden_dim = model.config().hidden_dim;
+    let head_dim = hidden_dim / model.config().num_heads;
+    let kv_dim = model.config().num_kv_heads * head_dim;
 
     eprintln!("\n=== Derived Dimensions ===");
     eprintln!("head_dim: {}", head_dim);
     eprintln!("kv_dim: {}", kv_dim);
 
     eprintln!("\n=== Layer 0 QKV ===");
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     match &layer.qkv_weight {
         realizar::gguf::OwnedQKVWeights::Fused(t) => {
             eprintln!(

@@ -15,11 +15,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = cpu_model.config.hidden_dim;
-    let num_layers = cpu_model.config.num_layers;
-    let num_heads = cpu_model.config.num_heads;
-    let num_kv_heads = cpu_model.config.num_kv_heads;
-    let vocab_size = cpu_model.config.vocab_size;
+    let hidden_dim = cpu_model.config().hidden_dim;
+    let num_layers = cpu_model.config().num_layers;
+    let num_heads = cpu_model.config().num_heads;
+    let num_kv_heads = cpu_model.config().num_kv_heads;
+    let vocab_size = cpu_model.config().vocab_size;
     let head_dim = hidden_dim / num_heads;
     let kv_dim = num_kv_heads * head_dim;
 
@@ -126,7 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // CPU LM head
     let cpu_lm_ones = fused_q6k_parallel_matvec(
-        &cpu_model.lm_head_weight.data,
+        &cpu_model.lm_head_weight().data,
         &ones_input,
         hidden_dim,
         vocab_size,

@@ -68,8 +68,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Also test with autoregressive forward_cached
         println!("\n=== Autoregressive Check ===");
         let mut cache = realizar::gguf::OwnedQuantizedKVCache::new(
-            model.config.num_layers,
-            model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads),
+            model.config().num_layers,
+            model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads),
             1024,
         );
 

@@ -13,9 +13,9 @@ fn main() {
     let token_id = 151644u32; // <|im_start|>
 
     // Do forward pass WITHOUT bias
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let input = model.embed(&[token_id]);
-    let normed = rms_norm(&input, &layer.attn_norm_weight, model.config.eps);
+    let normed = rms_norm(&input, &layer.attn_norm_weight, model.config().eps);
     let qkv_no_bias = model.qkv_matmul(&normed, &layer.qkv_weight).expect("qkv");
 
     // Do forward pass WITH bias
@@ -42,9 +42,9 @@ fn main() {
     // Now test full forward pass with bias removed from model
     // We can't easily modify the model, so let's compare attention scores
     eprintln!("\n=== Testing with normal forward (with bias) ===");
-    let head_dim = model.config.hidden_dim / model.config.num_heads;
-    let kv_dim = model.config.num_kv_heads * head_dim;
-    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 8);
+    let head_dim = model.config().hidden_dim / model.config().num_heads;
+    let kv_dim = model.config().num_kv_heads * head_dim;
+    let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 8);
     let logits = model
         .forward_single_with_cache(token_id, &mut cache, 0)
         .expect("forward");

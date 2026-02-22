@@ -31,7 +31,7 @@ fn main() {
     println!("=== PAR-001: Verify Q6_K Row-Major (FFN Down) ===\n");
 
     // Get FFN down weight from layer 0 (5632 → 2048, Q6_K)
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let weight = &layer.ffn_down_weight;
 
     println!(

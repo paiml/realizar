@@ -21,9 +21,9 @@ fn main() {
 
     // Create KV cache with GQA-aware dimensions
     let max_seq_len = 256;
-    let head_dim = model.config.hidden_dim / model.config.num_heads;
-    let kv_dim = model.config.num_kv_heads * head_dim;
-    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, max_seq_len);
+    let head_dim = model.config().hidden_dim / model.config().num_heads;
+    let kv_dim = model.config().num_kv_heads * head_dim;
+    let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, max_seq_len);
 
     // Prefill: process prompt tokens through cache
     let mut logits = Vec::new();

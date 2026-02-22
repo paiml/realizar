@@ -12,11 +12,11 @@ fn main() {
     let cpu_model = OwnedQuantizedModel::from_mapped(&mapped).expect("cpu model");
 
     println!("Model config:");
-    println!("  hidden_dim: {}", cpu_model.config.hidden_dim);
-    println!("  num_heads: {}", cpu_model.config.num_heads);
-    println!("  num_kv_heads: {}", cpu_model.config.num_kv_heads);
-    println!("  num_layers: {}", cpu_model.config.num_layers);
-    println!("  rope_theta: {}", cpu_model.config.rope_theta);
+    println!("  hidden_dim: {}", cpu_model.config().hidden_dim);
+    println!("  num_heads: {}", cpu_model.config().num_heads);
+    println!("  num_kv_heads: {}", cpu_model.config().num_kv_heads);
+    println!("  num_layers: {}", cpu_model.config().num_layers);
+    println!("  rope_theta: {}", cpu_model.config().rope_theta);
 
     println!("\nCreating CUDA model...");
     let mut cuda_model = OwnedQuantizedModelCuda::new(cpu_model.clone(), 0).expect("cuda model");
@@ -47,10 +47,10 @@ fn main() {
     cuda_model.preload_weights_gpu().expect("preload");
 
     // Create cache for GPU path
-    let kv_dim =
-        cpu_model.config.num_kv_heads * (cpu_model.config.hidden_dim / cpu_model.config.num_heads);
+    let kv_dim = cpu_model.config().num_kv_heads
+        * (cpu_model.config().hidden_dim / cpu_model.config().num_heads);
     let mut cache =
-        realizar::gguf::OwnedQuantizedKVCache::new(cpu_model.config.num_layers, kv_dim, 16);
+        realizar::gguf::OwnedQuantizedKVCache::new(cpu_model.config().num_layers, kv_dim, 16);
 
     let gpu_logits = cuda_model
         .forward_gpu_resident(token_id, &mut cache, 0)

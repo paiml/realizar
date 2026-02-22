@@ -30,14 +30,14 @@ fn main() {
 
     println!("=== Matvec Comparison ===\n");
 
-    let hidden_dim = model.config.hidden_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let eps = model.config().eps;
 
     // Get input
     let token_id = 450u32;
     let start = token_id as usize * hidden_dim;
-    let embedding: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
-    let layer0 = &model.layers[0];
+    let embedding: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
+    let layer0 = &model.layers()[0];
     let normed = rms_norm(&embedding, &layer0.attn_norm_weight, eps);
 
     println!("Input (normed) L2: {:.6}", l2_norm(&normed));

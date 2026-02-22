@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mapped = MappedGGUFModel::from_path(path)?;
         let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-        let c = &model.config;
+        let c = &model.config();
         println!("  architecture: {}", c.architecture);
         println!("  hidden_dim: {}", c.hidden_dim);
         println!("  num_layers: {}", c.num_layers);
@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  rope_type: {}", c.rope_type);
 
         // Check QKV weight shapes
-        let layer0 = &model.layers[0];
+        let layer0 = &model.layers()[0];
         match &layer0.qkv_weight {
             OwnedQKVWeights::Separate { q, k, v } => {
                 println!("  QKV: separate");

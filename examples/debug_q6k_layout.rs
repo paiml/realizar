@@ -8,7 +8,7 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let (_, _, v_weight) = match &layer.qkv_weight {
         OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
         _ => panic!("Expected separate"),

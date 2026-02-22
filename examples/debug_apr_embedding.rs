@@ -18,17 +18,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Compare embedding dimensions
     println!("\n=== Config Comparison ===");
-    println!("GGUF hidden_dim: {}", gguf_model.config.hidden_dim);
+    println!("GGUF hidden_dim: {}", gguf_model.config().hidden_dim);
     println!("APR hidden_dim: {}", apr.config.hidden_dim);
-    println!("GGUF vocab_size: {}", gguf_model.config.vocab_size);
+    println!("GGUF vocab_size: {}", gguf_model.config().vocab_size);
     println!("APR vocab_size: {}", apr.config.vocab_size);
 
     // Look up token embedding for token 0 (BOS or first token)
     let test_token = 151643u32; // Qwen2 BOS
 
     // GGUF embedding
-    let gguf_embed = &gguf_model.token_embedding;
-    let hidden_dim = gguf_model.config.hidden_dim;
+    let gguf_embed = &gguf_model.token_embedding();
+    let hidden_dim = gguf_model.config().hidden_dim;
     let start = (test_token as usize) * hidden_dim;
     let gguf_vec: Vec<f32> = gguf_embed[start..start + hidden_dim].to_vec();
 

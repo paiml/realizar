@@ -13,8 +13,8 @@ fn main() -> Result<(), RealizarError> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_layers = model.config.num_layers;
+    let hidden_dim = model.config().hidden_dim;
+    let num_layers = model.config().num_layers;
     let iterations = 1000usize;
 
     println!("=== PAR-126 Instrumented Forward Pass ===\n");
@@ -23,21 +23,21 @@ fn main() -> Result<(), RealizarError> {
     // Test 1: Measure overhead of scratch buffer creation
     let start = Instant::now();
     for _ in 0..100 {
-        let _cache = realizar::gguf::OwnedQuantizedKVCache::from_config(&model.config, 100);
+        let _cache = realizar::gguf::OwnedQuantizedKVCache::from_config(&model.config(), 100);
     }
     let cache_create_us = start.elapsed().as_micros() as f64 / 100.0;
     println!("KV Cache creation: {:.1} µs", cache_create_us);
 
     let start = Instant::now();
     for _ in 0..100 {
-        let _scratch = realizar::gguf::InferenceScratchBuffer::from_config(&model.config);
+        let _scratch = realizar::gguf::InferenceScratchBuffer::from_config(&model.config());
     }
     let scratch_create_us = start.elapsed().as_micros() as f64 / 100.0;
     println!("Scratch buffer creation: {:.1} µs", scratch_create_us);
 
     // Test 2: Measure cache append overhead
-    let mut cache = realizar::gguf::OwnedQuantizedKVCache::from_config(&model.config, 1000);
-    let kv_dim = model.config.num_kv_heads * (hidden_dim / model.config.num_heads);
+    let mut cache = realizar::gguf::OwnedQuantizedKVCache::from_config(&model.config(), 1000);
+    let kv_dim = model.config().num_kv_heads * (hidden_dim / model.config().num_heads);
     let k_data = vec![0.1f32; kv_dim];
     let v_data = vec![0.1f32; kv_dim];
 
@@ -73,7 +73,7 @@ fn main() -> Result<(), RealizarError> {
     let mut q = vec![0.1f32; hidden_dim];
     let start = Instant::now();
     for _ in 0..iterations {
-        apply_rope(&mut q, 50, model.config.num_heads);
+        apply_rope(&mut q, 50, model.config().num_heads);
     }
     let rope_us = start.elapsed().as_micros() as f64 / iterations as f64;
     println!("RoPE: {:.1} µs", rope_us);

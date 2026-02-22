@@ -14,10 +14,10 @@ fn main() -> Result<(), RealizarError> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let intermediate_dim = model.config.intermediate_dim;
-    let num_heads = model.config.num_heads;
-    let num_kv_heads = model.config.num_kv_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let intermediate_dim = model.config().intermediate_dim;
+    let num_heads = model.config().num_heads;
+    let num_kv_heads = model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
 
     println!("Model config:");
@@ -26,10 +26,10 @@ fn main() -> Result<(), RealizarError> {
     println!("  num_heads: {}", num_heads);
     println!("  num_kv_heads: {}", num_kv_heads);
     println!("  head_dim: {}", head_dim);
-    println!("  layers: {}", model.config.num_layers);
+    println!("  layers: {}", model.config().num_layers);
 
     // Get first layer for profiling
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
 
     // Test inputs
     let hidden: Vec<f32> = (0..hidden_dim)
@@ -51,7 +51,7 @@ fn main() -> Result<(), RealizarError> {
     // 1. RMSNorm (inline implementation for profiling)
     let mut normed = vec![0.0f32; hidden_dim];
     let norm_weight = &layer.attn_norm_weight;
-    let eps = model.config.eps;
+    let eps = model.config().eps;
     let start = Instant::now();
     for _ in 0..iterations {
         // Compute variance
@@ -188,10 +188,10 @@ fn main() -> Result<(), RealizarError> {
         layer_total_us
     );
 
-    let full_model_ms = layer_total_us * model.config.num_layers as f64 / 1000.0;
+    let full_model_ms = layer_total_us * model.config().num_layers as f64 / 1000.0;
     println!(
         "\n=== Full Model Estimate ({} layers) ===",
-        model.config.num_layers
+        model.config().num_layers
     );
     println!("Matmuls+norms:  {:>8.1} ms", full_model_ms);
 

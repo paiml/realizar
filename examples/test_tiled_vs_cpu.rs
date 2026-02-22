@@ -25,17 +25,17 @@ fn run_test() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads;
     let q_dim = num_heads * (hidden_dim / num_heads);
-    let eps = model.config.eps;
+    let eps = model.config().eps;
     let test_token = 791u32;
 
     // Get embedding
     let embedding = model.embed(&[test_token]);
 
     // CPU RMSNorm
-    let gamma = &model.layers[0].attn_norm_weight;
+    let gamma = &model.layers()[0].attn_norm_weight;
     let sum_sq: f32 = embedding.iter().map(|x| x * x).sum();
     let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
     let rms_inv = 1.0 / rms;
@@ -46,7 +46,7 @@ fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     // Get Q weight from layer 0
-    let q_weight = match &model.layers[0].qkv_weight {
+    let q_weight = match &model.layers()[0].qkv_weight {
         OwnedQKVWeights::Separate { q, .. } => q,
         _ => panic!("Expected separate QKV"),
     };

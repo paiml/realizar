@@ -65,8 +65,9 @@ fn main() {
 
         // Try a simple prompt without chat template
         println!("\n=== Testing simple completion ===");
-        let kv_dim = model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);
-        let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 128);
+        let kv_dim =
+            model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads);
+        let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 128);
 
         // "The answer to 2+2 is"
         // Let's find these tokens

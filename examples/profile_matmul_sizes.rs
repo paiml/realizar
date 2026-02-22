@@ -13,7 +13,7 @@ fn main() -> Result<(), RealizarError> {
 
     let hidden_dim = model.config().hidden_dim;
     let intermediate_dim = model.config().intermediate_dim;
-    let num_layers = model.layers.len();
+    let num_layers = model.layers().len();
 
     println!("Model config:");
     println!("  hidden_dim: {}", hidden_dim);
@@ -22,7 +22,7 @@ fn main() -> Result<(), RealizarError> {
     println!("  num_heads: {}", model.config().num_heads);
     println!("  num_kv_heads: {}", model.config().num_kv_heads);
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
 
     // Get QKV dimensions
     let (q_dim, k_dim, v_dim) = match &layer.qkv_weight {
@@ -60,7 +60,8 @@ fn main() -> Result<(), RealizarError> {
 
     println!(
         "\nlm_head: {}x{}",
-        model.lm_head_weight.out_dim, model.lm_head_weight.in_dim
+        model.lm_head_weight().out_dim,
+        model.lm_head_weight().in_dim
     );
 
     // Benchmark each matmul type
@@ -223,21 +224,23 @@ fn main() -> Result<(), RealizarError> {
     );
 
     // LM head
-    let mut logits = vec![0.0f32; model.lm_head_weight.out_dim];
+    let mut logits = vec![0.0f32; model.lm_head_weight().out_dim];
     let start = Instant::now();
     for _ in 0..iterations {
         realizar::quantize::fused_q4k_parallel_matvec_into(
-            &model.lm_head_weight.data,
+            &model.lm_head_weight().data,
             &activations,
-            model.lm_head_weight.in_dim,
-            model.lm_head_weight.out_dim,
+            model.lm_head_weight().in_dim,
+            model.lm_head_weight().out_dim,
             &mut logits,
         )?;
     }
     let lm_head_us = start.elapsed().as_micros() as f64 / iterations as f64;
     println!(
         "LM head ({}x{}):  {:>8.1} us",
-        model.lm_head_weight.out_dim, model.lm_head_weight.in_dim, lm_head_us
+        model.lm_head_weight().out_dim,
+        model.lm_head_weight().in_dim,
+        lm_head_us
     );
 
     // Calculate total

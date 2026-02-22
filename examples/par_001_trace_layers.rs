@@ -55,9 +55,10 @@ fn main() {
     // Unfortunately we can't easily trace inside forward_cached, so let's just
     // run the full forward and compare final outputs
 
-    let kv_dim = model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);
-    let mut cache1 = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 128);
-    let mut cache2 = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 128);
+    let kv_dim =
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads);
+    let mut cache1 = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 128);
+    let mut cache2 = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 128);
 
     let logits1 = model
         .forward_cached(token1, &mut cache1, 0)

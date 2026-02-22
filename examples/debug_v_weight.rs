@@ -25,17 +25,17 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let eps = model.config().eps;
 
     println!("=== V Weight Debug ===\n");
 
     // Token 450 = "▁The"
     let token_id = 450u32;
     let start = token_id as usize * hidden_dim;
-    let embedding: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let embedding: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let normed = rms_norm(&embedding, &layer.attn_norm_weight, eps);
 
     println!("Normed input L2: {:.4}", l2_norm(&normed));

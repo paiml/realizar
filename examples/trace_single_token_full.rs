@@ -12,8 +12,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Use the forward_cached method with position 0 for single token
     let tok = 17u32; // "2"
     let mut cache = OwnedQuantizedKVCache::new(
-        model.config.num_layers,
-        model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads),
+        model.config().num_layers,
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads),
         1024,
     );
 
@@ -82,16 +82,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check hidden state norm evolution through layers
     println!("\n=== Hidden State Evolution (manual trace) ===");
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads;
-    let num_kv_heads = model.config.num_kv_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads;
+    let num_kv_heads = model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
     let q_dim = num_heads * head_dim;
     let k_dim = num_kv_heads * head_dim;
 
     // Embedding
     let emb_start = tok as usize * hidden_dim;
-    let hidden = model.token_embedding[emb_start..emb_start + hidden_dim].to_vec();
+    let hidden = model.token_embedding()[emb_start..emb_start + hidden_dim].to_vec();
     println!(
         "After embedding: norm={:.4}",
         hidden.iter().map(|x| x * x).sum::<f32>().sqrt()
@@ -99,11 +99,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Manual computation through layers (just layer 0 for now)
     for layer_idx in 0..1 {
-        let layer = &model.layers[layer_idx];
+        let layer = &model.layers()[layer_idx];
 
         // RMSNorm for attention
         let sum_sq: f32 = hidden.iter().map(|x| x * x).sum();
-        let inv_rms = 1.0 / ((sum_sq / hidden_dim as f32) + model.config.eps).sqrt();
+        let inv_rms = 1.0 / ((sum_sq / hidden_dim as f32) + model.config().eps).sqrt();
         let normed: Vec<f32> = hidden
             .iter()
             .zip(layer.attn_norm_weight.iter())

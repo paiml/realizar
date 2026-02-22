@@ -17,8 +17,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let vocab_size = model.config.vocab_size;
+    let hidden_dim = model.config().hidden_dim;
+    let vocab_size = model.config().vocab_size;
 
     eprintln!("hidden_dim={}, vocab_size={}", hidden_dim, vocab_size);
 
@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // CPU LM head
     eprintln!("\n=== CPU LM head with all-ones ===");
     let cpu_result = fused_q6k_parallel_matvec(
-        &model.lm_head_weight.data,
+        &model.lm_head_weight().data,
         &ones_input,
         hidden_dim,
         vocab_size,
@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let context = executor.context();
 
         // Upload LM head weights
-        let weight_buf = GpuBuffer::<u8>::from_host(context, &model.lm_head_weight.data)?;
+        let weight_buf = GpuBuffer::<u8>::from_host(context, &model.lm_head_weight().data)?;
         let weight_ptr = weight_buf.as_ptr();
 
         // Upload input
@@ -158,7 +158,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if row < vocab_size {
                     let row_start = row * bytes_per_row;
                     let row_end = row_start + bytes_per_row;
-                    let row_data = &model.lm_head_weight.data[row_start..row_end];
+                    let row_data = &model.lm_head_weight().data[row_start..row_end];
 
                     // CPU single row
                     let cpu_dot = realizar::quantize::fused_q6k_dot(row_data, &ones_input)?;

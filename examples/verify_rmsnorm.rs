@@ -42,11 +42,11 @@ fn main() {
 
     let hidden_dim = 2048;
     let token_id = 450u32;
-    let eps = model.config.eps;
+    let eps = model.config().eps;
 
     let start = token_id as usize * hidden_dim;
-    let embedding = &model.token_embedding[start..start + hidden_dim];
-    let layer = &model.layers[0];
+    let embedding = &model.token_embedding()[start..start + hidden_dim];
+    let layer = &model.layers()[0];
 
     let normed = rms_norm_reference(embedding, &layer.attn_norm_weight, eps);
 

@@ -20,11 +20,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("Model loaded in {:?}", start.elapsed());
 
     // Get config
-    let hidden_dim = cpu_model.config.hidden_dim;
-    let num_layers = cpu_model.config.num_layers;
-    let num_heads = cpu_model.config.num_heads;
-    let num_kv_heads = cpu_model.config.num_kv_heads;
-    let vocab_size = cpu_model.config.vocab_size;
+    let hidden_dim = cpu_model.config().hidden_dim;
+    let num_layers = cpu_model.config().num_layers;
+    let num_heads = cpu_model.config().num_heads;
+    let num_kv_heads = cpu_model.config().num_kv_heads;
+    let vocab_size = cpu_model.config().vocab_size;
     let head_dim = hidden_dim / num_heads;
     let kv_dim = num_kv_heads * head_dim;
 

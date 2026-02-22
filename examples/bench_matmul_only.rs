@@ -26,7 +26,7 @@ fn main() -> Result<(), RealizarError> {
     let activations: Vec<f32> = (0..hidden_dim).map(|i| (i as f32 * 0.017).sin()).collect();
 
     // Get first layer for testing
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let ffn_up_weight = &layer.ffn_up_weight;
 
     println!(

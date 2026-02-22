@@ -25,11 +25,11 @@ fn run_cuda_test() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = cpu_model.config.hidden_dim;
-    let vocab_size = cpu_model.config.vocab_size;
-    let num_layers = cpu_model.config.num_layers;
-    let num_kv_heads = cpu_model.config.num_kv_heads;
-    let head_dim = hidden_dim / cpu_model.config.num_heads;
+    let hidden_dim = cpu_model.config().hidden_dim;
+    let vocab_size = cpu_model.config().vocab_size;
+    let num_layers = cpu_model.config().num_layers;
+    let num_kv_heads = cpu_model.config().num_kv_heads;
+    let head_dim = hidden_dim / cpu_model.config().num_heads;
     let kv_dim = num_kv_heads * head_dim;
 
     eprintln!("=== Model Config ===");

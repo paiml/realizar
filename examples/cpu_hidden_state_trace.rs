@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let token_id = 791u32;
     println!("\nToken ID: {}", token_id);
-    println!("Hidden dim: {}", model.config.hidden_dim);
+    println!("Hidden dim: {}", model.config().hidden_dim);
 
     // Use the model's forward_with_hidden_state if available,
     // or manually trace through layers

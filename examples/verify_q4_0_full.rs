@@ -8,8 +8,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("=== Q4_0 Matmul Verification ===\n");
 
-    let hidden_dim = model.config.hidden_dim;
-    let layer0 = &model.layers[0];
+    let hidden_dim = model.config().hidden_dim;
+    let layer0 = &model.layers()[0];
 
     // Get Q weight tensor
     let q_weight = match &layer0.qkv_weight {
@@ -24,10 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Q weight data len: {}", q_weight.data.len());
 
     // Create a test input (normalized embedding for token 17)
-    let token_17_emb = &model.token_embedding[17 * hidden_dim..(17 + 1) * hidden_dim];
+    let token_17_emb = &model.token_embedding()[17 * hidden_dim..(17 + 1) * hidden_dim];
 
     // RMSNorm
-    let eps = model.config.eps;
+    let eps = model.config().eps;
     let ss: f32 = token_17_emb.iter().map(|x| x * x).sum::<f32>() / hidden_dim as f32;
     let scale = 1.0 / (ss + eps).sqrt();
     let input: Vec<f32> = token_17_emb

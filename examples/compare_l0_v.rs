@@ -10,19 +10,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = cpu_model.config.hidden_dim;
-    let num_heads = cpu_model.config.num_heads;
-    let num_kv_heads = cpu_model.config.num_kv_heads;
+    let hidden_dim = cpu_model.config().hidden_dim;
+    let num_heads = cpu_model.config().num_heads;
+    let num_kv_heads = cpu_model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
     let kv_dim = num_kv_heads * head_dim;
     let q_dim = num_heads * head_dim;
-    let eps = cpu_model.config.eps;
+    let eps = cpu_model.config().eps;
 
     let test_token: u32 = 791;
     let embedding = cpu_model.embed(&[test_token]);
 
     // CPU: RMSNorm + QKV projection
-    let layer = &cpu_model.layers[0];
+    let layer = &cpu_model.layers()[0];
     let ss: f32 = embedding.iter().map(|x| x * x).sum();
     let rms = (ss / hidden_dim as f32 + eps).sqrt();
     let cpu_normed: Vec<f32> = embedding

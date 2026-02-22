@@ -38,21 +38,21 @@ fn main() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
     let vocab = mapped.model.vocabulary().expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let eps = model.config().eps;
     let token_id = 450u32;
 
     // Method 1: Model's forward_cached
-    let kv_dim = model.config.num_kv_heads * (hidden_dim / model.config.num_heads);
-    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 128);
+    let kv_dim = model.config().num_kv_heads * (hidden_dim / model.config().num_heads);
+    let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 128);
     let logits_cached = model.forward_cached(token_id, &mut cache, 0).expect("test");
 
     // Method 2: Manual forward (from par_001_trace_hidden.rs)
     let start = token_id as usize * hidden_dim;
-    let mut hidden: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let mut hidden: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
-    for layer_idx in 0..model.config.num_layers {
-        let layer = &model.layers[layer_idx];
+    for layer_idx in 0..model.config().num_layers {
+        let layer = &model.layers()[layer_idx];
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
         let (q_weight, _, v_weight) = match &layer.qkv_weight {
             OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
@@ -72,10 +72,10 @@ fn main() {
             v_weight.in_dim,
             v_weight.out_dim,
         );
-        let head_dim = hidden_dim / model.config.num_heads;
-        let group_size = model.config.num_heads / model.config.num_kv_heads;
+        let head_dim = hidden_dim / model.config().num_heads;
+        let group_size = model.config().num_heads / model.config().num_kv_heads;
         let mut attn_out = Vec::with_capacity(hidden_dim);
-        for h in 0..model.config.num_heads {
+        for h in 0..model.config().num_heads {
             let kv_head = h / group_size;
             attn_out.extend_from_slice(&v[kv_head * head_dim..(kv_head + 1) * head_dim]);
         }
@@ -117,13 +117,13 @@ fn main() {
         }
     }
 
-    let final_hidden = rms_norm(&hidden, &model.output_norm_weight, eps);
+    let final_hidden = rms_norm(&hidden, &model.output_norm_weight(), eps);
     let logits_manual = fused_matmul(
         &final_hidden,
-        &model.lm_head_weight.data,
-        model.lm_head_weight.qtype,
-        model.lm_head_weight.in_dim,
-        model.lm_head_weight.out_dim,
+        &model.lm_head_weight().data,
+        model.lm_head_weight().qtype,
+        model.lm_head_weight().in_dim,
+        model.lm_head_weight().out_dim,
     );
 
     // Compare

@@ -10,10 +10,10 @@ fn main() {
     eprintln!("Model: TinyLlama-1.1B");
     eprintln!(
         "Config: {} layers, {} hidden, {} heads, {} kv_heads",
-        model.config.num_layers,
-        model.config.hidden_dim,
-        model.config.num_heads,
-        model.config.num_kv_heads
+        model.config().num_layers,
+        model.config().hidden_dim,
+        model.config().num_heads,
+        model.config().num_kv_heads
     );
 
     // TinyLlama uses LLaMA chat format: <s>[INST] ... [/INST]
@@ -27,9 +27,9 @@ fn main() {
         vocab.get(hello_id as usize).unwrap_or(&"?".to_string())
     );
 
-    let head_dim = model.config.hidden_dim / model.config.num_heads;
-    let kv_dim = model.config.num_kv_heads * head_dim;
-    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 8);
+    let head_dim = model.config().hidden_dim / model.config().num_heads;
+    let kv_dim = model.config().num_kv_heads * head_dim;
+    let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 8);
 
     // Test with BOS token (1) first
     let bos_token = 1u32;
@@ -58,7 +58,7 @@ fn main() {
 
     // Also test generating a few tokens
     eprintln!("\n=== Generating 10 tokens ===");
-    cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 64);
+    cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 64);
     let mut logits = model
         .forward_single_with_cache(bos_token, &mut cache, 0)
         .expect("forward");

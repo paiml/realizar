@@ -15,7 +15,9 @@ fn main() -> Result<(), RealizarError> {
 
     eprintln!(
         "Model: hidden_dim={}, intermediate_dim={}, layers={}",
-        model.config.hidden_dim, model.config.intermediate_dim, model.config.num_layers
+        model.config().hidden_dim,
+        model.config().intermediate_dim,
+        model.config().num_layers
     );
 
     // Warmup

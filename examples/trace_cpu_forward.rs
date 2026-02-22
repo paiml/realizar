@@ -10,8 +10,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let eps = model.config().eps;
     let test_token = 791u32;
 
     println!("=== CPU Forward Trace ===");
@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   sum = {:.6}", emb_sum);
 
     // Step 2: Manual RMSNorm
-    let gamma = &model.layers[0].attn_norm_weight;
+    let gamma = &model.layers()[0].attn_norm_weight;
     let sum_sq: f32 = embedding.iter().map(|x| x * x).sum();
     let mean_sq = sum_sq / hidden_dim as f32;
     let inv_rms = 1.0 / (mean_sq + eps).sqrt();
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   sum = {:.6}, inv_rms = {:.8}", norm_sum, inv_rms);
 
     // Step 3: Direct Q4K GEMV (standalone function)
-    let q_weight = match &model.layers[0].qkv_weight {
+    let q_weight = match &model.layers()[0].qkv_weight {
         OwnedQKVWeights::Separate { q, .. } => q,
         _ => panic!("Expected separate QKV"),
     };

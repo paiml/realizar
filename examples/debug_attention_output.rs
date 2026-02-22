@@ -63,7 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     // Get GGUF QKV (with bias)
-    let gguf_layer = &gguf_model.layers[0];
+    let gguf_layer = &gguf_model.layers()[0];
     let mut gguf_qkv = gguf_model.qkv_matmul(&normed, &gguf_layer.qkv_weight)?;
     if let Some(ref bias) = gguf_layer.qkv_bias {
         for (i, b) in bias.iter().enumerate() {
@@ -203,7 +203,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .attn_output_weight
         .as_ref()
         .expect("No Q4K attn_output");
-    let gguf_q4k_attn_out = &gguf_model.layers[0].attn_output_weight;
+    let gguf_q4k_attn_out = &gguf_model.layers()[0].attn_output_weight;
 
     let apr_proj =
         matmul_q4k_f32_colmajor_dispatch(apr_q4k_attn_out, &apr_attn_out, hidden_dim, hidden_dim);
@@ -241,7 +241,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ffn_norm_weight
         .as_ref()
         .expect("No FFN norm");
-    let gguf_ffn_norm = gguf_model.layers[0]
+    let gguf_ffn_norm = gguf_model.layers()[0]
         .ffn_norm_weight
         .as_ref()
         .expect("No GGUF FFN norm");
@@ -292,8 +292,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         matmul_q4k_f32_colmajor_dispatch(apr_ffn_up, &apr_ffn_normed, intermediate_dim, hidden_dim);
 
     // GGUF FFN gate and up
-    let gguf_ffn_gate = gguf_model.layers[0].ffn_gate_weight.as_ref().expect("gate");
-    let gguf_ffn_up = &gguf_model.layers[0].ffn_up_weight;
+    let gguf_ffn_gate = gguf_model.layers()[0]
+        .ffn_gate_weight
+        .as_ref()
+        .expect("gate");
+    let gguf_ffn_up = &gguf_model.layers()[0].ffn_up_weight;
     let gguf_gate = matmul_q4k_f32_colmajor_dispatch(
         &gguf_ffn_gate.data,
         &gguf_ffn_normed,
@@ -352,7 +355,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         panic!("No FFN down weight");
     };
 
-    let gguf_ffn_down = &gguf_model.layers[0].ffn_down_weight;
+    let gguf_ffn_down = &gguf_model.layers()[0].ffn_down_weight;
     let gguf_down = matmul_q6k_f32_colmajor_dispatch(
         &gguf_ffn_down.data,
         &gguf_swiglu,

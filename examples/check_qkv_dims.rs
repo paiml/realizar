@@ -7,19 +7,19 @@ fn main() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("model");
 
     eprintln!("=== Model Config ===");
-    eprintln!("hidden_dim: {}", model.config.hidden_dim);
-    eprintln!("num_heads: {}", model.config.num_heads);
-    eprintln!("num_kv_heads: {}", model.config.num_kv_heads);
+    eprintln!("hidden_dim: {}", model.config().hidden_dim);
+    eprintln!("num_heads: {}", model.config().num_heads);
+    eprintln!("num_kv_heads: {}", model.config().num_kv_heads);
     eprintln!(
         "head_dim: {}",
-        model.config.hidden_dim / model.config.num_heads
+        model.config().hidden_dim / model.config().num_heads
     );
     eprintln!(
         "kv_dim: {}",
-        model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads)
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads)
     );
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     eprintln!("\n=== Layer 0 QKV Weights ===");
 
     match &layer.qkv_weight {

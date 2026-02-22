@@ -12,9 +12,9 @@ fn main() -> Result<(), RealizarError> {
     eprintln!("Loading model: {}", model_path);
     let mapped = MappedGGUFModel::from_path(&model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
-    let hidden_dim = model.config.hidden_dim;
-    let intermediate_dim = model.config.intermediate_dim;
-    let num_layers = model.config.num_layers;
+    let hidden_dim = model.config().hidden_dim;
+    let intermediate_dim = model.config().intermediate_dim;
+    let num_layers = model.config().num_layers;
 
     eprintln!(
         "Model: hidden_dim={}, intermediate_dim={}, layers={}",

@@ -19,18 +19,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let vocab = mapped.model.vocabulary().expect("vocab");
 
     println!("Model config:");
-    println!("  hidden_dim: {}", model.config.hidden_dim);
-    println!("  vocab_size: {}", model.config.vocab_size);
+    println!("  hidden_dim: {}", model.config().hidden_dim);
+    println!("  vocab_size: {}", model.config().vocab_size);
 
     println!("\nLM head weight:");
-    println!("  qtype: {}", model.lm_head_weight.qtype);
-    println!("  in_dim: {}", model.lm_head_weight.in_dim);
-    println!("  out_dim: {}", model.lm_head_weight.out_dim);
-    println!("  data len: {} bytes", model.lm_head_weight.data.len());
+    println!("  qtype: {}", model.lm_head_weight().qtype);
+    println!("  in_dim: {}", model.lm_head_weight().in_dim);
+    println!("  out_dim: {}", model.lm_head_weight().out_dim);
+    println!("  data len: {} bytes", model.lm_head_weight().data.len());
 
     // Q8_0 format: 34 bytes per 32 elements
-    let hidden_dim = model.config.hidden_dim;
-    let vocab_size = model.config.vocab_size;
+    let hidden_dim = model.config().hidden_dim;
+    let vocab_size = model.config().vocab_size;
     let blocks_per_row = hidden_dim.div_ceil(32);
     let bytes_per_row = blocks_per_row * 34;
     println!("  blocks_per_row: {}", blocks_per_row);
@@ -38,12 +38,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "  expected total bytes: {} (actual: {})",
         vocab_size * bytes_per_row,
-        model.lm_head_weight.data.len()
+        model.lm_head_weight().data.len()
     );
 
     // Dequantize entire LM head (this is what llama.cpp would do)
     println!("\nDequantizing LM head (Q8_0 -> f32)...");
-    let lm_head_f32 = dequantize_q8_0(&model.lm_head_weight.data)?;
+    let lm_head_f32 = dequantize_q8_0(&model.lm_head_weight().data)?;
     println!("  dequantized elements: {}", lm_head_f32.len());
     println!("  expected elements: {}", vocab_size * hidden_dim);
 
@@ -69,13 +69,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check embedding for comparison
     println!("\nEmbedding check (token_embd.weight):");
-    println!("  embedding len: {}", model.token_embedding.len());
+    println!("  embedding len: {}", model.token_embedding().len());
     println!("  expected: {}", vocab_size * hidden_dim);
 
     for token_id in [0, 1, 19, 20] {
         let emb_start = token_id * hidden_dim;
         let emb_end = emb_start + hidden_dim;
-        let emb = &model.token_embedding[emb_start..emb_end];
+        let emb = &model.token_embedding()[emb_start..emb_end];
 
         let sum: f32 = emb.iter().sum();
         let norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();

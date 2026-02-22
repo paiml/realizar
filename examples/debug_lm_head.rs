@@ -21,18 +21,18 @@ fn main() {
     let cpu_logits = cpu_model.forward(&[token_id]).expect("cpu forward");
 
     // Create a known input vector (simple pattern)
-    let hidden_dim = cpu_model.config.hidden_dim;
-    let vocab_size = cpu_model.lm_head_weight.out_dim;
+    let hidden_dim = cpu_model.config().hidden_dim;
+    let vocab_size = cpu_model.lm_head_weight().out_dim;
 
     println!("\nModel dimensions:");
     println!("  hidden_dim: {}", hidden_dim);
     println!("  vocab_size: {}", vocab_size);
 
     println!("\n=== Running GPU forward ===");
-    let kv_dim =
-        cpu_model.config.num_kv_heads * (cpu_model.config.hidden_dim / cpu_model.config.num_heads);
+    let kv_dim = cpu_model.config().num_kv_heads
+        * (cpu_model.config().hidden_dim / cpu_model.config().num_heads);
     let mut cache =
-        realizar::gguf::OwnedQuantizedKVCache::new(cpu_model.config.num_layers, kv_dim, 16);
+        realizar::gguf::OwnedQuantizedKVCache::new(cpu_model.config().num_layers, kv_dim, 16);
 
     let gpu_logits = cuda_model
         .forward_gpu_resident(token_id, &mut cache, 0)

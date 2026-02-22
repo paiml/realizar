@@ -13,8 +13,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let eps = model.config().eps;
     let test_token: u32 = 791;
 
     // Step 1: Embedding (should match)
@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  sum: {:.6}", embedding.iter().sum::<f32>());
 
     // Step 2: RMSNorm (should match - same CPU implementation)
-    let gamma = &model.layers[0].attn_norm_weight;
+    let gamma = &model.layers()[0].attn_norm_weight;
     let sum_sq: f32 = embedding.iter().map(|x| x * x).sum();
     let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
     let normed: Vec<f32> = embedding
@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  sum: {:.6}", normed.iter().sum::<f32>());
 
     // Step 3: Q projection using fused_q4k_parallel_matvec (verified correct)
-    let (q_weight, _k_weight, _v_weight) = match &model.layers[0].qkv_weight {
+    let (q_weight, _k_weight, _v_weight) = match &model.layers()[0].qkv_weight {
         OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
         _ => panic!("Expected separate QKV"),
     };
@@ -80,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Now get actual CPU qkv_matmul output
     println!("\n=== CPU model.qkv_matmul() ===");
-    let cpu_qkv = model.qkv_matmul(&normed, &model.layers[0].qkv_weight)?;
+    let cpu_qkv = model.qkv_matmul(&normed, &model.layers()[0].qkv_weight)?;
     let cpu_q_from_qkv = &cpu_qkv[0..q_weight.out_dim];
     println!("  first 5: {:?}", &cpu_q_from_qkv[..5]);
     println!("  sum: {:.6}", cpu_q_from_qkv.iter().sum::<f32>());
@@ -108,8 +108,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Full forward GPU
     println!("\n=== Full GPU forward ===");
-    let kv_dim = model.config.num_kv_heads * (hidden_dim / model.config.num_heads);
-    let mut gpu_cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 64);
+    let kv_dim = model.config().num_kv_heads * (hidden_dim / model.config().num_heads);
+    let mut gpu_cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 64);
     let gpu_logits = cuda_model.forward_gpu_resident(test_token, &mut gpu_cache, 0)?;
     let gpu_argmax = gpu_logits
         .iter()

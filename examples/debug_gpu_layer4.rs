@@ -8,12 +8,12 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(&path).expect("Failed to load");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to parse");
 
-    let hidden_dim = model.config.hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
     let token_id = 791u32;
 
     // Get embedding
     let start = token_id as usize * hidden_dim;
-    let embedding: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let embedding: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
     println!(
         "Token {} embedding first 5: {:?}",
@@ -27,10 +27,10 @@ fn main() {
         let _before = cpu_hidden[0..3].to_vec();
 
         // Simple CPU forward for this layer
-        let layer = &model.layers[layer_idx];
+        let layer = &model.layers()[layer_idx];
 
         // RMSNorm
-        let eps = model.config.eps;
+        let eps = model.config().eps;
         let rms = (cpu_hidden.iter().map(|x| x * x).sum::<f32>() / hidden_dim as f32 + eps).sqrt();
         let normed: Vec<f32> = cpu_hidden
             .iter()

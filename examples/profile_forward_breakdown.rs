@@ -69,7 +69,7 @@ fn main() -> Result<(), RealizarError> {
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
     let hidden_dim = model.config().hidden_dim;
-    let num_layers = model.layers.len();
+    let num_layers = model.layers().len();
     let num_heads = model.config().num_heads;
     let num_kv_heads = model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
@@ -239,7 +239,7 @@ fn main() -> Result<(), RealizarError> {
     println!("KV cache append:           {:>8.1} us", cache_append_us);
 
     // 9. Profile matmul for comparison
-    let layer_weight = &model.layers[0].ffn_up_weight;
+    let layer_weight = &model.layers()[0].ffn_up_weight;
     let mut output = vec![0.0f32; layer_weight.out_dim];
     let start = Instant::now();
     for _ in 0..iterations {

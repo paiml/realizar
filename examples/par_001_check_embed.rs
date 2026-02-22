@@ -14,14 +14,14 @@ fn main() {
 
     println!("=== PAR-001: Embedding Check ===\n");
 
-    let hidden_dim = model.config.hidden_dim;
-    let vocab_size = model.token_embedding.len() / hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
+    let vocab_size = model.token_embedding().len() / hidden_dim;
 
     println!("hidden_dim: {}", hidden_dim);
     println!("vocab_size: {}", vocab_size);
     println!(
         "embedding table size: {} ({}x{})",
-        model.token_embedding.len(),
+        model.token_embedding().len(),
         vocab_size,
         hidden_dim
     );
@@ -40,7 +40,7 @@ fn main() {
         if tok < vocab_size {
             let start = tok * hidden_dim;
             let end = start + hidden_dim;
-            let embedding = &model.token_embedding[start..end];
+            let embedding = &model.token_embedding()[start..end];
             let l2 = l2_norm(embedding);
             let min = embedding.iter().cloned().fold(f32::INFINITY, f32::min);
             let max = embedding.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
@@ -58,9 +58,9 @@ fn main() {
 
     // Check if TAB embedding looks unusual
     let tab_start = 12 * hidden_dim;
-    let tab_embedding = &model.token_embedding[tab_start..tab_start + hidden_dim];
+    let tab_embedding = &model.token_embedding()[tab_start..tab_start + hidden_dim];
     let bos_start = hidden_dim; // BOS token at index 1
-    let bos_embedding = &model.token_embedding[bos_start..bos_start + hidden_dim];
+    let bos_embedding = &model.token_embedding()[bos_start..bos_start + hidden_dim];
 
     // Compute similarity between TAB and BOS embeddings
     let dot: f32 = tab_embedding
@@ -73,14 +73,17 @@ fn main() {
 
     // Also check output norm
     println!("\n=== Output Norm ===");
-    println!("output_norm_weight len: {}", model.output_norm_weight.len());
+    println!(
+        "output_norm_weight len: {}",
+        model.output_norm_weight().len()
+    );
     println!(
         "output_norm_weight L2: {:.4}",
-        l2_norm(&model.output_norm_weight)
+        l2_norm(&model.output_norm_weight())
     );
     println!(
         "First 10: {:?}",
-        &model.output_norm_weight[..10.min(model.output_norm_weight.len())]
+        &model.output_norm_weight()[..10.min(model.output_norm_weight().len())]
     );
 
     println!("\n=== Complete ===");

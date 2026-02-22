@@ -63,8 +63,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("(Position-by-position predictions)");
 
     let mut cache = realizar::gguf::OwnedQuantizedKVCache::new(
-        model.config.num_layers,
-        model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads),
+        model.config().num_layers,
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads),
         1024,
     );
 

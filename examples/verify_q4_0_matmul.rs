@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Q4_0 Matmul Verification ===\n");
 
     // Get the first layer's Q weight
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let q_weight = match &layer.qkv_weight {
         realizar::gguf::OwnedQKVWeights::Separate { q, .. } => q,
         _ => panic!("Expected separate Q/K/V weights"),
@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  data len: {} bytes", q_weight.data.len());
 
     // Create a simple test input (all 1s should give us sum of each row)
-    let hidden_dim = model.config.hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
     let input = vec![1.0f32; hidden_dim];
 
     // Use the model's QKV matmul

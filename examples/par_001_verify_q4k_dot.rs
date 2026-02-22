@@ -19,7 +19,7 @@ fn main() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     // Get Q projection weight (Q4_K)
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let q_weight = match &layer.qkv_weight {
         OwnedQKVWeights::Separate { q, .. } => q,
         _ => panic!("Expected separate QKV"),
@@ -37,7 +37,7 @@ fn main() {
 
     // Get real input (normed embedding)
     let emb = model.embed(&[26222]); // "Once"
-    let normed = rms_norm(&emb, &layer.attn_norm_weight, model.config.eps);
+    let normed = rms_norm(&emb, &layer.attn_norm_weight, model.config().eps);
     println!("\nInput L2: {:.4}", l2_norm(&normed));
 
     // Test row 0

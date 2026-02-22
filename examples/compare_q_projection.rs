@@ -14,14 +14,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = cpu_model.config.hidden_dim;
-    let num_layers = cpu_model.config.num_layers;
-    let num_heads = cpu_model.config.num_heads;
-    let num_kv_heads = cpu_model.config.num_kv_heads;
+    let hidden_dim = cpu_model.config().hidden_dim;
+    let num_layers = cpu_model.config().num_layers;
+    let num_heads = cpu_model.config().num_heads;
+    let num_kv_heads = cpu_model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
     let kv_dim = num_kv_heads * head_dim;
     let q_dim = num_heads * head_dim; // = hidden_dim
-    let eps = cpu_model.config.eps;
+    let eps = cpu_model.config().eps;
 
     eprintln!("\nModel config:");
     eprintln!("  hidden_dim: {}", hidden_dim);
@@ -39,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("\nEmbedding first 5: {:?}", &embedding[..5]);
 
     // CPU: RMSNorm
-    let layer = &cpu_model.layers[0];
+    let layer = &cpu_model.layers()[0];
     let ss: f32 = embedding.iter().map(|x| x * x).sum();
     let rms = (ss / hidden_dim as f32 + eps).sqrt();
     let cpu_normed: Vec<f32> = embedding

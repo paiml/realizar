@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("APR first 64 bytes: {:?}", &apr_gate[..64]);
 
     // GGUF ffn_gate bytes (Option<OwnedQuantizedTensor>)
-    let gguf_layer0 = &gguf.layers[0];
+    let gguf_layer0 = &gguf.layers()[0];
     let gguf_gate_tensor = gguf_layer0
         .ffn_gate_weight
         .as_ref()

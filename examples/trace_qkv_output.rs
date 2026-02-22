@@ -9,9 +9,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Qwen2 QKV Analysis ===\n");
 
     // Model config
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads;
-    let num_kv_heads = model.config.num_kv_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads;
+    let num_kv_heads = model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
 
     println!("Config:");
@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Total QKV dim: {}", q_dim + kv_dim + kv_dim);
 
     // Check layer 0 QKV weight dimensions
-    let layer0 = &model.layers[0];
+    let layer0 = &model.layers()[0];
     let qkv_out_dim = layer0.qkv_weight.out_dim();
     let qkv_q_dim = layer0.qkv_weight.q_dim();
 
@@ -93,12 +93,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== QKV Projection Test ===");
 
     // Use actual embedding for token "2" (token 17)
-    let token_17_emb = &model.token_embedding[17 * hidden_dim..(17 + 1) * hidden_dim];
+    let token_17_emb = &model.token_embedding()[17 * hidden_dim..(17 + 1) * hidden_dim];
     let emb_norm: f32 = token_17_emb.iter().map(|x| x * x).sum::<f32>().sqrt();
     println!("Token 17 ('2') embedding norm: {:.4}", emb_norm);
 
     // RMSNorm the embedding
-    let eps = model.config.eps;
+    let eps = model.config().eps;
     let ss: f32 = token_17_emb.iter().map(|x| x * x).sum::<f32>() / hidden_dim as f32;
     let scale = 1.0 / (ss + eps).sqrt();
     let normed: Vec<f32> = token_17_emb

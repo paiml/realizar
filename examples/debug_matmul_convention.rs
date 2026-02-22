@@ -76,7 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     // GGUF RMSNorm
-    let gguf_norm_weight = &gguf_model.layers[0].attn_norm_weight;
+    let gguf_norm_weight = &gguf_model.layers()[0].attn_norm_weight;
     let sum_sq: f32 = gguf_embed.iter().map(|x| x * x).sum();
     let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
     let gguf_normed: Vec<f32> = gguf_embed
@@ -120,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Let's compare just Q projection
 
     // Get Q weights from GGUF (dequantized)
-    let _gguf_layer = &gguf_model.layers[0];
+    let _gguf_layer = &gguf_model.layers()[0];
 
     // GGUF stores Q as quantized, need to dequantize
     // For fair comparison, let's just compare the first few QKV outputs

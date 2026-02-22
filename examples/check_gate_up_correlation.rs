@@ -18,16 +18,16 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let eps = model.config().eps;
     let token_id = 450u32;
     let start = token_id as usize * hidden_dim;
-    let mut hidden: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let mut hidden: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
     println!("Gate-Up correlation analysis:\n");
 
     for layer_idx in 0..5 {
-        let layer = &model.layers[layer_idx];
+        let layer = &model.layers()[layer_idx];
 
         // Attention (simplified)
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
@@ -42,10 +42,10 @@ fn main() {
             fused_q4k_parallel_matvec(&v_weight.data, &normed, v_weight.in_dim, v_weight.out_dim)
                 .expect("test");
 
-        let head_dim = hidden_dim / model.config.num_heads;
-        let group_size = model.config.num_heads / model.config.num_kv_heads;
+        let head_dim = hidden_dim / model.config().num_heads;
+        let group_size = model.config().num_heads / model.config().num_kv_heads;
         let mut attn_out = Vec::with_capacity(hidden_dim);
-        for h in 0..model.config.num_heads {
+        for h in 0..model.config().num_heads {
             let kv_head = h / group_size;
             let st = kv_head * head_dim;
             attn_out.extend_from_slice(&v[st..st + head_dim]);

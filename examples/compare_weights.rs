@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
     println!("=== CPU Q weight data (layer 0) ===");
-    let (q_data, q_in_dim, q_out_dim, q_qtype) = match &model.layers[0].qkv_weight {
+    let (q_data, q_in_dim, q_out_dim, q_qtype) = match &model.layers()[0].qkv_weight {
         realizar::gguf::OwnedQKVWeights::Separate { q, .. } => {
             (&q.data, q.in_dim, q.out_dim, q.qtype)
         },
@@ -52,8 +52,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::env::set_var("CUDA_GRAPH_DISABLE", "1");
 
     let mut dummy_cache = realizar::gguf::OwnedQuantizedKVCache::new(
-        model.config.num_layers,
-        model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads),
+        model.config().num_layers,
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads),
         100,
     );
 

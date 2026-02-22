@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\nToken ID: {}", token_id);
     println!("Position: {}", position);
-    println!("Hidden dim: {}", model.config.hidden_dim);
+    println!("Hidden dim: {}", model.config().hidden_dim);
 
     // ========================================================================
     // Get CPU hidden state before output_norm
@@ -65,8 +65,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::env::set_var("CUDA_GRAPH_DISABLE", "1");
 
     let mut dummy_cache = realizar::gguf::OwnedQuantizedKVCache::new(
-        model.config.num_layers,
-        model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads),
+        model.config().num_layers,
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads),
         100,
     );
 

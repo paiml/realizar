@@ -12,10 +12,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = cpu_model.config.hidden_dim;
-    let num_heads = cpu_model.config.num_heads;
-    let num_kv_heads = cpu_model.config.num_kv_heads;
-    let num_layers = cpu_model.config.num_layers;
+    let hidden_dim = cpu_model.config().hidden_dim;
+    let num_heads = cpu_model.config().num_heads;
+    let num_kv_heads = cpu_model.config().num_kv_heads;
+    let num_layers = cpu_model.config().num_layers;
     let head_dim = hidden_dim / num_heads;
     let kv_dim = num_kv_heads * head_dim;
     let _q_dim = num_heads * head_dim;

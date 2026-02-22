@@ -67,7 +67,7 @@ fn main() {
     let token_id = 450usize;
     let hidden_dim = 2048usize;
     let start = token_id * hidden_dim;
-    let embedding: Vec<f32> = owned.token_embedding[start..start + hidden_dim].to_vec();
+    let embedding: Vec<f32> = owned.token_embedding()[start..start + hidden_dim].to_vec();
 
     // Get attn_norm weight
     let attn_norm_tensor = model

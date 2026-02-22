@@ -374,6 +374,11 @@ impl Clone for OwnedQuantizedModel {
 // =============================================================================
 
 impl OwnedQuantizedModel {
+    /// Model configuration (mutable access for overrides).
+    pub fn config_mut(&mut self) -> &mut GGUFConfig {
+        &mut self.config
+    }
+
     /// Token embedding weights (f32, read-only).
     #[must_use]
     pub fn token_embedding(&self) -> &[f32] {

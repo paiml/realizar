@@ -6,7 +6,7 @@ fn main() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     for layer_idx in 0..5 {
-        let layer = &model.layers[layer_idx];
+        let layer = &model.layers()[layer_idx];
         println!(
             "Layer {} ffn_down: in_dim={}, out_dim={}, qtype={}, data_len={}",
             layer_idx,

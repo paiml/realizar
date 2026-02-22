@@ -10,7 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // First test with default rope_type (2 = NEOX)
     println!(
         "=== Test with rope_type = {} (default) ===",
-        model.config.rope_type
+        model.config().rope_type
     );
     let logits = model.forward(&[15])?; // Token 15 = "0"
     let mut idx: Vec<_> = logits.iter().enumerate().collect();
@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Now try with rope_type = 0 (NORM)
-    model.config.rope_type = 0;
+    model.config_mut().rope_type = 0;
     println!("\n=== Test with rope_type = 0 (NORM - override) ===");
     let logits = model.forward(&[15])?;
     let mut idx: Vec<_> = logits.iter().enumerate().collect();
@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Reset to NEOX and test again
-    model.config.rope_type = 2;
+    model.config_mut().rope_type = 2;
     println!("\n=== Tests with rope_type = 2 (NEOX - original) ===");
     for tok in test_tokens {
         let logits = model.forward(&[tok])?;
@@ -70,7 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Try rope_type = 1 just in case
-    model.config.rope_type = 1;
+    model.config_mut().rope_type = 1;
     println!("\n=== Tests with rope_type = 1 (experimental) ===");
     for tok in test_tokens {
         let logits = model.forward(&[tok])?;

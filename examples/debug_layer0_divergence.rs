@@ -53,8 +53,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n=== GPU Forward ===");
     let mut dummy_cache = realizar::gguf::OwnedQuantizedKVCache::new(
-        model.config.num_layers,
-        model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads),
+        model.config().num_layers,
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads),
         100,
     );
     let gpu_logits = cuda_model.forward_gpu_resident(token_id, &mut dummy_cache, 0)?;

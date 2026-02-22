@@ -8,7 +8,7 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let layer = &model.layers[2];
+    let layer = &model.layers()[2];
     let down = &layer.ffn_down_weight;
 
     println!(

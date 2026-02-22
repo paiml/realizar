@@ -6,16 +6,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let vocab_size = model.token_embedding.len() / hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
+    let vocab_size = model.token_embedding().len() / hidden_dim;
 
     println!("Model info:");
     println!("  hidden_dim: {}", hidden_dim);
     println!("  vocab_size: {}", vocab_size);
-    println!("  lm_head qtype: {}", model.lm_head_weight.qtype);
+    println!("  lm_head qtype: {}", model.lm_head_weight().qtype);
     println!(
         "  lm_head dims: in={}, out={}",
-        model.lm_head_weight.in_dim, model.lm_head_weight.out_dim
+        model.lm_head_weight().in_dim,
+        model.lm_head_weight().out_dim
     );
 
     // Run forward with just BOS token
@@ -46,11 +47,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ||hidden|| * 0.47 * cos(theta) = 15.0
     // If hidden is perfectly aligned: ||hidden|| = 15.0 / 0.47 ≈ 32
 
-    let tok0_emb = &model.token_embedding[0..hidden_dim];
+    let tok0_emb = &model.token_embedding()[0..hidden_dim];
     let tok0_norm: f32 = tok0_emb.iter().map(|x| x * x).sum::<f32>().sqrt();
 
     let bos_emb =
-        &model.token_embedding[bos as usize * hidden_dim..(bos as usize + 1) * hidden_dim];
+        &model.token_embedding()[bos as usize * hidden_dim..(bos as usize + 1) * hidden_dim];
     let bos_norm: f32 = bos_emb.iter().map(|x| x * x).sum::<f32>().sqrt();
 
     println!("\nEmbedding analysis:");

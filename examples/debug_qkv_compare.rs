@@ -16,9 +16,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads;
-    let num_kv_heads = model.config.num_kv_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads;
+    let num_kv_heads = model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
     let kv_dim = num_kv_heads * head_dim;
     let q_dim = num_heads * head_dim;
@@ -36,13 +36,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // CPU: Get embedding
     let embedding_offset = (test_token as usize) * hidden_dim;
     let cpu_embedding: Vec<f32> =
-        model.token_embedding[embedding_offset..embedding_offset + hidden_dim].to_vec();
+        model.token_embedding()[embedding_offset..embedding_offset + hidden_dim].to_vec();
 
     // CPU: RMSNorm on embedding
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let norm_weight = &layer.attn_norm_weight;
 
-    let eps = model.config.eps;
+    let eps = model.config().eps;
     let sum_sq: f32 = cpu_embedding.iter().map(|x| x * x).sum();
     let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
 

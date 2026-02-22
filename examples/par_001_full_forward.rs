@@ -72,7 +72,9 @@ fn main() {
 
     println!(
         "Model: {} layers, {} heads, {} kv_heads",
-        model.config.num_layers, model.config.num_heads, model.config.num_kv_heads
+        model.config().num_layers,
+        model.config().num_heads,
+        model.config().num_kv_heads
     );
 
     // Test tokens - "Once upon a time"
@@ -83,9 +85,10 @@ fn main() {
     }
 
     // Run forward pass for each token position
-    let kv_dim = model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);
+    let kv_dim =
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads);
     let max_seq_len = 128;
-    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, max_seq_len);
+    let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, max_seq_len);
 
     println!("\n=== Forward passes ===");
     for (pos, &token) in tokens.iter().enumerate() {
