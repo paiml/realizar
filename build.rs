@@ -266,7 +266,7 @@ fn main() {
         },
     };
 
-    let bindings: BindingFile = match serde_yaml::from_str(&yaml_content) {
+    let bindings: BindingFile = match serde_yaml_ng::from_str(&yaml_content) {
         Ok(b) => b,
         Err(e) => {
             println!(
@@ -400,7 +400,7 @@ fn generate_arch_requirements_file() {
         },
     };
 
-    let req: ArchRequirements = match serde_yaml::from_str(&yaml_content) {
+    let req: ArchRequirements = match serde_yaml_ng::from_str(&yaml_content) {
         Ok(r) => r,
         Err(e) => {
             println!(
