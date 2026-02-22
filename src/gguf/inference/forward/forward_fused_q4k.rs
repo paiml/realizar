@@ -212,26 +212,42 @@ impl OwnedQuantizedModel {
 
             // 2g. FFN with SwiGLU or GELU activation (contract-driven, GH-278)
             let ffn_activated = if self.config.constraints.has_gate_ffn() {
-                // SwiGLU path (LLaMA, TinyLlama, Mistral, etc.)
-                let gate_weight = layer.ffn_gate_weight.as_ref()
-                    .expect("gated FFN contract requires gate weight");
-                let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
-                if let Some(ref bias) = layer.ffn_up_bias {
-                    ops::add_bias(&mut ffn_up, bias);
-                }
+                if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                    // SwiGLU path (LLaMA, TinyLlama, Mistral, etc.)
+                    let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                    if let Some(ref bias) = layer.ffn_up_bias {
+                        ops::add_bias(&mut ffn_up, bias);
+                    }
 
-                let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
-                if let Some(ref bias) = layer.ffn_gate_bias {
-                    ops::add_bias(&mut ffn_gate, bias);
-                }
+                    let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
+                    if let Some(ref bias) = layer.ffn_gate_bias {
+                        ops::add_bias(&mut ffn_gate, bias);
+                    }
 
-                // SwiGLU: down(silu(gate(x)) * up(x))
-                ops::silu(&mut ffn_gate);
-                for i in 0..ffn_gate.len() {
-                    ffn_gate[i] *= ffn_up[i];
-                }
+                    // SwiGLU: down(silu(gate(x)) * up(x))
+                    ops::silu(&mut ffn_gate);
+                    for i in 0..ffn_gate.len() {
+                        ffn_gate[i] *= ffn_up[i];
+                    }
 
-                ffn_gate
+                    ffn_gate
+                } else {
+                    // GH-306: Fused gate_up weight (Phi-3.5) — single matmul, split in half
+                    let fused = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                    let half = fused.len() / 2;
+                    let mut ffn_gate = fused[..half].to_vec();
+                    let mut ffn_up = fused[half..].to_vec();
+                    if let Some(ref bias) = layer.ffn_up_bias {
+                        let bias_half = bias.len() / 2;
+                        ops::add_bias(&mut ffn_gate, &bias[..bias_half]);
+                        ops::add_bias(&mut ffn_up, &bias[bias_half..]);
+                    }
+                    ops::silu(&mut ffn_gate);
+                    for i in 0..ffn_gate.len() {
+                        ffn_gate[i] *= ffn_up[i];
+                    }
+                    ffn_gate
+                }
             } else {
                 // GELU path (GPT-2, BERT, etc.)
                 let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;

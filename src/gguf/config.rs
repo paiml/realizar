@@ -541,25 +541,45 @@ impl GGUFConfig {
             .find(|t| t.name == "token_embd.weight")
             .map_or(32000, |t| t.dims.first().copied().unwrap_or(32000) as usize);
 
-        // GH-278: Infer intermediate_dim from ffn_up tensor shape.
-        // After dims.reverse() in the GGUF parser:
-        //   - LLaMA (Linear): [intermediate_dim, hidden_dim] → dims[0] = intermediate
-        //   - GPT-2 (Conv1D): [hidden_dim, intermediate_dim] → dims[0] = hidden
-        // Fix: use whichever dimension differs from hidden_dim.
-        // Per gpt2.yaml contract: intermediate_dim=3072 for GPT-2 small.
+        // GH-278: Infer intermediate_dim from ffn_down tensor shape (preferred)
+        // or ffn_up as fallback.
+        //
+        // GH-306: ffn_down is more reliable because some architectures (Phi-3.5)
+        // fuse gate+up into a single ffn_up tensor with 2x the intermediate dim.
+        // ffn_down is always [intermediate_dim, hidden_dim] (Linear layout).
+        let _has_ffn_gate = model.tensors.iter().any(|t| t.name == "blk.0.ffn_gate.weight");
         let intermediate_dim = model
             .tensors
             .iter()
-            .find(|t| t.name == "blk.0.ffn_up.weight")
-            .map_or(hidden_dim * 4, |t| {
-                let d0 = t.dims.first().copied().unwrap_or(hidden_dim as u64 * 4) as usize;
-                let d1 = t.dims.get(1).copied().unwrap_or(hidden_dim as u64) as usize;
-                if d0 == hidden_dim && d1 != hidden_dim {
-                    d1 // Conv1D layout: [hidden_dim, intermediate_dim]
-                } else {
-                    d0 // Linear layout: [intermediate_dim, hidden_dim]
-                }
-            });
+            .find(|t| t.name == "blk.0.ffn_down.weight")
+            .map_or_else(
+                || {
+                    // Fallback: infer from ffn_up
+                    model.tensors.iter()
+                        .find(|t| t.name == "blk.0.ffn_up.weight")
+                        .map_or(hidden_dim * 4, |t| {
+                            let d0 = t.dims.first().copied().unwrap_or(hidden_dim as u64 * 4) as usize;
+                            let d1 = t.dims.get(1).copied().unwrap_or(hidden_dim as u64) as usize;
+                            if d0 == hidden_dim && d1 != hidden_dim {
+                                d1
+                            } else {
+                                d0
+                            }
+                        })
+                },
+                |t| {
+                    // ffn_down: [intermediate_dim, hidden_dim] after dims.reverse()
+                    let d0 = t.dims.first().copied().unwrap_or(hidden_dim as u64 * 4) as usize;
+                    let d1 = t.dims.get(1).copied().unwrap_or(hidden_dim as u64) as usize;
+                    if d1 == hidden_dim {
+                        d0 // Linear layout: [intermediate_dim, hidden_dim]
+                    } else if d0 == hidden_dim {
+                        d1 // Conv1D layout: [hidden_dim, intermediate_dim]
+                    } else {
+                        d0 // Best guess
+                    }
+                },
+            );
 
         let context_length = model.context_length().unwrap_or(2048);
 

@@ -317,12 +317,24 @@ impl OwnedQuantizedLayer {
                 hidden_dim,
             ),
             attn_output_bias: layer.attn_output_bias.clone(),
-            ffn_up_weight: OwnedQuantizedTensor::from_ref_with_dims(
-                &layer.ffn_up_weight,
-                data,
-                hidden_dim,
-                intermediate_dim,
-            ),
+            ffn_up_weight: {
+                // GH-306: When ffn_gate is absent, ffn_up is a fused gate_up tensor
+                // with out_dim = 2 * intermediate_dim. Detect from tensor byte size.
+                let is_fused_gate_up = layer.ffn_gate_weight.is_none();
+                let up_out_dim = if is_fused_gate_up {
+                    // Infer actual out_dim from tensor data size and qtype
+                    // For fused gate_up: out_dim = 2 * intermediate_dim
+                    intermediate_dim * 2
+                } else {
+                    intermediate_dim
+                };
+                OwnedQuantizedTensor::from_ref_with_dims(
+                    &layer.ffn_up_weight,
+                    data,
+                    hidden_dim,
+                    up_out_dim,
+                )
+            },
             ffn_up_bias: layer.ffn_up_bias.clone(),
             ffn_down_weight: OwnedQuantizedTensor::from_ref_with_dims(
                 &layer.ffn_down_weight,

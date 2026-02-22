@@ -43,14 +43,19 @@ impl OwnedQuantizedModel {
         // FFN with SwiGLU or GELU activation (contract-driven, GH-278)
         let ffn_activated = if self.config.constraints.has_gate_ffn() {
             // SwiGLU path
-            let gate_weight = layer.ffn_gate_weight.as_ref()
-                .expect("gated FFN contract requires gate weight");
-            let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+            let (mut ffn_gate, mut ffn_up) = if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                let ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                let ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
+                (ffn_gate, ffn_up)
+            } else {
+                // GH-306: Fused gate_up weight (Phi-3.5)
+                let fused = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                let half = fused.len() / 2;
+                (fused[..half].to_vec(), fused[half..].to_vec())
+            };
             if let Some(ref bias) = layer.ffn_up_bias {
                 ops::add_bias(&mut ffn_up, bias);
             }
-
-            let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
             if let Some(ref bias) = layer.ffn_gate_bias {
                 ops::add_bias(&mut ffn_gate, bias);
             }
@@ -476,20 +481,28 @@ impl OwnedQuantizedModel {
         // FFN with SwiGLU or GELU activation (contract-driven, GH-278)
         let ffn_activated = if self.config.constraints.has_gate_ffn() {
             // SwiGLU path
-            let gate_weight = layer.ffn_gate_weight.as_ref()
-                .expect("gated FFN contract requires gate weight");
-            let start = std::time::Instant::now();
-            let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
-            metrics.record_gpu_dispatch();
-            metrics.record_gpu_latency(start.elapsed());
+            let (mut ffn_gate, mut ffn_up) = if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                let start = std::time::Instant::now();
+                let ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                metrics.record_gpu_dispatch();
+                metrics.record_gpu_latency(start.elapsed());
+                let start = std::time::Instant::now();
+                let ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
+                metrics.record_gpu_dispatch();
+                metrics.record_gpu_latency(start.elapsed());
+                (ffn_gate, ffn_up)
+            } else {
+                // GH-306: Fused gate_up weight (Phi-3.5)
+                let start = std::time::Instant::now();
+                let fused = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                metrics.record_gpu_dispatch();
+                metrics.record_gpu_latency(start.elapsed());
+                let half = fused.len() / 2;
+                (fused[..half].to_vec(), fused[half..].to_vec())
+            };
             if let Some(ref bias) = layer.ffn_up_bias {
                 ops::add_bias(&mut ffn_up, bias);
             }
-
-            let start = std::time::Instant::now();
-            let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
-            metrics.record_gpu_dispatch();
-            metrics.record_gpu_latency(start.elapsed());
             if let Some(ref bias) = layer.ffn_gate_bias {
                 ops::add_bias(&mut ffn_gate, bias);
             }

@@ -266,14 +266,22 @@ impl OwnedQuantizedModel {
         // FFN with SwiGLU or GELU (contract-driven, GH-278)
         if self.config.constraints.has_gate_ffn() {
             // SwiGLU path (LLaMA, Qwen2, Mistral, etc.)
-            let gate_weight = layer.ffn_gate_weight.as_ref()
-                .expect("gated FFN contract requires gate weight");
-            let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+            let (mut ffn_gate, mut ffn_up) = if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                // Separate gate/up weights (LLaMA, Qwen2, Mistral)
+                let ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                let ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
+                (ffn_gate, ffn_up)
+            } else {
+                // GH-306: Fused gate_up weight (Phi-3.5) — single matmul, split output
+                let fused = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                let half = fused.len() / 2;
+                let ffn_gate = fused[..half].to_vec();
+                let ffn_up = fused[half..].to_vec();
+                (ffn_gate, ffn_up)
+            };
             if let Some(ref bias) = layer.ffn_up_bias {
                 ops::add_bias(&mut ffn_up, bias);
             }
-
-            let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
             if let Some(ref bias) = layer.ffn_gate_bias {
                 ops::add_bias(&mut ffn_gate, bias);
             }

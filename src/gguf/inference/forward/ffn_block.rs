@@ -20,57 +20,87 @@ impl OwnedQuantizedModel {
         let layer = &self.layers[layer_idx];
 
         if self.config.constraints.has_gate_ffn() {
-            let gate_weight = layer.ffn_gate_weight.as_ref()
-                .expect("gated FFN contract requires gate weight");
-
-            // Fused path: RMSNorm + SwiGLU (LLaMA, TinyLlama, Mistral, etc.)
-            if use_rmsnorm {
-                if let Some(ref ffn_norm) = layer.ffn_norm_weight {
-                    let (mut ffn_up, mut ffn_gate) = self.fused_rmsnorm_ffn_up_gate(
-                        hidden, ffn_norm, self.config.eps,
-                        &layer.ffn_up_weight, gate_weight,
-                    )?;
-                    if let Some(ref bias) = layer.ffn_up_bias {
-                        ops::add_bias(&mut ffn_up, bias);
-                    }
-                    if let Some(ref bias) = layer.ffn_gate_bias {
-                        ops::add_bias(&mut ffn_gate, bias);
-                    }
-                    ops::silu(&mut ffn_gate);
-                    for i in 0..ffn_gate.len() {
-                        ffn_gate[i] *= ffn_up[i];
-                    }
-                    return Ok(ffn_gate);
-                }
-            }
-
-            // Non-fused gated path (LayerNorm models or no FFN norm)
-            let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+            // GH-306: Fused path only when separate gate weight exists
+            if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                // Fused RMSNorm + SwiGLU (LLaMA, TinyLlama, Mistral, etc.)
                 if use_rmsnorm {
-                    ops::rms_norm(hidden, ffn_norm, self.config.eps)
-                } else {
-                    ops::layer_norm(
-                        hidden, ffn_norm,
-                        layer.ffn_norm_bias.as_deref(), self.config.eps,
-                    )
+                    if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+                        let (mut ffn_up, mut ffn_gate) = self.fused_rmsnorm_ffn_up_gate(
+                            hidden, ffn_norm, self.config.eps,
+                            &layer.ffn_up_weight, gate_weight,
+                        )?;
+                        if let Some(ref bias) = layer.ffn_up_bias {
+                            ops::add_bias(&mut ffn_up, bias);
+                        }
+                        if let Some(ref bias) = layer.ffn_gate_bias {
+                            ops::add_bias(&mut ffn_gate, bias);
+                        }
+                        ops::silu(&mut ffn_gate);
+                        for i in 0..ffn_gate.len() {
+                            ffn_gate[i] *= ffn_up[i];
+                        }
+                        return Ok(ffn_gate);
+                    }
                 }
-            } else {
-                hidden.to_vec()
-            };
 
-            let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
-            if let Some(ref bias) = layer.ffn_up_bias {
-                ops::add_bias(&mut ffn_up, bias);
+                // Non-fused gated path (LayerNorm models or no FFN norm)
+                let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+                    if use_rmsnorm {
+                        ops::rms_norm(hidden, ffn_norm, self.config.eps)
+                    } else {
+                        ops::layer_norm(
+                            hidden, ffn_norm,
+                            layer.ffn_norm_bias.as_deref(), self.config.eps,
+                        )
+                    }
+                } else {
+                    hidden.to_vec()
+                };
+
+                let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                if let Some(ref bias) = layer.ffn_up_bias {
+                    ops::add_bias(&mut ffn_up, bias);
+                }
+                let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
+                if let Some(ref bias) = layer.ffn_gate_bias {
+                    ops::add_bias(&mut ffn_gate, bias);
+                }
+                ops::silu(&mut ffn_gate);
+                for i in 0..ffn_gate.len() {
+                    ffn_gate[i] *= ffn_up[i];
+                }
+                Ok(ffn_gate)
+            } else {
+                // GH-306: Fused gate_up weight (Phi-3.5) — single matmul, split in half
+                let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+                    if use_rmsnorm {
+                        ops::rms_norm(hidden, ffn_norm, self.config.eps)
+                    } else {
+                        ops::layer_norm(
+                            hidden, ffn_norm,
+                            layer.ffn_norm_bias.as_deref(), self.config.eps,
+                        )
+                    }
+                } else {
+                    hidden.to_vec()
+                };
+
+                let fused = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                let half = fused.len() / 2;
+                let mut ffn_gate = fused[..half].to_vec();
+                let mut ffn_up = fused[half..].to_vec();
+                if let Some(ref bias) = layer.ffn_up_bias {
+                    // Split bias too if present
+                    let bias_half = bias.len() / 2;
+                    ops::add_bias(&mut ffn_gate, &bias[..bias_half]);
+                    ops::add_bias(&mut ffn_up, &bias[bias_half..]);
+                }
+                ops::silu(&mut ffn_gate);
+                for i in 0..ffn_gate.len() {
+                    ffn_gate[i] *= ffn_up[i];
+                }
+                Ok(ffn_gate)
             }
-            let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
-            if let Some(ref bias) = layer.ffn_gate_bias {
-                ops::add_bias(&mut ffn_gate, bias);
-            }
-            ops::silu(&mut ffn_gate);
-            for i in 0..ffn_gate.len() {
-                ffn_gate[i] *= ffn_up[i];
-            }
-            Ok(ffn_gate)
         } else {
             // GELU path (GPT-2, BERT, etc.) - no gate weight
             let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {

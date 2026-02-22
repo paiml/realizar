@@ -146,30 +146,53 @@ impl OwnedQuantizedModel {
             // 2g. FFN (contract-driven activation selection, GH-278)
             let ffn_activated = if self.config.constraints.has_gate_ffn() {
                 // SwiGLU path
-                let gate_weight = layer.ffn_gate_weight.as_ref()
-                    .expect("gated FFN contract requires gate weight");
-                profiler.start("UpProjection");
-                let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
-                if let Some(ref bias) = layer.ffn_up_bias {
-                    ops::add_bias(&mut ffn_up, bias);
-                }
-                profiler.stop("UpProjection");
+                if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                    // Separate gate/up weights (LLaMA, Qwen2, Mistral)
+                    profiler.start("UpProjection");
+                    let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                    if let Some(ref bias) = layer.ffn_up_bias {
+                        ops::add_bias(&mut ffn_up, bias);
+                    }
+                    profiler.stop("UpProjection");
 
-                profiler.start("GateProjection");
-                let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
-                if let Some(ref bias) = layer.ffn_gate_bias {
-                    ops::add_bias(&mut ffn_gate, bias);
-                }
-                profiler.stop("GateProjection");
+                    profiler.start("GateProjection");
+                    let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
+                    if let Some(ref bias) = layer.ffn_gate_bias {
+                        ops::add_bias(&mut ffn_gate, bias);
+                    }
+                    profiler.stop("GateProjection");
 
-                profiler.start("Activation");
-                ops::silu(&mut ffn_gate);
-                for i in 0..ffn_gate.len() {
-                    ffn_gate[i] *= ffn_up[i];
-                }
-                profiler.stop("Activation");
+                    profiler.start("Activation");
+                    ops::silu(&mut ffn_gate);
+                    for i in 0..ffn_gate.len() {
+                        ffn_gate[i] *= ffn_up[i];
+                    }
+                    profiler.stop("Activation");
 
-                ffn_gate
+                    ffn_gate
+                } else {
+                    // GH-306: Fused gate_up weight (Phi-3.5) — single matmul, split in half
+                    profiler.start("FusedGateUpProjection");
+                    let fused = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                    let half = fused.len() / 2;
+                    let mut ffn_gate = fused[..half].to_vec();
+                    let mut ffn_up = fused[half..].to_vec();
+                    if let Some(ref bias) = layer.ffn_up_bias {
+                        let bias_half = bias.len() / 2;
+                        ops::add_bias(&mut ffn_gate, &bias[..bias_half]);
+                        ops::add_bias(&mut ffn_up, &bias[bias_half..]);
+                    }
+                    profiler.stop("FusedGateUpProjection");
+
+                    profiler.start("Activation");
+                    ops::silu(&mut ffn_gate);
+                    for i in 0..ffn_gate.len() {
+                        ffn_gate[i] *= ffn_up[i];
+                    }
+                    profiler.stop("Activation");
+
+                    ffn_gate
+                }
             } else {
                 // GELU path
                 profiler.start("UpProjection");
