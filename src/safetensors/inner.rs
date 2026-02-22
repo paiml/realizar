@@ -18,13 +18,32 @@ impl ValidatedAprTransformer {
         let hidden_dim = config.hidden_dim;
         let vocab_size = config.vocab_size;
         let intermediate_dim = config.intermediate_dim;
-        let head_dim = if config.num_heads > 0 {
+        // GH-313: Infer head_dim from actual QKV tensor shape when available.
+        // Some models (Qwen3-0.6B) have head_dim != hidden_dim/num_heads.
+        let default_head_dim = if config.num_heads > 0 {
             hidden_dim / config.num_heads
         } else {
             hidden_dim
         };
+        let head_dim = if !transformer.layers.is_empty() {
+            let qkv_len = transformer.layers[0].qkv_weight.len();
+            // qkv_weight has (q_dim + 2*kv_dim) * hidden_dim elements
+            // Try to infer: qkv_out_dim = qkv_len / hidden_dim
+            let qkv_out_dim_inferred = if hidden_dim > 0 { qkv_len / hidden_dim } else { 0 };
+            // q_dim = qkv_out_dim - 2*kv_dim. With GQA: kv_dim = num_kv_heads * head_dim
+            // qkv_out_dim = num_heads*hd + 2*num_kv_heads*hd = hd*(num_heads + 2*num_kv_heads)
+            let total_heads = config.num_heads + 2 * config.num_kv_heads;
+            if total_heads > 0 && qkv_out_dim_inferred % total_heads == 0 {
+                qkv_out_dim_inferred / total_heads
+            } else {
+                default_head_dim
+            }
+        } else {
+            default_head_dim
+        };
         let kv_dim = config.num_kv_heads * head_dim;
-        let qkv_out_dim = hidden_dim + 2 * kv_dim;
+        let q_dim = config.num_heads * head_dim;
+        let qkv_out_dim = q_dim + 2 * kv_dim;
 
         // === Global tensors ===
 
@@ -91,11 +110,11 @@ impl ValidatedAprTransformer {
                 ValidatedVector::new(bias.clone(), qkv_out_dim, &format!("layers.{i}.qkv_bias"))?;
             }
 
-            // attn_output_weight: [hidden_dim * hidden_dim]
+            // attn_output_weight: [hidden_dim * q_dim] (GH-313: q_dim may != hidden_dim)
             ValidatedWeight::new(
                 layer.attn_output_weight.clone(),
                 hidden_dim,
-                hidden_dim,
+                q_dim,
                 &format!("layers.{i}.attn_output_weight"),
             )?;
 
