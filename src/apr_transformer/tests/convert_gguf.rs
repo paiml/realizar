@@ -20,6 +20,7 @@ fn make_gguf_config(hidden: usize, layers: usize, heads: usize, kv_heads: usize)
         rope_theta: 10000.0,
         rope_type: 2,
         context_length: 2048,
+            explicit_head_dim: None,
         bos_token_id: None,
     }
 }

@@ -14,6 +14,7 @@
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -45,6 +46,7 @@
             rope_theta: 1_000_000.0,
             eps: 1e-6,
             rope_type: 2,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -69,6 +71,7 @@
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -93,6 +96,7 @@
             rope_theta: 500000.0,
             eps: 1e-5,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -115,6 +119,7 @@
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -137,6 +142,7 @@
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 2, // NEOX
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -159,6 +165,7 @@
             rope_theta: 1_000_000.0,
             eps: 1e-6,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -182,6 +189,7 @@
             rope_theta: 10000.0,
             eps: 1e-6, // Smaller epsilon
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -204,6 +212,7 @@
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -227,6 +236,7 @@
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -251,6 +261,7 @@
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -275,6 +286,7 @@
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -307,6 +319,7 @@
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -380,6 +393,7 @@
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: Some(128_000),
         }
     }

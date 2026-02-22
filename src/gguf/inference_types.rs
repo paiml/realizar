@@ -75,21 +75,26 @@ impl InferenceScratchBuffer {
         let hidden_dim = config.hidden_dim;
         let intermediate_dim = config.intermediate_dim;
         let vocab_size = config.vocab_size;
-        let qkv_dim = hidden_dim * 3; // Max for fused QKV
+        // GH-305: q_dim may differ from hidden_dim (Qwen3-0.6B: q_dim=2048, hidden=1024)
+        let q_dim = config.q_dim();
+        let kv_dim = config.kv_dim();
+        let qkv_dim = q_dim + 2 * kv_dim;
 
         // PAR-126: Q8K uses 256-element super-blocks for VNNI path
         const QK_K: usize = 256;
-        let q8k_hidden_padded = hidden_dim.div_ceil(QK_K) * QK_K;
+        // Q8K buffers need to cover the larger of hidden_dim and q_dim for attention output
+        let q8k_attn_dim = q_dim.max(hidden_dim);
+        let q8k_hidden_padded = q8k_attn_dim.div_ceil(QK_K) * QK_K;
         let q8k_inter_padded = intermediate_dim.div_ceil(QK_K) * QK_K;
 
         Self {
             hidden: vec![0.0; hidden_dim],
             normed: vec![0.0; hidden_dim],
             qkv: vec![0.0; qkv_dim],
-            q: vec![0.0; hidden_dim],
-            k: vec![0.0; hidden_dim],
-            v: vec![0.0; hidden_dim],
-            attn_out: vec![0.0; hidden_dim],
+            q: vec![0.0; q_dim],
+            k: vec![0.0; kv_dim],
+            v: vec![0.0; kv_dim],
+            attn_out: vec![0.0; q_dim],
             attn_proj: vec![0.0; hidden_dim],
             ffn_up: vec![0.0; intermediate_dim],
             ffn_gate: vec![0.0; intermediate_dim],
@@ -156,24 +161,25 @@ impl OwnedInferenceScratchBuffer {
     #[must_use]
     pub fn from_config(config: &GGUFConfig) -> Self {
         let hidden_dim = config.hidden_dim;
-        let num_kv_heads = config.num_kv_heads;
-        let head_dim = hidden_dim / config.num_heads;
-        let kv_dim = num_kv_heads * head_dim;
-        let qkv_dim = hidden_dim + 2 * kv_dim;
+        // GH-305: Use config.head_dim (from GGUF metadata) instead of hidden_dim / num_heads
+        let q_dim = config.q_dim();
+        let kv_dim = config.kv_dim();
+        let qkv_dim = q_dim + 2 * kv_dim;
         let intermediate_dim = hidden_dim * 6; // Conservative estimate
-        let num_blocks = hidden_dim.div_ceil(32);
+        let num_blocks = q_dim.max(hidden_dim).div_ceil(32);
 
         const QK_K: usize = 256;
-        let q8k_hidden_padded = hidden_dim.div_ceil(QK_K) * QK_K;
+        let q8k_attn_dim = q_dim.max(hidden_dim);
+        let q8k_hidden_padded = q8k_attn_dim.div_ceil(QK_K) * QK_K;
         let q8k_inter_padded = intermediate_dim.div_ceil(QK_K) * QK_K;
 
         Self {
             qkv: vec![0.0f32; qkv_dim],
-            attn_out: vec![0.0f32; hidden_dim],
+            attn_out: vec![0.0f32; q_dim],
             ffn_up: vec![0.0f32; intermediate_dim],
             ffn_gate: vec![0.0f32; intermediate_dim],
             ffn_down: vec![0.0f32; hidden_dim],
-            expanded_v: vec![0.0f32; hidden_dim],
+            expanded_v: vec![0.0f32; q_dim],
             logits: vec![0.0f32; config.vocab_size],
             q8_scales: vec![0.0f32; num_blocks],
             q8_quants: vec![0i8; num_blocks * 32],

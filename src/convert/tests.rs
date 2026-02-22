@@ -83,6 +83,7 @@ mod tests {
             rope_theta: 1_000_000.0,
             eps: 1e-6,
             rope_type: 2, // NEOX style
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 

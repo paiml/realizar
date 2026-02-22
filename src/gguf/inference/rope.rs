@@ -13,7 +13,7 @@ impl OwnedQuantizedModel {
     /// # GQA Support
     /// For GQA models, pass num_heads for Q vectors and num_kv_heads for K vectors.
     pub(crate) fn apply_rope(&self, x: &mut [f32], position: usize, num_heads_in_x: usize) {
-        let head_dim = self.config.hidden_dim / self.config.num_heads;
+        let head_dim = self.config.head_dim();
         let half_dim = head_dim / 2;
         let theta = self.config.rope_theta;
         let rope_type = self.config.rope_type;
@@ -93,7 +93,7 @@ impl OwnedQuantizedModel {
     ) -> Vec<f32> {
         let num_heads = self.config.num_heads;
         let num_kv_heads = self.config.num_kv_heads;
-        let head_dim = self.config.hidden_dim / num_heads;
+        let head_dim = self.config.head_dim();
         let scale = 1.0 / (head_dim as f32).sqrt();
 
         // GQA: multiple Q heads share each KV head

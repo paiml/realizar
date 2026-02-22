@@ -62,16 +62,19 @@ impl OwnedQuantizedModel {
                 self.config.num_heads,
                 self.config.num_kv_heads,
                 self.config.hidden_dim,
+                self.config.head_dim(),
             );
             let k_dim = layer.qkv_weight.k_dim_for_config(
                 self.config.num_heads,
                 self.config.num_kv_heads,
                 self.config.hidden_dim,
+                self.config.head_dim(),
             );
             let v_dim = layer.qkv_weight.v_dim_for_config(
                 self.config.num_heads,
                 self.config.num_kv_heads,
                 self.config.hidden_dim,
+                self.config.head_dim(),
             );
             let mut qkv = self.qkv_matmul(&normed, &layer.qkv_weight)?;
             if let Some(ref bias) = layer.qkv_bias {

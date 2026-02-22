@@ -165,7 +165,6 @@ fn test_forward_multi_layer_model() {
         vocab_size: 50,
         eps: 1e-5,
         rope_theta: 10000.0,
-            explicit_head_dim: None,
             layer_types: None,
             linear_key_head_dim: None,
             linear_value_head_dim: None,

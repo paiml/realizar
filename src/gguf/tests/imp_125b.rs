@@ -16,6 +16,7 @@ fn test_imp_125b_adaptive_matches_standard() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
@@ -63,6 +64,7 @@ fn test_imp_125c_tracks_metrics_during_generation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
@@ -110,6 +112,7 @@ fn test_imp_125d_long_generation_uses_gpu() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
@@ -163,6 +166,7 @@ fn test_parity002a_forward_batch_with_cache_exists() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -204,6 +208,7 @@ fn test_parity002b_batched_prefill_populates_cache() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -246,6 +251,7 @@ fn test_parity002c_batched_prefill_triggers_gpu() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -290,6 +296,7 @@ fn test_parity002d_batched_matches_sequential() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -353,6 +360,7 @@ fn test_parity002e_generate_with_batched_prefill() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 

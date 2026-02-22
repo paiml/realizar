@@ -442,8 +442,8 @@ mod tests {
         let acts_q4k = vec![1.0f32; Q4K::ELEMENTS_PER_SUPERBLOCK];
 
         // Correct Q4K result
-        let correct = generic_fused_dot_scalar::<Q4K>(&q4k_data, &acts_q4k)
-            .expect("Q4K dot should succeed");
+        let correct =
+            generic_fused_dot_scalar::<Q4K>(&q4k_data, &acts_q4k).expect("Q4K dot should succeed");
 
         // Feed first 34 bytes of Q4K data (which is d + dmin + scales prefix)
         // through Q8_0 kernel which expects d(2) + 32 signed i8 values
@@ -457,7 +457,9 @@ mod tests {
         // The results should be meaningfully different (different element counts alone
         // guarantee different magnitudes, plus the data interpretation differs).
         assert!(
-            (correct - wrong).abs() > 1e-3 || correct.abs() > 10.0 * wrong.abs() || wrong.abs() > 10.0 * correct.abs(),
+            (correct - wrong).abs() > 1e-3
+                || correct.abs() > 10.0 * wrong.abs()
+                || wrong.abs() > 10.0 * correct.abs(),
             "FALSIFY-008 FAILED: Q4K→Q8_0 cross-format SHOULD produce different results.\n\
              correct(Q4K)={correct}, wrong(Q8_0)={wrong}"
         );

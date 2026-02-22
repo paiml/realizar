@@ -35,6 +35,7 @@ async fn test_imp_116d_scheduler_reuse_across_requests() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -87,6 +88,7 @@ fn test_imp_126a_appstate_has_dispatch_metrics() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -136,6 +138,7 @@ fn test_imp_126b_cached_sync_has_generate_adaptive() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -183,6 +186,7 @@ fn test_imp_126c_dispatch_metrics_integration() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -231,6 +235,7 @@ fn test_imp_126d_handler_uses_adaptive_generation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -292,6 +297,7 @@ async fn test_imp_127a_dispatch_metrics_endpoint_exists() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -348,6 +354,7 @@ async fn test_imp_127b_dispatch_metrics_response_structure() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -412,6 +419,7 @@ async fn test_imp_127c_dispatch_metrics_starts_zero() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 

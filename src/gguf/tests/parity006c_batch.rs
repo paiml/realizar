@@ -15,6 +15,7 @@ fn test_parity006c_batch_output_validity() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
@@ -103,6 +104,7 @@ fn test_parity006e_batch_performance_comparison() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
@@ -172,6 +174,7 @@ fn test_parity006f_empty_prompts_error() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
@@ -341,6 +344,7 @@ fn test_parity007f_realizar_benchmark() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
     let model = create_test_model_with_config(&config);

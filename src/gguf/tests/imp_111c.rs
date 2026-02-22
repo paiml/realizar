@@ -15,6 +15,7 @@ fn test_imp_111c_tiled_causal_attention() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -97,6 +98,7 @@ fn test_imp_111d_tiled_attention_various_tile_sizes() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -165,6 +167,7 @@ fn test_imp_113a_batched_gemm_single_dispatch() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -246,6 +249,7 @@ fn test_imp_113b_single_dispatch_attention_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -309,6 +313,7 @@ fn test_imp_113c_single_dispatch_dispatch_count() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -366,6 +371,7 @@ fn test_imp_113d_batched_softmax_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 

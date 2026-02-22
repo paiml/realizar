@@ -27,6 +27,7 @@ fn test_config() -> GGUFConfig {
         context_length: 512,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     }
 }

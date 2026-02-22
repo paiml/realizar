@@ -47,6 +47,7 @@ async fn test_imp_128a_prometheus_format_endpoint() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -103,6 +104,7 @@ async fn test_imp_128b_prometheus_format_structure() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -162,6 +164,7 @@ async fn test_imp_128c_default_format_is_json() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -212,6 +215,7 @@ async fn test_imp_128d_explicit_json_format() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -263,6 +267,7 @@ async fn test_imp_130a_prometheus_includes_cpu_latency_histogram() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -330,6 +335,7 @@ async fn test_imp_130b_prometheus_includes_gpu_latency_histogram() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -396,6 +402,7 @@ async fn test_imp_130c_prometheus_latency_buckets_have_correct_labels() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 

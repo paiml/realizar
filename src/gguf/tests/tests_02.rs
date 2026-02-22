@@ -38,6 +38,7 @@ fn test_imp_106a_batch_matmul_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -104,6 +105,7 @@ fn test_imp_106b_forward_batch_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -151,6 +153,7 @@ fn test_imp_106c_prefill_with_batch() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -238,6 +241,7 @@ fn test_imp_107b_forward_batch_gpu() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -345,6 +349,7 @@ fn test_imp_108a_batched_causal_attention_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -407,6 +412,7 @@ fn test_imp_108b_causal_mask_gpu() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 

@@ -183,6 +183,7 @@ impl OwnedQuantizedModelCuda {
         let num_heads = self.model.config.num_heads;
         let num_kv_heads = self.model.config.num_kv_heads;
         let hidden_dim = self.model.config.hidden_dim;
+        let head_dim = self.model.config.head_dim();
 
         let q_biases: Vec<Option<&[f32]>> = self
             .model
@@ -193,7 +194,7 @@ impl OwnedQuantizedModelCuda {
                     // Q bias is first q_dim elements (GQA-aware)
                     let q_dim = l
                         .qkv_weight
-                        .q_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                        .q_dim_for_config(num_heads, num_kv_heads, hidden_dim, head_dim);
                     &b[..q_dim]
                 })
             })
@@ -204,8 +205,8 @@ impl OwnedQuantizedModelCuda {
             .iter()
             .map(|l| {
                 l.qkv_bias.as_ref().map(|b| {
-                    let q_dim = l.qkv_weight.q_dim_for_config(num_heads, num_kv_heads, hidden_dim);
-                    let k_dim = l.qkv_weight.k_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                    let q_dim = l.qkv_weight.q_dim_for_config(num_heads, num_kv_heads, hidden_dim, head_dim);
+                    let k_dim = l.qkv_weight.k_dim_for_config(num_heads, num_kv_heads, hidden_dim, head_dim);
                     &b[q_dim..q_dim + k_dim]
                 })
             })
@@ -218,13 +219,13 @@ impl OwnedQuantizedModelCuda {
                 l.qkv_bias.as_ref().map(|b| {
                     let q_dim = l
                         .qkv_weight
-                        .q_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                        .q_dim_for_config(num_heads, num_kv_heads, hidden_dim, head_dim);
                     let k_dim = l
                         .qkv_weight
-                        .k_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                        .k_dim_for_config(num_heads, num_kv_heads, hidden_dim, head_dim);
                     let v_dim = l
                         .qkv_weight
-                        .v_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+                        .v_dim_for_config(num_heads, num_kv_heads, hidden_dim, head_dim);
                     &b[q_dim + k_dim..q_dim + k_dim + v_dim]
                 })
             })

@@ -158,10 +158,12 @@ impl OwnedQuantizedModel {
         use_q8k_path: bool,
         hidden_dim: usize,
     ) -> Result<()> {
+        // GH-305: Use config.head_dim() (from GGUF metadata) — NOT hidden_dim / num_heads.
+        // Qwen3-0.6B: hidden_dim=1024, num_heads=16, head_dim=128 → q_dim=2048 ≠ hidden_dim.
+        let head_dim = self.config.head_dim();
         let num_kv_heads = self.config.num_kv_heads;
-        let head_dim = hidden_dim / self.config.num_heads;
         let kv_dim = num_kv_heads * head_dim;
-        let q_dim = hidden_dim;
+        let q_dim = self.config.q_dim();
         let k_dim = kv_dim;
         let v_dim = kv_dim;
         let qkv_dim = q_dim + k_dim + v_dim;
@@ -246,7 +248,7 @@ impl OwnedQuantizedModel {
                         .copy_from_slice(&scratch.v[src_start..src_start + head_dim]);
                 }
             } else {
-                scratch.attn_out[..hidden_dim].copy_from_slice(&scratch.v[..hidden_dim]);
+                scratch.attn_out[..q_dim].copy_from_slice(&scratch.v[..q_dim]);
             }
         } else {
             self.attention_with_cache_gqa_into(
@@ -262,28 +264,31 @@ impl OwnedQuantizedModel {
         cache.append(layer_idx, &scratch.k[..k_dim], &scratch.v[..v_dim]);
 
         // Attention output projection (Q8K or F32)
-        let use_q8k_attn_out = use_q8k_path && layer.attn_output_weight.qtype == GGUF_TYPE_Q4_K;
+        // GH-305: attn_out has q_dim elements (may differ from hidden_dim), output is hidden_dim.
+        let use_q8k_attn_out = use_q8k_path
+            && q_dim.is_multiple_of(256)
+            && layer.attn_output_weight.qtype == GGUF_TYPE_Q4_K;
         if use_q8k_attn_out {
             use crate::quantize::{
                 fused_q4k_q8k_parallel_matvec_into, quantize_activations_q8k_into,
             };
-            let hidden_sb = hidden_dim / 256;
+            let q_sb = q_dim / 256;
             quantize_activations_q8k_into(
-                &scratch.attn_out[..hidden_dim],
-                &mut scratch.q8k_hidden_scales[..hidden_sb],
-                &mut scratch.q8k_hidden_quants[..hidden_dim],
+                &scratch.attn_out[..q_dim],
+                &mut scratch.q8k_hidden_scales[..q_sb],
+                &mut scratch.q8k_hidden_quants[..q_dim],
             )?;
             fused_q4k_q8k_parallel_matvec_into(
                 &layer.attn_output_weight.data,
-                &scratch.q8k_hidden_scales[..hidden_sb],
-                &scratch.q8k_hidden_quants[..hidden_dim],
+                &scratch.q8k_hidden_scales[..q_sb],
+                &scratch.q8k_hidden_quants[..q_dim],
                 layer.attn_output_weight.in_dim,
                 layer.attn_output_weight.out_dim,
                 &mut scratch.attn_proj,
             )?;
         } else {
             self.fused_matmul_into(
-                &scratch.attn_out[..hidden_dim],
+                &scratch.attn_out[..q_dim],
                 &layer.attn_output_weight,
                 &mut scratch.attn_proj,
             )?;

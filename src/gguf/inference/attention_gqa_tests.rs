@@ -67,6 +67,7 @@ fn create_gqa_model(
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -140,7 +141,7 @@ fn test_qkv_weights_q_dim_gqa_4_to_1() {
 
     // q_dim should be hidden_dim (64), NOT qkv_out_dim/3 (32)
     assert_eq!(
-        weights.q_dim_for_config(num_heads, num_kv_heads, hidden_dim),
+        weights.q_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads),
         64,
         "q_dim should be num_heads * head_dim = 64 for GQA"
     );
@@ -161,7 +162,7 @@ fn test_qkv_weights_k_dim_gqa() {
 
     // k_dim should be kv_dim (16), NOT q_dim (64)
     assert_eq!(
-        weights.k_dim_for_config(num_heads, num_kv_heads, hidden_dim),
+        weights.k_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads),
         16,
         "k_dim should be num_kv_heads * head_dim = 16 for GQA"
     );
@@ -182,7 +183,7 @@ fn test_qkv_weights_v_dim_gqa() {
 
     // v_dim should be kv_dim (16), NOT q_dim (64)
     assert_eq!(
-        weights.v_dim_for_config(num_heads, num_kv_heads, hidden_dim),
+        weights.v_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads),
         16,
         "v_dim should be num_kv_heads * head_dim = 16 for GQA"
     );
@@ -201,9 +202,9 @@ fn test_qkv_weights_dimension_consistency_gqa() {
 
     let weights = OwnedQKVWeights::Fused(create_q4k_test_tensor(hidden_dim, qkv_out_dim));
 
-    let computed_q = weights.q_dim_for_config(num_heads, num_kv_heads, hidden_dim);
-    let computed_k = weights.k_dim_for_config(num_heads, num_kv_heads, hidden_dim);
-    let computed_v = weights.v_dim_for_config(num_heads, num_kv_heads, hidden_dim);
+    let computed_q = weights.q_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads);
+    let computed_k = weights.k_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads);
+    let computed_v = weights.v_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads);
 
     assert_eq!(
         computed_q + computed_k + computed_v,
@@ -230,17 +231,17 @@ fn test_qkv_weights_q_dim_mha() {
     let weights = OwnedQKVWeights::Fused(create_q4k_test_tensor(hidden_dim, qkv_out_dim));
 
     assert_eq!(
-        weights.q_dim_for_config(num_heads, num_kv_heads, hidden_dim),
+        weights.q_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads),
         64,
         "q_dim should be hidden_dim for MHA"
     );
     assert_eq!(
-        weights.k_dim_for_config(num_heads, num_kv_heads, hidden_dim),
+        weights.k_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads),
         64,
         "k_dim should be hidden_dim for MHA"
     );
     assert_eq!(
-        weights.v_dim_for_config(num_heads, num_kv_heads, hidden_dim),
+        weights.v_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads),
         64,
         "v_dim should be hidden_dim for MHA"
     );

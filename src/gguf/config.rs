@@ -408,6 +408,14 @@ pub struct GGUFConfig {
     pub eps: f32,
     /// RoPE type: 0 = NORM (adjacent pairs), 2 = NEOX (split halves)
     pub rope_type: u32,
+    /// Explicit per-head dimension for Q/K projections (from GGUF metadata).
+    ///
+    /// `None` means derive as `hidden_dim / num_heads` (correct for most models).
+    /// `Some(128)` for Qwen3-0.6B where `hidden_dim=1024, num_heads=16` but `head_dim=128`
+    /// meaning `q_dim = num_heads * head_dim = 2048 ≠ hidden_dim`.
+    ///
+    /// Source: GGUF metadata `{arch}.attention.key_length`.
+    pub explicit_head_dim: Option<usize>,
     /// BOS token ID from GGUF metadata (used for GPU validation probe)
     /// None means BOS is unknown — GPU validation will be skipped.
     pub bos_token_id: Option<u32>,
@@ -434,6 +442,69 @@ fn default_bos_for_architecture(arch: &str) -> Option<u32> {
 }
 
 impl GGUFConfig {
+    /// Per-head dimension for Q/K projections.
+    ///
+    /// Uses explicit value from GGUF metadata if available, otherwise `hidden_dim / num_heads`.
+    #[inline]
+    #[must_use]
+    pub fn head_dim(&self) -> usize {
+        self.explicit_head_dim.unwrap_or(if self.num_heads > 0 {
+            self.hidden_dim / self.num_heads
+        } else {
+            self.hidden_dim
+        })
+    }
+
+    /// Total Q projection dimension: `num_heads * head_dim`.
+    ///
+    /// For most models this equals `hidden_dim`, but Qwen3-0.6B has
+    /// `q_dim = 16 * 128 = 2048` while `hidden_dim = 1024`.
+    #[inline]
+    #[must_use]
+    pub fn q_dim(&self) -> usize {
+        self.num_heads * self.head_dim()
+    }
+
+    /// Total KV projection dimension: `num_kv_heads * head_dim`.
+    #[inline]
+    #[must_use]
+    pub fn kv_dim(&self) -> usize {
+        self.num_kv_heads * self.head_dim()
+    }
+
+    /// GH-305: Infer explicit head_dim from GGUF metadata or tensor shapes.
+    ///
+    /// Returns `Some(head_dim)` only when it differs from `hidden_dim / num_heads`.
+    fn infer_explicit_head_dim(
+        model: &GGUFModel,
+        hidden_dim: usize,
+        num_heads: usize,
+    ) -> Option<usize> {
+        let default_head_dim = if num_heads > 0 {
+            hidden_dim / num_heads
+        } else {
+            hidden_dim
+        };
+        model
+            .key_length()
+            .or_else(|| {
+                // Fallback: infer from blk.0.attn_q.weight shape: [q_dim, hidden_dim] → q_dim / num_heads
+                model
+                    .tensors
+                    .iter()
+                    .find(|t| t.name == "blk.0.attn_q.weight")
+                    .and_then(|t| {
+                        let d0 = t.dims.first().copied()? as usize;
+                        if d0 > 0 && num_heads > 0 && d0 % num_heads == 0 {
+                            Some(d0 / num_heads)
+                        } else {
+                            None
+                        }
+                    })
+            })
+            .filter(|&hd| hd != default_head_dim)
+    }
+
     /// Extract configuration from GGUF model metadata
     ///
     /// # Errors
@@ -508,6 +579,9 @@ impl GGUFConfig {
         // num_kv_heads (for GQA - e.g., Qwen uses fewer KV heads than Q heads)
         let num_kv_heads = model.num_kv_heads().unwrap_or(num_heads);
 
+        // GH-305: Infer head_dim from GGUF metadata or tensor shapes.
+        let explicit_head_dim = Self::infer_explicit_head_dim(model, hidden_dim, num_heads);
+
         // Read rope_type: 0 = NORM (adjacent pairs, default for LLaMA), 2 = NEOX (split halves)
         // LLaMA models use type 0 (adjacent pairs) per llama.cpp's LLAMA_ROPE_TYPE_NORM
         let rope_type = model.rope_type().unwrap_or(0);
@@ -538,6 +612,7 @@ impl GGUFConfig {
             rope_theta,
             eps,
             rope_type,
+            explicit_head_dim,
             bos_token_id,
         })
     }
@@ -593,12 +668,22 @@ impl ValidatedModelConfig {
                 reason: "num_kv_heads must be > 0".to_string(),
             });
         }
-        if !config.hidden_dim.is_multiple_of(config.num_heads) {
+        // GH-305: When head_dim is explicitly set (from GGUF metadata), hidden_dim may not
+        // equal num_heads * head_dim (e.g., Qwen3-0.6B: hidden=1024, heads=16, head_dim=128).
+        // Only enforce divisibility when head_dim is NOT explicitly overridden.
+        if config.explicit_head_dim.is_none()
+            && !config.hidden_dim.is_multiple_of(config.num_heads)
+        {
             return Err(RealizarError::InvalidShape {
                 reason: format!(
-                    "hidden_dim ({}) must be divisible by num_heads ({}) for head_dim consistency",
+                    "hidden_dim ({}) must be divisible by num_heads ({}) when head_dim is derived",
                     config.hidden_dim, config.num_heads
                 ),
+            });
+        }
+        if config.head_dim() == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "head_dim must be > 0".to_string(),
             });
         }
         if !config.num_heads.is_multiple_of(config.num_kv_heads) {
@@ -707,18 +792,26 @@ impl ValidatedModelConfig {
 
     // -- Derived getters --
 
-    /// Dimension per attention head (`hidden_dim / num_heads`).
+    /// Per-head dimension for Q/K projections.
     ///
-    /// Safe because validation guarantees `hidden_dim % num_heads == 0`.
+    /// From GGUF metadata `{arch}.attention.key_length`, or `hidden_dim / num_heads`.
     #[must_use]
     pub fn head_dim(&self) -> usize {
-        self.inner.hidden_dim / self.inner.num_heads
+        self.inner.head_dim()
+    }
+
+    /// Total Q projection dimension (`num_heads * head_dim`).
+    ///
+    /// May differ from `hidden_dim` (e.g., Qwen3-0.6B: q_dim=2048, hidden_dim=1024).
+    #[must_use]
+    pub fn q_dim(&self) -> usize {
+        self.inner.q_dim()
     }
 
     /// Total KV dimension (`num_kv_heads * head_dim`).
     #[must_use]
     pub fn kv_dim(&self) -> usize {
-        self.inner.num_kv_heads * self.head_dim()
+        self.inner.kv_dim()
     }
 
     /// Borrow the inner `GGUFConfig` (backward compatibility escape hatch).

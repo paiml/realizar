@@ -28,6 +28,7 @@ fn test_config() -> GGUFConfig {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     }
 }
@@ -43,10 +44,11 @@ fn test_inference_scratch_buffer_from_config() {
 
     assert_eq!(buf.hidden.len(), 256);
     assert_eq!(buf.normed.len(), 256);
-    assert_eq!(buf.qkv.len(), 256 * 3);
+    // GQA: q_dim=256 (8 heads * 32), kv_dim=128 (4 heads * 32), qkv=256+128+128=512
+    assert_eq!(buf.qkv.len(), 512);
     assert_eq!(buf.q.len(), 256);
-    assert_eq!(buf.k.len(), 256);
-    assert_eq!(buf.v.len(), 256);
+    assert_eq!(buf.k.len(), 128);
+    assert_eq!(buf.v.len(), 128);
     assert_eq!(buf.attn_out.len(), 256);
     assert_eq!(buf.attn_proj.len(), 256);
     assert_eq!(buf.ffn_up.len(), 512);
@@ -86,6 +88,7 @@ fn test_inference_scratch_buffer_q8k_padding() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
     let buf = InferenceScratchBuffer::from_config(&config);

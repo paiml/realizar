@@ -129,6 +129,7 @@ fn test_from_gguf_transformer_preserves_layer_biases() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -197,6 +198,7 @@ fn test_from_gguf_transformer_no_biases() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -257,6 +259,7 @@ fn test_from_gguf_transformer_multi_layer() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 

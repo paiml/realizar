@@ -438,6 +438,36 @@ impl GGUFModel {
         }
     }
 
+    /// Get attention key length (head dimension) from metadata.
+    ///
+    /// This is the per-head dimension for Q/K projections. For most models
+    /// this equals `hidden_dim / num_heads`, but Qwen3-0.6B has `head_dim=128`
+    /// while `hidden_dim=1024` and `num_heads=16` (so `q_dim=2048 ≠ hidden_dim`).
+    ///
+    /// GGUF key: `{arch}.attention.key_length`
+    pub fn key_length(&self) -> Option<usize> {
+        let arch = self.architecture()?;
+        let key = format!("{}.attention.key_length", arch);
+        if let Some(GGUFValue::UInt32(len)) = self.metadata.get(&key) {
+            Some(*len as usize)
+        } else {
+            None
+        }
+    }
+
+    /// Get attention value length (value head dimension) from metadata.
+    ///
+    /// GGUF key: `{arch}.attention.value_length`
+    pub fn value_length(&self) -> Option<usize> {
+        let arch = self.architecture()?;
+        let key = format!("{}.attention.value_length", arch);
+        if let Some(GGUFValue::UInt32(len)) = self.metadata.get(&key) {
+            Some(*len as usize)
+        } else {
+            None
+        }
+    }
+
     /// Get RoPE frequency base from metadata
     /// Different models use different bases (LLaMA: 10000, Qwen2: 1000000)
     pub fn rope_freq_base(&self) -> Option<f32> {
