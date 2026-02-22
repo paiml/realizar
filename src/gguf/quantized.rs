@@ -313,7 +313,9 @@ impl OwnedQuantizedLayer {
             attn_output_weight: OwnedQuantizedTensor::from_ref_with_dims(
                 &layer.attn_output_weight,
                 data,
-                hidden_dim,
+                // GH-307: Gemma-2 has q_dim (2048) != hidden_dim (2304) due to
+                // non-standard head_dim. attn_output projects from q_dim to hidden_dim.
+                config.q_dim(),
                 hidden_dim,
             ),
             attn_output_bias: layer.attn_output_bias.clone(),
