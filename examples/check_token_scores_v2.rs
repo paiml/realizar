@@ -62,13 +62,13 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
-    let intermediate_dim = model.config.intermediate_dim;
-    let num_heads = model.config.num_heads;
-    let num_kv_heads = model.config.num_kv_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let intermediate_dim = model.config().intermediate_dim;
+    let num_heads = model.config().num_heads;
+    let num_kv_heads = model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
-    let eps = model.config.eps;
-    let rope_theta = model.config.rope_theta;
+    let eps = model.config().eps;
+    let rope_theta = model.config().rope_theta;
 
     println!("=== Token Score Check v2 (with BOS + RoPE) ===\n");
     println!("Tokens: [1 (BOS), 450 (The)]");
@@ -82,7 +82,7 @@ fn main() {
         .iter()
         .map(|&tid| {
             let start = tid as usize * hidden_dim;
-            model.token_embedding[start..start + hidden_dim].to_vec()
+            model.token_embedding()[start..start + hidden_dim].to_vec()
         })
         .collect();
 
@@ -91,8 +91,8 @@ fn main() {
     println!("  Token 450 (The) L2: {:.4}", l2_norm(&hiddens[1]));
 
     // Process all layers
-    for layer_idx in 0..model.config.num_layers {
-        let layer = &model.layers[layer_idx];
+    for layer_idx in 0..model.config().num_layers {
+        let layer = &model.layers()[layer_idx];
 
         // Store KV cache for this layer
         let mut k_cache: Vec<Vec<f32>> = Vec::new();
@@ -226,7 +226,7 @@ fn main() {
     }
 
     // Final norm and LM head for the last token (450)
-    let final_hidden = rms_norm(&hiddens[1], &model.output_norm_weight, eps);
+    let final_hidden = rms_norm(&hiddens[1], &model.output_norm_weight(), eps);
     println!(
         "\nFinal hidden (token 450) L2: {:.4}",
         l2_norm(&final_hidden)
@@ -234,10 +234,10 @@ fn main() {
 
     let logits = fused_matmul(
         &final_hidden,
-        &model.lm_head_weight.data,
-        model.lm_head_weight.qtype,
-        model.lm_head_weight.in_dim,
-        model.lm_head_weight.out_dim,
+        &model.lm_head_weight().data,
+        model.lm_head_weight().qtype,
+        model.lm_head_weight().in_dim,
+        model.lm_head_weight().out_dim,
     );
     println!("Logits L2: {:.4}", l2_norm(&logits));
 

@@ -12,7 +12,7 @@ fn main() {
     println!("FFN Gate/Up weight statistics per layer:\n");
 
     for layer_idx in 0..5 {
-        let layer = &model.layers[layer_idx];
+        let layer = &model.layers()[layer_idx];
 
         if let Some(ref gate) = layer.ffn_gate_weight {
             // Get first superblock (256 values)

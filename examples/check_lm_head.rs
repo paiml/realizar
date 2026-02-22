@@ -9,12 +9,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("=== LM Head Check ===\n");
 
-    let hidden_dim = model.config.hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
 
     println!("LM head weight:");
-    println!("  qtype: {}", model.lm_head_weight.qtype);
-    println!("  in_dim: {}", model.lm_head_weight.in_dim);
-    println!("  out_dim: {}", model.lm_head_weight.out_dim);
+    println!("  qtype: {}", model.lm_head_weight().qtype);
+    println!("  in_dim: {}", model.lm_head_weight().in_dim);
+    println!("  out_dim: {}", model.lm_head_weight().out_dim);
 
     // For Q8_0, let's verify that dequantized weights make sense
     // Q8_0 format: blocks of 32 values, each block has:
@@ -22,39 +22,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // - 32 bytes int8 quantized values
     // Total: 34 bytes per block
 
-    let num_blocks_per_row = model.lm_head_weight.in_dim.div_ceil(32);
+    let num_blocks_per_row = model.lm_head_weight().in_dim.div_ceil(32);
     let bytes_per_row = num_blocks_per_row * 34;
 
     println!("  Q8_0 blocks per row: {}", num_blocks_per_row);
     println!("  Bytes per row: {}", bytes_per_row);
     println!(
         "  Expected total bytes: {}",
-        bytes_per_row * model.lm_head_weight.out_dim
+        bytes_per_row * model.lm_head_weight().out_dim
     );
-    println!("  Actual data len: {}", model.lm_head_weight.data.len());
+    println!("  Actual data len: {}", model.lm_head_weight().data.len());
 
     // Verify by dequantizing first row (token 0)
-    let mut dequant_row0 = vec![0.0f32; model.lm_head_weight.in_dim];
+    let mut dequant_row0 = vec![0.0f32; model.lm_head_weight().in_dim];
     for block_idx in 0..num_blocks_per_row {
         let block_offset = block_idx * 34;
         let scale_bytes = [
-            model.lm_head_weight.data[block_offset],
-            model.lm_head_weight.data[block_offset + 1],
+            model.lm_head_weight().data[block_offset],
+            model.lm_head_weight().data[block_offset + 1],
         ];
         let scale = half::f16::from_le_bytes(scale_bytes).to_f32();
 
         for i in 0..32 {
             let idx = block_idx * 32 + i;
-            if idx >= model.lm_head_weight.in_dim {
+            if idx >= model.lm_head_weight().in_dim {
                 break;
             }
-            let quant = model.lm_head_weight.data[block_offset + 2 + i] as i8;
+            let quant = model.lm_head_weight().data[block_offset + 2 + i] as i8;
             dequant_row0[idx] = scale * quant as f32;
         }
     }
 
     // Compare dequantized LM head row 0 with token embedding 0
-    let emb_0 = &model.token_embedding[0..hidden_dim];
+    let emb_0 = &model.token_embedding()[0..hidden_dim];
 
     println!("\n=== Comparing LM head row 0 with token 0 embedding ===");
     println!("Dequant LM head[0] first 8: {:?}", &dequant_row0[..8]);
@@ -94,7 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Manual logit[0] (dot with emb): {:.4}", manual_logit_0);
 
     // Check logit[19] ("4") as well
-    let emb_19 = &model.token_embedding[19 * hidden_dim..20 * hidden_dim];
+    let emb_19 = &model.token_embedding()[19 * hidden_dim..20 * hidden_dim];
     let manual_logit_19: f32 = test_normalized
         .iter()
         .zip(emb_19.iter())
@@ -132,7 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .find(|(_, s)| s.as_str() == d.to_string())
             .map(|(i, _)| i);
         if let Some(tok_id) = tok_id {
-            let emb = &model.token_embedding[tok_id * hidden_dim..(tok_id + 1) * hidden_dim];
+            let emb = &model.token_embedding()[tok_id * hidden_dim..(tok_id + 1) * hidden_dim];
             let sum: f32 = emb.iter().sum();
             let abs_sum: f32 = emb.iter().map(|x| x.abs()).sum();
             let pos = emb.iter().filter(|&&x| x > 0.0).count();

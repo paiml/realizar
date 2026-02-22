@@ -7,7 +7,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
     // Check first layer's FFN weight types
-    if let Some(layer) = model.layers.first() {
+    if let Some(layer) = model.layers().first() {
         println!(
             "FFN up weight qtype: {} (Q4_0=2, Q4_K=12, Q6_K=14)",
             layer.ffn_up_weight.qtype

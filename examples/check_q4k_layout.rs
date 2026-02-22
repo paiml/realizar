@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .attn_output_weight
         .as_ref()
         .expect("No APR Q4K attn_output");
-    let gguf_attn_out = &gguf_model.layers[0].attn_output_weight;
+    let gguf_attn_out = &gguf_model.layers()[0].attn_output_weight;
 
     println!("\n=== attn_output Q4K bytes ===");
     println!("APR bytes: {}", apr_attn_out.len());

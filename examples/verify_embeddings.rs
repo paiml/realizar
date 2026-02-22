@@ -6,14 +6,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
 
     println!("Verifying embeddings (hidden_dim={}):\n", hidden_dim);
 
     // Check embeddings for tokens 0-5
     for tok in 0..5 {
         let start = tok * hidden_dim;
-        let emb = &model.token_embedding[start..start + hidden_dim];
+        let emb = &model.token_embedding()[start..start + hidden_dim];
 
         let norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
         let sum: f32 = emb.iter().sum();
@@ -32,8 +32,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for tok in 0..4 {
         let start1 = tok * hidden_dim;
         let start2 = (tok + 1) * hidden_dim;
-        let emb1 = &model.token_embedding[start1..start1 + hidden_dim];
-        let emb2 = &model.token_embedding[start2..start2 + hidden_dim];
+        let emb1 = &model.token_embedding()[start1..start1 + hidden_dim];
+        let emb2 = &model.token_embedding()[start2..start2 + hidden_dim];
 
         let dot: f32 = emb1.iter().zip(emb2.iter()).map(|(a, b)| a * b).sum();
         let norm1: f32 = emb1.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check token embedding vs LM head weight for token 0
     // Since weights are tied, they should be identical (or very similar after quantization)
     println!("\nComparing token_embd vs lm_head for token 0:");
-    let _tok0_emb = &model.token_embedding[0..hidden_dim];
+    let _tok0_emb = &model.token_embedding()[0..hidden_dim];
 
     // Note: lm_head is quantized, so we can't easily compare
     // But we can verify by checking forward pass behavior

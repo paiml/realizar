@@ -18,10 +18,10 @@ fn main() {
     println!("Load time: {:.2?}", load_time);
     println!(
         "Config: {} layers, {} hidden, {} heads, {} kv_heads",
-        model.config.num_layers,
-        model.config.hidden_dim,
-        model.config.num_heads,
-        model.config.num_kv_heads
+        model.config().num_layers,
+        model.config().hidden_dim,
+        model.config().num_heads,
+        model.config().num_kv_heads
     );
     println!();
 
@@ -33,8 +33,8 @@ fn main() {
     // Create KV cache with GQA-aware dimensions
     let max_seq_len = 256;
     let mut cache = OwnedQuantizedKVCache::new(
-        model.config.num_layers,
-        model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads),
+        model.config().num_layers,
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads),
         max_seq_len,
     );
 
@@ -62,8 +62,8 @@ fn main() {
 
     // Reset cache and re-prefill for clean benchmark
     cache = OwnedQuantizedKVCache::new(
-        model.config.num_layers,
-        model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads),
+        model.config().num_layers,
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads),
         max_seq_len,
     );
 

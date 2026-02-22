@@ -28,11 +28,11 @@ fn run_q6k_row_test() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = cpu_model.config.hidden_dim;
-    let vocab_size = cpu_model.config.vocab_size;
-    let num_layers = cpu_model.config.num_layers;
-    let num_kv_heads = cpu_model.config.num_kv_heads;
-    let head_dim = hidden_dim / cpu_model.config.num_heads;
+    let hidden_dim = cpu_model.config().hidden_dim;
+    let vocab_size = cpu_model.config().vocab_size;
+    let num_layers = cpu_model.config().num_layers;
+    let num_kv_heads = cpu_model.config().num_kv_heads;
+    let head_dim = hidden_dim / cpu_model.config().num_heads;
     let kv_dim = num_kv_heads * head_dim;
 
     eprintln!("=== Q6K Single Row Test ===");
@@ -46,7 +46,7 @@ fn run_q6k_row_test() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("Bytes per row: {}", bytes_per_row);
     eprintln!(
         "LM head weight length: {}",
-        cpu_model.lm_head_weight.data.len()
+        cpu_model.lm_head_weight().data.len()
     );
     eprintln!(
         "Expected: {} (vocab_size * bytes_per_row)",
@@ -63,7 +63,7 @@ fn run_q6k_row_test() -> Result<(), Box<dyn std::error::Error>> {
     let test_rows: &[usize] = &[0, 1, 16, 100, 1000, 10000, 50000, 74403, 74404, 100000];
 
     eprintln!("\n=== CPU Q6K Dot Product per Row ===");
-    let lm_head_data = &cpu_model.lm_head_weight.data;
+    let lm_head_data = &cpu_model.lm_head_weight().data;
 
     for &row in test_rows {
         if row >= vocab_size {

@@ -47,13 +47,13 @@ fn main() {
     println!("Model configs:");
     println!(
         "  Target (1.5B): vocab={}, hidden={}",
-        target_cuda.model().config.vocab_size,
-        target_cuda.model().config.hidden_dim
+        target_cuda.model().config().vocab_size,
+        target_cuda.model().config().hidden_dim
     );
     println!(
         "  Draft (0.5B):  vocab={}, hidden={}",
-        draft_cuda.model().config.vocab_size,
-        draft_cuda.model().config.hidden_dim
+        draft_cuda.model().config().vocab_size,
+        draft_cuda.model().config().hidden_dim
     );
     println!();
 

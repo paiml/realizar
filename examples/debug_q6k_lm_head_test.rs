@@ -15,8 +15,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = cpu_model.config.hidden_dim;
-    let vocab_size = cpu_model.config.vocab_size;
+    let hidden_dim = cpu_model.config().hidden_dim;
+    let vocab_size = cpu_model.config().vocab_size;
 
     eprintln!(
         "Model config: hidden_dim={}, vocab_size={}",
@@ -24,8 +24,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     eprintln!(
         "LM head: qtype={}, data_len={}",
-        cpu_model.lm_head_weight.qtype,
-        cpu_model.lm_head_weight.data.len()
+        cpu_model.lm_head_weight().qtype,
+        cpu_model.lm_head_weight().data.len()
     );
 
     // Create synthetic input (simple pattern for easier debugging)
@@ -52,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // CPU reference: compute LM head with test input
     eprintln!("\n=== CPU Reference (fused_q6k_parallel_matvec) ===");
     let cpu_logits = fused_q6k_parallel_matvec(
-        &cpu_model.lm_head_weight.data,
+        &cpu_model.lm_head_weight().data,
         &input_test,
         hidden_dim,
         vocab_size,
@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Actually, let's verify the data is uploaded correctly first
     // Check the raw weight bytes match
-    let lm_data_cpu = &cpu_model.lm_head_weight.data;
+    let lm_data_cpu = &cpu_model.lm_head_weight().data;
     eprintln!("LM head raw data first 40 bytes: {:?}", &lm_data_cpu[..40]);
     eprintln!(
         "LM head raw data last 40 bytes: {:?}",
@@ -126,9 +126,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Since we can't directly call the LM head kernel, let's run a forward pass
     // and compare the logits output
-    let kv_dim = cpu_model.config.num_kv_heads * (hidden_dim / cpu_model.config.num_heads);
+    let kv_dim = cpu_model.config().num_kv_heads * (hidden_dim / cpu_model.config().num_heads);
     let mut gpu_cache =
-        realizar::gguf::OwnedQuantizedKVCache::new(cpu_model.config.num_layers, kv_dim, 64);
+        realizar::gguf::OwnedQuantizedKVCache::new(cpu_model.config().num_layers, kv_dim, 64);
 
     // Enable debug
     std::env::set_var("GPU_DEBUG", "1");
@@ -150,7 +150,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Also run CPU forward for comparison
     let mut cpu_cache =
-        realizar::gguf::OwnedQuantizedKVCache::new(cpu_model.config.num_layers, kv_dim, 64);
+        realizar::gguf::OwnedQuantizedKVCache::new(cpu_model.config().num_layers, kv_dim, 64);
     let cpu_forward_logits = cpu_model.forward_single_with_cache(test_token, &mut cpu_cache, 0)?;
     let cpu_forward_sum: f32 = cpu_forward_logits.iter().sum();
     let cpu_forward_argmax = cpu_forward_logits

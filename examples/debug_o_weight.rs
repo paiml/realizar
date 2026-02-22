@@ -36,17 +36,17 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let eps = model.config().eps;
 
     println!("=== O Weight Debug ===\n");
 
     // Token 450 = "▁The"
     let token_id = 450u32;
     let start = token_id as usize * hidden_dim;
-    let embedding: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let embedding: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let normed = rms_norm(&embedding, &layer.attn_norm_weight, eps);
 
     // V projection
@@ -64,10 +64,10 @@ fn main() {
     println!("V L2: {:.4}", l2_norm(&v));
 
     // GQA expansion
-    let head_dim = hidden_dim / model.config.num_heads;
-    let group_size = model.config.num_heads / model.config.num_kv_heads;
+    let head_dim = hidden_dim / model.config().num_heads;
+    let group_size = model.config().num_heads / model.config().num_kv_heads;
     let mut attn_out = Vec::with_capacity(hidden_dim);
-    for h in 0..model.config.num_heads {
+    for h in 0..model.config().num_heads {
         let kv_head = h / group_size;
         let start = kv_head * head_dim;
         attn_out.extend_from_slice(&v[start..start + head_dim]);

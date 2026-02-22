@@ -17,15 +17,17 @@ fn main() {
     println!("=== PAR-001: Trace All Layers ===\n");
     println!(
         "Model: {} layers, hidden_dim={}",
-        model.config.num_layers, model.config.hidden_dim
+        model.config().num_layers,
+        model.config().hidden_dim
     );
 
     // We need to instrument the forward pass to trace intermediate states
     // Since we can't easily modify the model's forward, let's check the logits distribution
     // to see if there's a pattern
 
-    let kv_dim = model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);
-    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 128);
+    let kv_dim =
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads);
+    let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 128);
 
     // Test with BOS token
     let bos = 1u32;

@@ -10,15 +10,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== TinyLlama Test ===\n");
     println!("Config:");
     println!("  architecture: {:?}", mapped.model.architecture());
-    println!("  hidden_dim: {}", model.config.hidden_dim);
-    println!("  num_layers: {}", model.config.num_layers);
-    println!("  num_heads: {}", model.config.num_heads);
-    println!("  num_kv_heads: {}", model.config.num_kv_heads);
+    println!("  hidden_dim: {}", model.config().hidden_dim);
+    println!("  num_layers: {}", model.config().num_layers);
+    println!("  num_heads: {}", model.config().num_heads);
+    println!("  num_kv_heads: {}", model.config().num_kv_heads);
     println!(
         "  rope_type: {} (expected 0 for NORM)",
-        model.config.rope_type
+        model.config().rope_type
     );
-    println!("  eps: {:.1e}", model.config.eps);
+    println!("  eps: {:.1e}", model.config().eps);
 
     // TinyLlama BOS token is 1
     let bos = 1u32;

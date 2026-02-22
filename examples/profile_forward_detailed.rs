@@ -16,11 +16,11 @@ fn main() -> Result<(), RealizarError> {
     println!("=== PAR-126 Detailed Forward Pass Profiler ===\n");
     println!(
         "Model: {} layers, hidden={}, intermediate={}, heads={}, kv_heads={}",
-        model.config.num_layers,
-        model.config.hidden_dim,
-        model.config.intermediate_dim,
-        model.config.num_heads,
-        model.config.num_kv_heads
+        model.config().num_layers,
+        model.config().hidden_dim,
+        model.config().intermediate_dim,
+        model.config().num_heads,
+        model.config().num_kv_heads
     );
 
     // Warmup
@@ -67,9 +67,9 @@ fn main() -> Result<(), RealizarError> {
     println!("Throughput:       {:.1} tok/s", tok_per_s);
 
     // Calculate expected breakdown
-    let num_layers = model.config.num_layers;
-    let _hidden_dim = model.config.hidden_dim;
-    let _intermediate_dim = model.config.intermediate_dim;
+    let num_layers = model.config().num_layers;
+    let _hidden_dim = model.config().hidden_dim;
+    let _intermediate_dim = model.config().intermediate_dim;
 
     // Based on profiling data from v4.94.0:
     // - Per-layer matmul: 577 µs (Q4_K + Q6_K SIMD)

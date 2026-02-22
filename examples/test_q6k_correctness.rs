@@ -17,7 +17,7 @@ fn main() {
     let cpu_model = OwnedQuantizedModel::from_mapped(&mapped).expect("cpu model");
 
     // Get layer 0 FFN down weight (Q6K)
-    let layer0 = &cpu_model.layers[0];
+    let layer0 = &cpu_model.layers()[0];
     let down_weight = &layer0.ffn_down_weight;
 
     println!("\nFFN down_proj weight:");

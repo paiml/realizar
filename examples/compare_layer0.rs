@@ -21,18 +21,18 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(&path).expect("Failed to load");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to parse");
 
-    let hidden_dim = model.config.hidden_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let eps = model.config().eps;
 
     // Token 791
     let token_id = 791u32;
     let start = token_id as usize * hidden_dim;
-    let embedding: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let embedding: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
     println!("=== CPU Layer 0 Trace ===");
     println!("Embedding first 5: {:?}", &embedding[..5]);
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
 
     // RMSNorm
     let normed = rms_norm(&embedding, &layer.attn_norm_weight, eps);
@@ -90,10 +90,10 @@ fn main() {
     println!("V first 5: {:?}", &v[..5]);
 
     // Single-token attention: output = V (softmax(single element) = 1.0)
-    let head_dim = hidden_dim / model.config.num_heads;
-    let group_size = model.config.num_heads / model.config.num_kv_heads;
+    let head_dim = hidden_dim / model.config().num_heads;
+    let group_size = model.config().num_heads / model.config().num_kv_heads;
     let mut attn_out = Vec::with_capacity(hidden_dim);
-    for h in 0..model.config.num_heads {
+    for h in 0..model.config().num_heads {
         let kv_head = h / group_size;
         let kv_start = kv_head * head_dim;
         attn_out.extend_from_slice(&v[kv_start..kv_start + head_dim]);

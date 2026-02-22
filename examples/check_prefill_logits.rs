@@ -18,9 +18,9 @@ Hello<|im_end|>
     let prompt_tokens = mapped.model.encode(chat_prompt).expect("encode");
     eprintln!("Prompt: {} tokens", prompt_tokens.len());
 
-    let head_dim = model.config.hidden_dim / model.config.num_heads;
-    let kv_dim = model.config.num_kv_heads * head_dim;
-    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 64);
+    let head_dim = model.config().hidden_dim / model.config().num_heads;
+    let kv_dim = model.config().num_kv_heads * head_dim;
+    let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 64);
 
     // Process all prompt tokens
     let mut logits = Vec::new();

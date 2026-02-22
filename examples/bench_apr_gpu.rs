@@ -64,9 +64,9 @@ fn main() {
     };
     let convert_time = start.elapsed();
     println!("  Convert time: {:.3}s", convert_time.as_secs_f64());
-    println!("  Layers: {}", model.config.num_layers);
-    println!("  Hidden dim: {}", model.config.hidden_dim);
-    println!("  Vocab size: {}", model.config.vocab_size);
+    println!("  Layers: {}", model.config().num_layers);
+    println!("  Hidden dim: {}", model.config().hidden_dim);
+    println!("  Vocab size: {}", model.config().vocab_size);
     println!();
 
     // Create CUDA model
@@ -108,11 +108,11 @@ fn main() {
         .unwrap_or(8usize);
     let num_iterations = 50;
 
-    let hidden_dim = cuda_model.model().config.hidden_dim;
-    let intermediate_dim = cuda_model.model().layers[0].ffn_up_weight.out_dim;
+    let hidden_dim = cuda_model.model().config().hidden_dim;
+    let intermediate_dim = cuda_model.model().layers()[0].ffn_up_weight.out_dim;
     let num_layers = cuda_model.model().layers.len();
-    let vocab_size = cuda_model.model().config.vocab_size as u32;
-    let eps = cuda_model.model().config.eps;
+    let vocab_size = cuda_model.model().config().vocab_size as u32;
+    let eps = cuda_model.model().config().eps;
 
     println!("═══════════════════════════════════════════════════════════════");
     println!("  Batched GPU Inference (M={})", batch_size);

@@ -28,8 +28,8 @@ fn main() {
 
     let token_id = 151644u32; // <|im_start|>
     let input = model.embed(&[token_id]);
-    let layer = &model.layers[0];
-    let normed = rms_norm(&input, &layer.attn_norm_weight, model.config.eps);
+    let layer = &model.layers()[0];
+    let normed = rms_norm(&input, &layer.attn_norm_weight, model.config().eps);
 
     let mut qkv = model.qkv_matmul(&normed, &layer.qkv_weight).expect("qkv");
 
@@ -66,8 +66,8 @@ fn main() {
     if let Ok(mapped2) = MappedGGUFModel::from_path(tinyllama_path) {
         let model2 = OwnedQuantizedModel::from_mapped(&mapped2).expect("model");
         let input2 = model2.embed(&[1u32]); // BOS token
-        let layer2 = &model2.layers[0];
-        let normed2 = rms_norm(&input2, &layer2.attn_norm_weight, model2.config.eps);
+        let layer2 = &model2.layers()[0];
+        let normed2 = rms_norm(&input2, &layer2.attn_norm_weight, model2.config().eps);
         let qkv2 = model2
             .qkv_matmul(&normed2, &layer2.qkv_weight)
             .expect("qkv");

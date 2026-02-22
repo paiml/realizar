@@ -9,9 +9,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("=== Final Hidden State Analysis ===\n");
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_layers = model.layers.len();
-    let _eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let num_layers = model.layers().len();
+    let _eps = model.config().eps;
 
     println!("Model: {} layers, {} hidden_dim", num_layers, hidden_dim);
 
@@ -36,13 +36,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // have high dot product with token 0 embedding in multi-token case?
 
     println!("\n=== LM Head Analysis ===");
-    println!("LM head weight type: {}", model.lm_head_weight.qtype);
-    println!("LM head in_dim: {}", model.lm_head_weight.in_dim);
-    println!("LM head out_dim: {}", model.lm_head_weight.out_dim);
+    println!("LM head weight type: {}", model.lm_head_weight().qtype);
+    println!("LM head in_dim: {}", model.lm_head_weight().in_dim);
+    println!("LM head out_dim: {}", model.lm_head_weight().out_dim);
 
     // Check token 0 vs token 19 ("4") embeddings
-    let emb_0 = &model.token_embedding[0..hidden_dim];
-    let emb_19 = &model.token_embedding[19 * hidden_dim..20 * hidden_dim];
+    let emb_0 = &model.token_embedding()[0..hidden_dim];
+    let emb_19 = &model.token_embedding()[19 * hidden_dim..20 * hidden_dim];
 
     let emb_0_norm: f32 = emb_0.iter().map(|x| x * x).sum::<f32>().sqrt();
     let emb_19_norm: f32 = emb_19.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -77,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // If lm_head_weight is Q8_0 quantized, it's dequantized then dot product computed
 
     // Let me check if there's a bias in the LM head
-    if let Some(ref bias) = model.lm_head_bias {
+    if let Some(ref bias) = model.lm_head_bias() {
         println!("\nLM head has bias!");
         println!("  Bias[0] ('!'): {:.4}", bias[0]);
         println!("  Bias[19] ('4'): {:.4}", bias[19]);

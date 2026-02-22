@@ -6,12 +6,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads;
     let head_dim = hidden_dim / num_heads;
     let half_dim = head_dim / 2;
-    let rope_theta = model.config.rope_theta;
-    let rope_type = model.config.rope_type;
+    let rope_theta = model.config().rope_theta;
+    let rope_type = model.config().rope_type;
 
     println!(
         "rope_theta={}, rope_type={}, head_dim={}, half_dim={}",

@@ -9,7 +9,7 @@ fn main() -> Result<(), RealizarError> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let weight = &layer.ffn_down_weight;
 
     println!("FFN down weight:");

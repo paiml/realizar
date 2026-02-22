@@ -11,12 +11,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
         println!("TinyLlama:");
-        println!("  hidden_dim: {}", model.config.hidden_dim);
-        println!("  num_heads: {}", model.config.num_heads);
-        println!("  num_kv_heads: {}", model.config.num_kv_heads);
-        println!("  rope_type: {}", model.config.rope_type);
+        println!("  hidden_dim: {}", model.config().hidden_dim);
+        println!("  num_heads: {}", model.config().num_heads);
+        println!("  num_kv_heads: {}", model.config().num_kv_heads);
+        println!("  rope_type: {}", model.config().rope_type);
 
-        let layer0 = &model.layers[0];
+        let layer0 = &model.layers()[0];
         match &layer0.qkv_weight {
             OwnedQKVWeights::Fused(tensor) => {
                 println!(
@@ -48,12 +48,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(qwen_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    println!("  hidden_dim: {}", model.config.hidden_dim);
-    println!("  num_heads: {}", model.config.num_heads);
-    println!("  num_kv_heads: {}", model.config.num_kv_heads);
-    println!("  rope_type: {}", model.config.rope_type);
+    println!("  hidden_dim: {}", model.config().hidden_dim);
+    println!("  num_heads: {}", model.config().num_heads);
+    println!("  num_kv_heads: {}", model.config().num_kv_heads);
+    println!("  rope_type: {}", model.config().rope_type);
 
-    let layer0 = &model.layers[0];
+    let layer0 = &model.layers()[0];
     match &layer0.qkv_weight {
         OwnedQKVWeights::Fused(tensor) => {
             println!(
@@ -80,8 +80,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(ref bias) = layer0.qkv_bias {
         let norm: f32 = bias.iter().map(|x| x * x).sum::<f32>().sqrt();
-        let q_dim = model.config.num_heads * (model.config.hidden_dim / model.config.num_heads);
-        let kv_dim = model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);
+        let q_dim =
+            model.config().num_heads * (model.config().hidden_dim / model.config().num_heads);
+        let kv_dim =
+            model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads);
 
         println!("  QKV bias: len={}, norm={:.4}", bias.len(), norm);
         println!(

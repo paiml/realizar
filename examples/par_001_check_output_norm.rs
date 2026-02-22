@@ -18,7 +18,7 @@ fn main() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     println!("Output norm weight:");
-    let norm_weight = &model.output_norm_weight;
+    let norm_weight = &model.output_norm_weight();
     println!("  length: {}", norm_weight.len());
     println!("  L2: {:.4}", l2_norm(norm_weight));
     println!(
@@ -55,7 +55,7 @@ fn main() {
 
     // Compare with layer 0 attn norm
     println!("\nLayer 0 attention norm weight:");
-    let attn_norm = &model.layers[0].attn_norm_weight;
+    let attn_norm = &model.layers()[0].attn_norm_weight;
     println!("  L2: {:.4}", l2_norm(attn_norm));
     println!(
         "  min: {:.4}",
@@ -70,7 +70,7 @@ fn main() {
     // Test RMSNorm on various inputs
     println!("\n=== RMSNorm behavior ===");
 
-    let eps = model.config.eps;
+    let eps = model.config().eps;
 
     // Test 1: Embedding of "Once"
     let emb = model.embed(&[26222]);

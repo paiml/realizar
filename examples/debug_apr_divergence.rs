@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Compare RMSNorm weights
     println!("\n=== Comparing RMSNorm weights (layer 0) ===");
     let apr_ln_w = &apr_model.layers[0].attn_norm_weight;
-    let gguf_ln_w = &gguf_model.layers[0].attn_norm_weight;
+    let gguf_ln_w = &gguf_model.layers()[0].attn_norm_weight;
     println!("APR attn_norm first 10: {:?}", &apr_ln_w[..10]);
     println!("GGUF attn_norm first 10: {:?}", &gguf_ln_w[..10]);
     println!(
@@ -70,7 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Compare FFN norm weights
     if let (Some(ref apr_ffn_ln_w), Some(ref gguf_ffn_ln_w)) = (
         &apr_model.layers[0].ffn_norm_weight,
-        &gguf_model.layers[0].ffn_norm_weight,
+        &gguf_model.layers()[0].ffn_norm_weight,
     ) {
         println!("\nAPR ffn_norm first 10: {:?}", &apr_ffn_ln_w[..10]);
         println!("GGUF ffn_norm first 10: {:?}", &gguf_ffn_ln_w[..10]);
@@ -99,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Compare ffn_gate Q4K bytes
         if let Some(ref apr_gate_q4k) = q4k_layer0.ffn_gate_weight {
-            if let Some(ref gguf_gate_q4k) = gguf_model.layers[0].ffn_gate_weight {
+            if let Some(ref gguf_gate_q4k) = gguf_model.layers()[0].ffn_gate_weight {
                 let mismatches: usize = apr_gate_q4k
                     .iter()
                     .zip(gguf_gate_q4k.data.iter())
@@ -120,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("APR lm_head first 10: {:?}", &apr_lm_w[..10]);
 
     // GGUF lm_head
-    let gguf_lm_w = &gguf_model.lm_head_weight.data;
+    let gguf_lm_w = &gguf_model.lm_head_weight().data;
     println!("GGUF lm_head_weight bytes: {}", gguf_lm_w.len());
 
     Ok(())

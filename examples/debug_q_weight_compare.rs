@@ -9,7 +9,7 @@ fn main() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     // Get Q weight
-    let q_weight = match &model.layers[0].qkv_weight {
+    let q_weight = match &model.layers()[0].qkv_weight {
         OwnedQKVWeights::Separate { q, .. } => q,
         _ => panic!("Expected separate"),
     };

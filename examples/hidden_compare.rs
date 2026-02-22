@@ -22,11 +22,11 @@ fn silu(x: f32) -> f32 {
 }
 
 fn cpu_layer_forward(hidden: &mut [f32], model: &OwnedQuantizedModel, layer_idx: usize) {
-    let layer = &model.layers[layer_idx];
-    let hidden_dim = model.config.hidden_dim;
-    let eps = model.config.eps;
-    let num_heads = model.config.num_heads;
-    let num_kv_heads = model.config.num_kv_heads;
+    let layer = &model.layers()[layer_idx];
+    let hidden_dim = model.config().hidden_dim;
+    let eps = model.config().eps;
+    let num_heads = model.config().num_heads;
+    let num_kv_heads = model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
 
     // RMSNorm
@@ -114,12 +114,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
     let test_token: u32 = 791;
-    let hidden_dim = model.config.hidden_dim;
-    let num_layers = model.config.num_layers;
+    let hidden_dim = model.config().hidden_dim;
+    let num_layers = model.config().num_layers;
 
     // CPU: layer by layer with our simplified forward
     let start = test_token as usize * hidden_dim;
-    let mut cpu_hidden: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let mut cpu_hidden: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
     for layer_idx in 0..num_layers {
         cpu_layer_forward(&mut cpu_hidden, &model, layer_idx);
@@ -138,7 +138,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cuda_model = OwnedQuantizedModelCuda::new(gpu_model, 0)?;
     cuda_model.preload_weights_gpu()?;
 
-    let kv_dim = model.config.num_kv_heads * (hidden_dim / model.config.num_heads);
+    let kv_dim = model.config().num_kv_heads * (hidden_dim / model.config().num_heads);
     let mut gpu_cache = OwnedQuantizedKVCache::new(num_layers, kv_dim, 64);
     let _gpu_logits = cuda_model.forward_gpu_resident(test_token, &mut gpu_cache, 0)?;
 

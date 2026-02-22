@@ -35,9 +35,9 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
-    let intermediate_dim = model.config.intermediate_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let intermediate_dim = model.config().intermediate_dim;
+    let eps = model.config().eps;
 
     println!("=== Layer 21 FFN Debug ===\n");
     println!(
@@ -48,11 +48,11 @@ fn main() {
     // Token 450 = "▁The"
     let token_id = 450u32;
     let start = token_id as usize * hidden_dim;
-    let mut hidden: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let mut hidden: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
     // Process layers 0-20 to get to layer 21 input
     for layer_idx in 0..21 {
-        let layer = &model.layers[layer_idx];
+        let layer = &model.layers()[layer_idx];
 
         // Attention
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
@@ -82,10 +82,10 @@ fn main() {
             v_weight.out_dim,
         );
 
-        let head_dim = hidden_dim / model.config.num_heads;
-        let group_size = model.config.num_heads / model.config.num_kv_heads;
+        let head_dim = hidden_dim / model.config().num_heads;
+        let group_size = model.config().num_heads / model.config().num_kv_heads;
         let mut attn_out = Vec::with_capacity(hidden_dim);
-        for h in 0..model.config.num_heads {
+        for h in 0..model.config().num_heads {
             let kv_head = h / group_size;
             let start = kv_head * head_dim;
             attn_out.extend_from_slice(&v[start..start + head_dim]);
@@ -150,7 +150,7 @@ fn main() {
     }
 
     // Now process layer 21 with detailed tracing
-    let layer = &model.layers[21];
+    let layer = &model.layers()[21];
     let hidden_before = hidden.clone();
 
     println!("\n=== Layer 21 Detailed Trace ===\n");
@@ -185,10 +185,10 @@ fn main() {
         v_weight.out_dim,
     );
 
-    let head_dim = hidden_dim / model.config.num_heads;
-    let group_size = model.config.num_heads / model.config.num_kv_heads;
+    let head_dim = hidden_dim / model.config().num_heads;
+    let group_size = model.config().num_heads / model.config().num_kv_heads;
     let mut attn_out = Vec::with_capacity(hidden_dim);
-    for h in 0..model.config.num_heads {
+    for h in 0..model.config().num_heads {
         let kv_head = h / group_size;
         let start = kv_head * head_dim;
         attn_out.extend_from_slice(&v[start..start + head_dim]);

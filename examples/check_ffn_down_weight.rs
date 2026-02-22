@@ -12,7 +12,7 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let down_weight = &model.layers[2].ffn_down_weight;
+    let down_weight = &model.layers()[2].ffn_down_weight;
 
     println!("FFN down weight (layer 2):");
     println!("  in_dim: {}", down_weight.in_dim);

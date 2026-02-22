@@ -38,8 +38,9 @@ fn main() {
         println!("  {} = '{}'", t, s);
     }
 
-    let kv_dim = model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);
-    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 128);
+    let kv_dim =
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads);
+    let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 128);
 
     // Process all tokens
     let mut logits = Vec::new();

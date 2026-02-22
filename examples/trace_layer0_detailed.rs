@@ -37,9 +37,9 @@ fn main() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
     let vocab = mapped.model.vocabulary().expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads;
-    let num_kv_heads = model.config.num_kv_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads;
+    let num_kv_heads = model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
     let kv_dim = num_kv_heads * head_dim;
 
@@ -73,9 +73,9 @@ fn main() {
     println!("   First 5: {:?}", &hidden[..5]);
 
     // Step 2: Attention norm (RMS)
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let sum_sq: f32 = hidden.iter().map(|x| x * x).sum();
-    let rms = (sum_sq / hidden_dim as f32 + model.config.eps).sqrt();
+    let rms = (sum_sq / hidden_dim as f32 + model.config().eps).sqrt();
     let inv_rms = 1.0 / rms;
     let normed: Vec<f32> = hidden
         .iter()
@@ -128,7 +128,7 @@ fn main() {
 
     // Step 4: Run a single forward pass to see final output
     println!("\n4. Full Forward Pass with KV Cache:");
-    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 256);
+    let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 256);
     let logits = model
         .forward_single_with_cache(token_id, &mut cache, 0)
         .expect("Forward failed");

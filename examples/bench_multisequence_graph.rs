@@ -54,10 +54,10 @@ fn main() {
     println!();
 
     // Create KV cache
-    let hidden_dim = cuda_model.model().config.hidden_dim;
+    let hidden_dim = cuda_model.model().config().hidden_dim;
     let num_layers = cuda_model.model().layers.len();
-    let kv_dim =
-        cuda_model.model().config.num_kv_heads * (hidden_dim / cuda_model.model().config.num_heads);
+    let kv_dim = cuda_model.model().config().num_kv_heads
+        * (hidden_dim / cuda_model.model().config().num_heads);
     let max_len = 2048;
 
     println!("═══════════════════════════════════════════════════════════════");

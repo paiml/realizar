@@ -30,17 +30,17 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
-    let intermediate_dim = model.config.intermediate_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let intermediate_dim = model.config().intermediate_dim;
+    let eps = model.config().eps;
 
     // Token 450
     let start = 450 * hidden_dim;
-    let mut hidden: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let mut hidden: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
     // Process all layers
-    for layer_idx in 0..model.config.num_layers {
-        let layer = &model.layers[layer_idx];
+    for layer_idx in 0..model.config().num_layers {
+        let layer = &model.layers()[layer_idx];
 
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
 
@@ -71,10 +71,10 @@ fn main() {
             v_weight.out_dim,
         );
 
-        let head_dim = hidden_dim / model.config.num_heads;
-        let group_size = model.config.num_heads / model.config.num_kv_heads;
+        let head_dim = hidden_dim / model.config().num_heads;
+        let group_size = model.config().num_heads / model.config().num_kv_heads;
         let mut attn_out = Vec::with_capacity(hidden_dim);
-        for h in 0..model.config.num_heads {
+        for h in 0..model.config().num_heads {
             let kv_head = h / group_size;
             let start = kv_head * head_dim;
             attn_out.extend_from_slice(&v[start..start + head_dim]);
@@ -143,7 +143,7 @@ fn main() {
     println!("  L2: 72.4048");
     println!("  First 5: [-0.488, -0.185, 1.411, -0.863, -0.380]");
 
-    let final_hidden = rms_norm(&hidden, &model.output_norm_weight, eps);
+    let final_hidden = rms_norm(&hidden, &model.output_norm_weight(), eps);
     println!("\nAfter final norm:");
     println!("  L2: {:.4}", l2_norm(&final_hidden));
 

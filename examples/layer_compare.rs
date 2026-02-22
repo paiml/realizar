@@ -10,13 +10,13 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(&path).expect("Failed to load");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to parse");
 
-    let hidden_dim = model.config.hidden_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let eps = model.config().eps;
 
     // Token 791 embedding
     let token_id = 791u32;
     let start = token_id as usize * hidden_dim;
-    let mut cpu_hidden: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let mut cpu_hidden: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
     // GPU outputs from the debug log
     let gpu_layer_outputs = [
@@ -34,7 +34,7 @@ fn main() {
 
     println!("CPU layer-by-layer processing (simplified):");
     for layer_idx in 0..10 {
-        let layer = &model.layers[layer_idx];
+        let layer = &model.layers()[layer_idx];
 
         // RMSNorm -> Q projection (simplified check)
         let normed = rms_norm(&cpu_hidden, &layer.attn_norm_weight, eps);

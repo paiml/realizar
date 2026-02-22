@@ -21,8 +21,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let token_id = 791u32;
     println!("\nToken ID: {}", token_id);
-    println!("Hidden dim: {}", model.config.hidden_dim);
-    println!("Num layers: {}", model.config.num_layers);
+    println!("Hidden dim: {}", model.config().hidden_dim);
+    println!("Num layers: {}", model.config().num_layers);
 
     // Get embedding
     let embedding = model.embed(&[token_id]);

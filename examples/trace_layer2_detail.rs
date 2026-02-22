@@ -27,16 +27,16 @@ fn main() {
     let path = "/tmp/parity-bench/tinyllama-1.1b-q4_k_m.gguf";
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
-    let hidden_dim = model.config.hidden_dim;
-    let intermediate_dim = model.config.intermediate_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let intermediate_dim = model.config().intermediate_dim;
+    let eps = model.config().eps;
 
     let start = 450 * hidden_dim;
-    let mut hidden: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let mut hidden: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
     // Process layers 0-1
     for layer_idx in 0..2 {
-        let layer = &model.layers[layer_idx];
+        let layer = &model.layers()[layer_idx];
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
         let (_, _, v_weight) = match &layer.qkv_weight {
             OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
@@ -49,10 +49,10 @@ fn main() {
             v_weight.in_dim,
             v_weight.out_dim,
         );
-        let head_dim = hidden_dim / model.config.num_heads;
-        let group_size = model.config.num_heads / model.config.num_kv_heads;
+        let head_dim = hidden_dim / model.config().num_heads;
+        let group_size = model.config().num_heads / model.config().num_kv_heads;
         let mut attn_out = Vec::with_capacity(hidden_dim);
-        for h in 0..model.config.num_heads {
+        for h in 0..model.config().num_heads {
             let kv_head = h / group_size;
             let start = kv_head * head_dim;
             attn_out.extend_from_slice(&v[start..start + head_dim]);
@@ -109,7 +109,7 @@ fn main() {
     println!("Input (layer 1 out): L2={:.4}", l2_norm(&hidden));
     println!("  first 5: {:?}", &hidden[..5]);
 
-    let layer = &model.layers[2];
+    let layer = &model.layers()[2];
     let attn_normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
     println!("\nAfter attn_norm: L2={:.4}", l2_norm(&attn_normed));
     println!("  first 5: {:?}", &attn_normed[..5]);
@@ -125,10 +125,10 @@ fn main() {
         v_weight.in_dim,
         v_weight.out_dim,
     );
-    let head_dim = hidden_dim / model.config.num_heads;
-    let group_size = model.config.num_heads / model.config.num_kv_heads;
+    let head_dim = hidden_dim / model.config().num_heads;
+    let group_size = model.config().num_heads / model.config().num_kv_heads;
     let mut attn_out = Vec::with_capacity(hidden_dim);
-    for h in 0..model.config.num_heads {
+    for h in 0..model.config().num_heads {
         let kv_head = h / group_size;
         let start = kv_head * head_dim;
         attn_out.extend_from_slice(&v[start..start + head_dim]);

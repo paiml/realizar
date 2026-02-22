@@ -12,7 +12,7 @@ fn main() -> Result<(), RealizarError> {
 
     println!("=== Weight Types for Layer 0 ===\n");
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
 
     // QKV weight
     match &layer.qkv_weight {

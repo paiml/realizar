@@ -37,8 +37,8 @@ fn main() {
     let hidden = model.embed(&[token_id]);
     println!("\nEmbedding L2: {:.4}", l2_norm(&hidden));
 
-    let layer = &model.layers[0];
-    let normed = rms_norm(&hidden, &layer.attn_norm_weight, model.config.eps);
+    let layer = &model.layers()[0];
+    let normed = rms_norm(&hidden, &layer.attn_norm_weight, model.config().eps);
     println!("Normed L2: {:.4}", l2_norm(&normed));
 
     // Get V weight

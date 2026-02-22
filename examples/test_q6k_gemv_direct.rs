@@ -29,8 +29,8 @@ fn run_direct_test() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = cpu_model.config.hidden_dim;
-    let vocab_size = cpu_model.config.vocab_size;
+    let hidden_dim = cpu_model.config().hidden_dim;
+    let vocab_size = cpu_model.config().vocab_size;
 
     eprintln!("=== Direct Q6K GEMV Test ===");
     eprintln!("hidden_dim: {}", hidden_dim);
@@ -57,7 +57,7 @@ fn run_direct_test() -> Result<(), Box<dyn std::error::Error>> {
     let input_names = ["all_ones", "alternating", "ramp", "sin_wave"];
 
     // CPU: Compute Q6K GEMV for all inputs
-    let lm_head_data = &cpu_model.lm_head_weight.data;
+    let lm_head_data = &cpu_model.lm_head_weight().data;
     let sb_per_row = hidden_dim.div_ceil(256);
     let bytes_per_row = sb_per_row * 210;
 
@@ -101,9 +101,9 @@ fn run_direct_test() -> Result<(), Box<dyn std::error::Error>> {
         let mut cuda_model = OwnedQuantizedModelCuda::new(gpu_model, 0)?;
         cuda_model.preload_weights_gpu()?;
 
-        let num_layers = cpu_model.config.num_layers;
-        let num_kv_heads = cpu_model.config.num_kv_heads;
-        let head_dim = hidden_dim / cpu_model.config.num_heads;
+        let num_layers = cpu_model.config().num_layers;
+        let num_kv_heads = cpu_model.config().num_kv_heads;
+        let head_dim = hidden_dim / cpu_model.config().num_heads;
         let kv_dim = num_kv_heads * head_dim;
 
         let mut cpu_cache = realizar::gguf::OwnedQuantizedKVCache::new(num_layers, kv_dim, 64);

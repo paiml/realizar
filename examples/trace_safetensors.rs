@@ -11,22 +11,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transformer = SafetensorsToAprConverter::convert(model_path)?;
 
     println!("\n=== Model Config ===");
-    println!("  hidden_dim: {}", transformer.config.hidden_dim);
-    println!("  num_layers: {}", transformer.config.num_layers);
-    println!("  num_heads: {}", transformer.config.num_heads);
-    println!("  num_kv_heads: {}", transformer.config.num_kv_heads);
-    println!("  vocab_size: {}", transformer.config.vocab_size);
+    println!("  hidden_dim: {}", transformer.config().hidden_dim);
+    println!("  num_layers: {}", transformer.config().num_layers);
+    println!("  num_heads: {}", transformer.config().num_heads);
+    println!("  num_kv_heads: {}", transformer.config().num_kv_heads);
+    println!("  vocab_size: {}", transformer.config().vocab_size);
     println!(
         "  intermediate_dim: {}",
-        transformer.config.intermediate_dim
+        transformer.config().intermediate_dim
     );
 
-    let hidden_dim = transformer.config.hidden_dim;
+    let hidden_dim = transformer.config().hidden_dim;
 
     println!("\n=== Embedding Stats ===");
     let emb = &transformer.token_embedding;
     let emb_len = emb.len();
-    let expected = transformer.config.vocab_size * hidden_dim;
+    let expected = transformer.config().vocab_size * hidden_dim;
     println!("  embedding len: {} (expected: {})", emb_len, expected);
 
     // Check token 0 (padding)
@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== LM Head Stats ===");
     let lm = &transformer.lm_head_weight;
     let lm_len = lm.len();
-    let lm_expected = transformer.config.vocab_size * transformer.config.hidden_dim;
+    let lm_expected = transformer.config().vocab_size * transformer.config().hidden_dim;
     println!("  lm_head len: {} (expected: {})", lm_len, lm_expected);
     println!("  first 10: {:?}", &lm[..10.min(lm_len)]);
     let lm_mean: f32 = lm.iter().sum::<f32>() / lm_len as f32;
@@ -117,10 +117,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  generated tokens: {:?}", generated);
 
     for &tok in generated {
-        if tok > transformer.config.vocab_size as u32 {
+        if tok > transformer.config().vocab_size as u32 {
             println!(
                 "  WARNING: Token {} > vocab_size {}!",
-                tok, transformer.config.vocab_size
+                tok,
+                transformer.config().vocab_size
             );
         }
     }

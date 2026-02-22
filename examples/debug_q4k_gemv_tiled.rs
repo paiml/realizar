@@ -14,7 +14,7 @@ fn main() {
     let cpu_model = OwnedQuantizedModel::from_mapped(&mapped).expect("cpu model");
 
     // Get layer 0 Q weight info
-    let layer0 = &cpu_model.layers[0];
+    let layer0 = &cpu_model.layers()[0];
     let q_weight = match &layer0.qkv_weight {
         OwnedQKVWeights::Separate { q, k: _, v: _ } => q,
         _ => panic!("Expected separate Q/K/V weights"),
@@ -30,7 +30,7 @@ fn main() {
     );
 
     // Create a simple test input (same as debug_q4k_gemv.rs)
-    let hidden_dim = cpu_model.config.hidden_dim;
+    let hidden_dim = cpu_model.config().hidden_dim;
     let input: Vec<f32> = (0..hidden_dim)
         .map(|i| ((i % 10) as f32 - 5.0) * 0.1)
         .collect();

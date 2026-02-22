@@ -15,11 +15,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cpu_model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
     // Get config
-    let hidden_dim = cpu_model.config.hidden_dim;
-    let num_layers = cpu_model.config.num_layers;
-    let num_heads = cpu_model.config.num_heads;
-    let num_kv_heads = cpu_model.config.num_kv_heads;
-    let vocab_size = cpu_model.config.vocab_size;
+    let hidden_dim = cpu_model.config().hidden_dim;
+    let num_layers = cpu_model.config().num_layers;
+    let num_heads = cpu_model.config().num_heads;
+    let num_kv_heads = cpu_model.config().num_kv_heads;
+    let vocab_size = cpu_model.config().vocab_size;
     let head_dim = hidden_dim / num_heads;
     let kv_dim = num_kv_heads * head_dim;
 
@@ -85,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // CPU LM head with ones input
     let cpu_lm_logits_ones = realizar::quantize::fused_q6k_parallel_matvec(
-        &cpu_model.lm_head_weight.data,
+        &cpu_model.lm_head_weight().data,
         &ones_input,
         hidden_dim,
         vocab_size,

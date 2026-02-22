@@ -7,11 +7,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads;
-    let num_kv_heads = model.config.num_kv_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads;
+    let num_kv_heads = model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
-    let eps = model.config.eps;
+    let eps = model.config().eps;
 
     println!("=== Model Config ===");
     println!(
@@ -20,11 +20,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Get layer 0
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
 
     // Token 15 ("0") - buggy
     let token = 15u32;
-    let emb: Vec<f32> = model.token_embedding
+    let emb: Vec<f32> = model.token_embedding()
         [token as usize * hidden_dim..(token as usize + 1) * hidden_dim]
         .to_vec();
 

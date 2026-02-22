@@ -21,9 +21,9 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads;
-    let num_kv_heads = model.config.num_kv_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads;
+    let num_kv_heads = model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
     let kv_dim = num_kv_heads * head_dim;
 
@@ -35,7 +35,7 @@ fn main() {
     println!("  head_dim={}, kv_dim={}", head_dim, kv_dim);
 
     // Get layer 0 weights
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
 
     match &layer.qkv_weight {
         realizar::gguf::OwnedQKVWeights::Separate { q, k: _, v } => {
@@ -216,7 +216,7 @@ fn main() {
 
     // Apply RMS norm
     let sum_sq: f32 = hidden.iter().map(|x| x * x).sum();
-    let rms = (sum_sq / hidden_dim as f32 + model.config.eps).sqrt();
+    let rms = (sum_sq / hidden_dim as f32 + model.config().eps).sqrt();
     let normed: Vec<f32> = hidden
         .iter()
         .zip(layer.attn_norm_weight.iter())

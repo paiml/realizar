@@ -7,8 +7,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
     let vocab = mapped.model.vocabulary().expect("vocab");
 
-    let hidden_dim = model.config.hidden_dim;
-    let vocab_size = model.config.vocab_size;
+    let hidden_dim = model.config().hidden_dim;
+    let vocab_size = model.config().vocab_size;
 
     println!("=== Token 0 Investigation ===\n");
 
@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for tok in [0u32, 1, 10, 15, 17, 19, 28, 100, 1000] {
         let start = tok as usize * hidden_dim;
         let end = start + hidden_dim;
-        let emb = &model.token_embedding[start..end];
+        let emb = &model.token_embedding()[start..end];
         let norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
         let sum: f32 = emb.iter().sum();
         println!(
@@ -32,18 +32,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check if there's an LM head bias
     println!(
         "\nLM head bias: {:?}",
-        model.lm_head_bias.as_ref().map(|b| b.len())
+        model.lm_head_bias().as_ref().map(|b| b.len())
     );
-    if let Some(ref bias) = model.lm_head_bias {
+    if let Some(ref bias) = model.lm_head_bias() {
         println!("  Token 0 bias: {:.4}", bias[0]);
         println!("  Token 19 (\"4\") bias: {:.4}", bias[19]);
     }
 
     // Check LM head weight tensor info
     println!("\nLM head weight tensor:");
-    println!("  qtype: {}", model.lm_head_weight.qtype);
-    println!("  in_dim: {}", model.lm_head_weight.in_dim);
-    println!("  out_dim: {}", model.lm_head_weight.out_dim);
+    println!("  qtype: {}", model.lm_head_weight().qtype);
+    println!("  in_dim: {}", model.lm_head_weight().in_dim);
+    println!("  out_dim: {}", model.lm_head_weight().out_dim);
 
     // The logits are computed as: hidden @ lm_head_weight^T (with tied embeddings, lm_head = embeddings)
     // For tied embeddings, logit[i] = dot(final_hidden, embedding[i])
@@ -63,10 +63,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|tok| {
             let emb_start = tok * hidden_dim;
             let emb_end = emb_start + hidden_dim;
-            if emb_end <= model.token_embedding.len() {
+            if emb_end <= model.token_embedding().len() {
                 let dot: f32 = test_hidden
                     .iter()
-                    .zip(&model.token_embedding[emb_start..emb_end])
+                    .zip(&model.token_embedding()[emb_start..emb_end])
                     .map(|(a, b)| a * b)
                     .sum();
                 (tok, dot)
@@ -98,7 +98,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check if token 0 embedding has unusual properties
     println!("\n=== Token 0 Embedding Analysis ===\n");
-    let emb0 = &model.token_embedding[0..hidden_dim];
+    let emb0 = &model.token_embedding()[0..hidden_dim];
     let emb0_min = emb0.iter().cloned().fold(f32::INFINITY, f32::min);
     let emb0_max = emb0.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let emb0_mean: f32 = emb0.iter().sum::<f32>() / hidden_dim as f32;
@@ -112,7 +112,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  first 8: {:?}", &emb0[..8]);
 
     // Compare with token 19 ("4")
-    let emb19 = &model.token_embedding[19 * hidden_dim..20 * hidden_dim];
+    let emb19 = &model.token_embedding()[19 * hidden_dim..20 * hidden_dim];
     let emb19_min = emb19.iter().cloned().fold(f32::INFINITY, f32::min);
     let emb19_max = emb19.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let emb19_mean: f32 = emb19.iter().sum::<f32>() / hidden_dim as f32;

@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("=== Qwen2-0.5B Architecture Detection ===\n");
 
-    let layer = &qwen_model.layers[0];
+    let layer = &qwen_model.layers()[0];
 
     // Check what the forward function would detect
     let has_gate = layer.ffn_gate_weight.is_some();
@@ -38,15 +38,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check config values
     println!("\nConfig:");
-    println!("  hidden_dim: {}", qwen_model.config.hidden_dim);
-    println!("  intermediate_dim: {}", qwen_model.config.intermediate_dim);
-    println!("  num_heads: {}", qwen_model.config.num_heads);
-    println!("  num_kv_heads: {}", qwen_model.config.num_kv_heads);
-    println!("  num_layers: {}", qwen_model.config.num_layers);
-    println!("  vocab_size: {}", qwen_model.config.vocab_size);
-    println!("  eps: {}", qwen_model.config.eps);
-    println!("  rope_theta: {}", qwen_model.config.rope_theta);
-    println!("  rope_type: {}", qwen_model.config.rope_type);
+    println!("  hidden_dim: {}", qwen_model.config().hidden_dim);
+    println!(
+        "  intermediate_dim: {}",
+        qwen_model.config().intermediate_dim
+    );
+    println!("  num_heads: {}", qwen_model.config().num_heads);
+    println!("  num_kv_heads: {}", qwen_model.config().num_kv_heads);
+    println!("  num_layers: {}", qwen_model.config().num_layers);
+    println!("  vocab_size: {}", qwen_model.config().vocab_size);
+    println!("  eps: {}", qwen_model.config().eps);
+    println!("  rope_theta: {}", qwen_model.config().rope_theta);
+    println!("  rope_type: {}", qwen_model.config().rope_type);
 
     // Compare with TinyLlama
     println!("\n=== TinyLlama Architecture Detection ===\n");
@@ -55,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tiny_mapped = MappedGGUFModel::from_path(tiny_path)?;
     let tiny_model = OwnedQuantizedModel::from_mapped(&tiny_mapped)?;
 
-    let tiny_layer = &tiny_model.layers[0];
+    let tiny_layer = &tiny_model.layers()[0];
     let tiny_has_gate = tiny_layer.ffn_gate_weight.is_some();
     let tiny_has_attn_norm_bias = tiny_layer.attn_norm_bias.is_some();
     let tiny_use_rmsnorm = tiny_has_gate && !tiny_has_attn_norm_bias;
@@ -66,10 +69,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  => use_rmsnorm: {}", tiny_use_rmsnorm);
 
     println!("\nConfig:");
-    println!("  hidden_dim: {}", tiny_model.config.hidden_dim);
-    println!("  num_heads: {}", tiny_model.config.num_heads);
-    println!("  num_kv_heads: {}", tiny_model.config.num_kv_heads);
-    println!("  rope_type: {}", tiny_model.config.rope_type);
+    println!("  hidden_dim: {}", tiny_model.config().hidden_dim);
+    println!("  num_heads: {}", tiny_model.config().num_heads);
+    println!("  num_kv_heads: {}", tiny_model.config().num_kv_heads);
+    println!("  rope_type: {}", tiny_model.config().rope_type);
 
     Ok(())
 }

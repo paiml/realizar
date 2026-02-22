@@ -20,7 +20,7 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let ffn_down = &layer.ffn_down_weight;
 
     println!(

@@ -11,7 +11,7 @@ fn main() {
     println!("=== Q4_K scale values at row 5475 (first superblock) ===\n");
 
     for layer_idx in 0..5 {
-        let layer = &model.layers[layer_idx];
+        let layer = &model.layers()[layer_idx];
         if let Some(ref gw) = layer.ffn_gate_weight {
             let bytes_per_row = (gw.in_dim / 256) * Q4_K_BLOCK_SIZE;
             let row_start = 5475 * bytes_per_row;
@@ -30,7 +30,7 @@ fn main() {
 
     println!("\nFor comparison, row 100:");
     for layer_idx in 0..5 {
-        let layer = &model.layers[layer_idx];
+        let layer = &model.layers()[layer_idx];
         if let Some(ref gw) = layer.ffn_gate_weight {
             let bytes_per_row = (gw.in_dim / 256) * Q4_K_BLOCK_SIZE;
             let row_start = 100 * bytes_per_row;

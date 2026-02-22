@@ -42,8 +42,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuda_model.preload_weights_gpu()?;
 
     let mut kv_cache = OwnedQuantizedKVCache::new(
-        model.config.num_layers,
-        model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads),
+        model.config().num_layers,
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads),
         100,
     );
 

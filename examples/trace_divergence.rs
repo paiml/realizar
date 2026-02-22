@@ -125,16 +125,16 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).unwrap();
     let model = OwnedQuantizedModel::from_mapped(&mapped).unwrap();
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads;
-    let num_kv_heads = model.config.num_kv_heads;
-    let num_layers = model.config.num_layers;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads;
+    let num_kv_heads = model.config().num_kv_heads;
+    let num_layers = model.config().num_layers;
+    let eps = model.config().eps;
 
     // Token 791
     let token_id = 791u32;
     let start = token_id as usize * hidden_dim;
-    let mut hidden: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let mut hidden: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
     println!("=== CPU Layer-by-Layer Forward ===");
     println!(
@@ -145,7 +145,7 @@ fn main() {
     for layer_idx in 0..num_layers {
         cpu_layer_forward(
             &mut hidden,
-            &model.layers[layer_idx],
+            &model.layers()[layer_idx],
             num_heads,
             num_kv_heads,
             eps,
@@ -161,7 +161,7 @@ fn main() {
     }
 
     // Final RMSNorm + LM head
-    let normed = rms_norm(&hidden, &model.output_norm_weight, eps);
+    let normed = rms_norm(&hidden, &model.output_norm_weight(), eps);
     println!(
         "\nNormed hidden: first 3 = [{:.4}, {:.4}, {:.4}]",
         normed[0], normed[1], normed[2]
@@ -169,10 +169,10 @@ fn main() {
 
     let logits = fused_matmul(
         &normed,
-        &model.lm_head_weight.data,
-        model.lm_head_weight.qtype,
-        model.lm_head_weight.in_dim,
-        model.lm_head_weight.out_dim,
+        &model.lm_head_weight().data,
+        model.lm_head_weight().qtype,
+        model.lm_head_weight().in_dim,
+        model.lm_head_weight().out_dim,
     );
 
     let argmax = logits

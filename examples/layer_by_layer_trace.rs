@@ -29,8 +29,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\nToken ID: {}", token_id);
     println!("Position: {}", position);
-    println!("Hidden dim: {}", model.config.hidden_dim);
-    println!("Num layers: {}", model.config.num_layers);
+    println!("Hidden dim: {}", model.config().hidden_dim);
+    println!("Num layers: {}", model.config().num_layers);
 
     // ========================================================================
     // Phase 1: Get CPU embedding as baseline
@@ -75,8 +75,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Phase 3: GPU Forward (with layer trace) ===");
 
     let mut dummy_cache = realizar::gguf::OwnedQuantizedKVCache::new(
-        model.config.num_layers,
-        model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads),
+        model.config().num_layers,
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads),
         100,
     );
 

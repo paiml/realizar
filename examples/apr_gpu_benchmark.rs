@@ -74,11 +74,11 @@ fn run_benchmark() {
 
     // Run GGUF GPU benchmark
     {
-        let hidden_dim = gguf_cuda.model().config.hidden_dim;
-        let intermediate_dim = gguf_cuda.model().layers[0].ffn_up_weight.out_dim;
+        let hidden_dim = gguf_cuda.model().config().hidden_dim;
+        let intermediate_dim = gguf_cuda.model().layers()[0].ffn_up_weight.out_dim;
         let num_layers = gguf_cuda.model().layers.len();
-        let vocab_size = gguf_cuda.model().config.vocab_size as u32;
-        let eps = gguf_cuda.model().config.eps;
+        let vocab_size = gguf_cuda.model().config().vocab_size as u32;
+        let eps = gguf_cuda.model().config().eps;
 
         let m = 16;
         gguf_cuda
@@ -167,7 +167,7 @@ fn run_benchmark() {
     );
     println!(
         "   Token embedding: {} floats (expected: {})",
-        apr_model.token_embedding.len(),
+        apr_model.token_embedding().len(),
         apr_model.config().vocab_size * apr_model.config().hidden_dim,
     );
 
@@ -182,11 +182,11 @@ fn run_benchmark() {
     );
 
     // Get model config
-    let hidden_dim = apr_cuda.model().config.hidden_dim;
-    let intermediate_dim = apr_cuda.model().layers[0].ffn_up_weight.out_dim;
+    let hidden_dim = apr_cuda.model().config().hidden_dim;
+    let intermediate_dim = apr_cuda.model().layers()[0].ffn_up_weight.out_dim;
     let num_layers = apr_cuda.model().layers.len();
-    let vocab_size = apr_cuda.model().config.vocab_size as u32;
-    let eps = apr_cuda.model().config.eps;
+    let vocab_size = apr_cuda.model().config().vocab_size as u32;
+    let eps = apr_cuda.model().config().eps;
 
     // 7. Benchmark APR GPU inference
     println!("\n7. Benchmarking APR GPU inference...");

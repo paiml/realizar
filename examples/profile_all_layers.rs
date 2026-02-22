@@ -14,9 +14,9 @@ fn main() -> Result<(), RealizarError> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let intermediate_dim = model.config.intermediate_dim;
-    let num_layers = model.config.num_layers;
+    let hidden_dim = model.config().hidden_dim;
+    let intermediate_dim = model.config().intermediate_dim;
+    let num_layers = model.config().num_layers;
 
     println!("=== PAR-126: Profile ALL {} Layers ===\n", num_layers);
     println!(
@@ -44,7 +44,7 @@ fn main() -> Result<(), RealizarError> {
 
     // Warmup - run through all layers once
     println!("Warming up...");
-    for layer in &model.layers {
+    for layer in model.layers() {
         if let realizar::gguf::OwnedQKVWeights::Separate { q, k, v } = &layer.qkv_weight {
             if q.qtype == GGUF_TYPE_Q4_K {
                 fused_q4k_parallel_matvec_into(
@@ -133,7 +133,7 @@ fn main() -> Result<(), RealizarError> {
     for _ in 0..runs {
         let start = Instant::now();
 
-        for layer in &model.layers {
+        for layer in model.layers() {
             // QKV
             if let realizar::gguf::OwnedQKVWeights::Separate { q, k, v } = &layer.qkv_weight {
                 if q.qtype == GGUF_TYPE_Q4_K {

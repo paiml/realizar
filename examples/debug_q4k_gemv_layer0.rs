@@ -30,11 +30,11 @@ fn run_q4k_gemv_debug() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let num_heads = model.config.num_heads;
+    let hidden_dim = model.config().hidden_dim;
+    let num_heads = model.config().num_heads;
     let head_dim = hidden_dim / num_heads;
     let q_dim = num_heads * head_dim; // = hidden_dim for Qwen
-    let eps = model.config.eps;
+    let eps = model.config().eps;
     let test_token = 791u32;
 
     eprintln!("=== Q4K GEMV Layer 0 Debug ===");
@@ -47,7 +47,7 @@ fn run_q4k_gemv_debug() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("\nEmbedding sum: {:.6}", embedding.iter().sum::<f32>());
 
     // CPU RMSNorm (we verified this matches GPU)
-    let gamma = &model.layers[0].attn_norm_weight;
+    let gamma = &model.layers()[0].attn_norm_weight;
     let sum_sq: f32 = embedding.iter().map(|x| x * x).sum();
     let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
     let rms_inv = 1.0 / rms;
@@ -60,7 +60,7 @@ fn run_q4k_gemv_debug() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("Normed first 4: {:?}", &normed[..4]);
 
     // Get Q weight from layer 0
-    let q_weight = match &model.layers[0].qkv_weight {
+    let q_weight = match &model.layers()[0].qkv_weight {
         OwnedQKVWeights::Separate { q, .. } => q,
         OwnedQKVWeights::Fused(_) => {
             eprintln!("Model has fused QKV, not supported in this test");

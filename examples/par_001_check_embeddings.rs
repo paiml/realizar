@@ -19,11 +19,12 @@ fn main() {
 
     println!(
         "Token embedding shape: [{}, {}]",
-        model.config.vocab_size, model.config.hidden_dim
+        model.config().vocab_size,
+        model.config().hidden_dim
     );
     println!(
         "Token embedding storage: {} floats",
-        model.token_embedding.len()
+        model.token_embedding().len()
     );
 
     // Check a range of tokens
@@ -86,7 +87,7 @@ fn main() {
 
     // Check the overall embedding matrix statistics
     println!("\n=== Embedding Matrix Statistics ===");
-    let all_embeddings = &model.token_embedding;
+    let all_embeddings = &model.token_embedding();
     let l2 = l2_norm(all_embeddings);
     let min = all_embeddings.iter().cloned().fold(f32::INFINITY, f32::min);
     let max = all_embeddings
@@ -107,13 +108,15 @@ fn main() {
     println!("\n=== LM Head vs Embeddings ===");
     println!(
         "  LM head: in={}, out={}, qtype={}",
-        model.lm_head_weight.in_dim, model.lm_head_weight.out_dim, model.lm_head_weight.qtype
+        model.lm_head_weight().in_dim,
+        model.lm_head_weight().out_dim,
+        model.lm_head_weight().qtype
     );
     println!(
         "  Embeddings: {} floats (vocab {} x hidden {})",
-        model.token_embedding.len(),
-        model.config.vocab_size,
-        model.config.hidden_dim
+        model.token_embedding().len(),
+        model.config().vocab_size,
+        model.config().hidden_dim
     );
 
     // Check if embeddings are stored as [vocab_size, hidden_dim] or [hidden_dim, vocab_size]
@@ -125,8 +128,8 @@ fn main() {
     println!("  Once embedding L2: {:.4}", l2_norm(&once_emb));
 
     // Apply output norm
-    let output_norm = &model.output_norm_weight;
-    let eps = model.config.eps;
+    let output_norm = &model.output_norm_weight();
+    let eps = model.config().eps;
     let rms = (once_emb.iter().map(|x| x * x).sum::<f32>() / once_emb.len() as f32 + eps).sqrt();
     let normed: Vec<f32> = once_emb
         .iter()
@@ -137,10 +140,10 @@ fn main() {
 
     // Project through LM head
     let logits = realizar::quantize::fused_q6k_parallel_matvec(
-        &model.lm_head_weight.data,
+        &model.lm_head_weight().data,
         &normed,
-        model.lm_head_weight.in_dim,
-        model.lm_head_weight.out_dim,
+        model.lm_head_weight().in_dim,
+        model.lm_head_weight().out_dim,
     )
     .expect("LM head projection failed");
 

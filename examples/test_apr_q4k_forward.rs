@@ -11,12 +11,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loaded in {:.2}s", start.elapsed().as_secs_f32());
 
     println!("\nConfig:");
-    println!("  hidden_dim: {}", transformer.config.hidden_dim);
-    println!("  num_layers: {}", transformer.config.num_layers);
-    println!("  vocab_size: {}", transformer.config.vocab_size);
+    println!("  hidden_dim: {}", transformer.config().hidden_dim);
+    println!("  num_layers: {}", transformer.config().num_layers);
+    println!("  vocab_size: {}", transformer.config().vocab_size);
     println!(
         "  intermediate_dim: {}",
-        transformer.config.intermediate_dim
+        transformer.config().intermediate_dim
     );
 
     // Check Q4K layers

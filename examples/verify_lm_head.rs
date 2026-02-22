@@ -31,18 +31,18 @@ fn main() {
     let token_id: u32 = 1; // BOS token - should predict common first tokens
     println!("Testing with BOS token (id=1)");
 
-    let hidden_dim = model.config.hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
     let embedding = model.embed(&[token_id]);
 
     // Apply output norm
-    let eps = model.config.eps;
+    let eps = model.config().eps;
     let sum_sq: f32 = embedding.iter().map(|x| x * x).sum();
     let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
     let inv_rms = 1.0 / rms;
 
     let normed: Vec<f32> = embedding
         .iter()
-        .zip(model.output_norm_weight.iter())
+        .zip(model.output_norm_weight().iter())
         .map(|(&x, &w)| x * inv_rms * w)
         .collect();
 
@@ -62,9 +62,9 @@ fn main() {
     println!("\n\n=== Full forward pass (1 token) ===");
 
     use realizar::gguf::OwnedQuantizedKVCache;
-    let head_dim = hidden_dim / model.config.num_heads;
-    let kv_dim = model.config.num_kv_heads * head_dim;
-    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 256);
+    let head_dim = hidden_dim / model.config().num_heads;
+    let kv_dim = model.config().num_kv_heads * head_dim;
+    let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 256);
 
     let logits_full = model
         .forward_single_with_cache(token_id, &mut cache, 0)
@@ -100,7 +100,7 @@ fn main() {
     println!("\n\n=== Testing multiple tokens ===");
     for &test_token in &[1u32, 2, 26222, 14990, 263] {
         // BOS, EOS, Once, upon, a
-        let mut test_cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 256);
+        let mut test_cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 256);
         let test_logits = model
             .forward_single_with_cache(test_token, &mut test_cache, 0)
             .expect("test");

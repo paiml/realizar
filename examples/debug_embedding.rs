@@ -11,19 +11,19 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
-    let vocab_size = model.config.vocab_size;
+    let hidden_dim = model.config().hidden_dim;
+    let vocab_size = model.config().vocab_size;
 
     println!("=== Embedding Debug ===\n");
     println!("vocab_size: {}", vocab_size);
     println!("hidden_dim: {}", hidden_dim);
-    println!("token_embedding.len(): {}", model.token_embedding.len());
+    println!("token_embedding.len(): {}", model.token_embedding().len());
     println!("Expected: {} (vocab * hidden)", vocab_size * hidden_dim);
 
     // Token 450 = "▁The"
     let token_id = 450u32;
     let start = token_id as usize * hidden_dim;
-    let embedding: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let embedding: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
     println!("\nToken {} embedding:", token_id);
     println!("  L2: {:.4}", l2_norm(&embedding));
@@ -43,7 +43,7 @@ fn main() {
     );
 
     // Check token 0 for reference
-    let token0_emb: Vec<f32> = model.token_embedding[0..hidden_dim].to_vec();
+    let token0_emb: Vec<f32> = model.token_embedding()[0..hidden_dim].to_vec();
     println!("\nToken 0 embedding:");
     println!("  L2: {:.4}", l2_norm(&token0_emb));
     println!(
@@ -55,7 +55,7 @@ fn main() {
     );
 
     // Check token 1 for reference
-    let token1_emb: Vec<f32> = model.token_embedding[hidden_dim..hidden_dim * 2].to_vec();
+    let token1_emb: Vec<f32> = model.token_embedding()[hidden_dim..hidden_dim * 2].to_vec();
     println!("\nToken 1 embedding:");
     println!("  L2: {:.4}", l2_norm(&token1_emb));
     println!(

@@ -26,7 +26,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gguf_model = OwnedQuantizedModel::from_mapped(&mapped)?;
     println!(
         "GGUF config: hidden_dim={}, num_layers={}, vocab_size={}",
-        gguf_model.config.hidden_dim, gguf_model.config.num_layers, gguf_model.config.vocab_size
+        gguf_model.config().hidden_dim,
+        gguf_model.config().num_layers,
+        gguf_model.config().vocab_size
     );
 
     println!("\nLoading APR model: {}", apr_path);

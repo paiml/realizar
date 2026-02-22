@@ -12,11 +12,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let test_tokens = [0u32, 1, 100, 791, 1000, 10000];
 
     eprintln!("=== Embedding Verification ===");
-    eprintln!("vocab_size: {}", model.config.vocab_size);
-    eprintln!("hidden_dim: {}", model.config.hidden_dim);
+    eprintln!("vocab_size: {}", model.config().vocab_size);
+    eprintln!("hidden_dim: {}", model.config().hidden_dim);
 
     for token in test_tokens {
-        if token as usize >= model.config.vocab_size {
+        if token as usize >= model.config().vocab_size {
             continue;
         }
 
@@ -38,12 +38,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check embedding tensor directly
     eprintln!("\n=== Raw Embedding Tensor ===");
-    let hidden_dim = model.config.hidden_dim;
-    let embed_data = &model.token_embedding;
+    let hidden_dim = model.config().hidden_dim;
+    let embed_data = &model.token_embedding();
     eprintln!(
         "Embed tensor length: {} (expected: {})",
         embed_data.len(),
-        model.config.vocab_size * hidden_dim
+        model.config().vocab_size * hidden_dim
     ); // FP32
 
     // Manually extract token 791 embedding (already FP32)

@@ -30,18 +30,18 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let hidden_dim = model.config.hidden_dim;
-    let intermediate_dim = model.config.intermediate_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let intermediate_dim = model.config().intermediate_dim;
+    let eps = model.config().eps;
 
     // Token 450 = "▁The"
     let token_id = 450u32;
     let start = token_id as usize * hidden_dim;
-    let mut hidden: Vec<f32> = model.token_embedding[start..start + hidden_dim].to_vec();
+    let mut hidden: Vec<f32> = model.token_embedding()[start..start + hidden_dim].to_vec();
 
     // Process all layers
-    for layer_idx in 0..model.config.num_layers {
-        let layer = &model.layers[layer_idx];
+    for layer_idx in 0..model.config().num_layers {
+        let layer = &model.layers()[layer_idx];
 
         // Attention
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
@@ -71,10 +71,10 @@ fn main() {
             v_weight.out_dim,
         );
 
-        let head_dim = hidden_dim / model.config.num_heads;
-        let group_size = model.config.num_heads / model.config.num_kv_heads;
+        let head_dim = hidden_dim / model.config().num_heads;
+        let group_size = model.config().num_heads / model.config().num_kv_heads;
         let mut attn_out = Vec::with_capacity(hidden_dim);
-        for h in 0..model.config.num_heads {
+        for h in 0..model.config().num_heads {
             let kv_head = h / group_size;
             let start = kv_head * head_dim;
             attn_out.extend_from_slice(&v[start..start + head_dim]);
@@ -127,15 +127,15 @@ fn main() {
     }
 
     // Final norm
-    let final_hidden = rms_norm(&hidden, &model.output_norm_weight, eps);
+    let final_hidden = rms_norm(&hidden, &model.output_norm_weight(), eps);
 
     // LM head projection
     let logits = fused_matmul(
         &final_hidden,
-        &model.lm_head_weight.data,
-        model.lm_head_weight.qtype,
-        model.lm_head_weight.in_dim,
-        model.lm_head_weight.out_dim,
+        &model.lm_head_weight().data,
+        model.lm_head_weight().qtype,
+        model.lm_head_weight().in_dim,
+        model.lm_head_weight().out_dim,
     );
 
     println!("=== Token Score Check ===\n");

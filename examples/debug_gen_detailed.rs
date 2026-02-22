@@ -13,18 +13,18 @@ fn main() {
 
     eprintln!(
         "Config: layers={}, hidden={}, heads={}, kv_heads={}",
-        model.config.num_layers,
-        model.config.hidden_dim,
-        model.config.num_heads,
-        model.config.num_kv_heads
+        model.config().num_layers,
+        model.config().hidden_dim,
+        model.config().num_heads,
+        model.config().num_kv_heads
     );
 
-    let head_dim = model.config.hidden_dim / model.config.num_heads;
-    let kv_dim = model.config.num_kv_heads * head_dim;
+    let head_dim = model.config().hidden_dim / model.config().num_heads;
+    let kv_dim = model.config().num_kv_heads * head_dim;
     eprintln!("head_dim={}, kv_dim={}", head_dim, kv_dim);
 
     let max_seq_len = 32;
-    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, max_seq_len);
+    let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, max_seq_len);
 
     // Single token prompt: "Hello" = 9707
     let prompt = vec![9707u32];

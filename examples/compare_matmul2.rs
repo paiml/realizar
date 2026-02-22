@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // GGUF uses separate Q, K, V weights
     // Get the raw Q weight bytes from GGUF layer
-    let gguf_layer = &gguf_model.layers[0];
+    let gguf_layer = &gguf_model.layers()[0];
 
     // The QKV weights in GGUF are in OwnedQKVWeights::Separate format
     // Each has (in_dim, out_dim) and raw quantized bytes

@@ -25,7 +25,7 @@ fn main() {
     // Column 5475 is in superblock 5475/256 = 21 (position 99 in that superblock)
 
     for layer_idx in 0..5 {
-        let layer = &model.layers[layer_idx];
+        let layer = &model.layers()[layer_idx];
         let down = &layer.ffn_down_weight;
 
         // Check column 5475 by sampling a few rows

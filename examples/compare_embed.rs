@@ -29,16 +29,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading APR from: {}", apr_path);
     let apr = AprTransformer::from_apr_file(apr_path)?;
 
-    let h = gguf.config.hidden_dim;
+    let h = gguf.config().hidden_dim;
     println!("\nHidden dim: {}", h);
-    println!("GGUF embedding len: {}", gguf.token_embedding.len());
+    println!("GGUF embedding len: {}", gguf.token_embedding().len());
     println!("APR embedding len:  {}", apr.token_embedding.len());
 
     // Compare token 0 embedding
     println!("\n=== Token 0 Embedding ===");
-    println!("GGUF first 8: {:?}", &gguf.token_embedding[..8]);
+    println!("GGUF first 8: {:?}", &gguf.token_embedding()[..8]);
     println!("APR first 8:  {:?}", &apr.token_embedding[..8]);
-    let corr0 = correlation(&gguf.token_embedding[..h], &apr.token_embedding[..h]);
+    let corr0 = correlation(&gguf.token_embedding()[..h], &apr.token_embedding[..h]);
     println!("Token 0 correlation: {:.6}", corr0);
 
     // Compare token 17 (digit "2")
@@ -47,11 +47,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Token {} Embedding ===", tok);
     println!(
         "GGUF first 8: {:?}",
-        &gguf.token_embedding[start..start + 8]
+        &gguf.token_embedding()[start..start + 8]
     );
     println!("APR first 8:  {:?}", &apr.token_embedding[start..start + 8]);
     let corr17 = correlation(
-        &gguf.token_embedding[start..start + h],
+        &gguf.token_embedding()[start..start + h],
         &apr.token_embedding[start..start + h],
     );
     println!("Token {} correlation: {:.6}", tok, corr17);
@@ -59,10 +59,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Sample a few more tokens to verify embeddings match
     println!("\n=== Embedding Correlation Samples ===");
     for tok in [0, 1, 17, 100, 1000, 10000, 50000] {
-        if tok * h + h <= gguf.token_embedding.len() && tok * h + h <= apr.token_embedding.len() {
+        if tok * h + h <= gguf.token_embedding().len() && tok * h + h <= apr.token_embedding.len() {
             let gs = tok * h;
             let corr = correlation(
-                &gguf.token_embedding[gs..gs + h],
+                &gguf.token_embedding()[gs..gs + h],
                 &apr.token_embedding[gs..gs + h],
             );
             println!("Token {:6}: correlation = {:.6}", tok, corr);
@@ -71,24 +71,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Compare layer 0 norms
     println!("\n=== Layer 0 Attention Norm ===");
-    println!("GGUF first 8: {:?}", &gguf.layers[0].attn_norm_weight[..8]);
+    println!(
+        "GGUF first 8: {:?}",
+        &gguf.layers()[0].attn_norm_weight[..8]
+    );
     println!("APR first 8:  {:?}", &apr.layers[0].attn_norm_weight[..8]);
     let norm_corr = correlation(
-        &gguf.layers[0].attn_norm_weight,
+        &gguf.layers()[0].attn_norm_weight,
         &apr.layers[0].attn_norm_weight,
     );
     println!("Attn norm correlation: {:.6}", norm_corr);
 
     // Compare output norm
     println!("\n=== Output Norm ===");
-    println!("GGUF first 8: {:?}", &gguf.output_norm_weight[..8]);
+    println!("GGUF first 8: {:?}", &gguf.output_norm_weight()[..8]);
     println!("APR first 8:  {:?}", &apr.output_norm_weight[..8]);
-    let out_norm_corr = correlation(&gguf.output_norm_weight, &apr.output_norm_weight);
+    let out_norm_corr = correlation(&gguf.output_norm_weight(), &apr.output_norm_weight);
     println!("Output norm correlation: {:.6}", out_norm_corr);
 
     // Check QKV weight sizes
     println!("\n=== Layer 0 QKV Weight Size ===");
-    match &gguf.layers[0].qkv_weight {
+    match &gguf.layers()[0].qkv_weight {
         OwnedQKVWeights::Fused(ref t) => {
             println!(
                 "GGUF QKV: Fused, {}x{}, {} bytes",
@@ -137,12 +140,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Verify exact match on embeddings (they should be bit-identical for F32)
     println!("\n=== Embedding Bit-Exact Check ===");
     let mut mismatches = 0;
-    for i in 0..std::cmp::min(gguf.token_embedding.len(), apr.token_embedding.len()) {
-        if (gguf.token_embedding[i] - apr.token_embedding[i]).abs() > 1e-6 {
+    for i in 0..std::cmp::min(gguf.token_embedding().len(), apr.token_embedding.len()) {
+        if (gguf.token_embedding()[i] - apr.token_embedding[i]).abs() > 1e-6 {
             if mismatches < 5 {
                 println!(
                     "Mismatch at index {}: GGUF={:.6} APR={:.6}",
-                    i, gguf.token_embedding[i], apr.token_embedding[i]
+                    i,
+                    gguf.token_embedding()[i],
+                    apr.token_embedding[i]
                 );
             }
             mismatches += 1;
@@ -151,7 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "Total mismatches: {} / {}",
         mismatches,
-        std::cmp::min(gguf.token_embedding.len(), apr.token_embedding.len())
+        std::cmp::min(gguf.token_embedding().len(), apr.token_embedding.len())
     );
 
     Ok(())

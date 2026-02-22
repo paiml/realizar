@@ -105,7 +105,7 @@ fn main() {
     let owned_model = realizar::gguf::OwnedQuantizedModel::from_mapped(&mapped).expect("test");
     let owned_start = token_id * hidden_dim;
     let owned_row: Vec<f32> =
-        owned_model.token_embedding[owned_start..owned_start + hidden_dim].to_vec();
+        owned_model.token_embedding()[owned_start..owned_start + hidden_dim].to_vec();
     println!("\nOwnedQuantizedModel token_embedding row 450:");
     println!("  L2: {:.4}", l2_norm(&owned_row));
     println!(

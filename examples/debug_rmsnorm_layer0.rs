@@ -25,8 +25,8 @@ fn run_rmsnorm_debug() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(model_path)?;
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let eps = model.config.eps;
+    let hidden_dim = model.config().hidden_dim;
+    let eps = model.config().eps;
     let test_token = 791u32;
 
     // Get embedding
@@ -39,7 +39,7 @@ fn run_rmsnorm_debug() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("Embedding sum: {:.6}", embedding.iter().sum::<f32>());
 
     // Get layer 0 attention norm gamma
-    let layer0 = &model.layers[0];
+    let layer0 = &model.layers()[0];
     let gamma = &layer0.attn_norm_weight;
     eprintln!("\nLayer 0 attn_norm gamma first 4: {:?}", &gamma[..4]);
     eprintln!("Gamma len: {}", gamma.len());

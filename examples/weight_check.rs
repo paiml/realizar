@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
     // Get layer 0 Q weight
-    let layer0 = &model.layers[0];
+    let layer0 = &model.layers()[0];
     let (q_data, q_in_dim, q_out_dim, q_qtype) = match &layer0.qkv_weight {
         realizar::gguf::OwnedQKVWeights::Separate { q, .. } => {
             (&q.data, q.in_dim, q.out_dim, q.qtype)

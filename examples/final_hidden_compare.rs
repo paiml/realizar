@@ -32,9 +32,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cuda_model = OwnedQuantizedModelCuda::new(gpu_model, 0)?;
     cuda_model.preload_weights_gpu()?;
 
-    let hidden_dim = model.config.hidden_dim;
-    let kv_dim = model.config.num_kv_heads * (hidden_dim / model.config.num_heads);
-    let mut gpu_cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 64);
+    let hidden_dim = model.config().hidden_dim;
+    let kv_dim = model.config().num_kv_heads * (hidden_dim / model.config().num_heads);
+    let mut gpu_cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 64);
 
     let gpu_logits = cuda_model.forward_gpu_resident(test_token, &mut gpu_cache, 0)?;
     let gpu_argmax = gpu_logits

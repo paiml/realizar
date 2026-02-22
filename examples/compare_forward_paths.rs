@@ -17,8 +17,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Method 2: forward_cached() - processes one token at a time with KV cache
     let mut cache = OwnedQuantizedKVCache::new(
-        model.config.num_layers,
-        model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads),
+        model.config().num_layers,
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads),
         1024,
     );
 

@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
         println!("=== {} ===", name);
-        let layer0 = &model.layers[0];
+        let layer0 = &model.layers()[0];
         let bias_fields: &[(&str, Option<&[f32]>)] = &[
             ("qkv_bias", layer0.qkv_bias.as_deref()),
             ("attn_norm_bias", layer0.attn_norm_bias.as_deref()),
@@ -21,8 +21,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ("ffn_down_bias", layer0.ffn_down_bias.as_deref()),
             ("ffn_gate_bias", layer0.ffn_gate_bias.as_deref()),
             ("ffn_norm_bias", layer0.ffn_norm_bias.as_deref()),
-            ("output_norm_bias", model.output_norm_bias.as_deref()),
-            ("lm_head_bias", model.lm_head_bias.as_deref()),
+            ("output_norm_bias", model.output_norm_bias()),
+            ("lm_head_bias", model.lm_head_bias()),
         ];
         for (field, value) in bias_fields {
             println!("  {field}: {:?}", value.map(|b| b.len()));

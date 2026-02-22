@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Apply layer norm with APR
     let apr_layer = &apr_model.layers[0];
-    let gguf_layer = &gguf_model.layers[0];
+    let gguf_layer = &gguf_model.layers()[0];
 
     // Compare norm weights
     println!("\n=== Norm weight comparison ===");

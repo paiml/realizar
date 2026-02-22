@@ -105,7 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== GGUF QKV ===");
 
     // GGUF uses OwnedQKVWeights which has q, k, v separate or fused
-    let gguf_layer = &gguf_model.layers[0];
+    let gguf_layer = &gguf_model.layers()[0];
 
     // Check GGUF QKV structure
     println!("GGUF qkv_dim: {}", gguf_layer.qkv_weight.out_dim());

@@ -39,8 +39,9 @@ fn main() {
     let _hello_tokens: Vec<u32> = vec![bos, 15043]; // 15043 is often "Hello" in LLaMA tokenizer
 
     println!("\nTest 1: BOS + 'Hello'");
-    let kv_dim = model.config.num_kv_heads * (model.config.hidden_dim / model.config.num_heads);
-    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 128);
+    let kv_dim =
+        model.config().num_kv_heads * (model.config().hidden_dim / model.config().num_heads);
+    let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 128);
 
     // Find "Hello" token
     println!("Looking for 'Hello' token...");
@@ -68,7 +69,7 @@ fn main() {
 
     // Test 2: Just BOS
     println!("\n=== Test 2: Just BOS ===");
-    let mut cache2 = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 128);
+    let mut cache2 = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 128);
     let logits2 = model.forward_cached(bos, &mut cache2, 0).expect("test");
 
     let mut indexed2: Vec<(usize, f32)> = logits2.iter().cloned().enumerate().collect();
@@ -83,7 +84,7 @@ fn main() {
     // Generate from BOS
     println!("\n=== Generation from BOS ===");
     let mut generated = vec![bos];
-    let mut cache3 = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 128);
+    let mut cache3 = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 128);
 
     for pos in 0..20 {
         let token = generated[pos];

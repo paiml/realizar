@@ -100,9 +100,9 @@ fn main() {
     };
 
     println!("   Model loaded in {:.2?}", start.elapsed());
-    println!("   Layers: {}", cpu_model.config.num_layers);
-    println!("   Hidden dim: {}", cpu_model.config.hidden_dim);
-    println!("   Vocab size: {}", cpu_model.config.vocab_size);
+    println!("   Layers: {}", cpu_model.config().num_layers);
+    println!("   Hidden dim: {}", cpu_model.config().hidden_dim);
+    println!("   Vocab size: {}", cpu_model.config().vocab_size);
     println!();
 
     // Create CUDA model with pre-uploaded weights

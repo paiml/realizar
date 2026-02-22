@@ -133,8 +133,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mapped = MappedGGUFModel::from_path(model_path)?;
         let model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-        let hidden_dim = model.config.hidden_dim;
-        let vocab_size = model.config.vocab_size;
+        let hidden_dim = model.config().hidden_dim;
+        let vocab_size = model.config().vocab_size;
         let sb_per_row = hidden_dim.div_ceil(256);
         let bytes_per_row = sb_per_row * 210;
 
@@ -147,7 +147,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let test_input: Vec<f32> = vec![1.0; hidden_dim];
 
         // Get first few rows of LM head
-        let lm_data = &model.lm_head_weight.data;
+        let lm_data = &model.lm_head_weight().data;
         eprintln!("LM head data length: {}", lm_data.len());
 
         for row in [0, 1, 2] {

@@ -14,7 +14,7 @@ fn main() {
     let cpu_model = OwnedQuantizedModel::from_mapped(&mapped).expect("cpu model");
 
     // Get layer 0 Q weight
-    let layer0 = &cpu_model.layers[0];
+    let layer0 = &cpu_model.layers()[0];
     let q_weight = match &layer0.qkv_weight {
         OwnedQKVWeights::Separate { q, k: _, v: _ } => q,
         _ => panic!("Expected separate Q/K/V weights"),
@@ -37,10 +37,10 @@ fn main() {
 
     // Apply RMSNorm to get the actual input
     let attn_norm = &layer0.attn_norm_weight;
-    let eps = cpu_model.config.eps;
+    let eps = cpu_model.config().eps;
 
     // Compute RMSNorm on CPU
-    let hidden_dim = cpu_model.config.hidden_dim;
+    let hidden_dim = cpu_model.config().hidden_dim;
     let mut rms_sum = 0.0f32;
     for &x in &embedding {
         rms_sum += x * x;

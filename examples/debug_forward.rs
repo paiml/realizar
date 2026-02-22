@@ -22,7 +22,7 @@ fn main() {
 
     // Check layer structure
     println!("\nLayer structure (first layer):");
-    if let Some(layer) = model.layers.first() {
+    if let Some(layer) = model.layers().first() {
         println!(
             "  attn_norm_weight: {} elements",
             layer.attn_norm_weight.len()
@@ -54,18 +54,18 @@ fn main() {
     println!("\nEmbedding:");
     println!(
         "  vocab_size x hidden_dim: {} x {}",
-        model.token_embedding.len() / config.hidden_dim,
+        model.token_embedding().len() / config.hidden_dim,
         config.hidden_dim
     );
 
     // Sample some embedding values
     println!(
         "\n  Token 1 (BOS) embedding[0..5]: {:?}",
-        &model.token_embedding[config.hidden_dim..config.hidden_dim + 5]
+        &model.token_embedding()[config.hidden_dim..config.hidden_dim + 5]
     );
 
     // Look at attention norm weights
-    if let Some(layer) = model.layers.first() {
+    if let Some(layer) = model.layers().first() {
         println!(
             "\n  attn_norm_weight[0..5]: {:?}",
             &layer.attn_norm_weight[0..5]

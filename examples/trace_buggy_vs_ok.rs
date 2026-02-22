@@ -7,7 +7,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = OwnedQuantizedModel::from_mapped(&mapped)?;
     let vocab = mapped.model.vocabulary().expect("vocab");
 
-    let hidden_dim = model.config.hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
 
     // Test token 0 ("!") - OK, and token 15 ("0") - buggy
     let ok_token: u32 = 0; // "!"
@@ -32,10 +32,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Get embeddings
-    let ok_emb: Vec<f32> = model.token_embedding
+    let ok_emb: Vec<f32> = model.token_embedding()
         [ok_token as usize * hidden_dim..(ok_token as usize + 1) * hidden_dim]
         .to_vec();
-    let buggy_emb: Vec<f32> = model.token_embedding
+    let buggy_emb: Vec<f32> = model.token_embedding()
         [buggy_token as usize * hidden_dim..(buggy_token as usize + 1) * hidden_dim]
         .to_vec();
 

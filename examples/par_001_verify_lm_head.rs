@@ -20,7 +20,7 @@ fn main() {
     let mapped = MappedGGUFModel::from_path(path).expect("Failed to load model");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
-    let lm_head = &model.lm_head_weight;
+    let lm_head = &model.lm_head_weight();
 
     println!(
         "LM head: in_dim={}, out_dim={}, qtype={}",

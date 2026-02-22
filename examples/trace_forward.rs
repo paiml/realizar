@@ -31,9 +31,9 @@ fn main() {
         vocab.get(token_id as usize).unwrap_or(&"?".to_string())
     );
 
-    let head_dim = model.config.hidden_dim / model.config.num_heads;
-    let kv_dim = model.config.num_kv_heads * head_dim;
-    let mut cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 8);
+    let head_dim = model.config().hidden_dim / model.config().num_heads;
+    let kv_dim = model.config().num_kv_heads * head_dim;
+    let mut cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 8);
 
     let logits = model
         .forward_single_with_cache(token_id, &mut cache, position)
@@ -79,7 +79,7 @@ fn main() {
 
     // Now test two tokens: <|im_start|> followed by "system"
     eprintln!("\n=== Testing two tokens: <|im_start|> system ===");
-    cache = OwnedQuantizedKVCache::new(model.config.num_layers, kv_dim, 8);
+    cache = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 8);
 
     // First token
     let _ = model
