@@ -343,7 +343,7 @@ impl GpuModel {
 
         // Initialize KV cache
         // IMP-093: For GQA, use num_kv_heads since K/V have fewer heads than Q
-        let head_dim = self.config.hidden_dim / self.config.num_heads;
+        let head_dim = self.config.head_dim();
         let max_seq_len = self
             .attention_buffers
             .as_ref()

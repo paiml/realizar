@@ -21,6 +21,7 @@ fn test_imp_118a_true_batched_gemm_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -102,6 +103,7 @@ fn test_imp_118b_true_batched_gemm_matches_flattened() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -163,6 +165,7 @@ fn test_imp_118c_true_batched_gemm_large_batch() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -221,6 +224,7 @@ fn test_imp_118d_true_batched_attention() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -291,6 +295,7 @@ fn test_imp_119a_gpu_fused_attention_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -355,6 +360,7 @@ fn test_imp_119b_gpu_fused_matches_cpu_fused() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 

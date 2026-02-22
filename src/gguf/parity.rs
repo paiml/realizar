@@ -131,7 +131,7 @@ pub fn check_parity(
 
     let model = cuda_model.model();
     let config = &model.config;
-    let kv_dim = config.num_kv_heads * (config.hidden_dim / config.num_heads);
+    let kv_dim = config.kv_dim();
     let num_layers = config.num_layers;
     let max_seq = tokens.len() + 1;
 

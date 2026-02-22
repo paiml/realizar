@@ -33,6 +33,7 @@ fn test_phase34_cached_sync_new() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -60,6 +61,7 @@ fn test_phase34_cached_sync_model_accessor() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -92,6 +94,7 @@ fn test_phase34_cached_sync_concurrent_model_access() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -134,6 +137,7 @@ fn test_phase34_cached_sync_send_sync_bounds() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -179,6 +183,7 @@ fn test_phase34_cached_sync_multiple_configs() {
             } else {
                 0
             },
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -213,6 +218,7 @@ fn test_phase34_cached_sync_no_gpu_feature() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -240,6 +246,7 @@ fn test_phase34_cached_sync_rapid_access() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -271,6 +278,7 @@ fn test_phase34_cached_sync_thread_stress() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 

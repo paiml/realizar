@@ -177,6 +177,7 @@ impl OwnedQuantizedModel {
             rope_theta,
             rope_type: 2, // NEOX style for Qwen2.5
             context_length: 32768,
+            explicit_head_dim: None,
             bos_token_id: apr.metadata.get_embedded_bos_token_id(),
         };
 
@@ -200,8 +201,8 @@ impl OwnedQuantizedModel {
             Self::load_apr_token_embedding(apr, data, data_offset, vocab_size, hidden_dim)?;
 
         // Build layers
-        let head_dim = hidden_dim / num_heads;
-        let kv_dim = num_kv_heads * head_dim;
+        let head_dim = config.head_dim();
+        let kv_dim = config.kv_dim();
         let mut layers = Vec::with_capacity(num_layers);
 
         for layer_idx in 0..num_layers {

@@ -135,13 +135,13 @@ impl OwnedQuantizedModel {
         // QKV projection (GQA-aware dimension computation)
         let _qkv_dim = layer.qkv_weight.out_dim();
         let q_dim = layer.qkv_weight.q_dim_for_config(
-            self.config.num_heads, self.config.num_kv_heads, hidden_dim,
+            self.config.num_heads, self.config.num_kv_heads, hidden_dim, self.config.head_dim(),
         );
         let k_dim = layer.qkv_weight.k_dim_for_config(
-            self.config.num_heads, self.config.num_kv_heads, hidden_dim,
+            self.config.num_heads, self.config.num_kv_heads, hidden_dim, self.config.head_dim(),
         );
         let v_dim = layer.qkv_weight.v_dim_for_config(
-            self.config.num_heads, self.config.num_kv_heads, hidden_dim,
+            self.config.num_heads, self.config.num_kv_heads, hidden_dim, self.config.head_dim(),
         );
 
         // PAR-052 + GQA debug: normed input

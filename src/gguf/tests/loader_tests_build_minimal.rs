@@ -39,6 +39,7 @@ fn build_minimal_owned_quantized_model() -> OwnedQuantizedModel {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -127,6 +128,7 @@ fn build_fused_qkv_model() -> OwnedQuantizedModel {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 2,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -215,6 +217,7 @@ fn build_q4k_model() -> OwnedQuantizedModel {
         rope_theta: 1_000_000.0,
         eps: 1e-6,
         rope_type: 2,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 

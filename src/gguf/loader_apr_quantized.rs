@@ -177,6 +177,7 @@ impl OwnedQuantizedModel {
             rope_theta,
             rope_type: 2, // NEOX style for Qwen2.5
             context_length: 32768,
+            explicit_head_dim: None,
             bos_token_id: apr.metadata.get_embedded_bos_token_id(),
         };
 

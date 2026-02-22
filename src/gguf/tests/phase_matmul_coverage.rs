@@ -35,6 +35,7 @@ fn test_phase34_embed_single_token() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -60,6 +61,7 @@ fn test_phase34_embed_multiple_tokens() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -85,6 +87,7 @@ fn test_phase34_embed_out_of_vocab() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -112,6 +115,7 @@ fn test_phase34_embed_boundary_token() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -138,6 +142,7 @@ fn test_phase34_embed_empty() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -166,6 +171,7 @@ fn test_phase34_embed_into_single() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -194,6 +200,7 @@ fn test_phase34_embed_into_out_of_vocab() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -249,6 +256,7 @@ fn test_phase34_fused_matmul_q4_0_single_seq() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -286,6 +294,7 @@ fn test_phase34_fused_matmul_q4_0_multi_seq() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -351,6 +360,7 @@ fn test_phase34_fused_matmul_q8_0_single_seq() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -387,6 +397,7 @@ fn test_phase34_fused_matmul_q8_0_multi_seq() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 

@@ -15,6 +15,7 @@ fn test_imp_101c_attention_with_cache_softmax_normalized() {
         eps: 1e-5,
         rope_type: 0,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -122,6 +123,7 @@ fn test_imp_105_gqa_attention_multiple_q_per_kv() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -180,6 +182,7 @@ fn test_imp_105_gqa_kv_head_sharing() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 

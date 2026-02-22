@@ -91,6 +91,7 @@ mod tests {
             rope_theta: 1_000_000.0,
             eps: 1e-6,
             rope_type: 2,
+            explicit_head_dim: None,
             bos_token_id: Some(151_643),
         };
         let v = ValidatedModelConfig::validate(cfg).expect("Qwen config should be valid");
@@ -114,6 +115,7 @@ mod tests {
             rope_theta: 1_000_000.0,
             eps: 1e-6,
             rope_type: 2,
+            explicit_head_dim: None,
             bos_token_id: Some(151_643),
         };
         let v = ValidatedModelConfig::validate(cfg)

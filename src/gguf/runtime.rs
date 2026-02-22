@@ -378,6 +378,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 

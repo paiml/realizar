@@ -21,6 +21,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -74,6 +75,7 @@ mod tests {
             rope_theta: 1000000.0,
             eps: 1e-5,
             rope_type: 1,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -121,6 +123,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: None,
         };
 
@@ -187,6 +190,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             rope_type: 0,
+            explicit_head_dim: None,
             bos_token_id: Some(1),
         };
         assert_eq!(

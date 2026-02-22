@@ -14,6 +14,7 @@ fn test_phase34_fused_matmul_q4_1() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -48,6 +49,7 @@ fn test_phase34_fused_matmul_q4_1_multi_seq() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -105,6 +107,7 @@ fn test_phase34_fused_matmul_q5_0() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -139,6 +142,7 @@ fn test_phase34_fused_matmul_q5_0_multi_seq() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -216,6 +220,7 @@ fn test_phase34_fused_matmul_q4_k_single() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -250,6 +255,7 @@ fn test_phase34_fused_matmul_q4_k_multi() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -281,6 +287,7 @@ fn test_phase34_fused_matmul_q5_k() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -314,6 +321,7 @@ fn test_phase34_fused_matmul_q5_k_multi() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -345,6 +353,7 @@ fn test_phase34_fused_matmul_q6_k() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -378,6 +387,7 @@ fn test_phase34_fused_matmul_q6_k_multi() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -412,6 +422,7 @@ fn test_phase34_fused_matmul_unsupported_qtype() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 

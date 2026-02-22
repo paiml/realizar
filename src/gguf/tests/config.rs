@@ -67,6 +67,7 @@ fn test_imp_101a_rope_preserves_norm() {
         eps: 1e-5,
         rope_type: 0,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -126,6 +127,7 @@ fn test_imp_101a_rope_position_dependent() {
         eps: 1e-5,
         rope_type: 0,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -200,6 +202,7 @@ fn test_imp_101b_causal_attention_mask() {
         eps: 1e-5,
         rope_type: 0,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -272,6 +275,7 @@ fn test_imp_101b_causal_attention_softmax_normalized() {
         eps: 1e-5,
         rope_type: 0,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 
@@ -353,6 +357,7 @@ fn test_imp_101c_kv_cache_from_config() {
         eps: 1e-5,
         rope_type: 0,
         rope_theta: 10000.0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
 

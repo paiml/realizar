@@ -200,22 +200,18 @@ impl OwnedQKVWeights {
 
     /// Get the Q dimension for GQA-aware models
     ///
-    /// For GQA: q_dim = num_heads * head_dim = hidden_dim
-    /// For MHA: q_dim = hidden_dim (same as GQA since num_heads * head_dim = hidden_dim)
+    /// GH-305: `head_dim` comes from GGUF metadata — may differ from `hidden_dim / num_heads`.
+    /// For Qwen3-0.6B: `q_dim = 16 * 128 = 2048` while `hidden_dim = 1024`.
     #[must_use]
     pub fn q_dim_for_config(
         &self,
         num_heads: usize,
         _num_kv_heads: usize,
-        hidden_dim: usize,
+        _hidden_dim: usize,
+        head_dim: usize,
     ) -> usize {
         match self {
-            OwnedQKVWeights::Fused(_) => {
-                // Q dimension is always num_heads * head_dim = hidden_dim
-                // (since head_dim = hidden_dim / num_heads)
-                let head_dim = hidden_dim / num_heads;
-                num_heads * head_dim
-            },
+            OwnedQKVWeights::Fused(_) => num_heads * head_dim,
             OwnedQKVWeights::Separate { q, .. } => q.out_dim,
         }
     }
@@ -223,19 +219,16 @@ impl OwnedQKVWeights {
     /// Get the K dimension for GQA-aware models
     ///
     /// For GQA: k_dim = num_kv_heads * head_dim (smaller than q_dim)
-    /// For MHA: k_dim = num_heads * head_dim = hidden_dim
     #[must_use]
     pub fn k_dim_for_config(
         &self,
-        num_heads: usize,
+        _num_heads: usize,
         num_kv_heads: usize,
-        hidden_dim: usize,
+        _hidden_dim: usize,
+        head_dim: usize,
     ) -> usize {
         match self {
-            OwnedQKVWeights::Fused(_) => {
-                let head_dim = hidden_dim / num_heads;
-                num_kv_heads * head_dim
-            },
+            OwnedQKVWeights::Fused(_) => num_kv_heads * head_dim,
             OwnedQKVWeights::Separate { k, .. } => k.out_dim,
         }
     }
@@ -243,19 +236,16 @@ impl OwnedQKVWeights {
     /// Get the V dimension for GQA-aware models
     ///
     /// For GQA: v_dim = num_kv_heads * head_dim (same as k_dim)
-    /// For MHA: v_dim = num_heads * head_dim = hidden_dim
     #[must_use]
     pub fn v_dim_for_config(
         &self,
-        num_heads: usize,
+        _num_heads: usize,
         num_kv_heads: usize,
-        hidden_dim: usize,
+        _hidden_dim: usize,
+        head_dim: usize,
     ) -> usize {
         match self {
-            OwnedQKVWeights::Fused(_) => {
-                let head_dim = hidden_dim / num_heads;
-                num_kv_heads * head_dim
-            },
+            OwnedQKVWeights::Fused(_) => num_kv_heads * head_dim,
             OwnedQKVWeights::Separate { v, .. } => v.out_dim,
         }
     }

@@ -20,6 +20,7 @@ fn create_llama_256_model() -> crate::gguf::OwnedQuantizedModel {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
     let hidden_dim = config.hidden_dim;
@@ -112,6 +113,7 @@ fn create_phi_256_model() -> crate::gguf::OwnedQuantizedModel {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
     let hidden_dim = config.hidden_dim;
@@ -173,6 +175,7 @@ fn create_llama_256_gqa_model() -> crate::gguf::OwnedQuantizedModel {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
+            explicit_head_dim: None,
         bos_token_id: None,
     };
     let hidden_dim = config.hidden_dim;
