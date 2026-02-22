@@ -20,27 +20,27 @@ impl OwnedQuantizedModel {
         let layer = &self.layers[layer_idx];
 
         if self.config.constraints.has_gate_ffn() {
-            let gate_weight = layer.ffn_gate_weight.as_ref()
-                .expect("gated FFN contract requires gate weight");
-
-            // Fused path: RMSNorm + SwiGLU (LLaMA, TinyLlama, Mistral, etc.)
-            if use_rmsnorm {
-                if let Some(ref ffn_norm) = layer.ffn_norm_weight {
-                    let (mut ffn_up, mut ffn_gate) = self.fused_rmsnorm_ffn_up_gate(
-                        hidden, ffn_norm, self.config.eps,
-                        &layer.ffn_up_weight, gate_weight,
-                    )?;
-                    if let Some(ref bias) = layer.ffn_up_bias {
-                        ops::add_bias(&mut ffn_up, bias);
+            // Fused RMSNorm + SwiGLU path (LLaMA, TinyLlama, Mistral, etc.)
+            // Only when we have separate gate weight AND RMSNorm
+            if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                if use_rmsnorm {
+                    if let Some(ref ffn_norm) = layer.ffn_norm_weight {
+                        let (mut ffn_up, mut ffn_gate) = self.fused_rmsnorm_ffn_up_gate(
+                            hidden, ffn_norm, self.config.eps,
+                            &layer.ffn_up_weight, gate_weight,
+                        )?;
+                        if let Some(ref bias) = layer.ffn_up_bias {
+                            ops::add_bias(&mut ffn_up, bias);
+                        }
+                        if let Some(ref bias) = layer.ffn_gate_bias {
+                            ops::add_bias(&mut ffn_gate, bias);
+                        }
+                        ops::silu(&mut ffn_gate);
+                        for i in 0..ffn_gate.len() {
+                            ffn_gate[i] *= ffn_up[i];
+                        }
+                        return Ok(ffn_gate);
                     }
-                    if let Some(ref bias) = layer.ffn_gate_bias {
-                        ops::add_bias(&mut ffn_gate, bias);
-                    }
-                    ops::silu(&mut ffn_gate);
-                    for i in 0..ffn_gate.len() {
-                        ffn_gate[i] *= ffn_up[i];
-                    }
-                    return Ok(ffn_gate);
                 }
             }
 
@@ -58,11 +58,22 @@ impl OwnedQuantizedModel {
                 hidden.to_vec()
             };
 
-            let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+            let (mut ffn_gate, mut ffn_up) = if let Some(ref gate_weight) = layer.ffn_gate_weight {
+                // Separate gate/up weights (LLaMA, Qwen2, Mistral)
+                let ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                let ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
+                (ffn_gate, ffn_up)
+            } else {
+                // GH-306: Fused gate_up weight (Phi-3.5) — single matmul, split output
+                let fused = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                let half = fused.len() / 2;
+                let ffn_gate = fused[..half].to_vec();
+                let ffn_up = fused[half..].to_vec();
+                (ffn_gate, ffn_up)
+            };
             if let Some(ref bias) = layer.ffn_up_bias {
                 ops::add_bias(&mut ffn_up, bias);
             }
-            let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
             if let Some(ref bias) = layer.ffn_gate_bias {
                 ops::add_bias(&mut ffn_gate, bias);
             }
