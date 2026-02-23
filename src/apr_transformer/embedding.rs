@@ -72,7 +72,7 @@ impl AprTransformer {
             .or_else(|| metadata.get("max_seq_len"))
             .or_else(|| metadata.get("n_ctx"))
             .and_then(serde_json::Value::as_u64)
-            .unwrap_or(2048) as usize;
+            .unwrap_or(0) as usize;
 
         AprTransformerConfig {
             architecture,

@@ -147,7 +147,7 @@ impl GgufToAprQ4KConverter {
             &gguf_model.metadata,
             &keys::arch_key(&architecture, keys::CONTEXT_LENGTH),
         )
-        .unwrap_or(2048);
+        .unwrap_or(0);
         // R-02 (Meyer DbC): rope_theta from GGUF, or architecture-specific default.
         let rope_theta = Self::get_f32(
             &gguf_model.metadata,

@@ -432,7 +432,7 @@ impl GGUFConfig {
 
         let intermediate_dim = Self::infer_intermediate_dim(model, hidden_dim);
 
-        let context_length = model.context_length().unwrap_or(2048);
+        let context_length = model.context_length().unwrap_or(0);
 
         // C-02 (Meyer DbC): rope_theta from GGUF metadata, or architecture-specific default.
         let rope_theta = model.rope_freq_base()

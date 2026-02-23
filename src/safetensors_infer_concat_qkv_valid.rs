@@ -406,7 +406,8 @@
         let result = SafetensorsToAprConverter::convert(&model_path);
         assert!(result.is_ok(), "convert failed: {:?}", result.err());
         let transformer = result.expect("operation failed");
-        assert_eq!(transformer.config.context_length, 2048);
+        // N-03: context_length defaults to 0 when config.json has no max_position_embeddings
+        assert_eq!(transformer.config.context_length, 0);
     }
 
     #[test]
