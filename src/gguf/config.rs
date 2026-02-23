@@ -420,13 +420,15 @@ impl GGUFConfig {
         // Try to get num_heads, default based on hidden_dim if not found
         let num_heads = model.num_heads().unwrap_or(hidden_dim / 64);
 
-        // Get vocab_size from token_embd tensor
-        // After dims.reverse(), shape is [vocab_size, hidden_dim] - vocab is at index 0
+        // C-13 (Meyer DbC): vocab_size from token_embd tensor dims, not hardcoded.
+        // After dims.reverse(), shape is [vocab_size, hidden_dim] - vocab is at index 0.
+        // Falls back to 0 (unknown) if tensor not found — downstream code must handle.
         let vocab_size = model
             .tensors
             .iter()
             .find(|t| t.name == "token_embd.weight")
-            .map_or(32000, |t| t.dims.first().copied().unwrap_or(32000) as usize);
+            .and_then(|t| t.dims.first().copied())
+            .unwrap_or(0) as usize;
 
         let intermediate_dim = Self::infer_intermediate_dim(model, hidden_dim);
 
