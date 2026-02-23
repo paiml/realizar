@@ -284,6 +284,26 @@ pub(crate) fn default_eos_for_architecture(arch: &str) -> Option<u32> {
     }
 }
 
+/// C-02 (Meyer DbC): Architecture-default rope_theta values.
+///
+/// Different architectures use fundamentally different RoPE frequency bases:
+/// - LLaMA/Mistral/Gemma: 10,000.0 (original RoPE paper)
+/// - Qwen2/Qwen3: 1,000,000.0 (extended context)
+/// - DeepSeek: 10,000.0
+/// - Phi: 10,000.0
+///
+/// Using the wrong rope_theta produces completely wrong positional encodings.
+/// Sources: HuggingFace config.json files, architecture papers.
+pub(crate) fn default_rope_theta_for_architecture(arch: &str) -> f32 {
+    match arch {
+        "qwen2" | "qwen3" => 1_000_000.0,
+        "llama" | "mistral" | "gemma" | "gemma2" | "deepseek" | "deepseek2" => 10_000.0,
+        "phi2" | "phi3" | "phi" => 10_000.0,
+        // Conservative default: LLaMA's 10K is the original RoPE value
+        _ => 10_000.0,
+    }
+}
+
 impl GGUFConfig {
     /// Per-head dimension for Q/K projections.
     ///
@@ -348,6 +368,30 @@ impl GGUFConfig {
             .filter(|&hd| hd != default_head_dim)
     }
 
+    /// GH-306: Infer intermediate_dim from ffn_down or ffn_up tensor shapes.
+    ///
+    /// ffn_down is preferred because some architectures (Phi-3.5) fuse gate+up,
+    /// doubling ffn_up's first dimension.
+    fn infer_intermediate_dim(model: &GGUFModel, hidden_dim: usize) -> usize {
+        let extract_dim = |dims: &[u64]| -> usize {
+            let d0 = dims.first().copied().unwrap_or(hidden_dim as u64 * 4) as usize;
+            let d1 = dims.get(1).copied().unwrap_or(hidden_dim as u64) as usize;
+            if d1 == hidden_dim { d0 }
+            else if d0 == hidden_dim { d1 }
+            else { d0 }
+        };
+
+        model.tensors.iter()
+            .find(|t| t.name == "blk.0.ffn_down.weight")
+            .map(|t| extract_dim(&t.dims))
+            .or_else(|| {
+                model.tensors.iter()
+                    .find(|t| t.name == "blk.0.ffn_up.weight")
+                    .map(|t| extract_dim(&t.dims))
+            })
+            .unwrap_or(hidden_dim * 4)
+    }
+
     /// Extract configuration from GGUF model metadata
     ///
     /// # Errors
@@ -384,51 +428,13 @@ impl GGUFConfig {
             .find(|t| t.name == "token_embd.weight")
             .map_or(32000, |t| t.dims.first().copied().unwrap_or(32000) as usize);
 
-        // GH-278: Infer intermediate_dim from ffn_down tensor shape (preferred)
-        // or ffn_up as fallback.
-        //
-        // GH-306: ffn_down is more reliable because some architectures (Phi-3.5)
-        // fuse gate+up into a single ffn_up tensor with 2x the intermediate dim.
-        // ffn_down is always [intermediate_dim, hidden_dim] (Linear layout).
-        let _has_ffn_gate = model.tensors.iter().any(|t| t.name == "blk.0.ffn_gate.weight");
-        let intermediate_dim = model
-            .tensors
-            .iter()
-            .find(|t| t.name == "blk.0.ffn_down.weight")
-            .map_or_else(
-                || {
-                    // Fallback: infer from ffn_up
-                    model.tensors.iter()
-                        .find(|t| t.name == "blk.0.ffn_up.weight")
-                        .map_or(hidden_dim * 4, |t| {
-                            let d0 = t.dims.first().copied().unwrap_or(hidden_dim as u64 * 4) as usize;
-                            let d1 = t.dims.get(1).copied().unwrap_or(hidden_dim as u64) as usize;
-                            if d0 == hidden_dim && d1 != hidden_dim {
-                                d1
-                            } else {
-                                d0
-                            }
-                        })
-                },
-                |t| {
-                    // ffn_down: [intermediate_dim, hidden_dim] after dims.reverse()
-                    let d0 = t.dims.first().copied().unwrap_or(hidden_dim as u64 * 4) as usize;
-                    let d1 = t.dims.get(1).copied().unwrap_or(hidden_dim as u64) as usize;
-                    if d1 == hidden_dim {
-                        d0 // Linear layout: [intermediate_dim, hidden_dim]
-                    } else if d0 == hidden_dim {
-                        d1 // Conv1D layout: [hidden_dim, intermediate_dim]
-                    } else {
-                        d0 // Best guess
-                    }
-                },
-            );
+        let intermediate_dim = Self::infer_intermediate_dim(model, hidden_dim);
 
         let context_length = model.context_length().unwrap_or(2048);
 
-        // Read rope_theta from metadata, or use default (10000.0 for LLaMA-style)
-        // Qwen2 uses 1000000.0, which is read from qwen2.rope.freq_base
-        let rope_theta = model.rope_freq_base().unwrap_or(10000.0);
+        // C-02 (Meyer DbC): rope_theta from GGUF metadata, or architecture-specific default.
+        let rope_theta = model.rope_freq_base()
+            .unwrap_or_else(|| default_rope_theta_for_architecture(&architecture));
 
         // GH-278: Look up contract constraints for this architecture.
         // This replaces ALL runtime heuristics (tensor presence checks, string matching)

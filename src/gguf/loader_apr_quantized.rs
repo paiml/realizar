@@ -154,21 +154,34 @@ impl OwnedQuantizedModel {
         let data = apr.data();
         let data_offset = apr.data_offset() as usize;
 
-        // Build config from APR metadata
-        let hidden_dim = apr.metadata.hidden_size.unwrap_or(1536);
-        let num_layers = apr.metadata.num_layers.unwrap_or(28);
-        let num_heads = apr.metadata.num_heads.unwrap_or(12);
-        let num_kv_heads = apr.metadata.num_kv_heads.unwrap_or(2);
-        let intermediate_dim = apr.metadata.intermediate_size.unwrap_or(8960);
-        let eps = apr.metadata.rms_norm_eps.unwrap_or(1e-6);
-        let rope_theta = apr.metadata.rope_theta.unwrap_or(1_000_000.0);
-        let vocab_size = apr_infer_vocab_size(apr);
-
+        // C-01/C-02/C-03 (Meyer DbC): Required model dimensions — no silent Qwen2-1.5B defaults.
+        // Architecture is required first (determines rope_theta default).
         let architecture = apr
             .metadata
             .architecture
             .clone()
-            .unwrap_or_else(|| "qwen2".to_string());
+            .ok_or_else(|| crate::RealizarError::InvalidConfiguration(
+                "C-01: APR model missing 'architecture' metadata — cannot infer model type".into()
+            ))?;
+        let hidden_dim = apr.metadata.hidden_size.ok_or_else(|| {
+            crate::RealizarError::InvalidConfiguration("C-03: APR model missing 'hidden_size' metadata".into())
+        })?;
+        let num_layers = apr.metadata.num_layers.ok_or_else(|| {
+            crate::RealizarError::InvalidConfiguration("C-03: APR model missing 'num_layers' metadata".into())
+        })?;
+        let num_heads = apr.metadata.num_heads.ok_or_else(|| {
+            crate::RealizarError::InvalidConfiguration("C-03: APR model missing 'num_heads' metadata".into())
+        })?;
+        let num_kv_heads = apr.metadata.num_kv_heads.unwrap_or(num_heads);
+        let intermediate_dim = apr.metadata.intermediate_size.ok_or_else(|| {
+            crate::RealizarError::InvalidConfiguration("C-03: APR model missing 'intermediate_size' metadata".into())
+        })?;
+        let eps = apr.metadata.rms_norm_eps
+            .unwrap_or_else(|| crate::gguf::ArchConstraints::from_architecture(&architecture).default_eps);
+        // C-02: rope_theta from metadata, or architecture-specific default
+        let rope_theta = apr.metadata.rope_theta
+            .unwrap_or_else(|| crate::gguf::default_rope_theta_for_architecture(&architecture));
+        let vocab_size = apr_infer_vocab_size(apr);
         let constraints = crate::gguf::ArchConstraints::from_architecture(&architecture);
         // GH-329: Read from APR metadata, infer from architecture when absent
         let rope_type = apr.metadata.rope_type
