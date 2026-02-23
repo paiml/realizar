@@ -491,6 +491,126 @@ mod tests {
             err.tensor_name
         );
     }
+
+    // =========================================================================
+    // FALSIFY-E6: Embedding contract gap analysis (Refs PMAT-325, PMAT-327)
+    //
+    // Five-Whys: §2.1.1 "What Are Embeddings" falsification sweep
+    //   Why 1: GPU path could silently load garbage embeddings
+    //   Why 2: GPU validates shape but not data quality
+    //   Why 3: ValidatedEmbedding not wired into GGUF load path
+    //   Why 4: GGUF loader predates ValidatedEmbedding
+    //   Why 5: No test existed to verify ALL load paths enforce same gates
+    //
+    // Popper (1959): "These tests try to break the claim that
+    // ValidatedEmbedding prevents ALL embedding garbage across ALL paths."
+    // =========================================================================
+
+    /// FALSIFY-E6a: ValidatedEmbedding rejects Inf values
+    #[test]
+    fn falsify_e6a_embedding_rejects_inf() {
+        let vocab_size = 10;
+        let hidden_dim = 8;
+        let mut data: Vec<f32> = (0..vocab_size * hidden_dim)
+            .map(|i| (i as f32 * 0.01).sin() * 0.1)
+            .collect();
+        data[7] = f32::INFINITY;
+        let result = ValidatedEmbedding::new(data, vocab_size, hidden_dim);
+        assert!(result.is_err(), "FALSIFY-E6a: Should reject Inf in embedding");
+        assert_eq!(result.unwrap_err().rule_id, "F-DATA-QUALITY-002");
+    }
+
+    /// FALSIFY-E6b: ValidatedEmbedding rejects NEG_INFINITY
+    #[test]
+    fn falsify_e6b_embedding_rejects_neg_inf() {
+        let vocab_size = 10;
+        let hidden_dim = 8;
+        let mut data: Vec<f32> = (0..vocab_size * hidden_dim)
+            .map(|i| (i as f32 * 0.01).sin() * 0.1)
+            .collect();
+        data[3] = f32::NEG_INFINITY;
+        let result = ValidatedEmbedding::new(data, vocab_size, hidden_dim);
+        assert!(result.is_err(), "FALSIFY-E6b: Should reject -Inf in embedding");
+        assert_eq!(result.unwrap_err().rule_id, "F-DATA-QUALITY-002");
+    }
+
+    /// FALSIFY-E6c: ValidatedEmbedding rejects near-zero L2 norm
+    #[test]
+    fn falsify_e6c_embedding_rejects_near_zero_l2() {
+        let vocab_size = 10;
+        let hidden_dim = 8;
+        // Values above zero threshold but L2 < 1e-6
+        let data: Vec<f32> = (0..vocab_size * hidden_dim)
+            .map(|i| 1e-8 + (i as f32) * 1e-12)
+            .collect();
+        let result = ValidatedEmbedding::new(data, vocab_size, hidden_dim);
+        assert!(result.is_err(), "FALSIFY-E6c: Near-zero L2 embedding must be rejected");
+        assert_eq!(result.unwrap_err().rule_id, "F-DATA-QUALITY-003");
+    }
+
+    /// FALSIFY-E6d: ValidatedEmbedding catches trailing corruption at 90% of vocab
+    #[test]
+    fn falsify_e6d_spot_check_catches_trailing_corruption() {
+        let vocab_size = 100;
+        let hidden_dim = 64;
+        let mut data: Vec<f32> = (0..vocab_size * hidden_dim)
+            .map(|i| (i as f32 * 0.01).sin() * 0.1)
+            .collect();
+        // Zero out token at 90% of vocab
+        let token_90_start = 90 * hidden_dim;
+        for v in &mut data[token_90_start..token_90_start + hidden_dim] {
+            *v = 0.0;
+        }
+        let result = ValidatedEmbedding::new(data, vocab_size, hidden_dim);
+        assert!(result.is_err(), "FALSIFY-E6d: Must catch zero token at 90%");
+        assert_eq!(result.unwrap_err().rule_id, "F-DATA-QUALITY-004");
+    }
+
+    /// FALSIFY-E6e: Zero vocab_size produces empty embedding — must be rejected
+    #[test]
+    fn falsify_e6e_zero_vocab_size_rejected() {
+        let result = ValidatedEmbedding::new(vec![], 0, 64);
+        assert!(result.is_err(), "FALSIFY-E6e: vocab_size=0 must be rejected");
+    }
+
+    /// FALSIFY-E6f: Zero hidden_dim produces empty embedding — must be rejected
+    #[test]
+    fn falsify_e6f_zero_hidden_dim_rejected() {
+        let result = ValidatedEmbedding::new(vec![], 100, 0);
+        assert!(result.is_err(), "FALSIFY-E6f: hidden_dim=0 must be rejected");
+    }
+
+    /// FALSIFY-E6g: ValidatedAprTransformer rejects truncated embedding
+    ///
+    /// Simulates PMAT-327: embedding_weights.len() < vocab_size * hidden_dim.
+    /// The Validated path must catch this at construction, preventing runtime OOB.
+    #[test]
+    fn falsify_e6g_truncated_embedding_rejected() {
+        let mut t = make_valid_transformer(1);
+        // Truncate embedding: remove last 10 elements
+        let len = t.token_embedding.len();
+        t.token_embedding.truncate(len - 10);
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(), "FALSIFY-E6g: Truncated embedding must be rejected");
+        let err = result.unwrap_err();
+        assert!(err.tensor_name.contains("embedding"),
+            "Error must identify embedding: {}", err);
+    }
+
+    /// FALSIFY-E6h: ValidatedAprTransformer rejects oversized embedding
+    ///
+    /// If embedding has MORE data than vocab*hidden, it could indicate
+    /// wrong vocab_size in config or concatenated garbage.
+    #[test]
+    fn falsify_e6h_oversized_embedding_rejected() {
+        let mut t = make_valid_transformer(1);
+        // Add 10 extra elements
+        for _ in 0..10 {
+            t.token_embedding.push(0.1);
+        }
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(), "FALSIFY-E6h: Oversized embedding must be rejected");
+    }
 }
 
 // T-COV-95 Coverage Bridge (Part 02 - Accessors, error paths, optional biases)
