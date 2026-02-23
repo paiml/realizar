@@ -143,7 +143,7 @@ fn test_from_bytes_wrong_magic() {
 fn test_from_bytes_wrong_version() {
     let mut data = Vec::new();
     data.extend_from_slice(&0x4655_4747u32.to_le_bytes()); // GGUF magic
-    data.extend_from_slice(&2u32.to_le_bytes()); // version 2 (unsupported)
+    data.extend_from_slice(&99u32.to_le_bytes()); // version 99 (unsupported; v2 is valid per GH-310)
     data.extend_from_slice(&0u64.to_le_bytes());
     data.extend_from_slice(&0u64.to_le_bytes());
     let result = GGUFModel::from_bytes(&data);

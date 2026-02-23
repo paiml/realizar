@@ -398,11 +398,11 @@ fn test_ancestral_pygmy_v1_rejected() {
 }
 
 #[test]
-fn test_ancestral_pygmy_v2_rejected() {
+fn test_ancestral_pygmy_v2_accepted() {
     let data = build_ancestral_pygmy_v2();
     let result = GGUFModel::from_bytes(&data);
 
-    assert!(result.is_err(), "GGUF v2 should be rejected");
+    assert!(result.is_ok(), "v2 should be accepted (GH-310)");
 }
 
 #[test]

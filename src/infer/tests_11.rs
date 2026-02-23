@@ -231,16 +231,30 @@ fn test_inference_config_trace_steps_can_be_set() {
 // safetensors_arch_to_template_hint: additional edge cases
 // ============================================================================
 
+// GH-317/318: normalize_architecture does exact matching from contract.
+// Mixed-case or non-contract names all default to "llama".
 #[test]
-fn test_safetensors_arch_mixed_case_qwen() {
+fn test_safetensors_arch_exact_match_qwen() {
+    // Exact HF class name → matches
+    assert_eq!(
+        safetensors_arch_to_template_hint("Qwen2ForCausalLM", "model"),
+        "qwen2"
+    );
+    // Wrong case → not in contract → defaults to "llama"
     assert_eq!(
         safetensors_arch_to_template_hint("QWEN2ForCausalLM", "model"),
-        "qwen2"
+        "llama"
     );
 }
 
 #[test]
-fn test_safetensors_arch_mixed_case_llama() {
+fn test_safetensors_arch_exact_match_llama() {
+    // Exact matches
+    assert_eq!(
+        safetensors_arch_to_template_hint("LlamaForCausalLM", "model"),
+        "llama"
+    );
+    // Non-contract variant → "llama" (still llama, but by default path)
     assert_eq!(
         safetensors_arch_to_template_hint("LLAMA_Model", "model"),
         "llama"
@@ -248,31 +262,41 @@ fn test_safetensors_arch_mixed_case_llama() {
 }
 
 #[test]
-fn test_safetensors_arch_mixed_case_mistral() {
+fn test_safetensors_arch_exact_match_mistral() {
+    assert_eq!(
+        safetensors_arch_to_template_hint("MistralForCausalLM", "model"),
+        "mistral"
+    );
+    // Non-contract variant → "llama" default
     assert_eq!(
         safetensors_arch_to_template_hint("MISTRAL_v2", "model"),
-        "mistral"
+        "llama"
     );
 }
 
 #[test]
-fn test_safetensors_arch_mixed_case_phi() {
-    assert_eq!(safetensors_arch_to_template_hint("PHI_3", "model"), "phi");
+fn test_safetensors_arch_exact_match_phi() {
+    // Phi-3+ → "phi"
+    assert_eq!(safetensors_arch_to_template_hint("Phi3ForCausalLM", "model"), "phi");
+    // Phi-1.5/Phi-2 → "phi2"
+    assert_eq!(safetensors_arch_to_template_hint("PhiForCausalLM", "model"), "phi2");
+    // Non-contract variant → "llama" default
+    assert_eq!(safetensors_arch_to_template_hint("PHI_3", "model"), "llama");
 }
 
 #[test]
 fn test_safetensors_arch_empty_string() {
-    // Empty architecture should fall through to model name
+    // GH-317/318: Empty architecture defaults to "llama" via normalize_architecture
     let result = safetensors_arch_to_template_hint("", "fallback-model");
-    assert_eq!(result, "fallback-model");
+    assert_eq!(result, "llama");
 }
 
 #[test]
-fn test_safetensors_arch_contains_qwen_but_also_llama() {
-    // "qwen" is checked first, so it should win
+fn test_safetensors_arch_non_contract_names_default_to_llama() {
+    // GH-317/318: Non-contract names all default to "llama"
     assert_eq!(
         safetensors_arch_to_template_hint("QwenLlamaHybrid", "model"),
-        "qwen2"
+        "llama"
     );
 }
 
