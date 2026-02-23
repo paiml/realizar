@@ -71,10 +71,12 @@ impl GGUFModel {
             })?;
         let version = u32::from_le_bytes(buf);
 
-        if version != GGUF_VERSION_V3 {
+        // GH-310: Accept both v2 and v3 — same format structure, v3 just adds
+        // big-endian support (all models in practice are little-endian).
+        if version != GGUF_VERSION_V3 && version != GGUF_VERSION_V2 {
             return Err(RealizarError::UnsupportedOperation {
                 operation: "parse_gguf".to_string(),
-                reason: format!("Unsupported GGUF version: {version}, only v3 supported"),
+                reason: format!("Unsupported GGUF version: {version}, only v2/v3 supported"),
             });
         }
 
