@@ -380,9 +380,16 @@
     }
 
     #[test]
+    fn test_default_bos_phi3() {
+        // Phi-3: bos_token_id=1 per HuggingFace config.json
+        assert_eq!(default_bos_for_architecture("phi3"), Some(1));
+    }
+
+    #[test]
     fn test_default_bos_unknown_returns_none() {
+        // phi/phi2/gpt2: no BOS token
         assert_eq!(default_bos_for_architecture("phi"), None);
-        assert_eq!(default_bos_for_architecture("phi3"), None);
+        assert_eq!(default_bos_for_architecture("phi2"), None);
         assert_eq!(default_bos_for_architecture("unknown_arch"), None);
         assert_eq!(default_bos_for_architecture(""), None);
     }

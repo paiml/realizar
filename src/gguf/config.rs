@@ -252,34 +252,38 @@ pub struct GGUFConfig {
 /// BOS token ID based on the architecture, enabling GPU validation (F2-VALIDATION)
 /// that would otherwise be skipped.
 ///
-/// Sources: `contracts/model-families/*.yaml`
+/// Source of truth: `special-tokens-registry-v1.yaml`
 fn default_bos_for_architecture(arch: &str) -> Option<u32> {
     match arch {
-        "qwen2" => Some(151_643),
+        "qwen2" | "qwen3" | "qwen3moe" => Some(151_643),
+        // qwen3_5: no BOS token in config.json
         "llama" => Some(128_000),
         "mistral" => Some(1),
         "gemma" | "gemma2" => Some(2),
         "deepseek" | "deepseek2" => Some(0),
-        // phi/phi3: no BOS token (empty string in spec)
+        "phi3" => Some(1),
+        // phi2/phi/gpt2: no BOS token
         _ => None,
     }
 }
 
-/// GH-330: Architecture-default EOS token IDs for weights-only GGUFs.
+/// Architecture-default EOS token IDs for weights-only GGUFs.
 ///
 /// Same rationale as `default_bos_for_architecture` — weights-only GGUFs
 /// lack `tokenizer.ggml.eos_token_id`. This provides a known-good EOS
 /// based on the architecture contract.
 ///
-/// Sources: `contracts/model-families/*.yaml`, HuggingFace configs
+/// Source of truth: `special-tokens-registry-v1.yaml`
 pub(crate) fn default_eos_for_architecture(arch: &str) -> Option<u32> {
     match arch {
-        "qwen2" | "qwen3" => Some(151_645),
+        "qwen2" | "qwen3" | "qwen3moe" => Some(151_645),
+        "qwen3_5" => Some(248_044),
         "llama" => Some(128_001),
         "mistral" => Some(2),
         "gemma" | "gemma2" => Some(1),
-        "deepseek" | "deepseek2" => Some(100_001),
-        "phi2" | "phi3" | "phi" => Some(50_256),
+        "deepseek" | "deepseek2" => Some(1),
+        "phi3" => Some(32_000),
+        "phi2" | "phi" | "gpt2" => Some(50_256),
         _ => None,
     }
 }
