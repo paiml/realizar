@@ -229,6 +229,12 @@ fn main() {
     // Phase 1: Architecture requirements codegen (PMAT-228)
     generate_arch_requirements_file();
 
+    // Phase 1b: Architecture constraints codegen (GH-323)
+    generate_arch_constraints_file();
+
+    // Phase 1c: Tensor names codegen (GH-311)
+    generate_tensor_names_file();
+
     // Phase 2: Contract binding env vars
     // Re-run if binding.yaml changes
     let binding_path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -421,4 +427,260 @@ fn generate_arch_requirements_file() {
         req.weight_roles.len(),
         req.constraint_matrix.len()
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GH-323: Architecture constraints YAML → Rust codegen
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Schema for arch-constraints-v1.yaml.
+#[derive(Deserialize)]
+struct ArchConstraintsContract {
+    architectures: BTreeMap<String, ArchEntry>,
+    default: ArchEntry,
+}
+
+#[derive(Deserialize)]
+struct ArchEntry {
+    #[serde(default)]
+    aliases: Vec<String>,
+    norm_type: String,
+    activation: String,
+    positional_encoding: String,
+    mlp_type: String,
+    weight_layout: String,
+    has_bias: bool,
+    tied_embeddings: bool,
+    has_qk_norm: bool,
+    default_eps: f64,
+}
+
+/// GH-323: Read arch-constraints-v1.yaml and generate arch_constraints_generated.rs.
+fn generate_arch_constraints_file() {
+    let yaml_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("provable-contracts")
+        .join("contracts")
+        .join("arch-constraints-v1.yaml");
+
+    println!("cargo:rerun-if-changed={}", yaml_path.display());
+
+    let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
+    let out_path = Path::new(&out_dir).join("arch_constraints_generated.rs");
+
+    if !yaml_path.exists() {
+        println!(
+            "cargo:warning=[GH-323] arch-constraints-v1.yaml not found; \
+             using fallback arch_constraints.rs"
+        );
+        std::fs::write(&out_path, include_str!("src/gguf/arch_constraints_fallback.rs"))
+            .expect("Failed to write fallback arch_constraints_generated.rs");
+        return;
+    }
+
+    let yaml_content = match std::fs::read_to_string(&yaml_path) {
+        Ok(s) => s,
+        Err(e) => {
+            println!(
+                "cargo:warning=[GH-323] Failed to read arch-constraints-v1.yaml: {e}; \
+                 using fallback"
+            );
+            std::fs::write(&out_path, include_str!("src/gguf/arch_constraints_fallback.rs"))
+                .expect("Failed to write fallback arch_constraints_generated.rs");
+            return;
+        },
+    };
+
+    let contract: ArchConstraintsContract = match serde_yaml_ng::from_str(&yaml_content) {
+        Ok(c) => c,
+        Err(e) => {
+            println!(
+                "cargo:warning=[GH-323] Failed to parse arch-constraints-v1.yaml: {e}; \
+                 using fallback"
+            );
+            std::fs::write(&out_path, include_str!("src/gguf/arch_constraints_fallback.rs"))
+                .expect("Failed to write fallback arch_constraints_generated.rs");
+            return;
+        },
+    };
+
+    let generated = generate_arch_constraints(&contract);
+    std::fs::write(&out_path, &generated)
+        .expect("Failed to write arch_constraints_generated.rs");
+
+    println!(
+        "cargo:warning=[GH-323] Generated arch_constraints from YAML ({} architectures)",
+        contract.architectures.len()
+    );
+}
+
+/// Map YAML enum string to Rust enum variant path.
+fn map_norm_type(s: &str) -> &'static str {
+    match s {
+        "LayerNorm" => "NormType::LayerNorm",
+        "RmsNorm" | "rmsnorm" => "NormType::RmsNorm",
+        _ => panic!("Unknown norm_type in YAML: {s}"),
+    }
+}
+
+fn map_activation(s: &str) -> &'static str {
+    match s {
+        "Gelu" | "gelu" => "Activation::Gelu",
+        "Silu" | "silu" => "Activation::Silu",
+        _ => panic!("Unknown activation in YAML: {s}"),
+    }
+}
+
+fn map_positional_encoding(s: &str) -> &'static str {
+    match s {
+        "Absolute" | "absolute" => "PositionalEncoding::Absolute",
+        "Rope" | "rope" => "PositionalEncoding::Rope",
+        "None" | "none" => "PositionalEncoding::None",
+        _ => panic!("Unknown positional_encoding in YAML: {s}"),
+    }
+}
+
+fn map_mlp_type(s: &str) -> &'static str {
+    match s {
+        "GeluMlp" | "gelu_mlp" => "MlpType::GeluMlp",
+        "SwiGlu" | "swiglu" => "MlpType::SwiGlu",
+        "GatedMlp" | "gated_mlp" => "MlpType::GatedMlp",
+        _ => panic!("Unknown mlp_type in YAML: {s}"),
+    }
+}
+
+fn map_weight_layout(s: &str) -> &'static str {
+    match s {
+        "Linear" | "linear" => "WeightLayout::Linear",
+        "Conv1D" | "conv1d" => "WeightLayout::Conv1D",
+        _ => panic!("Unknown weight_layout in YAML: {s}"),
+    }
+}
+
+/// Format an f64 epsilon as a Rust f32 literal.
+fn format_eps(eps: f64) -> String {
+    // Use scientific notation for clarity
+    if eps == 1e-12 {
+        "1e-12".to_string()
+    } else if eps == 1e-6 {
+        "1e-6".to_string()
+    } else if eps == 1e-5 {
+        "1e-5".to_string()
+    } else {
+        format!("{eps:e}")
+    }
+}
+
+/// Generate the `from_architecture()` match body from YAML data.
+fn generate_arch_constraints(contract: &ArchConstraintsContract) -> String {
+    let mut out = String::with_capacity(8192);
+
+    out.push_str(
+        "// Per-architecture inference constraints.\n\
+         //\n\
+         // AUTO-GENERATED from arch-constraints-v1.yaml by build.rs — DO NOT EDIT.\n\
+         // See: provable-contracts/contracts/arch-constraints-v1.yaml\n\
+         //\n\
+         // GH-323: Compile-time enforcement of architecture constraints.\n\
+         \n",
+    );
+
+    // Generate the from_architecture_generated() function
+    out.push_str(
+        "/// Look up architecture constraints from the GGUF `general.architecture` value.\n\
+         ///\n\
+         /// AUTO-GENERATED from arch-constraints-v1.yaml — DO NOT EDIT.\n\
+         /// Maps architecture names and aliases to their contract-defined behavior.\n\
+         /// Unknown architectures fall back to LLaMA-like defaults.\n\
+         #[must_use]\n\
+         fn from_architecture_generated(arch: &str) -> ArchConstraints {\n\
+         \x20   match arch {\n",
+    );
+
+    // Generate match arms for each architecture
+    for (name, entry) in &contract.architectures {
+        // Build pattern: "name" | "alias1" | "alias2"
+        let mut patterns = vec![format!("\"{}\"", name)];
+        for alias in &entry.aliases {
+            patterns.push(format!("\"{}\"", alias));
+        }
+        let pattern = patterns.join(" | ");
+
+        out.push_str(&format!(
+            "        // {name}.yaml\n\
+             \x20       {pattern} => ArchConstraints {{\n\
+             \x20           norm_type: {},\n\
+             \x20           activation: {},\n\
+             \x20           positional_encoding: {},\n\
+             \x20           mlp_type: {},\n\
+             \x20           weight_layout: {},\n\
+             \x20           has_bias: {},\n\
+             \x20           tied_embeddings: {},\n\
+             \x20           has_qk_norm: {},\n\
+             \x20           default_eps: {},\n\
+             \x20       }},\n",
+            map_norm_type(&entry.norm_type),
+            map_activation(&entry.activation),
+            map_positional_encoding(&entry.positional_encoding),
+            map_mlp_type(&entry.mlp_type),
+            map_weight_layout(&entry.weight_layout),
+            entry.has_bias,
+            entry.tied_embeddings,
+            entry.has_qk_norm,
+            format_eps(entry.default_eps),
+        ));
+    }
+
+    // Default arm
+    let d = &contract.default;
+    out.push_str(&format!(
+        "        // Default: LLaMA-like (most common pattern in modern LLMs)\n\
+         \x20       _ => ArchConstraints {{\n\
+         \x20           norm_type: {},\n\
+         \x20           activation: {},\n\
+         \x20           positional_encoding: {},\n\
+         \x20           mlp_type: {},\n\
+         \x20           weight_layout: {},\n\
+         \x20           has_bias: {},\n\
+         \x20           tied_embeddings: {},\n\
+         \x20           has_qk_norm: {},\n\
+         \x20           default_eps: {},\n\
+         \x20       }},\n",
+        map_norm_type(&d.norm_type),
+        map_activation(&d.activation),
+        map_positional_encoding(&d.positional_encoding),
+        map_mlp_type(&d.mlp_type),
+        map_weight_layout(&d.weight_layout),
+        d.has_bias,
+        d.tied_embeddings,
+        d.has_qk_norm,
+        format_eps(d.default_eps),
+    ));
+
+    out.push_str("    }\n}\n");
+
+    out
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GH-311: Tensor names YAML → Rust codegen
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// GH-311: Write tensor_names_generated.rs (fallback for now, YAML codegen planned).
+fn generate_tensor_names_file() {
+    let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
+    let out_path = Path::new(&out_dir).join("tensor_names_generated.rs");
+
+    // For now, always use the fallback file.
+    // TODO: Add YAML-to-codegen pipeline from tensor-names-v1.yaml.
+    let yaml_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("provable-contracts")
+        .join("contracts")
+        .join("tensor-names-v1.yaml");
+
+    println!("cargo:rerun-if-changed={}", yaml_path.display());
+
+    std::fs::write(&out_path, include_str!("src/tensor_names_fallback.rs"))
+        .expect("Failed to write tensor_names_generated.rs");
 }
