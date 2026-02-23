@@ -110,238 +110,22 @@ pub struct ArchConstraints {
     pub default_eps: f32,
 }
 
+// GH-323: Generated from arch-constraints-v1.yaml by build.rs.
+// The include! pulls in from_architecture_generated() which does the actual match.
+// Fallback: if build.rs can't find the YAML, it uses arch_constraints_fallback.rs.
+include!(concat!(env!("OUT_DIR"), "/arch_constraints_generated.rs"));
+
 impl ArchConstraints {
     /// Look up architecture constraints from the GGUF `general.architecture` value.
     ///
     /// Maps architecture names to their contract-defined behavior per
-    /// `aprender/contracts/model-families/*.yaml`. Unknown architectures
-    /// fall back to LLaMA-like defaults (the most common pattern).
+    /// `provable-contracts/contracts/arch-constraints-v1.yaml`.
+    /// Unknown architectures fall back to LLaMA-like defaults.
+    ///
+    /// AUTO-GENERATED via build.rs from arch-constraints-v1.yaml.
     #[must_use]
     pub fn from_architecture(arch: &str) -> Self {
-        match arch {
-            // gpt2.yaml: layernorm, gelu, absolute, gelu_mlp, has_bias=true, tied=true
-            "gpt2" => Self {
-                norm_type: NormType::LayerNorm,
-                activation: Activation::Gelu,
-                positional_encoding: PositionalEncoding::Absolute,
-                mlp_type: MlpType::GeluMlp,
-                weight_layout: WeightLayout::Conv1D,
-                has_bias: true,
-                tied_embeddings: true,
-                has_qk_norm: false,
-                default_eps: 1e-5,
-            },
-            // llama.yaml: rmsnorm, silu, rope, swiglu, has_bias=false, tied=false
-            "llama" | "llama3" => Self {
-                norm_type: NormType::RmsNorm,
-                activation: Activation::Silu,
-                positional_encoding: PositionalEncoding::Rope,
-                mlp_type: MlpType::SwiGlu,
-                weight_layout: WeightLayout::Linear,
-                has_bias: false,
-                tied_embeddings: false,
-                has_qk_norm: false,
-                default_eps: 1e-5,
-            },
-            // qwen2.yaml: rmsnorm, silu, rope, swiglu, has_bias=true, tied=false
-            "qwen2" | "qwen2.5" | "qwen" => Self {
-                norm_type: NormType::RmsNorm,
-                activation: Activation::Silu,
-                positional_encoding: PositionalEncoding::Rope,
-                mlp_type: MlpType::SwiGlu,
-                weight_layout: WeightLayout::Linear,
-                has_bias: true,
-                tied_embeddings: false,
-                has_qk_norm: false,
-                default_eps: 1e-6,
-            },
-            // qwen3.yaml: rmsnorm, silu, rope, swiglu, has_bias=false, tied=false, qk_norm=true
-            "qwen3" => Self {
-                norm_type: NormType::RmsNorm,
-                activation: Activation::Silu,
-                positional_encoding: PositionalEncoding::Rope,
-                mlp_type: MlpType::SwiGlu,
-                weight_layout: WeightLayout::Linear,
-                has_bias: false,
-                tied_embeddings: false,
-                has_qk_norm: true,
-                default_eps: 1e-6,
-            },
-            // mistral.yaml: rmsnorm, silu, rope, swiglu, has_bias=false, tied=false
-            "mistral" => Self {
-                norm_type: NormType::RmsNorm,
-                activation: Activation::Silu,
-                positional_encoding: PositionalEncoding::Rope,
-                mlp_type: MlpType::SwiGlu,
-                weight_layout: WeightLayout::Linear,
-                has_bias: false,
-                tied_embeddings: false,
-                has_qk_norm: false,
-                default_eps: 1e-5,
-            },
-            // phi2.yaml: layernorm, gelu, rope, gelu_mlp, has_bias=true, tied=false
-            // Phi-1/Phi-1.5/Phi-2 use GELU MLP (no gate weight)
-            "phi2" => Self {
-                norm_type: NormType::LayerNorm,
-                activation: Activation::Gelu,
-                positional_encoding: PositionalEncoding::Rope,
-                mlp_type: MlpType::GeluMlp,
-                weight_layout: WeightLayout::Linear,
-                has_bias: true,
-                tied_embeddings: false,
-                has_qk_norm: false,
-                default_eps: 1e-5,
-            },
-            // phi3.yaml: layernorm, silu, rope, swiglu, has_bias=true, tied=false
-            // Phi-3/Phi-3.5 use SwiGLU (gate weight present)
-            "phi" | "phi3" => Self {
-                norm_type: NormType::LayerNorm,
-                activation: Activation::Silu,
-                positional_encoding: PositionalEncoding::Rope,
-                mlp_type: MlpType::SwiGlu,
-                weight_layout: WeightLayout::Linear,
-                has_bias: true,
-                tied_embeddings: false,
-                has_qk_norm: false,
-                default_eps: 1e-5,
-            },
-            // gemma.yaml: rmsnorm, gelu, rope, gated_mlp, has_bias=false, tied=true
-            "gemma" | "gemma2" => Self {
-                norm_type: NormType::RmsNorm,
-                activation: Activation::Gelu,
-                positional_encoding: PositionalEncoding::Rope,
-                mlp_type: MlpType::GatedMlp,
-                weight_layout: WeightLayout::Linear,
-                has_bias: false,
-                tied_embeddings: true,
-                has_qk_norm: false,
-                default_eps: 1e-6,
-            },
-            // deepseek.yaml: rmsnorm, silu, rope, swiglu, has_bias=false, tied=false
-            "deepseek" | "deepseek2" => Self {
-                norm_type: NormType::RmsNorm,
-                activation: Activation::Silu,
-                positional_encoding: PositionalEncoding::Rope,
-                mlp_type: MlpType::SwiGlu,
-                weight_layout: WeightLayout::Linear,
-                has_bias: false,
-                tied_embeddings: false,
-                has_qk_norm: false,
-                default_eps: 1e-5,
-            },
-            // bert.yaml: layernorm, gelu, absolute, gelu_mlp, has_bias=true, tied=true
-            "bert" => Self {
-                norm_type: NormType::LayerNorm,
-                activation: Activation::Gelu,
-                positional_encoding: PositionalEncoding::Absolute,
-                mlp_type: MlpType::GeluMlp,
-                weight_layout: WeightLayout::Linear,
-                has_bias: true,
-                tied_embeddings: true,
-                has_qk_norm: false,
-                default_eps: 1e-12,
-            },
-            // whisper.yaml: layernorm, gelu, absolute, gelu_mlp, has_bias=true, tied=false
-            "whisper" => Self {
-                norm_type: NormType::LayerNorm,
-                activation: Activation::Gelu,
-                positional_encoding: PositionalEncoding::Absolute,
-                mlp_type: MlpType::GeluMlp,
-                weight_layout: WeightLayout::Linear,
-                has_bias: true,
-                tied_embeddings: false,
-                has_qk_norm: false,
-                default_eps: 1e-5,
-            },
-            // mamba.yaml: rmsnorm, silu, none, swiglu, has_bias=false, tied=true
-            "mamba" => Self {
-                norm_type: NormType::RmsNorm,
-                activation: Activation::Silu,
-                positional_encoding: PositionalEncoding::None,
-                mlp_type: MlpType::SwiGlu,
-                weight_layout: WeightLayout::Linear,
-                has_bias: false,
-                tied_embeddings: true,
-                has_qk_norm: false,
-                default_eps: 1e-5,
-            },
-            // qwen3_5.yaml: rmsnorm, silu, rope, swiglu, has_bias=false, tied=false
-            // Unlike Qwen3, Qwen3.5 does NOT use QK norm (has_qk_norm=false)
-            "qwen3_5" | "qwen3.5" => Self {
-                norm_type: NormType::RmsNorm,
-                activation: Activation::Silu,
-                positional_encoding: PositionalEncoding::Rope,
-                mlp_type: MlpType::SwiGlu,
-                weight_layout: WeightLayout::Linear,
-                has_bias: false,
-                tied_embeddings: false,
-                has_qk_norm: false,
-                default_eps: 1e-6,
-            },
-            // falcon_h1.yaml: rmsnorm, silu, rope, swiglu, has_bias=false, tied=false
-            // Hybrid GQA attention + Mamba-2 SSM (SSM portion not yet supported)
-            "falcon_h1" | "falcon-h1" => Self {
-                norm_type: NormType::RmsNorm,
-                activation: Activation::Silu,
-                positional_encoding: PositionalEncoding::Rope,
-                mlp_type: MlpType::SwiGlu,
-                weight_layout: WeightLayout::Linear,
-                has_bias: false,
-                tied_embeddings: false,
-                has_qk_norm: false,
-                default_eps: 1e-6,
-            },
-            // openelm.yaml: rmsnorm, silu, rope, swiglu, has_bias=false, tied=false
-            // Variable-width attention (per-layer num_heads)
-            "openelm" => Self {
-                norm_type: NormType::RmsNorm,
-                activation: Activation::Silu,
-                positional_encoding: PositionalEncoding::Rope,
-                mlp_type: MlpType::SwiGlu,
-                weight_layout: WeightLayout::Linear,
-                has_bias: false,
-                tied_embeddings: false,
-                has_qk_norm: false,
-                default_eps: 1e-6,
-            },
-            // moonshine.yaml: layernorm, silu, rope, gated_mlp, has_bias=false, tied=true
-            "moonshine" => Self {
-                norm_type: NormType::LayerNorm,
-                activation: Activation::Silu,
-                positional_encoding: PositionalEncoding::Rope,
-                mlp_type: MlpType::GatedMlp,
-                weight_layout: WeightLayout::Linear,
-                has_bias: false,
-                tied_embeddings: true,
-                has_qk_norm: false,
-                default_eps: 1e-5,
-            },
-            // rwkv7.yaml: layernorm, gelu, none, gelu_mlp, has_bias=false, tied=false
-            // Not a transformer — linear recurrence, no attention or positional encoding
-            "rwkv7" | "rwkv" => Self {
-                norm_type: NormType::LayerNorm,
-                activation: Activation::Gelu,
-                positional_encoding: PositionalEncoding::None,
-                mlp_type: MlpType::GeluMlp,
-                weight_layout: WeightLayout::Linear,
-                has_bias: false,
-                tied_embeddings: false,
-                has_qk_norm: false,
-                default_eps: 1e-5,
-            },
-            // Default: LLaMA-like (most common pattern in modern LLMs)
-            _ => Self {
-                norm_type: NormType::RmsNorm,
-                activation: Activation::Silu,
-                positional_encoding: PositionalEncoding::Rope,
-                mlp_type: MlpType::SwiGlu,
-                weight_layout: WeightLayout::Linear,
-                has_bias: false,
-                tied_embeddings: false,
-                has_qk_norm: false,
-                default_eps: 1e-5,
-            },
-        }
+        from_architecture_generated(arch)
     }
 
     /// Whether this architecture uses RoPE positional encoding.
@@ -495,7 +279,7 @@ impl GGUFConfig {
                     .find(|t| t.name == "blk.0.attn_q.weight")
                     .and_then(|t| {
                         let d0 = t.dims.first().copied()? as usize;
-                        if d0 > 0 && num_heads > 0 && d0 % num_heads == 0 {
+                        if d0 > 0 && num_heads > 0 && d0.is_multiple_of(num_heads) {
                             Some(d0 / num_heads)
                         } else {
                             None
