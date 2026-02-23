@@ -8,64 +8,49 @@ pub type AprModelType = ();
 ///
 /// Special tokens like `<|im_start|>`, `<|im_end|>` must be tokenized atomically,
 /// not split character-by-character. This function scans the vocabulary for
-/// common special token patterns used by Qwen, ChatML, LLaMA, and other models.
+/// special token patterns rather than maintaining a hardcoded list.
+///
+/// GH-320: Uses pattern-based detection instead of a manually-maintained list.
+/// Two patterns cover all known model families:
+/// - `<|...|>` — ChatML, Qwen, Phi, code models, etc.
+/// - `<tag>` / `</tag>` — standard transformer tokens (`<s>`, `</s>`, `<pad>`, etc.)
 #[allow(clippy::implicit_hasher)]
 pub fn extract_special_tokens_from_vocab(
     token_to_id: &HashMap<String, u32>,
 ) -> HashMap<String, u32> {
     let mut special_tokens = HashMap::new();
 
-    // Common special token patterns across model families
-    let patterns = [
-        // ChatML / Qwen style
-        "<|im_start|>",
-        "<|im_end|>",
-        "<|endoftext|>",
-        // LLaMA / general
-        "<s>",
-        "</s>",
-        "<pad>",
-        "<unk>",
-        "<bos>",
-        "<eos>",
-        // Phi / Mistral style
-        "<|assistant|>",
-        "<|user|>",
-        "<|system|>",
-        "<|end|>",
-        // Code models
-        "<|file_separator|>",
-        "<|fim_prefix|>",
-        "<|fim_middle|>",
-        "<|fim_suffix|>",
-        "<|repo_name|>",
-        // Additional Qwen tokens
-        "<|box_start|>",
-        "<|box_end|>",
-        "<|quad_start|>",
-        "<|quad_end|>",
-        "<|vision_start|>",
-        "<|vision_end|>",
-        "<|vision_pad|>",
-        "<|image_pad|>",
-        "<|object_ref_start|>",
-        "<|object_ref_end|>",
-    ];
-
-    for pattern in patterns {
-        if let Some(&id) = token_to_id.get(pattern) {
-            special_tokens.insert(pattern.to_string(), id);
-        }
-    }
-
-    // Also scan for any token matching <|...|> pattern (common for special tokens)
     for (token, &id) in token_to_id {
-        if token.starts_with("<|") && token.ends_with("|>") && !special_tokens.contains_key(token) {
+        if is_special_token(token) {
             special_tokens.insert(token.clone(), id);
         }
     }
 
     special_tokens
+}
+
+/// GH-320: Detect special tokens by pattern instead of hardcoded list.
+///
+/// Matches two families of control tokens found in transformer vocabularies:
+/// - `<|...|>` — model-specific tokens (e.g., `<|im_start|>`, `<|endoftext|>`)
+/// - `<tag>` / `</tag>` — standard tokens where tag is short lowercase
+///   alphanumeric/underscore (e.g., `<s>`, `</s>`, `<pad>`, `<unk>`, `<bos>`)
+#[must_use]
+fn is_special_token(token: &str) -> bool {
+    // ChatML / model-specific: <|...|> (e.g., <|im_start|>, <|endoftext|>)
+    if token.starts_with("<|") && token.ends_with("|>") && token.len() > 4 {
+        return true;
+    }
+    // Standard transformer control tokens: <s>, </s>, <pad>, <unk>, <bos>, <eos>, <mask>
+    // Pattern: <tag> or </tag> where tag is short, lowercase, alphanumeric/underscore
+    if token.starts_with('<') && token.ends_with('>') && token.len() <= 20 {
+        let inner = &token[1..token.len() - 1];
+        let inner = inner.strip_prefix('/').unwrap_or(inner);
+        if !inner.is_empty() && inner.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
+            return true;
+        }
+    }
+    false
 }
 
 // =============================================================================
