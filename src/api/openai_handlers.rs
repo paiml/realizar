@@ -83,13 +83,23 @@ fn tokenize_chat_prompt(
 }
 
 /// Extract common generation parameters from the request.
-fn chat_gen_params(request: &ChatCompletionRequest, tokenizer: &BPETokenizer) -> (usize, f32, u32) {
+///
+/// GH-330: EOS resolution follows Design by Contract priority:
+/// 1. Model config (class invariant from GGUF/APR metadata)
+/// 2. Tokenizer vocabulary lookup (runtime fallback)
+/// No hardcoded magic numbers.
+fn chat_gen_params(
+    request: &ChatCompletionRequest,
+    tokenizer: &BPETokenizer,
+    model_eos: Option<u32>,
+) -> (usize, f32, u32) {
     let max_tokens = request.max_tokens.unwrap_or(256);
     let temperature = request.temperature.unwrap_or(0.7);
-    let eos_token_id = tokenizer
-        .get_token_id("<|im_end|>")
+    // GH-330: Model config EOS first, then tokenizer lookup, then 0 (disabled)
+    let eos_token_id = model_eos
+        .or_else(|| tokenizer.get_token_id("<|im_end|>"))
         .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
-        .unwrap_or(151645);
+        .unwrap_or(0);
     (max_tokens, temperature, eos_token_id)
 }
 
@@ -272,7 +282,7 @@ fn try_gpu_backend(
         };
     let prompt_tokens = prompt_ids.len();
     let prompt_usize: Vec<usize> = prompt_ids.iter().map(|&x| x as usize).collect();
-    let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer);
+    let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer, state.model_eos_token_id());
 
     let gpu_config = GpuGenerateConfig {
         max_tokens,
@@ -360,7 +370,7 @@ fn try_cached_backend(
             Err(r) => return Some(r),
         };
     let prompt_tokens = prompt_ids.len();
-    let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer);
+    let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer, state.model_eos_token_id());
 
     let q_config = QuantizedGenerateConfig {
         max_tokens,
