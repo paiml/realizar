@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "aprender"
-version = "0.26.2"
+version = "0.26.3"
 dependencies = [
  "batuta-common",
  "bincode",
@@ -172,8 +172,8 @@ dependencies = [
  "memmap2",
  "minijinja",
  "provable-contracts-macros",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
+ "rand 0.9.2",
+ "rand_chacha 0.9.0",
  "rayon",
  "rmp-serde",
  "serde",
@@ -249,10 +249,8 @@ dependencies = [
  "arrow-array 54.2.1",
  "arrow-buffer 54.3.1",
  "arrow-cast 54.2.1",
- "arrow-csv",
  "arrow-data 54.3.1",
  "arrow-ipc",
- "arrow-json",
  "arrow-ord 54.2.1",
  "arrow-row 54.2.1",
  "arrow-schema 54.3.1",
@@ -5228,7 +5226,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-db"
-version = "0.3.13"
+version = "0.3.15"
 dependencies = [
  "anyhow",
  "arrow 54.2.1",
@@ -5281,7 +5279,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-viz"
-version = "0.1.25"
+version = "0.1.27"
 dependencies = [
  "base64 0.22.1",
  "batuta-common",

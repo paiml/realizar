@@ -145,6 +145,7 @@ fn create_minimal_transformer() -> AprTransformer {
             context_length: 512,
             rope_theta: 10000.0,
             eps: 1e-5,
+            eos_token_id: None,
         },
         token_embedding: vec![0.0; 64 * 100],
         layers: vec![
@@ -398,6 +399,7 @@ fn test_to_apr_bytes_empty_layers() {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            eos_token_id: None,
         },
         token_embedding: vec![0.0; 32 * 50],
         layers: vec![], // Empty

@@ -29,6 +29,7 @@ mod tests {
             context_length: 64,
             rope_theta: 10000.0,
             eps: 1e-5,
+            eos_token_id: None,
         };
 
         let hidden = config.hidden_dim;

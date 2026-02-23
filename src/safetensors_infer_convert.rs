@@ -107,6 +107,7 @@ impl SafetensorsToAprConverter {
             context_length,
             rope_theta,
             eps,
+            eos_token_id: None, // TODO(GH-330): populate from SafeTensors config.json
         };
 
         // Extract embeddings (HuggingFace: model.embed_tokens.weight, GGUF: token_embd.weight)

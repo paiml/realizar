@@ -319,6 +319,7 @@ fn test_to_apr_bytes_header_offsets_consistent() {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            eos_token_id: None,
         },
         token_embedding: vec![0.1; 320],
 
@@ -382,6 +383,7 @@ fn test_to_apr_bytes_metadata_padded_to_alignment() {
             context_length: 32,
             rope_theta: 10000.0,
             eps: 1e-5,
+            eos_token_id: None,
         },
         token_embedding: vec![0.0; 8],
 

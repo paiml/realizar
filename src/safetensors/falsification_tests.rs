@@ -195,6 +195,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-6,
+            eos_token_id: None,
         };
 
         // Non-zero sin pattern data

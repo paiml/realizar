@@ -254,6 +254,7 @@ fn test_from_apr_bytes_no_weights_tensor() {
             context_length: 32,
             rope_theta: 10000.0,
             eps: 1e-5,
+            eos_token_id: None,
         },
         token_embedding: vec![0.1; 8],
 
@@ -326,6 +327,7 @@ fn test_from_apr_bytes_truncated_tensor_data() {
             context_length: 32,
             rope_theta: 10000.0,
             eps: 1e-5,
+            eos_token_id: None,
         },
         token_embedding: vec![0.1; 8],
 

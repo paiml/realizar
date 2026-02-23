@@ -364,6 +364,7 @@ fn test_apr_transformer_config_serde_roundtrip() {
         context_length: 32768,
         rope_theta: 1_000_000.0,
         eps: 1e-6,
+            eos_token_id: None,
     };
 
     let json = serde_json::to_string(&config).expect("serialize failed");
@@ -395,6 +396,7 @@ fn test_apr_transformer_config_small_model() {
         context_length: 16,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let json = serde_json::to_string(&config).expect("serialize failed");

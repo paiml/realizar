@@ -51,6 +51,7 @@ fn make_pygmy_model() -> AprTransformer {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     // Token embedding: identity-like (each token maps to distinct vector)
@@ -143,6 +144,7 @@ fn make_pygmy_model_gelu() -> AprTransformer {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let mut token_embedding = vec![0.0f32; vocab_size * hidden_dim];
@@ -223,6 +225,7 @@ fn test_apr_transformer_new_basic() {
         context_length: 128,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
     let model = AprTransformer::new(config.clone());
 
@@ -244,6 +247,7 @@ fn test_apr_transformer_new_output_norm_is_ones() {
     let config = AprTransformerConfig {
         hidden_dim: 16,
         ..Default::default()
+        eos_token_id: None,
     };
     let model = AprTransformer::new(config);
     // Output norm weight should be initialized to 1.0
@@ -263,6 +267,7 @@ fn test_apr_transformer_config_accessor() {
         architecture: "phi2".to_string(),
         hidden_dim: 256,
         ..Default::default()
+        eos_token_id: None,
     };
     let model = AprTransformer::new(config);
     let cfg = model.config();

@@ -27,6 +27,7 @@ fn create_test_transformer(
         context_length: 512,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let head_dim = hidden_dim / num_heads;
@@ -193,6 +194,7 @@ fn test_generate_zero_tokens_returns_prompt() {
         context_length: 512,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
     let transformer = AprTransformer::new(config);
     let result = transformer.generate(&[1], 0);
@@ -299,6 +301,7 @@ fn test_new_creates_empty_layers() {
         context_length: 512,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
     let transformer = AprTransformer::new(config);
     assert_eq!(transformer.layers.len(), 2);
@@ -322,6 +325,7 @@ fn test_new_zero_layers() {
         context_length: 128,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
     let transformer = AprTransformer::new(config);
     assert!(transformer.layers.is_empty());

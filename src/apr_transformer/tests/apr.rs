@@ -60,6 +60,7 @@ fn test_config_head_dim_calculation() {
         context_length: 1024,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
     // head_dim = hidden_dim / num_heads = 256 / 8 = 32
     assert_eq!(config.hidden_dim / config.num_heads, 32);
@@ -78,6 +79,7 @@ fn test_config_gqa_ratio() {
         context_length: 1024,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
     // GQA ratio = num_heads / num_kv_heads
     assert_eq!(config.num_heads / config.num_kv_heads, 4);
@@ -100,6 +102,7 @@ fn test_kv_cache_new() {
         context_length: 256,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
     let _cache = AprKVCache::new(&config);
     // Cache creation should succeed

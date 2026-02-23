@@ -17,6 +17,7 @@ fn test_from_apr_bytes_preserves_layer_data() {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            eos_token_id: None,
         },
         token_embedding: vec![0.5; 80],
         layers: vec![AprTransformerLayer {
@@ -82,6 +83,7 @@ fn test_from_apr_bytes_truncated_at_tensor_index() {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+            eos_token_id: None,
         },
         token_embedding: vec![0.0; 80],
         layers: vec![],

@@ -169,6 +169,7 @@ fn test_forward_with_odd_hidden_dim() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let transformer = AprTransformer::new(config);
@@ -189,6 +190,7 @@ fn test_forward_with_large_intermediate_dim() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let transformer = AprTransformer::new(config);
@@ -209,6 +211,7 @@ fn test_forward_with_small_vocab() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let transformer = AprTransformer::new(config.clone());
@@ -234,6 +237,7 @@ fn test_forward_with_low_rope_theta() {
         context_length: 64,
         rope_theta: 100.0, // Very low theta
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let transformer = AprTransformer::new(config);
@@ -254,6 +258,7 @@ fn test_forward_with_very_high_rope_theta() {
         context_length: 64,
         rope_theta: 1_000_000.0, // Very high theta (like LLaMA 3.1)
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let transformer = AprTransformer::new(config);
@@ -274,6 +279,7 @@ fn test_forward_with_cache_rope_many_positions() {
         context_length: 256,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let transformer = AprTransformer::new(config.clone());
@@ -304,6 +310,7 @@ fn test_forward_gqa_8_to_1_ratio() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let mut transformer = AprTransformer::new(config.clone());
@@ -334,6 +341,7 @@ fn test_forward_with_cache_gqa_8_to_1() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let mut transformer = AprTransformer::new(config.clone());
@@ -371,6 +379,7 @@ fn test_forward_with_very_small_eps() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-12, // Very small epsilon
+        eos_token_id: None,
     };
 
     let transformer = AprTransformer::new(config);
@@ -391,6 +400,7 @@ fn test_forward_with_large_eps() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 0.1, // Large epsilon
+        eos_token_id: None,
     };
 
     let transformer = AprTransformer::new(config);

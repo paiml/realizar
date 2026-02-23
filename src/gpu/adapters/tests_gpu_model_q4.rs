@@ -22,6 +22,7 @@ mod gpu_model_q4_tests {
                 context_length: 256,
                 rope_theta: 10000.0,
                 eps: 1e-5,
+            eos_token_id: None,
             },
             token_embedding: vec![0.1; 1000 * 64],
             output_norm_weight: vec![1.0; 64],
@@ -150,6 +151,7 @@ mod gpu_model_q4_tests {
                 context_length: 256,
                 rope_theta: 10000.0,
                 eps: 1e-5,
+            eos_token_id: None,
             },
             token_embedding: vec![0.1; 100 * 64],
             layers: vec![],
@@ -181,6 +183,7 @@ mod gpu_model_q4_tests {
                 context_length: 256,
                 rope_theta: 10000.0,
                 eps: 1e-5,
+            eos_token_id: None,
             },
             token_embedding: vec![0.1; vocab_size * hidden_dim],
             layers: vec![
