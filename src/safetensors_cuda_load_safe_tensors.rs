@@ -109,8 +109,9 @@ impl SafeTensorsCudaModel {
             })?;
 
         // 6. Set RoPE parameters
+        // GH-329: Infer rope type from architecture, not hardcoded
         executor.set_rope_theta(config.rope_theta);
-        executor.set_rope_type(0); // NORM style for Qwen2
+        executor.set_rope_type(crate::gguf::infer_rope_type(&config.architecture));
 
         // 7. Upload weights based on mode
         // GH-279: Full cache returns qk_norm_cache; streaming mode doesn't load QK norm

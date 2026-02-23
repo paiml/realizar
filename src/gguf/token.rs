@@ -21,7 +21,7 @@ impl GGUFModel {
     /// Returns: 0 = NORM (adjacent pairs), 2 = NEOX (split halves)
     /// Per llama.cpp: LLAMA_ROPE_TYPE_NORM = 0, LLAMA_ROPE_TYPE_NEOX = 2
     ///
-    /// Architecture-based inference matches llama.cpp's llama-model.cpp:7763-7811
+    /// GH-329: Delegates to shared `infer_rope_type()` for architecture inference.
     pub fn rope_type(&self) -> Option<u32> {
         let arch = self.architecture()?;
         let key = crate::gguf::keys::arch_key(arch, crate::gguf::keys::ROPE_SCALING_TYPE);
@@ -33,45 +33,8 @@ impl GGUFModel {
                 _ => {},
             }
         }
-        // Infer rope type from architecture (matches llama.cpp llama-model.cpp:7763-7811)
-        // NEOX style (type 2): pairs offset by n_rot/2
-        let arch_lower = arch.to_lowercase();
-        let neox_architectures = [
-            "qwen",
-            "qwen2",
-            "qwen3",
-            "stablelm",
-            "phi2",
-            "phi3",
-            "gemma",
-            "gemma2",
-            "gemma3",
-            "starcoder2",
-            "gptneox",
-            "falcon",
-            "codeshell",
-            "orion",
-            "bert",
-            "nomic-bert",
-            "dbrx",
-            "olmo2",
-            "olmoe",
-            "plamo",
-            "plamo2",
-            "openelm",
-            "exaone",
-            "minicpm3",
-            "nemotron",
-            "internlm2",
-            "deepseek2",
-        ];
-        for neox_arch in neox_architectures {
-            if arch_lower.contains(neox_arch) {
-                return Some(2); // NEOX style
-            }
-        }
-        // NORM style (type 0): adjacent pairs - default for LLaMA, TinyLlama
-        Some(0)
+        // GH-329: Use shared inference function (single source of truth)
+        Some(crate::gguf::infer_rope_type(arch))
     }
 
     /// Get BOS (beginning of sentence) token ID

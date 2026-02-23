@@ -133,15 +133,11 @@ impl AprV2Model {
 
             // BUG-2 FIX: Apply RoPE (Rotary Position Embedding) to Q and K
             // Without RoPE, model cannot distinguish token positions → garbage output
-            // CORRECTNESS-011: Qwen2.5 requires rope_type=2 (NEOX style), defaults to 2 for qwen2
+            // GH-329: Use shared infer_rope_type() as single source of truth
             let rope_theta = self.metadata.rope_theta.unwrap_or(10000.0);
             let rope_type = self.metadata.rope_type.unwrap_or_else(|| {
-                // Default to NEOX (2) for qwen2 models, NORM (0) for others
-                if self.metadata.architecture.as_deref() == Some("qwen2") {
-                    2
-                } else {
-                    0
-                }
+                let arch = self.metadata.architecture.as_deref().unwrap_or("");
+                crate::gguf::infer_rope_type(arch)
             });
             let q_dim_per_token = hidden_dim;
             let k_dim_per_token = num_kv_heads * head_dim;

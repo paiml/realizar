@@ -164,6 +164,10 @@ impl OwnedQuantizedModel {
             .clone()
             .unwrap_or_else(|| "qwen2".to_string());
         let constraints = crate::gguf::ArchConstraints::from_architecture(&architecture);
+        // GH-329: Read from APR metadata, infer from architecture when absent
+        let rope_type = apr.metadata.rope_type
+            .unwrap_or_else(|| crate::gguf::infer_rope_type(&architecture));
+        let context_length = apr.metadata.max_position_embeddings.unwrap_or(2048);
         let config = GGUFConfig {
             architecture,
             constraints,
@@ -175,8 +179,8 @@ impl OwnedQuantizedModel {
             intermediate_dim,
             eps,
             rope_theta,
-            rope_type: 2, // NEOX style for Qwen2.5
-            context_length: 32768,
+            rope_type,
+            context_length,
             explicit_head_dim: None,
             bos_token_id: apr.metadata.get_embedded_bos_token_id(),
         };

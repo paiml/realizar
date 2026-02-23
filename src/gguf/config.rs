@@ -165,6 +165,40 @@ impl ArchConstraints {
     }
 }
 
+/// Infer RoPE type from architecture string.
+///
+/// Returns 0 for NORM style (adjacent pairs), 2 for NEOX style (split halves).
+/// Matches llama.cpp's rope type inference (llama-model.cpp:7763-7811).
+///
+/// GH-329: Single source of truth — all rope_type inference MUST go through here.
+#[must_use]
+pub fn infer_rope_type(arch: &str) -> u32 {
+    let arch_lower = arch.to_lowercase();
+    // NEOX style (type 2): pairs offset by n_rot/2
+    // This list matches llama.cpp's llama-model.cpp:7763-7811
+    const NEOX_ARCHITECTURES: &[&str] = &[
+        "qwen", "qwen2", "qwen3", "qwen3_5", "qwen3.5",
+        "stablelm", "phi2", "phi3", "phi",
+        "gemma", "gemma2", "gemma3",
+        "starcoder2", "gptneox", "gpt_neox",
+        "falcon", "falcon_h1",
+        "codeshell", "orion",
+        "bert", "nomic-bert",
+        "dbrx", "olmo2", "olmoe",
+        "plamo", "plamo2",
+        "openelm", "exaone",
+        "minicpm3", "nemotron",
+        "internlm2", "deepseek", "deepseek2",
+    ];
+    for &neox_arch in NEOX_ARCHITECTURES {
+        if arch_lower.contains(neox_arch) {
+            return 2; // NEOX style
+        }
+    }
+    // NORM style (type 0): adjacent pairs - default for LLaMA, TinyLlama
+    0
+}
+
 /// Configuration for GGUF transformer inference
 #[derive(Debug, Clone)]
 pub struct GGUFConfig {

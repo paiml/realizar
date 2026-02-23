@@ -88,7 +88,11 @@ impl AprV2ModelCuda {
         };
 
         let rope_theta = self.model.metadata.rope_theta.unwrap_or(10000.0);
-        let rope_type = self.model.metadata.rope_type.unwrap_or(0);
+        // GH-329: Use shared infer_rope_type() as single source of truth
+        let rope_type = self.model.metadata.rope_type.unwrap_or_else(|| {
+            let arch = self.model.metadata.architecture.as_deref().unwrap_or("");
+            crate::gguf::infer_rope_type(arch)
+        });
         let mut attn_out = vec![0.0f32; seq_len * hidden_dim];
 
         for pos in 0..seq_len {
