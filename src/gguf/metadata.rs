@@ -376,7 +376,7 @@ impl GGUFModel {
 
     /// Extract model architecture from metadata
     pub fn architecture(&self) -> Option<&str> {
-        if let Some(GGUFValue::String(arch)) = self.metadata.get("general.architecture") {
+        if let Some(GGUFValue::String(arch)) = self.metadata.get(crate::gguf::keys::GENERAL_ARCHITECTURE) {
             Some(arch.as_str())
         } else {
             None
@@ -386,7 +386,7 @@ impl GGUFModel {
     /// Get embedding dimension from metadata
     pub fn embedding_dim(&self) -> Option<usize> {
         let arch = self.architecture()?;
-        let key = format!("{}.embedding_length", arch);
+        let key = crate::gguf::keys::arch_key(arch, crate::gguf::keys::EMBEDDING_LENGTH);
         if let Some(GGUFValue::UInt32(dim)) = self.metadata.get(&key) {
             Some(*dim as usize)
         } else {
@@ -397,7 +397,7 @@ impl GGUFModel {
     /// Get number of layers from metadata
     pub fn num_layers(&self) -> Option<usize> {
         let arch = self.architecture()?;
-        let key = format!("{}.block_count", arch);
+        let key = crate::gguf::keys::arch_key(arch, crate::gguf::keys::BLOCK_COUNT);
         if let Some(GGUFValue::UInt32(count)) = self.metadata.get(&key) {
             Some(*count as usize)
         } else {
@@ -408,7 +408,7 @@ impl GGUFModel {
     /// Get number of attention heads from metadata
     pub fn num_heads(&self) -> Option<usize> {
         let arch = self.architecture()?;
-        let key = format!("{}.attention.head_count", arch);
+        let key = crate::gguf::keys::arch_key(arch, crate::gguf::keys::ATTENTION_HEAD_COUNT);
         if let Some(GGUFValue::UInt32(count)) = self.metadata.get(&key) {
             Some(*count as usize)
         } else {
@@ -419,7 +419,7 @@ impl GGUFModel {
     /// Get context length from metadata
     pub fn context_length(&self) -> Option<usize> {
         let arch = self.architecture()?;
-        let key = format!("{}.context_length", arch);
+        let key = crate::gguf::keys::arch_key(arch, crate::gguf::keys::CONTEXT_LENGTH);
         if let Some(GGUFValue::UInt32(len)) = self.metadata.get(&key) {
             Some(*len as usize)
         } else {
@@ -430,7 +430,7 @@ impl GGUFModel {
     /// Get number of key-value heads from metadata (for GQA)
     pub fn num_kv_heads(&self) -> Option<usize> {
         let arch = self.architecture()?;
-        let key = format!("{}.attention.head_count_kv", arch);
+        let key = crate::gguf::keys::arch_key(arch, crate::gguf::keys::ATTENTION_HEAD_COUNT_KV);
         if let Some(GGUFValue::UInt32(count)) = self.metadata.get(&key) {
             Some(*count as usize)
         } else {
@@ -447,7 +447,7 @@ impl GGUFModel {
     /// GGUF key: `{arch}.attention.key_length`
     pub fn key_length(&self) -> Option<usize> {
         let arch = self.architecture()?;
-        let key = format!("{}.attention.key_length", arch);
+        let key = crate::gguf::keys::arch_key(arch, crate::gguf::keys::ATTENTION_KEY_LENGTH);
         if let Some(GGUFValue::UInt32(len)) = self.metadata.get(&key) {
             Some(*len as usize)
         } else {
@@ -460,7 +460,7 @@ impl GGUFModel {
     /// GGUF key: `{arch}.attention.value_length`
     pub fn value_length(&self) -> Option<usize> {
         let arch = self.architecture()?;
-        let key = format!("{}.attention.value_length", arch);
+        let key = crate::gguf::keys::arch_key(arch, crate::gguf::keys::ATTENTION_VALUE_LENGTH);
         if let Some(GGUFValue::UInt32(len)) = self.metadata.get(&key) {
             Some(*len as usize)
         } else {
@@ -472,7 +472,7 @@ impl GGUFModel {
     /// Different models use different bases (LLaMA: 10000, Qwen2: 1000000)
     pub fn rope_freq_base(&self) -> Option<f32> {
         let arch = self.architecture()?;
-        let key = format!("{}.rope.freq_base", arch);
+        let key = crate::gguf::keys::arch_key(arch, crate::gguf::keys::ROPE_FREQ_BASE);
         if let Some(GGUFValue::Float32(base)) = self.metadata.get(&key) {
             Some(*base)
         } else {

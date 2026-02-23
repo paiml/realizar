@@ -82,55 +82,55 @@ impl GGUFBuilder {
     /// Set architecture (shorthand for general.architecture)
     #[must_use]
     pub fn architecture(self, arch: &str) -> Self {
-        self.add_string("general.architecture", arch)
+        self.add_string(super::keys::GENERAL_ARCHITECTURE, arch)
     }
 
     /// Set hidden dimension (embedding length)
     #[must_use]
     pub fn hidden_dim(self, arch: &str, dim: u32) -> Self {
-        self.add_u32(&format!("{}.embedding_length", arch), dim)
+        self.add_u32(&super::keys::arch_key(arch, super::keys::EMBEDDING_LENGTH), dim)
     }
 
     /// Set number of layers (block count)
     #[must_use]
     pub fn num_layers(self, arch: &str, count: u32) -> Self {
-        self.add_u32(&format!("{}.block_count", arch), count)
+        self.add_u32(&super::keys::arch_key(arch, super::keys::BLOCK_COUNT), count)
     }
 
     /// Set number of attention heads
     #[must_use]
     pub fn num_heads(self, arch: &str, count: u32) -> Self {
-        self.add_u32(&format!("{}.attention.head_count", arch), count)
+        self.add_u32(&super::keys::arch_key(arch, super::keys::ATTENTION_HEAD_COUNT), count)
     }
 
     /// Set number of KV heads (for GQA)
     #[must_use]
     pub fn num_kv_heads(self, arch: &str, count: u32) -> Self {
-        self.add_u32(&format!("{}.attention.head_count_kv", arch), count)
+        self.add_u32(&super::keys::arch_key(arch, super::keys::ATTENTION_HEAD_COUNT_KV), count)
     }
 
     /// Set context length
     #[must_use]
     pub fn context_length(self, arch: &str, len: u32) -> Self {
-        self.add_u32(&format!("{}.context_length", arch), len)
+        self.add_u32(&super::keys::arch_key(arch, super::keys::CONTEXT_LENGTH), len)
     }
 
     /// Set RoPE frequency base
     #[must_use]
     pub fn rope_freq_base(self, arch: &str, base: f32) -> Self {
-        self.add_f32(&format!("{}.rope.freq_base", arch), base)
+        self.add_f32(&super::keys::arch_key(arch, super::keys::ROPE_FREQ_BASE), base)
     }
 
     /// Set RMS epsilon
     #[must_use]
     pub fn rms_epsilon(self, arch: &str, eps: f32) -> Self {
-        self.add_f32(&format!("{}.attention.layer_norm_rms_epsilon", arch), eps)
+        self.add_f32(&super::keys::arch_key(arch, super::keys::ATTENTION_LAYER_NORM_RMS_EPSILON), eps)
     }
 
     /// Set feed-forward hidden dimension
     #[must_use]
     pub fn ffn_hidden_dim(self, arch: &str, dim: u32) -> Self {
-        self.add_u32(&format!("{}.feed_forward_length", arch), dim)
+        self.add_u32(&super::keys::arch_key(arch, super::keys::FEED_FORWARD_LENGTH), dim)
     }
 
     /// Set vocab size (for completeness)
@@ -138,7 +138,7 @@ impl GGUFBuilder {
     pub fn vocab_size(self, _arch: &str, size: u32) -> Self {
         // Vocab size is typically inferred from token_embd.weight shape
         // But we can store it in metadata if needed
-        self.add_u32("tokenizer.ggml.tokens.size", size)
+        self.add_u32(super::keys::TOKENIZER_TOKENS_SIZE, size)
     }
 
     // =========================================================================

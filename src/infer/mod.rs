@@ -310,14 +310,14 @@ fn prepare_tokens_gguf(config: &InferenceConfig, prompt: &str) -> Result<Prepare
     // GH-278: Prepend BOS token to match llama.cpp behavior.
     // llama.cpp adds BOS when add_bos_token is true (default for LLaMA-family).
     // Only add if not already present AND model has a BOS token defined.
-    let add_bos = match mapped.model.metadata.get("tokenizer.ggml.add_bos_token") {
+    let add_bos = match mapped.model.metadata.get(crate::gguf::keys::TOKENIZER_ADD_BOS) {
         Some(GGUFValue::Bool(b)) => *b,
         // GH-326: Derive BOS default from architecture constraints, not hardcoded string.
         // Models with absolute position embeddings (GPT-2, BERT) use BPE → no BOS.
         // Models with RoPE (LLaMA, Qwen, Mistral) use SentencePiece → add BOS.
         _ => {
             let arch = mapped.model.metadata
-                .get("general.architecture")
+                .get(crate::gguf::keys::GENERAL_ARCHITECTURE)
                 .and_then(|v| if let GGUFValue::String(s) = v { Some(s.as_str()) } else { None })
                 .unwrap_or("llama");
             let constraints = crate::gguf::ArchConstraints::from_architecture(arch);

@@ -6,11 +6,11 @@ impl GGUFModel {
     /// GH-278: Also checks `layer_norm_epsilon` for GPT-2/phi-2 style models
     pub fn rms_epsilon(&self) -> Option<f32> {
         let arch = self.architecture()?;
-        let rms_key = format!("{}.attention.layer_norm_rms_epsilon", arch);
+        let rms_key = crate::gguf::keys::arch_key(arch, crate::gguf::keys::ATTENTION_LAYER_NORM_RMS_EPSILON);
         if let Some(GGUFValue::Float32(eps)) = self.metadata.get(&rms_key) {
             return Some(*eps);
         }
-        let ln_key = format!("{}.attention.layer_norm_epsilon", arch);
+        let ln_key = crate::gguf::keys::arch_key(arch, crate::gguf::keys::ATTENTION_LAYER_NORM_EPSILON);
         if let Some(GGUFValue::Float32(eps)) = self.metadata.get(&ln_key) {
             return Some(*eps);
         }
@@ -24,7 +24,7 @@ impl GGUFModel {
     /// Architecture-based inference matches llama.cpp's llama-model.cpp:7763-7811
     pub fn rope_type(&self) -> Option<u32> {
         let arch = self.architecture()?;
-        let key = format!("{}.rope.scaling.type", arch);
+        let key = crate::gguf::keys::arch_key(arch, crate::gguf::keys::ROPE_SCALING_TYPE);
         // Try rope type from scaling type first
         if let Some(GGUFValue::String(s)) = self.metadata.get(&key) {
             match s.as_str() {
@@ -77,7 +77,7 @@ impl GGUFModel {
     /// Get BOS (beginning of sentence) token ID
     #[must_use]
     pub fn bos_token_id(&self) -> Option<u32> {
-        if let Some(GGUFValue::UInt32(id)) = self.metadata.get("tokenizer.ggml.bos_token_id") {
+        if let Some(GGUFValue::UInt32(id)) = self.metadata.get(crate::gguf::keys::TOKENIZER_BOS_ID) {
             Some(*id)
         } else {
             None
@@ -87,7 +87,7 @@ impl GGUFModel {
     /// Get EOS (end of sentence) token ID
     #[must_use]
     pub fn eos_token_id(&self) -> Option<u32> {
-        if let Some(GGUFValue::UInt32(id)) = self.metadata.get("tokenizer.ggml.eos_token_id") {
+        if let Some(GGUFValue::UInt32(id)) = self.metadata.get(crate::gguf::keys::TOKENIZER_EOS_ID) {
             Some(*id)
         } else {
             None
@@ -100,7 +100,7 @@ impl GGUFModel {
     /// Uses "tokenizer.ggml.tokens" key from GGUF metadata.
     #[must_use]
     pub fn vocabulary(&self) -> Option<Vec<String>> {
-        if let Some(GGUFValue::Array(arr)) = self.metadata.get("tokenizer.ggml.tokens") {
+        if let Some(GGUFValue::Array(arr)) = self.metadata.get(crate::gguf::keys::TOKENIZER_TOKENS) {
             let tokens: Vec<String> = arr
                 .iter()
                 .filter_map(|v| {
@@ -134,7 +134,7 @@ impl GGUFModel {
             // Detect tokenizer type from metadata
             let is_gpt2_style = self
                 .metadata
-                .get("tokenizer.ggml.model")
+                .get(crate::gguf::keys::TOKENIZER_MODEL)
                 .is_some_and(|v| matches!(v, GGUFValue::String(s) if s == "gpt2" || s == "bpe"));
 
             // Collect raw tokens and convert byte tokens to actual bytes
