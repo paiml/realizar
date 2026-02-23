@@ -501,6 +501,65 @@ mod tests {
     }
 
     // =========================================================================
+    // FALSIFY-QDOT-006: Row-major only enforcement (PMAT-336)
+    // =========================================================================
+    //
+    // Contract: quantized-dot-product-v1.yaml §enforcement.row_major_only
+    // Claim: "All kernels operate on row-major data (LAYOUT-002)"
+    // Method: Scan quantize module source for any colmajor function definitions.
+    //
+    // Five-Whys:
+    //   Why 1: GPU produced garbage for 7B model
+    //   Why 2: GGUF column-major data fed to row-major kernel
+    //   Why 3: colmajor aliases existed as convenience shortcuts
+    //   Why 4: No enforcement prevented adding colmajor kernels
+    //   Why 5: ROOT — no regression test for LAYOUT-002
+
+    #[test]
+    fn falsify_qdot_006_no_colmajor_functions_in_quantize() {
+        let crate_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let quantize_dir = crate_root.join("src/quantize");
+
+        let mut violations = Vec::new();
+        for entry in std::fs::read_dir(&quantize_dir).expect("quantize dir must exist") {
+            let entry = entry.expect("dir entry");
+            let path = entry.path();
+            if path.extension().map_or(true, |e| e != "rs") {
+                continue;
+            }
+            // Skip test files — they document the rule, not violate it
+            let fname = path.file_name().unwrap().to_string_lossy();
+            if fname.contains("test") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("read source");
+            for (i, line) in source.lines().enumerate() {
+                let trimmed = line.trim();
+                // Skip comments documenting the removal
+                if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                    continue;
+                }
+                if trimmed.contains("colmajor") || trimmed.contains("col_major") {
+                    violations.push(format!(
+                        "  {}:{}: {}",
+                        path.file_name().unwrap().to_string_lossy(),
+                        i + 1,
+                        trimmed
+                    ));
+                }
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "FALSIFY-QDOT-006 FAILED: Found colmajor function/reference in quantize module:\n{}\n\
+             LAYOUT-002: All quantize kernels MUST be row-major only.\n\
+             See contracts/quantized-dot-product-v1.yaml §enforcement.row_major_only",
+            violations.join("\n")
+        );
+    }
+
+    // =========================================================================
     // FALSIFY-007: No catch-all in WeightQuantType dispatch sites
     // =========================================================================
     //
