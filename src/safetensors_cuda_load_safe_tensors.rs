@@ -251,64 +251,73 @@ impl SafeTensorsCudaModel {
         })
     }
 
+    /// GH-279/316: Validate a single layer has all required tensors via contract.
+    fn validate_layer_completeness(
+        st_model: &MappedSafeTensorsModel,
+        arch: &str,
+        layer_idx: usize,
+        config: &SafeTensorsCudaConfig,
+        missing: &mut Vec<String>,
+    ) {
+        use crate::tensor_names::{
+            has_layer, has_fused,
+            LayerTensorRole, FusedTensorRole,
+        };
+
+        let check = |role: LayerTensorRole, label: &str| {
+            if !has_layer(st_model, arch, layer_idx, role) {
+                missing.push(format!("layer {layer_idx} {label}"));
+            }
+        };
+
+        check(LayerTensorRole::AttnNormWeight, "AttnNormWeight");
+        check(LayerTensorRole::OProjWeight, "OProjWeight");
+        check(LayerTensorRole::FfnNormWeight, "FfnNormWeight");
+        check(LayerTensorRole::FfnUpWeight, "FfnUpWeight");
+        check(LayerTensorRole::FfnDownWeight, "FfnDownWeight");
+
+        // QKV: either fused or separate
+        if !has_fused(st_model, arch, layer_idx, FusedTensorRole::FusedQkv) {
+            check(LayerTensorRole::QProjWeight, "QProjWeight");
+            check(LayerTensorRole::KProjWeight, "KProjWeight");
+            check(LayerTensorRole::VProjWeight, "VProjWeight");
+        }
+
+        // Architecture-conditional roles
+        if config.has_qk_norm {
+            check(LayerTensorRole::AttnQNormWeight, "AttnQNormWeight");
+            check(LayerTensorRole::AttnKNormWeight, "AttnKNormWeight");
+        }
+        if config.has_bias {
+            check(LayerTensorRole::QProjBias, "QProjBias");
+            check(LayerTensorRole::KProjBias, "KProjBias");
+            check(LayerTensorRole::VProjBias, "VProjBias");
+        }
+    }
+
     /// GH-279: Validate that all architecture-required tensors exist in the SafeTensors file.
     ///
+    /// GH-316: Uses contract-driven tensor name resolution instead of hardcoded LLaMA names.
     /// This runs BEFORE GPU initialization so we fail fast with a clear error
     /// instead of discovering missing tensors halfway through weight upload.
     fn validate_safetensors_completeness(
         st_model: &MappedSafeTensorsModel,
         config: &SafeTensorsCudaConfig,
     ) -> Result<()> {
+        use crate::tensor_names::{has_global, GlobalTensorRole};
+        let arch = &config.architecture;
         let mut missing = Vec::new();
 
+        // Global tensors
+        if !has_global(st_model, arch, GlobalTensorRole::Embedding) {
+            missing.push("Embedding".to_string());
+        }
+        if !has_global(st_model, arch, GlobalTensorRole::OutputNormWeight) {
+            missing.push("OutputNormWeight".to_string());
+        }
+
         for layer_idx in 0..config.num_layers {
-            let prefix = format!("model.layers.{layer_idx}");
-
-            // Always required: norms, QKV projections, output proj, FFN
-            let required = [
-                format!("{prefix}.input_layernorm.weight"),
-                format!("{prefix}.post_attention_layernorm.weight"),
-                format!("{prefix}.self_attn.q_proj.weight"),
-                format!("{prefix}.self_attn.k_proj.weight"),
-                format!("{prefix}.self_attn.v_proj.weight"),
-                format!("{prefix}.self_attn.o_proj.weight"),
-                format!("{prefix}.mlp.gate_proj.weight"),
-                format!("{prefix}.mlp.up_proj.weight"),
-                format!("{prefix}.mlp.down_proj.weight"),
-            ];
-            for name in &required {
-                if !st_model.has_tensor(name) {
-                    missing.push(name.clone());
-                }
-            }
-
-            // Architecture-conditional: QK norm (Qwen3)
-            if config.has_qk_norm {
-                let q_norm = format!("{prefix}.self_attn.q_norm.weight");
-                let k_norm = format!("{prefix}.self_attn.k_norm.weight");
-                if !st_model.has_tensor(&q_norm) {
-                    missing.push(q_norm);
-                }
-                if !st_model.has_tensor(&k_norm) {
-                    missing.push(k_norm);
-                }
-            }
-
-            // Architecture-conditional: attention bias (Qwen2, Phi)
-            if config.has_bias {
-                let q_bias = format!("{prefix}.self_attn.q_proj.bias");
-                let k_bias = format!("{prefix}.self_attn.k_proj.bias");
-                let v_bias = format!("{prefix}.self_attn.v_proj.bias");
-                if !st_model.has_tensor(&q_bias) {
-                    missing.push(q_bias);
-                }
-                if !st_model.has_tensor(&k_bias) {
-                    missing.push(k_bias);
-                }
-                if !st_model.has_tensor(&v_bias) {
-                    missing.push(v_bias);
-                }
-            }
+            Self::validate_layer_completeness(st_model, arch, layer_idx, config, &mut missing);
         }
 
         if !missing.is_empty() {
@@ -328,8 +337,158 @@ impl SafeTensorsCudaModel {
         Ok(())
     }
 
+    /// GH-316: Helper to map CUDA errors to `RealizarError`.
+    fn cuda_err(op: &str, layer_idx: usize, what: &str, e: impl std::fmt::Display) -> RealizarError {
+        RealizarError::UnsupportedOperation {
+            operation: op.to_string(),
+            reason: format!("Failed to upload layer {layer_idx} {what}: {e}"),
+        }
+    }
+
+    /// GH-316: Split fused QKV tensor into separate Q, K, V components.
+    fn split_fused_qkv(
+        fused_qkv: &[f32],
+        hidden_dim: usize,
+        kv_dim: usize,
+    ) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
+        let total_out = hidden_dim + kv_dim + kv_dim;
+        if fused_qkv.len() >= total_out * hidden_dim {
+            // Fused weight is [total_out, hidden_dim] — split by rows
+            let q_end = hidden_dim * hidden_dim;
+            let k_end = q_end + kv_dim * hidden_dim;
+            let v_end = k_end + kv_dim * hidden_dim;
+            (
+                fused_qkv[..q_end].to_vec(),
+                fused_qkv[q_end..k_end].to_vec(),
+                fused_qkv[k_end..v_end].to_vec(),
+            )
+        } else {
+            // Fallback: treat as concat of bias-sized vectors
+            let k_end = hidden_dim + kv_dim;
+            (
+                fused_qkv[..hidden_dim].to_vec(),
+                fused_qkv[hidden_dim..k_end].to_vec(),
+                fused_qkv[k_end..].to_vec(),
+            )
+        }
+    }
+
+    /// GH-316: Upload a single layer's weights to GPU using contract-driven tensor names.
+    #[allow(clippy::too_many_arguments)]
+    fn upload_layer_weights(
+        executor: &mut CudaExecutor,
+        st_model: &MappedSafeTensorsModel,
+        arch: &str,
+        layer_idx: usize,
+        hidden_dim: usize,
+        kv_dim: usize,
+        intermediate_dim: usize,
+        gamma_cache: &mut std::collections::HashMap<String, Vec<f32>>,
+        qkv_bias_cache: &mut std::collections::HashMap<String, Vec<f32>>,
+        o_bias_cache: &mut std::collections::HashMap<String, Vec<f32>>,
+        qk_norm_cache: &mut std::collections::HashMap<String, Vec<f32>>,
+    ) -> Result<()> {
+        use crate::tensor_names::{
+            resolve_layer, resolve_layer_optional, resolve_fused,
+            LayerTensorRole, FusedTensorRole,
+        };
+
+        // Attention norm
+        let attn_norm = resolve_layer(st_model, arch, layer_idx, LayerTensorRole::AttnNormWeight)?;
+        gamma_cache.insert(format!("attn.{layer_idx}"), attn_norm.clone());
+        executor
+            .cache_rmsnorm_gamma(&format!("blk.{layer_idx}.attn_norm.gamma"), &attn_norm)
+            .map_err(|e| Self::cuda_err("cache_rmsnorm_gamma", layer_idx, "attn_norm", e))?;
+
+        // QKV: try fused first, then separate
+        let (q, k, v) = if let Some(fused) = resolve_fused(st_model, arch, layer_idx, FusedTensorRole::FusedQkv) {
+            Self::split_fused_qkv(&fused, hidden_dim, kv_dim)
+        } else {
+            (
+                resolve_layer(st_model, arch, layer_idx, LayerTensorRole::QProjWeight)?,
+                resolve_layer(st_model, arch, layer_idx, LayerTensorRole::KProjWeight)?,
+                resolve_layer(st_model, arch, layer_idx, LayerTensorRole::VProjWeight)?,
+            )
+        };
+        let qkv = Self::concat_qkv_transposed(&q, &k, &v, hidden_dim, kv_dim);
+        executor
+            .load_weights(&format!("blk.{layer_idx}.attn_qkv"), &qkv)
+            .map_err(|e| Self::cuda_err("load_weights", layer_idx, "qkv", e))?;
+
+        // QKV bias
+        let q_bias = resolve_layer_optional(st_model, arch, layer_idx, LayerTensorRole::QProjBias)
+            .unwrap_or_else(|| vec![0.0f32; hidden_dim]);
+        let k_bias = resolve_layer_optional(st_model, arch, layer_idx, LayerTensorRole::KProjBias)
+            .unwrap_or_else(|| vec![0.0f32; kv_dim]);
+        let v_bias = resolve_layer_optional(st_model, arch, layer_idx, LayerTensorRole::VProjBias)
+            .unwrap_or_else(|| vec![0.0f32; kv_dim]);
+        let mut qkv_bias = Vec::with_capacity(hidden_dim + 2 * kv_dim);
+        qkv_bias.extend_from_slice(&q_bias);
+        qkv_bias.extend_from_slice(&k_bias);
+        qkv_bias.extend_from_slice(&v_bias);
+        qkv_bias_cache.insert(format!("qkv_bias.{layer_idx}"), qkv_bias);
+
+        // QK norm (Qwen3)
+        if let Some(q_norm) = resolve_layer_optional(st_model, arch, layer_idx, LayerTensorRole::AttnQNormWeight) {
+            qk_norm_cache.insert(format!("q_norm.{layer_idx}"), q_norm.clone());
+            executor
+                .cache_rmsnorm_gamma(&format!("blk.{layer_idx}.attn_q_norm.gamma"), &q_norm)
+                .map_err(|e| Self::cuda_err("cache_rmsnorm_gamma", layer_idx, "q_norm", e))?;
+        }
+        if let Some(k_norm) = resolve_layer_optional(st_model, arch, layer_idx, LayerTensorRole::AttnKNormWeight) {
+            qk_norm_cache.insert(format!("k_norm.{layer_idx}"), k_norm.clone());
+            executor
+                .cache_rmsnorm_gamma(&format!("blk.{layer_idx}.attn_k_norm.gamma"), &k_norm)
+                .map_err(|e| Self::cuda_err("cache_rmsnorm_gamma", layer_idx, "k_norm", e))?;
+        }
+
+        // Output projection
+        let o_raw = resolve_layer(st_model, arch, layer_idx, LayerTensorRole::OProjWeight)?;
+        let o = Self::transpose_for_gemm(&o_raw, hidden_dim, hidden_dim);
+        executor
+            .load_weights(&format!("blk.{layer_idx}.attn_output"), &o)
+            .map_err(|e| Self::cuda_err("load_weights", layer_idx, "attn_output", e))?;
+
+        // O projection bias (rare)
+        if let Ok(o_bias) = st_model.get_tensor_auto(&format!("model.layers.{layer_idx}.self_attn.o_proj.bias")) {
+            o_bias_cache.insert(format!("o_bias.{layer_idx}"), o_bias);
+        }
+
+        // FFN norm
+        let ffn_norm = resolve_layer(st_model, arch, layer_idx, LayerTensorRole::FfnNormWeight)?;
+        gamma_cache.insert(format!("ffn.{layer_idx}"), ffn_norm.clone());
+        executor
+            .cache_rmsnorm_gamma(&format!("blk.{layer_idx}.ffn_norm.gamma"), &ffn_norm)
+            .map_err(|e| Self::cuda_err("cache_rmsnorm_gamma", layer_idx, "ffn_norm", e))?;
+
+        // FFN gate (optional — GPT-2/Phi-2 don't have it)
+        if let Some(gate_raw) = resolve_layer_optional(st_model, arch, layer_idx, LayerTensorRole::FfnGateWeight) {
+            let gate = Self::transpose_for_gemm(&gate_raw, intermediate_dim, hidden_dim);
+            executor
+                .load_weights(&format!("blk.{layer_idx}.ffn_gate"), &gate)
+                .map_err(|e| Self::cuda_err("load_weights", layer_idx, "ffn_gate", e))?;
+        }
+
+        // FFN up
+        let up_raw = resolve_layer(st_model, arch, layer_idx, LayerTensorRole::FfnUpWeight)?;
+        let up = Self::transpose_for_gemm(&up_raw, intermediate_dim, hidden_dim);
+        executor
+            .load_weights(&format!("blk.{layer_idx}.ffn_up"), &up)
+            .map_err(|e| Self::cuda_err("load_weights", layer_idx, "ffn_up", e))?;
+
+        // FFN down
+        let down_raw = resolve_layer(st_model, arch, layer_idx, LayerTensorRole::FfnDownWeight)?;
+        let down = Self::transpose_for_gemm(&down_raw, hidden_dim, intermediate_dim);
+        executor
+            .load_weights(&format!("blk.{layer_idx}.ffn_down"), &down)
+            .map_err(|e| Self::cuda_err("load_weights", layer_idx, "ffn_down", e))?;
+
+        Ok(())
+    }
+
     /// Upload all model weights to GPU.
     ///
+    /// GH-316: Uses contract-driven tensor name resolution instead of hardcoded LLaMA names.
     /// Returns (embedding_table, gamma_cache, qkv_bias_cache, o_bias_cache) - embedding kept on CPU
     /// for token lookup, gamma_cache kept on CPU for RMS norm operations, bias caches for attention.
     #[allow(clippy::type_complexity)]
@@ -345,6 +504,12 @@ impl SafeTensorsCudaModel {
         std::collections::HashMap<String, Vec<f32>>,
         std::collections::HashMap<String, Vec<f32>>,
     )> {
+        use crate::tensor_names::{
+            resolve_global, resolve_global_optional, has_global,
+            resolve_layer, resolve_layer_optional, resolve_fused,
+            GlobalTensorRole, LayerTensorRole, FusedTensorRole,
+        };
+
         let hidden_dim = config.hidden_dim;
         let num_layers = config.num_layers;
         let num_heads = config.num_heads;
@@ -353,6 +518,7 @@ impl SafeTensorsCudaModel {
         let vocab_size = config.vocab_size;
         let head_dim = hidden_dim / num_heads;
         let kv_dim = num_kv_heads * head_dim;
+        let arch = &config.architecture;
 
         // Gamma cache for CPU RMS norm
         let mut gamma_cache = std::collections::HashMap::new();
@@ -362,11 +528,11 @@ impl SafeTensorsCudaModel {
         // GH-279: QK norm weight cache (Qwen3 per-head RMSNorm)
         let mut qk_norm_cache = std::collections::HashMap::new();
 
-        // Embedding table (keep on CPU for token lookup)
-        let embedding = st_model.get_tensor_auto("model.embed_tokens.weight")?;
+        // GH-316: Embedding table via contract (keep on CPU for token lookup)
+        let embedding = resolve_global(st_model, arch, GlobalTensorRole::Embedding)?;
 
-        // Output norm - upload to rmsnorm_cache AND keep CPU copy
-        let output_norm = st_model.get_tensor_auto("model.norm.weight")?;
+        // GH-316: Output norm via contract - upload to rmsnorm_cache AND keep CPU copy
+        let output_norm = resolve_global(st_model, arch, GlobalTensorRole::OutputNormWeight)?;
         gamma_cache.insert("output".to_string(), output_norm.clone());
         executor.preload_output_norm(&output_norm).map_err(|e| {
             RealizarError::UnsupportedOperation {
@@ -375,14 +541,12 @@ impl SafeTensorsCudaModel {
             }
         })?;
 
-        // LM head (may be tied to embeddings) - use gemm_b_cached (B is weight)
+        // GH-316: LM head via contract (may be tied to embeddings)
         // F-GT-002 FIX: Check tie_word_embeddings config FIRST, not just tensor existence
-        // When tie_word_embeddings=true, HuggingFace may store a placeholder lm_head.weight
-        // that's all zeros - we MUST use the embedding matrix instead!
         let lm_head = if config.tie_word_embeddings {
             Self::transpose_for_gemm(&embedding, vocab_size, hidden_dim)
-        } else if st_model.has_tensor("lm_head.weight") {
-            let raw = st_model.get_tensor_auto("lm_head.weight")?;
+        } else if has_global(st_model, arch, GlobalTensorRole::LmHead) {
+            let raw = resolve_global(st_model, arch, GlobalTensorRole::LmHead)?;
             Self::transpose_for_gemm(&raw, vocab_size, hidden_dim)
         } else {
             // Fallback: assume tied if no lm_head tensor exists
@@ -397,137 +561,12 @@ impl SafeTensorsCudaModel {
 
         // Per-layer weights (F-LOAD-057, F-LOAD-061, F-LOAD-062)
         for layer_idx in 0..num_layers {
-            let prefix = format!("model.layers.{layer_idx}");
-
-            // Attention norm - upload to rmsnorm_cache AND keep CPU copy
-            let attn_norm =
-                st_model.get_tensor_auto(&format!("{prefix}.input_layernorm.weight"))?;
-            gamma_cache.insert(format!("attn.{layer_idx}"), attn_norm.clone());
-            let attn_norm_key = format!("blk.{layer_idx}.attn_norm.gamma");
-            executor
-                .cache_rmsnorm_gamma(&attn_norm_key, &attn_norm)
-                .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "cache_rmsnorm_gamma".to_string(),
-                    reason: format!("Failed to upload layer {layer_idx} attn_norm: {e}"),
-                })?;
-
-            // QKV weights (concatenate and transpose for gemm_b_cached)
-            // PMAT-120 FIX: Use actual transpose for GEMM
-            let q = st_model.get_tensor_auto(&format!("{prefix}.self_attn.q_proj.weight"))?;
-            let k = st_model.get_tensor_auto(&format!("{prefix}.self_attn.k_proj.weight"))?;
-            let v = st_model.get_tensor_auto(&format!("{prefix}.self_attn.v_proj.weight"))?;
-            let qkv = Self::concat_qkv_transposed(&q, &k, &v, hidden_dim, kv_dim);
-            executor
-                .load_weights(&format!("blk.{layer_idx}.attn_qkv"), &qkv)
-                .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "load_weights".to_string(),
-                    reason: format!("Failed to upload layer {layer_idx} qkv: {e}"),
-                })?;
-
-            // PMAT-120 FIX: Load QKV bias terms (Qwen2 has attention biases!)
-            // Concatenate Q+K+V biases into single vector
-            let q_bias = st_model
-                .get_tensor_auto(&format!("{prefix}.self_attn.q_proj.bias"))
-                .unwrap_or_else(|_| vec![0.0f32; hidden_dim]);
-            let k_bias = st_model
-                .get_tensor_auto(&format!("{prefix}.self_attn.k_proj.bias"))
-                .unwrap_or_else(|_| vec![0.0f32; kv_dim]);
-            let v_bias = st_model
-                .get_tensor_auto(&format!("{prefix}.self_attn.v_proj.bias"))
-                .unwrap_or_else(|_| vec![0.0f32; kv_dim]);
-            let mut qkv_bias = Vec::with_capacity(hidden_dim + 2 * kv_dim);
-            qkv_bias.extend_from_slice(&q_bias);
-            qkv_bias.extend_from_slice(&k_bias);
-            qkv_bias.extend_from_slice(&v_bias);
-            qkv_bias_cache.insert(format!("qkv_bias.{layer_idx}"), qkv_bias);
-
-            // GH-279: QK norm weights (Qwen3 per-head RMSNorm on Q and K)
-            if let Ok(q_norm) =
-                st_model.get_tensor_auto(&format!("{prefix}.self_attn.q_norm.weight"))
-            {
-                qk_norm_cache.insert(format!("q_norm.{layer_idx}"), q_norm.clone());
-                let q_norm_key = format!("blk.{layer_idx}.attn_q_norm.gamma");
-                executor
-                    .cache_rmsnorm_gamma(&q_norm_key, &q_norm)
-                    .map_err(|e| RealizarError::UnsupportedOperation {
-                        operation: "cache_rmsnorm_gamma".to_string(),
-                        reason: format!("Failed to upload layer {layer_idx} q_norm: {e}"),
-                    })?;
-            }
-            if let Ok(k_norm) =
-                st_model.get_tensor_auto(&format!("{prefix}.self_attn.k_norm.weight"))
-            {
-                qk_norm_cache.insert(format!("k_norm.{layer_idx}"), k_norm.clone());
-                let k_norm_key = format!("blk.{layer_idx}.attn_k_norm.gamma");
-                executor
-                    .cache_rmsnorm_gamma(&k_norm_key, &k_norm)
-                    .map_err(|e| RealizarError::UnsupportedOperation {
-                        operation: "cache_rmsnorm_gamma".to_string(),
-                        reason: format!("Failed to upload layer {layer_idx} k_norm: {e}"),
-                    })?;
-            }
-
-            // Output projection
-            // PMAT-120 FIX: Use actual transpose for GEMM
-            let o_raw = st_model.get_tensor_auto(&format!("{prefix}.self_attn.o_proj.weight"))?;
-            let o = Self::transpose_for_gemm(&o_raw, hidden_dim, hidden_dim);
-            executor
-                .load_weights(&format!("blk.{layer_idx}.attn_output"), &o)
-                .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "load_weights".to_string(),
-                    reason: format!("Failed to upload layer {layer_idx} attn_output: {e}"),
-                })?;
-
-            // PMAT-120 FIX: Load o_proj bias (if present)
-            if let Ok(o_bias) = st_model.get_tensor_auto(&format!("{prefix}.self_attn.o_proj.bias"))
-            {
-                o_bias_cache.insert(format!("o_bias.{layer_idx}"), o_bias);
-            }
-
-            // FFN norm - upload to rmsnorm_cache AND keep CPU copy
-            let ffn_norm =
-                st_model.get_tensor_auto(&format!("{prefix}.post_attention_layernorm.weight"))?;
-            gamma_cache.insert(format!("ffn.{layer_idx}"), ffn_norm.clone());
-            let ffn_norm_key = format!("blk.{layer_idx}.ffn_norm.gamma");
-            executor
-                .cache_rmsnorm_gamma(&ffn_norm_key, &ffn_norm)
-                .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "cache_rmsnorm_gamma".to_string(),
-                    reason: format!("Failed to upload layer {layer_idx} ffn_norm: {e}"),
-                })?;
-
-            // FFN gate (SwiGLU)
-            // PMAT-120 FIX: Use actual transpose for GEMM
-            let gate_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.gate_proj.weight"))?;
-            let gate = Self::transpose_for_gemm(&gate_raw, intermediate_dim, hidden_dim);
-            executor
-                .load_weights(&format!("blk.{layer_idx}.ffn_gate"), &gate)
-                .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "load_weights".to_string(),
-                    reason: format!("Failed to upload layer {layer_idx} ffn_gate: {e}"),
-                })?;
-
-            // FFN up
-            // PMAT-120 FIX: Use actual transpose for GEMM
-            let up_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.up_proj.weight"))?;
-            let up = Self::transpose_for_gemm(&up_raw, intermediate_dim, hidden_dim);
-            executor
-                .load_weights(&format!("blk.{layer_idx}.ffn_up"), &up)
-                .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "load_weights".to_string(),
-                    reason: format!("Failed to upload layer {layer_idx} ffn_up: {e}"),
-                })?;
-
-            // FFN down
-            // PMAT-120 FIX: Use actual transpose for GEMM
-            let down_raw = st_model.get_tensor_auto(&format!("{prefix}.mlp.down_proj.weight"))?;
-            let down = Self::transpose_for_gemm(&down_raw, hidden_dim, intermediate_dim);
-            executor
-                .load_weights(&format!("blk.{layer_idx}.ffn_down"), &down)
-                .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "load_weights".to_string(),
-                    reason: format!("Failed to upload layer {layer_idx} ffn_down: {e}"),
-                })?;
+            Self::upload_layer_weights(
+                executor, st_model, arch, layer_idx,
+                hidden_dim, kv_dim, intermediate_dim,
+                &mut gamma_cache, &mut qkv_bias_cache,
+                &mut o_bias_cache, &mut qk_norm_cache,
+            )?;
         }
 
         // GH-279: Validate QK norm completeness — if architecture requires it,
