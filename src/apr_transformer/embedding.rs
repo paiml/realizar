@@ -29,10 +29,11 @@ impl AprTransformer {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(num_heads as u64) as usize;
 
+        // C-12 (Meyer DbC): 0 = unknown, inferred from embedding tensor dims downstream.
         let vocab_size = metadata
             .get("vocab_size")
             .and_then(serde_json::Value::as_u64)
-            .unwrap_or(32000) as usize;
+            .unwrap_or(0) as usize;
 
         let intermediate_dim = metadata
             .get("intermediate_size")
