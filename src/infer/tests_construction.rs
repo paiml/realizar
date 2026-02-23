@@ -335,13 +335,18 @@ fn test_safetensors_arch_unknown() {
 
 #[test]
 fn test_apr_arch_qwen() {
+    // GH-318: normalize_architecture does exact matching from contract
     assert_eq!(apr_arch_to_template_hint("qwen2", "model"), "qwen2");
-    assert_eq!(apr_arch_to_template_hint("Qwen", "model"), "qwen2");
+    assert_eq!(apr_arch_to_template_hint("qwen3", "model"), "qwen3");
+    // "Qwen" alone is not in the contract map → falls back to model_name
+    assert_eq!(apr_arch_to_template_hint("Qwen", "model"), "model");
 }
 
 #[test]
 fn test_apr_arch_llama() {
     assert_eq!(apr_arch_to_template_hint("llama", "model"), "llama");
+    // "LLaMA" not in contract map → defaults to "llama" →
+    // "LLaMA".to_lowercase() contains "llama" → returns "llama"
     assert_eq!(apr_arch_to_template_hint("LLaMA", "model"), "llama");
 }
 
@@ -352,8 +357,10 @@ fn test_apr_arch_mistral() {
 
 #[test]
 fn test_apr_arch_phi() {
+    // GH-318: "phi3" maps to "phi" in the contract
     assert_eq!(apr_arch_to_template_hint("phi3", "model"), "phi");
-    assert_eq!(apr_arch_to_template_hint("Phi", "model"), "phi");
+    // "Phi" alone is not in the contract map → falls back to model_name
+    assert_eq!(apr_arch_to_template_hint("Phi", "model"), "model");
 }
 
 #[test]

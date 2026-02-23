@@ -117,20 +117,39 @@ fn apr_try_load_f32(
 }
 
 /// Infer vocab_size from APR metadata or embedding tensor shape.
+/// GH-324: Infer vocab size from embedding tensor using contract-driven names.
 fn apr_infer_vocab_size(apr: &crate::apr::MappedAprModel) -> usize {
-    match apr.metadata.vocab_size {
-        Some(v) if v > 0 => v,
-        _ => apr
-            .tensors
-            .iter()
-            .find(|t| {
-                t.name.contains("embed_tokens")
-                    || t.name.contains("tok_embeddings")
-                    || t.name.contains("token_embd")
-            })
-            .and_then(|t| t.shape.first().copied())
-            .unwrap_or(151936),
+    use crate::tensor_names::{normalize_architecture, global_names, global_fallback_names, GlobalTensorRole};
+
+    if let Some(v) = apr.metadata.vocab_size {
+        if v > 0 {
+            return v;
+        }
     }
+
+    // GH-324: Use contract names instead of substring matching
+    let arch = apr.metadata.architecture.as_deref().unwrap_or("llama");
+    let arch_key = normalize_architecture(arch);
+
+    // Collect all possible embedding names from the contract
+    let mut candidates: Vec<&str> = Vec::new();
+    candidates.extend_from_slice(global_names(arch_key, GlobalTensorRole::Embedding));
+    candidates.extend_from_slice(global_fallback_names(GlobalTensorRole::Embedding));
+
+    for candidate in &candidates {
+        if let Some(t) = apr.tensors.iter().find(|t| t.name == *candidate) {
+            if let Some(&dim) = t.shape.first() {
+                return dim;
+            }
+        }
+    }
+
+    // Last resort: substring match for unusual naming
+    apr.tensors
+        .iter()
+        .find(|t| t.name.contains("embed") || t.name.contains("wte"))
+        .and_then(|t| t.shape.first().copied())
+        .unwrap_or(151936)
 }
 
 impl OwnedQuantizedModel {
@@ -158,11 +177,12 @@ impl OwnedQuantizedModel {
         let rope_theta = apr.metadata.rope_theta.unwrap_or(1_000_000.0);
         let vocab_size = apr_infer_vocab_size(apr);
 
+        // GH-325: Use consistent default architecture (llama) across all paths
         let architecture = apr
             .metadata
             .architecture
             .clone()
-            .unwrap_or_else(|| "qwen2".to_string());
+            .unwrap_or_else(|| "llama".to_string());
         let constraints = crate::gguf::ArchConstraints::from_architecture(&architecture);
         let config = GGUFConfig {
             architecture,
@@ -261,14 +281,19 @@ impl OwnedQuantizedModel {
         vocab_size: usize,
         hidden_dim: usize,
     ) -> Result<Vec<f32>> {
-        let embed_name = apr
-            .tensors
+        // GH-324: Use contract-driven names for embedding discovery
+        let arch = apr.metadata.architecture.as_deref().unwrap_or("llama");
+        let arch_key = crate::tensor_names::normalize_architecture(arch);
+        let embed_candidates: Vec<&str> = {
+            let mut c = Vec::new();
+            c.extend_from_slice(crate::tensor_names::global_names(arch_key, crate::tensor_names::GlobalTensorRole::Embedding));
+            c.extend_from_slice(crate::tensor_names::global_fallback_names(crate::tensor_names::GlobalTensorRole::Embedding));
+            c
+        };
+        let embed_name = embed_candidates
             .iter()
-            .find(|t| {
-                t.name.contains("embed_tokens")
-                    || t.name.contains("tok_embeddings")
-                    || t.name.contains("token_embd")
-            })
+            .find_map(|&name| apr.tensors.iter().find(|t| t.name == name))
+            .or_else(|| apr.tensors.iter().find(|t| t.name.contains("embed") || t.name.contains("wte")))
             .map(|t| t.name.as_str())
             .ok_or_else(|| RealizarError::FormatError {
                 reason: "APR: embedding tensor not found".to_string(),
