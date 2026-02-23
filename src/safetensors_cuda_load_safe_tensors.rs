@@ -249,6 +249,7 @@ impl SafeTensorsCudaModel {
             tie_word_embeddings: json.tie_word_embeddings.unwrap_or(false),
             has_qk_norm: arch_constraints.has_qk_norm,
             has_bias: arch_constraints.has_bias,
+            eos_token_id: json.eos_token_id.map(|v| v as u32),
         })
     }
 

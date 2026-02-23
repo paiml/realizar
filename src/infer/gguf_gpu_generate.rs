@@ -497,7 +497,7 @@ fn try_safetensors_cuda_inference(
 
     let infer_start = Instant::now();
     // GH-330: EOS from model config (Design by Contract)
-    let eos_id = cuda_model.model().config.eos_token_id.unwrap_or(0);
+    let eos_id = cuda_model.config().eos_token_id.unwrap_or(0);
     let tokens = match cuda_model.generate(input_tokens, config.max_tokens.min(128), eos_id) {
         Ok(t) => t,
         Err(e) => {

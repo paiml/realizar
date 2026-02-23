@@ -260,6 +260,7 @@ mod tests {
             tie_word_embeddings: true,
             has_qk_norm: false,
             has_bias: true,
+            eos_token_id: None,
         };
 
         let debug_str = format!("{:?}", config);
@@ -284,6 +285,7 @@ mod tests {
             tie_word_embeddings: false,
             has_qk_norm: false,
             has_bias: false,
+            eos_token_id: None,
         };
 
         let cloned = config.clone();
@@ -343,6 +345,7 @@ mod tests {
             tie_word_embeddings: true,
             has_qk_norm: false,
             has_bias: true,
+            eos_token_id: None,
         };
 
         let vram = SafeTensorsCudaModel::estimate_vram_bytes(&config, 2048);
@@ -383,6 +386,7 @@ mod tests {
             tie_word_embeddings: false,
             has_qk_norm: false,
             has_bias: false,
+            eos_token_id: None,
         };
 
         let config_24 = SafeTensorsCudaConfig {
@@ -419,6 +423,7 @@ mod tests {
             tie_word_embeddings: false,
             has_qk_norm: false,
             has_bias: false,
+            eos_token_id: None,
         };
 
         let vram_1k = SafeTensorsCudaModel::estimate_vram_bytes(&config, 1024);

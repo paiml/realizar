@@ -103,20 +103,11 @@ fn run_apr_inference(
     run_apr_cpu_inference(config, input_tokens, input_token_count, load_start)
 }
 
-/// Map APR architecture string to chat template hint
-fn apr_arch_to_template_hint<'a>(apr_arch: &str, model_name: &'a str) -> &'a str {
-    let arch_lower = apr_arch.to_lowercase();
-    if arch_lower.contains("qwen") {
-        "qwen2"
-    } else if arch_lower.contains("llama") {
-        "llama"
-    } else if arch_lower.contains("mistral") {
-        "mistral"
-    } else if arch_lower.contains("phi") {
-        "phi"
-    } else {
-        model_name
-    }
+/// GH-336: Map APR architecture string to chat template hint.
+///
+/// Uses contract-driven normalize_architecture() instead of contains() heuristics.
+fn apr_arch_to_template_hint(apr_arch: &str, _model_name: &str) -> &'static str {
+    crate::tensor_names::normalize_architecture(apr_arch)
 }
 
 /// Metadata captured from the model config before it is moved into CUDA.
