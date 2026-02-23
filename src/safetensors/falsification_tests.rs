@@ -842,6 +842,194 @@ mod tests {
         assert!(result.is_err(),
             "FALSIFY-A6r: MHA-assumed shape with GQA data must fail");
     }
+
+    // =========================================================================
+    // FALSIFY-F: §2.1.4 FFN Projections — Five-Whys Gap Analysis (Refs PMAT-333)
+    //
+    // Contract: tensor-layout-v1.yaml §tensors.gate_proj/up_proj/down_proj
+    //   gate_proj: apr_shape: "[intermediate, hidden]", transpose: "true"
+    //   up_proj:   apr_shape: "[intermediate, hidden]", transpose: "true"
+    //   down_proj:  apr_shape: "[hidden, intermediate]", transpose: "true"
+    //   SwiGLU: FFN(x) = down_proj(SiLU(gate_proj(x)) * up_proj(x))
+    //
+    // Five-Whys:
+    //   Why 1: FFN could produce wrong-dimension hidden states
+    //   Why 2: gate_proj/up_proj must share shape, down_proj must reverse
+    //   Why 3: ValidatedWeight validates total size but not gate==up constraint
+    //   Why 4: SwiGLU element-wise multiply requires exact shape match
+    //   Why 5: No test enforced gate_proj.shape == up_proj.shape across stack
+    //
+    // Popper (1959): "These tests attempt to falsify the claim that
+    // realizar's FFN validation prevents garbage hidden states."
+    // =========================================================================
+
+    /// FALSIFY-F1r: ValidatedAprTransformer catches truncated gate_proj
+    ///
+    /// If gate_proj has fewer elements than intermediate*hidden, SwiGLU
+    /// element-wise multiply will read garbage or OOB.
+    #[test]
+    fn falsify_f1r_validated_transformer_catches_truncated_gate() {
+        let mut t = make_valid_transformer(1);
+        if let Some(ref mut gate) = t.layers[0].ffn_gate_weight {
+            let len = gate.len();
+            gate.truncate(len - 5);
+        }
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-F1r: Truncated gate_proj must be rejected");
+        let err = result.unwrap_err();
+        assert!(err.tensor_name.contains("ffn_gate"),
+            "Error must identify ffn_gate_weight: {}", err);
+    }
+
+    /// FALSIFY-F2r: ValidatedAprTransformer catches all-zero gate_proj
+    ///
+    /// All-zero gate_proj → SiLU(0)=0 → SwiGLU output always zero →
+    /// FFN contributes nothing → only residual passes through.
+    #[test]
+    fn falsify_f2r_validated_transformer_catches_zero_gate() {
+        let mut t = make_valid_transformer(1);
+        if let Some(ref mut gate) = t.layers[0].ffn_gate_weight {
+            let len = gate.len();
+            *gate = vec![0.0; len];
+        }
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-F2r: All-zero gate_proj must be rejected — disables FFN");
+    }
+
+    /// FALSIFY-F3r: ValidatedAprTransformer catches NaN in up_proj
+    ///
+    /// NaN in up_proj → NaN * SiLU(gate) = NaN → down_proj(NaN) = NaN →
+    /// residual + NaN = NaN → cascade through all subsequent layers.
+    #[test]
+    fn falsify_f3r_validated_transformer_catches_nan_up() {
+        let mut t = make_valid_transformer(1);
+        t.layers[0].ffn_up_weight[0] = f32::NAN;
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-F3r: NaN in up_proj must be rejected");
+    }
+
+    /// FALSIFY-F4r: ValidatedAprTransformer catches truncated down_proj
+    ///
+    /// down_proj maps [intermediate] → [hidden]. Wrong size means the
+    /// residual add will have mismatched dimensions.
+    #[test]
+    fn falsify_f4r_validated_transformer_catches_truncated_down() {
+        let mut t = make_valid_transformer(1);
+        let len = t.layers[0].ffn_down_weight.len();
+        t.layers[0].ffn_down_weight.truncate(len - 5);
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-F4r: Truncated down_proj must be rejected");
+        let err = result.unwrap_err();
+        assert!(err.tensor_name.contains("ffn_down"),
+            "Error must identify ffn_down_weight: {}", err);
+    }
+
+    /// FALSIFY-F5r: ValidatedAprTransformer catches all-zero down_proj
+    ///
+    /// All-zero down_proj → output always zero → only residual → FFN disabled.
+    #[test]
+    fn falsify_f5r_validated_transformer_catches_zero_down() {
+        let mut t = make_valid_transformer(1);
+        let len = t.layers[0].ffn_down_weight.len();
+        t.layers[0].ffn_down_weight = vec![0.0; len];
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-F5r: All-zero down_proj must be rejected — disables FFN");
+    }
+
+    // =========================================================================
+    // FALSIFY-N: §2.1.5-6 Layer Norms — Five-Whys Gap Analysis (Refs PMAT-332)
+    //
+    // Contract: tensor-layout-v1.yaml §tensors.input_layernorm/post_attention_layernorm/final_norm
+    //   apr_shape: "[hidden]"
+    //   transpose: "false"
+    //   kernel: "element-wise multiply"
+    //
+    // Five-Whys:
+    //   Why 1: Wrong norm weights produce wrong scale → garbage activations
+    //   Why 2: Norms are 1D — only length and data quality matter
+    //   Why 3: ValidatedVector validates length + NaN/Inf but not zero-length
+    //   Why 4: Zero-length norm → division by zero in RMS computation
+    //   Why 5: No minimum-length gate in ValidatedVector (PMAT-332)
+    //
+    // Popper (1959): "These tests attempt to falsify the claim that
+    // realizar's norm validation prevents garbage normalization."
+    // =========================================================================
+
+    /// FALSIFY-N1r: ValidatedAprTransformer catches wrong-length attn_norm
+    ///
+    /// attn_norm.len() must == hidden_dim. If shorter, element-wise multiply
+    /// reads past buffer; if longer, extra elements are unreachable garbage.
+    #[test]
+    fn falsify_n1r_validated_transformer_catches_wrong_attn_norm() {
+        let mut t = make_valid_transformer(1);
+        // Truncate attn_norm to wrong length
+        t.layers[0].attn_norm_weight = vec![1.0; 8]; // hidden=16, so 8 is wrong
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-N1r: Wrong-length attn_norm must be rejected");
+        let err = result.unwrap_err();
+        assert!(err.tensor_name.contains("attn_norm"),
+            "Error must identify attn_norm: {}", err);
+    }
+
+    /// FALSIFY-N2r: ValidatedAprTransformer catches NaN in ffn_norm
+    #[test]
+    fn falsify_n2r_validated_transformer_catches_nan_ffn_norm() {
+        let mut t = make_valid_transformer(1);
+        if let Some(ref mut norm) = t.layers[0].ffn_norm_weight {
+            norm[0] = f32::NAN;
+        }
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-N2r: NaN in ffn_norm must be rejected");
+    }
+
+    /// FALSIFY-N3r: ValidatedAprTransformer catches wrong-length output_norm
+    ///
+    /// output_norm is the final norm before lm_head. Wrong length →
+    /// wrong-scale hidden state → garbage logits.
+    #[test]
+    fn falsify_n3r_validated_transformer_catches_wrong_output_norm() {
+        let mut t = make_valid_transformer(1);
+        t.output_norm_weight = vec![1.0; 8]; // hidden=16, so 8 is wrong
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-N3r: Wrong-length output_norm must be rejected");
+        let err = result.unwrap_err();
+        assert!(err.tensor_name.contains("output_norm"),
+            "Error must identify output_norm: {}", err);
+    }
+
+    /// FALSIFY-N4r: ValidatedAprTransformer catches NaN in output_norm
+    ///
+    /// NaN in final norm → all hidden dims become NaN → lm_head logits all NaN →
+    /// argmax(NaN) → token 0 = [PAD]. Exact GH-202 failure mode.
+    #[test]
+    fn falsify_n4r_validated_transformer_catches_nan_output_norm() {
+        let mut t = make_valid_transformer(1);
+        t.output_norm_weight[5] = f32::NAN;
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-N4r: NaN in output_norm must be rejected — produces GH-202 garbage");
+    }
+
+    /// FALSIFY-N5r: ValidatedAprTransformer catches Inf in attn_norm
+    ///
+    /// Inf norm weight → Inf after multiply → softmax(Inf) = NaN →
+    /// attention weights become NaN → cascade failure.
+    #[test]
+    fn falsify_n5r_validated_transformer_catches_inf_attn_norm() {
+        let mut t = make_valid_transformer(1);
+        t.layers[0].attn_norm_weight[3] = f32::INFINITY;
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-N5r: Inf in attn_norm must be rejected");
+    }
 }
 
 // T-COV-95 Coverage Bridge (Part 02 - Accessors, error paths, optional biases)
