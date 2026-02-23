@@ -611,6 +611,123 @@ mod tests {
         let result = ValidatedAprTransformer::validate(t);
         assert!(result.is_err(), "FALSIFY-E6h: Oversized embedding must be rejected");
     }
+
+    // =========================================================================
+    // FALSIFY-L: §2.1.2 LM Head Contract — Five-Whys Gap Analysis (Refs PMAT-328)
+    //
+    // Contract: tensor-layout-v1.yaml §tensors.lm_head
+    //   apr_shape: "[vocab, hidden]"
+    //   kernel: "matmul_q*k_rowmajor(W, x, vocab_size, hidden_dim)"
+    //   critical: "true"
+    //
+    // Five-Whys:
+    //   Why 1: GPU/GGUF lm_head could produce wrong logits
+    //   Why 2: GGUF path skips ValidatedWeight for lm_head
+    //   Why 3: GGUF load predates ValidatedAprTransformer
+    //   Why 4: No GGUF→ValidatedWeight bridge exists
+    //   Why 5: No test verified GGUF lm_head goes through validation
+    //
+    // Popper (1959): "These tests attempt to falsify the claim that
+    // realizar's lm_head handling prevents garbage logit output."
+    // =========================================================================
+
+    /// FALSIFY-L1a: ValidatedWeight rejects wrong-shape lm_head
+    ///
+    /// If lm_head data length != vocab_size * hidden_dim, it's structural corruption.
+    #[test]
+    fn falsify_l1a_validated_weight_rejects_wrong_shape_lm_head() {
+        // 100*64=6400 elements but declared as 200*64=12800
+        let data: Vec<f32> = (0..6400)
+            .map(|i| (i as f32 * 0.01).sin() * 0.1)
+            .collect();
+        let result = ValidatedWeight::new(data, 200, 64, "lm_head.weight");
+        assert!(result.is_err(),
+            "FALSIFY-L1a: Wrong-shape lm_head must be rejected");
+        assert_eq!(result.unwrap_err().rule_id, "F-LAYOUT-CONTRACT-001");
+    }
+
+    /// FALSIFY-L1b: ValidatedWeight rejects all-NaN lm_head
+    ///
+    /// All-NaN lm_head → all-NaN logits → argmax(NaN) → token 0 = [PAD].
+    /// This is exactly the GH-202 failure mode.
+    #[test]
+    fn falsify_l1b_validated_weight_rejects_nan_lm_head() {
+        let data = vec![f32::NAN; 100 * 64];
+        let result = ValidatedWeight::new(data, 100, 64, "lm_head.weight");
+        assert!(result.is_err(),
+            "FALSIFY-L1b: All-NaN lm_head must be rejected — produces [PAD] garbage");
+    }
+
+    /// FALSIFY-L1c: ValidatedWeight rejects Inf lm_head
+    #[test]
+    fn falsify_l1c_validated_weight_rejects_inf_lm_head() {
+        let mut data: Vec<f32> = (0..100 * 64)
+            .map(|i| (i as f32 * 0.01).sin() * 0.1)
+            .collect();
+        data[42] = f32::INFINITY;
+        let result = ValidatedWeight::new(data, 100, 64, "lm_head.weight");
+        assert!(result.is_err(),
+            "FALSIFY-L1c: Inf in lm_head must be rejected");
+    }
+
+    /// FALSIFY-L2: ValidatedAprTransformer catches corrupted lm_head
+    ///
+    /// The full validation pipeline must reject a transformer with all-zero lm_head.
+    /// This is the SafeTensors path validation.
+    #[test]
+    fn falsify_l2_validated_transformer_catches_zero_lm_head() {
+        let mut t = make_valid_transformer(1);
+        let len = t.lm_head_weight.len();
+        t.lm_head_weight = vec![0.0; len];
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-L2: All-zero lm_head must be rejected by ValidatedAprTransformer");
+        let err = result.unwrap_err();
+        assert_eq!(err.tensor_name, "lm_head_weight",
+            "Error must identify lm_head_weight: {}", err);
+    }
+
+    /// FALSIFY-L3: ValidatedAprTransformer catches truncated lm_head
+    ///
+    /// If lm_head has fewer elements than vocab*hidden (e.g., wrong vocab_size
+    /// in config.json), shape check must fire.
+    #[test]
+    fn falsify_l3_validated_transformer_catches_truncated_lm_head() {
+        let mut t = make_valid_transformer(1);
+        let len = t.lm_head_weight.len();
+        t.lm_head_weight.truncate(len - 10);
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-L3: Truncated lm_head must be rejected");
+        let err = result.unwrap_err();
+        assert!(err.tensor_name.contains("lm_head"),
+            "Error must identify lm_head: {}", err);
+    }
+
+    /// FALSIFY-L4: ValidatedAprTransformer catches oversized lm_head
+    ///
+    /// If lm_head has MORE elements than vocab*hidden (e.g., 152064 data with
+    /// config claiming 151936), the extra elements are unreachable garbage.
+    #[test]
+    fn falsify_l4_validated_transformer_catches_oversized_lm_head() {
+        let mut t = make_valid_transformer(1);
+        for _ in 0..10 {
+            t.lm_head_weight.push(0.1);
+        }
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-L4: Oversized lm_head must be rejected");
+    }
+
+    /// FALSIFY-L5: ValidatedAprTransformer catches NaN in lm_head
+    #[test]
+    fn falsify_l5_validated_transformer_catches_nan_lm_head() {
+        let mut t = make_valid_transformer(1);
+        t.lm_head_weight[10] = f32::NAN;
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-L5: NaN in lm_head must be rejected by full validation pipeline");
+    }
 }
 
 // T-COV-95 Coverage Bridge (Part 02 - Accessors, error paths, optional biases)
