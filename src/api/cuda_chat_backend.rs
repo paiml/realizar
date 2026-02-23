@@ -23,7 +23,7 @@ fn try_cuda_backend(
             Err(r) => return Some(r),
         };
     let prompt_tokens = prompt_ids.len();
-    let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer);
+    let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer, state.model_eos_token_id());
 
     let q_config = QuantizedGenerateConfig {
         max_tokens,
@@ -113,7 +113,7 @@ fn try_quantized_backend(
             Err(r) => return Some(r),
         };
     let prompt_tokens = prompt_ids.len();
-    let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer);
+    let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer, state.model_eos_token_id());
 
     let q_config = QuantizedGenerateConfig {
         max_tokens,

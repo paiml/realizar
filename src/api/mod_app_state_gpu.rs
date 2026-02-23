@@ -392,6 +392,31 @@ impl AppState {
         None
     }
 
+    /// GH-330: Get EOS token ID from whichever model backend is loaded.
+    ///
+    /// **Design by Contract (Meyer 1992)**: The model config carries its own EOS
+    /// token as a class invariant. Callers must NOT fall back to hardcoded values.
+    #[must_use]
+    pub fn model_eos_token_id(&self) -> Option<u32> {
+        if let Some(qm) = &self.quantized_model {
+            return qm.config.eos_token_id;
+        }
+        if let Some(at) = &self.apr_transformer {
+            return at.config.eos_token_id;
+        }
+        #[cfg(feature = "gpu")]
+        if let Some(cm) = &self.cached_model {
+            return cm.model().config.eos_token_id;
+        }
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = &self.cuda_model {
+            if let Ok(m) = cuda.read() {
+                return m.model().config.eos_token_id;
+            }
+        }
+        None
+    }
+
     /// GH-152: Enable verbose request/response logging
     #[must_use]
     pub fn with_verbose(mut self, verbose: bool) -> Self {

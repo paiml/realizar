@@ -418,7 +418,7 @@ fn try_cuda_generate(
         } else {
             request.top_k
         },
-        stop_tokens: vec![eos_id(&tokenizer)],
+        stop_tokens: vec![eos_id(&tokenizer, state.model_eos_token_id())],
         trace: false,
     };
 

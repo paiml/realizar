@@ -57,12 +57,16 @@ fn tokenize_prompt(tokenizer: &BPETokenizer, prompt: &str) -> Result<Vec<u32>, A
     Ok(ids)
 }
 
-/// Get the EOS token id from tokenizer.
-fn eos_id(tokenizer: &BPETokenizer) -> u32 {
-    tokenizer
-        .get_token_id("<|im_end|>")
+/// GH-330: Get the EOS token ID using Design by Contract priority.
+///
+/// 1. Model config (class invariant from GGUF/APR metadata)
+/// 2. Tokenizer vocabulary lookup (runtime fallback)
+/// 3. 0 (disabled — no EOS checking) instead of hardcoded Qwen2 value
+fn eos_id(tokenizer: &BPETokenizer, model_eos: Option<u32>) -> u32 {
+    model_eos
+        .or_else(|| tokenizer.get_token_id("<|im_end|>"))
         .or_else(|| tokenizer.get_token_id("<|endoftext|>"))
-        .unwrap_or(151645)
+        .unwrap_or(0)
 }
 
 // ============================================================================
