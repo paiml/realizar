@@ -234,6 +234,9 @@ impl SafeTensorsCudaModel {
         // GH-279: Derive architecture constraints for weight validation
         let arch_name = json.architecture();
         let arch_constraints = crate::gguf::ArchConstraints::from_architecture(&arch_name);
+        // R-02 (Meyer DbC): rope_theta from config, or architecture-specific default.
+        let rope_theta = json.rope_theta.unwrap_or_else(||
+            crate::gguf::default_rope_theta_for_architecture(&arch_name));
 
         Ok(SafeTensorsCudaConfig {
             architecture: arch_name,
@@ -244,9 +247,7 @@ impl SafeTensorsCudaModel {
             vocab_size,
             intermediate_dim: json.intermediate_size.unwrap_or(hidden_dim * 4),
             context_length: json.max_position_embeddings.unwrap_or(2048),
-            // R-02 (Meyer DbC): rope_theta from config, or architecture-specific default.
-            rope_theta: json.rope_theta.unwrap_or_else(||
-                crate::gguf::default_rope_theta_for_architecture(&arch_name)),
+            rope_theta,
             eps: json.rms_norm_eps.unwrap_or(1e-6),
             tie_word_embeddings: json.tie_word_embeddings.unwrap_or(false),
             has_qk_norm: arch_constraints.has_qk_norm,
