@@ -105,19 +105,10 @@ fn run_apr_inference(
 
 /// GH-318: Map APR architecture string to chat template hint using contract.
 ///
-/// Uses `normalize_architecture()` from tensor-names-v1.yaml instead of
-/// fragile `contains()` matching. Falls back to model_name for unknown archs.
-fn apr_arch_to_template_hint<'a>(apr_arch: &str, model_name: &'a str) -> &'a str {
-    let canonical = crate::tensor_names::normalize_architecture(apr_arch);
-    // normalize_architecture returns &'static str, but we need 'a lifetime.
-    // Known canonical keys are compile-time constants, so this is safe.
-    // For unknown architectures that default to "llama", use model_name instead.
-    if canonical == "llama" && !apr_arch.to_lowercase().contains("llama") {
-        model_name
-    } else {
-        // SAFETY: canonical is &'static str which outlives 'a
-        canonical
-    }
+/// Uses `normalize_architecture()` from tensor-names-v1.yaml — no fallback.
+/// Unknown architectures default to "llama" (safest default per contract).
+fn apr_arch_to_template_hint(_apr_arch: &str, _model_name: &str) -> &'static str {
+    crate::tensor_names::normalize_architecture(_apr_arch)
 }
 
 /// Metadata captured from the model config before it is moved into CUDA.

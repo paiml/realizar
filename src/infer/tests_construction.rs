@@ -338,15 +338,14 @@ fn test_apr_arch_qwen() {
     // GH-318: normalize_architecture does exact matching from contract
     assert_eq!(apr_arch_to_template_hint("qwen2", "model"), "qwen2");
     assert_eq!(apr_arch_to_template_hint("qwen3", "model"), "qwen3");
-    // "Qwen" alone is not in the contract map → falls back to model_name
-    assert_eq!(apr_arch_to_template_hint("Qwen", "model"), "model");
+    // "Qwen" not in contract → defaults to "llama" (no fallback to model_name)
+    assert_eq!(apr_arch_to_template_hint("Qwen", "model"), "llama");
 }
 
 #[test]
 fn test_apr_arch_llama() {
     assert_eq!(apr_arch_to_template_hint("llama", "model"), "llama");
-    // "LLaMA" not in contract map → defaults to "llama" →
-    // "LLaMA".to_lowercase() contains "llama" → returns "llama"
+    // "LLaMA" not in contract → defaults to "llama"
     assert_eq!(apr_arch_to_template_hint("LLaMA", "model"), "llama");
 }
 
@@ -357,19 +356,16 @@ fn test_apr_arch_mistral() {
 
 #[test]
 fn test_apr_arch_phi() {
-    // GH-318: "phi3" maps to "phi" in the contract
     assert_eq!(apr_arch_to_template_hint("phi3", "model"), "phi");
-    // "Phi" alone is not in the contract map → falls back to model_name
-    assert_eq!(apr_arch_to_template_hint("Phi", "model"), "model");
+    // "Phi" not in contract → defaults to "llama"
+    assert_eq!(apr_arch_to_template_hint("Phi", "model"), "llama");
 }
 
 #[test]
-fn test_apr_arch_unknown_returns_model_name() {
-    assert_eq!(apr_arch_to_template_hint("unknown", "my-model"), "my-model");
-    assert_eq!(
-        apr_arch_to_template_hint("custom", "instruct-v2"),
-        "instruct-v2"
-    );
+fn test_apr_arch_unknown_defaults_to_llama() {
+    // GH-318: No fallback to model_name — contract always returns canonical key
+    assert_eq!(apr_arch_to_template_hint("unknown", "my-model"), "llama");
+    assert_eq!(apr_arch_to_template_hint("custom", "instruct-v2"), "llama");
 }
 
 // ============================================================================

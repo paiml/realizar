@@ -281,42 +281,42 @@ fn test_safetensors_arch_contains_qwen_but_also_llama() {
 // ============================================================================
 
 #[test]
-fn test_apr_arch_empty_string_returns_model_name() {
-    assert_eq!(apr_arch_to_template_hint("", "my-fallback"), "my-fallback");
+fn test_apr_arch_empty_string_defaults_to_llama() {
+    // GH-318: No fallback — contract always returns canonical key
+    assert_eq!(apr_arch_to_template_hint("", "my-fallback"), "llama");
 }
 
 #[test]
-fn test_apr_arch_contains_qwen_substring() {
-    // GH-318: "superqwen" is not in the contract → falls back to model_name
-    assert_eq!(apr_arch_to_template_hint("superqwen", "model"), "model");
+fn test_apr_arch_unknown_substring_defaults_to_llama() {
+    // GH-318: Non-contract strings → "llama" default (no fallback to model_name)
+    assert_eq!(apr_arch_to_template_hint("superqwen", "model"), "llama");
 }
 
 #[test]
-fn test_apr_arch_contains_llama_substring() {
-    // GH-318: "codellama" not in contract → defaults to "llama" →
-    // contains("llama") check triggers → returns "llama"
+fn test_apr_arch_codellama_defaults_to_llama() {
+    // GH-318: "codellama" not in contract → "llama"
     assert_eq!(apr_arch_to_template_hint("codellama", "model"), "llama");
 }
 
 #[test]
-fn test_apr_arch_contains_mistral_substring() {
-    // GH-318: "mixtral-mistral-v2" not in contract → falls back to model_name
+fn test_apr_arch_mixtral_defaults_to_llama() {
+    // GH-318: "mixtral-mistral-v2" not in contract → "llama"
     assert_eq!(
         apr_arch_to_template_hint("mixtral-mistral-v2", "model"),
-        "model"
+        "llama"
     );
 }
 
 #[test]
-fn test_apr_arch_contains_phi_substring() {
-    // GH-318: "microsoft-phi2" not in contract → falls back to model_name
-    assert_eq!(apr_arch_to_template_hint("microsoft-phi2", "model"), "model");
+fn test_apr_arch_microsoft_phi_defaults_to_llama() {
+    // GH-318: "microsoft-phi2" not in contract → "llama"
+    assert_eq!(apr_arch_to_template_hint("microsoft-phi2", "model"), "llama");
 }
 
 #[test]
-fn test_apr_arch_no_match_returns_model_name_verbatim() {
-    let result = apr_arch_to_template_hint("gpt-neo", "some-filename.gguf");
-    assert_eq!(result, "some-filename.gguf");
+fn test_apr_arch_no_match_defaults_to_llama() {
+    // GH-318: Unknown architectures always default to "llama"
+    assert_eq!(apr_arch_to_template_hint("gpt-neo", "some-filename.gguf"), "llama");
 }
 
 // ============================================================================
