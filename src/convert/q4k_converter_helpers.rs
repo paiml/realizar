@@ -1,5 +1,22 @@
 
 impl GgufToAprQ4KConverter {
+    /// Calculate byte size for a GGML tensor based on quantization type and element count.
+    fn ggml_tensor_byte_size_h(qtype: u32, num_elements: usize) -> usize {
+        match qtype {
+            0 => num_elements * 4,                     // F32
+            1 => num_elements * 2,                     // F16
+            2 => num_elements.div_ceil(32) * 18,       // Q4_0
+            3 => num_elements.div_ceil(32) * 20,       // Q4_1
+            6 => num_elements.div_ceil(32) * 22,       // Q5_0
+            7 => num_elements.div_ceil(32) * 24,       // Q5_1
+            8 => num_elements.div_ceil(32) * 34,       // Q8_0
+            12 => num_elements.div_ceil(256) * 144,    // Q4_K
+            13 => num_elements.div_ceil(256) * 176,    // Q5_K
+            14 => num_elements.div_ceil(256) * 210,    // Q6_K
+            _ => num_elements * 4,                     // Default to F32
+        }
+    }
+
     /// Helper to extract string from GGUF metadata
     fn get_string(
         metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>,
@@ -129,11 +146,12 @@ impl GgufToAprQ4KConverter {
             &keys::arch_key(&architecture, keys::CONTEXT_LENGTH),
         )
         .unwrap_or(2048);
+        // R-02 (Meyer DbC): rope_theta from GGUF, or architecture-specific default.
         let rope_theta = Self::get_f32(
             &gguf_model.metadata,
             &keys::arch_key(&architecture, keys::ROPE_FREQ_BASE),
         )
-        .unwrap_or(10000.0);
+        .unwrap_or_else(|| crate::gguf::default_rope_theta_for_architecture(&architecture));
         let eps = Self::get_f32(
             &gguf_model.metadata,
             &keys::arch_key(&architecture, keys::ATTENTION_LAYER_NORM_RMS_EPSILON),
@@ -186,23 +204,7 @@ impl GgufToAprQ4KConverter {
 
             // Calculate byte size based on qtype (GGML dtype)
             // GGML types: 0=F32, 1=F16, 2=Q4_0, 3=Q4_1, 6=Q5_0, 7=Q5_1, 8=Q8_0, 12=Q4_K, 13=Q5_K, 14=Q6_K
-            // BUG-APR-002 FIX: Use div_ceil to round UP, not integer division which rounds DOWN
-            // Integer division caused "tensor exceeds file bounds" for tensors not perfectly
-            // divisible by block size (256 for K-quants, 32 for legacy quants).
-            // BUG-APR-044 FIX: Add Q4_0, Q4_1, Q5_0, Q5_1 handlers (was defaulting to F32)
-            let byte_size = match qtype {
-                0 => num_elements * 4,                  // F32
-                1 => num_elements * 2,                  // F16
-                2 => num_elements.div_ceil(32) * 18, // Q4_0: 32 elements = 18 bytes (2 scale + 16 quants)
-                3 => num_elements.div_ceil(32) * 20, // Q4_1: 32 elements = 20 bytes (2 scale + 2 min + 16 quants)
-                6 => num_elements.div_ceil(32) * 22, // Q5_0: 32 elements = 22 bytes (2 scale + 4 high + 16 quants)
-                7 => num_elements.div_ceil(32) * 24, // Q5_1: 32 elements = 24 bytes (2 scale + 2 min + 4 high + 16 quants)
-                8 => num_elements.div_ceil(32) * 34, // Q8_0: 32 elements = 34 bytes (2 scale + 32 quants)
-                12 => num_elements.div_ceil(256) * 144, // Q4_K: 256 elements = 144 bytes
-                13 => num_elements.div_ceil(256) * 176, // Q5_K: 256 elements = 176 bytes
-                14 => num_elements.div_ceil(256) * 210, // Q6_K: 256 elements = 210 bytes
-                _ => num_elements * 4,               // Default to F32
-            };
+            let byte_size = Self::ggml_tensor_byte_size_h(qtype, num_elements);
 
             // Extract raw bytes
             let tensor_start = gguf_model.tensor_data_start + tensor_meta.offset as usize;

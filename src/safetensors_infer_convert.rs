@@ -76,9 +76,11 @@ impl SafetensorsToAprConverter {
             })?;
         let intermediate_dim = config.intermediate_size.unwrap_or(hidden_dim * 4);
         let context_length = config.max_position_embeddings.unwrap_or(2048);
-        let rope_theta = config.rope_theta.unwrap_or(10000.0);
-        let eps = config.rms_norm_eps.unwrap_or(1e-6);
         let architecture = config.architecture();
+        // R-02 (Meyer DbC): rope_theta from config, or architecture-specific default.
+        let rope_theta = config.rope_theta.unwrap_or_else(||
+            crate::gguf::default_rope_theta_for_architecture(&architecture));
+        let eps = config.rms_norm_eps.unwrap_or(1e-6);
 
         // GH-278: Log Qwen3.5 detection with hybrid attention info
         if config.is_hybrid_attention() {

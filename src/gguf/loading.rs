@@ -130,7 +130,8 @@ fn apr_infer_vocab_size(apr: &crate::apr::MappedAprModel) -> usize {
         }
     }
 
-    let arch = apr.metadata.architecture.as_deref().unwrap_or("llama");
+    // R-01 (Meyer DbC): "unknown" — don't pretend unidentified APR model is LLaMA.
+    let arch = apr.metadata.architecture.as_deref().unwrap_or("unknown");
     let arch_key = normalize_architecture(arch);
 
     // Contract-only: exact match against known embedding names
@@ -300,7 +301,8 @@ impl OwnedQuantizedModel {
         hidden_dim: usize,
     ) -> Result<Vec<f32>> {
         // GH-324: Use contract-driven names for embedding discovery
-        let arch = apr.metadata.architecture.as_deref().unwrap_or("llama");
+        // R-01 (Meyer DbC): "unknown" — don't pretend unidentified APR model is LLaMA.
+    let arch = apr.metadata.architecture.as_deref().unwrap_or("unknown");
         let arch_key = crate::tensor_names::normalize_architecture(arch);
         let embed_candidates: Vec<&str> = {
             let mut c = Vec::new();

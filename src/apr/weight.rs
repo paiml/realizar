@@ -538,7 +538,8 @@ impl AprV2ModelCuda {
         // GH-279: Always build + validate, even for F32-only models.
         // The validation catches missing architecture-required weights.
         {
-            let arch_name = self.model.metadata.model_type.as_deref().unwrap_or("llama");
+            // R-01 (Meyer DbC): "unknown" — don't pretend unidentified model is LLaMA.
+            let arch_name = self.model.metadata.model_type.as_deref().unwrap_or("unknown");
             let arch = crate::gguf::ArchConstraints::from_architecture(arch_name);
             self.executor
                 .build_indexed_weights(num_layers, |i| format!("blk.{i}"), &arch)

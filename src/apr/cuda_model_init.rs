@@ -44,7 +44,8 @@ impl AprV2ModelCuda {
             .metadata
             .architecture
             .as_deref()
-            .unwrap_or("qwen2");
+            // R-01 (Meyer DbC): "unknown" — don't pretend unidentified model is Qwen2.
+            .unwrap_or("unknown");
         if num_layers > 0 && hidden_dim > 0 && num_heads > 0 && vocab_size > 0 {
             let _proof = crate::contract_gate::validate_model_load_basic(
                 arch_name,
@@ -119,7 +120,11 @@ impl AprV2ModelCuda {
         }
 
         // Set RoPE theta for position embeddings
-        let rope_theta = model.metadata.rope_theta.unwrap_or(10000.0);
+        // R-02 (Meyer DbC): rope_theta from metadata, or architecture-specific default.
+        let rope_theta = model.metadata.rope_theta.unwrap_or_else(|| {
+            let arch = model.metadata.architecture.as_deref().unwrap_or("unknown");
+            crate::gguf::default_rope_theta_for_architecture(arch)
+        });
         executor.set_rope_theta(rope_theta);
 
         // CORRECTNESS-011: Set RoPE type (0=NORM adjacent pairs, 2=NEOX split halves)

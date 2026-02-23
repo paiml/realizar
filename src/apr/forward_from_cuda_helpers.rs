@@ -87,7 +87,11 @@ impl AprV2ModelCuda {
             None
         };
 
-        let rope_theta = self.model.metadata.rope_theta.unwrap_or(10000.0);
+        // R-02 (Meyer DbC): rope_theta from metadata, or architecture-specific default.
+        let rope_theta = self.model.metadata.rope_theta.unwrap_or_else(|| {
+            let arch = self.model.metadata.architecture.as_deref().unwrap_or("unknown");
+            crate::gguf::default_rope_theta_for_architecture(arch)
+        });
         // GH-329: Use shared infer_rope_type() as single source of truth
         let rope_type = self.model.metadata.rope_type.unwrap_or_else(|| {
             let arch = self.model.metadata.architecture.as_deref().unwrap_or("");

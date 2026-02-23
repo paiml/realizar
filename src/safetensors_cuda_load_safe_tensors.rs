@@ -244,7 +244,9 @@ impl SafeTensorsCudaModel {
             vocab_size,
             intermediate_dim: json.intermediate_size.unwrap_or(hidden_dim * 4),
             context_length: json.max_position_embeddings.unwrap_or(2048),
-            rope_theta: json.rope_theta.unwrap_or(10000.0),
+            // R-02 (Meyer DbC): rope_theta from config, or architecture-specific default.
+            rope_theta: json.rope_theta.unwrap_or_else(||
+                crate::gguf::default_rope_theta_for_architecture(&arch_name)),
             eps: json.rms_norm_eps.unwrap_or(1e-6),
             tie_word_embeddings: json.tie_word_embeddings.unwrap_or(false),
             has_qk_norm: arch_constraints.has_qk_norm,
