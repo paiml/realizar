@@ -307,35 +307,18 @@ impl TensorEntry {
         pos += name_len;
 
         // Dtype (1 byte)
-        // GH-191 FIX: Writers now use GGML dtype values directly.
-        // This reader must map GGML type IDs to canonical dtype strings.
-        // GGML types: 0=F32, 1=F16, 2=Q4_0, 3=Q4_1, 6=Q5_0, 7=Q5_1,
-        //   8=Q8_0, 9=Q8_1, 10=Q2_K, 11=Q3_K, 12=Q4_K, 13=Q5_K, 14=Q6_K, 30=BF16
+        // GH-191 FIX / GH-321: Use unified GgmlQuantType enum
         let dtype_byte = data[pos];
         pos += 1;
-        let dtype = match dtype_byte {
-            0 => "F32",
-            1 => "F16",
-            2 => "Q4_0",
-            3 => "Q4_1",
-            6 => "Q5_0",
-            7 => "Q5_1",
-            8 => "Q8_0",
-            9 => "Q8_1",
-            10 => "Q2_K",
-            11 => "Q3_K",
-            12 => "Q4_K",
-            13 => "Q5_K",
-            14 => "Q6_K",
-            16 => "IQ2_XXS",
-            17 => "IQ2_XS",
-            30 => "BF16",
-            _ => {
-                eprintln!("WARN: Unknown APR dtype byte {dtype_byte}, treating as F32");
-                "F32"
-            },
-        }
-        .to_string();
+        let dtype = crate::gguf::GgmlQuantType::from_id(u32::from(dtype_byte))
+            .map_or_else(
+                || {
+                    eprintln!("WARN: Unknown APR dtype byte {dtype_byte}, treating as F32");
+                    "F32"
+                },
+                crate::gguf::GgmlQuantType::as_str,
+            )
+            .to_string();
 
         // Shape: ndim (1 byte) + dims
         let ndim = data[pos] as usize;

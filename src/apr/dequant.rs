@@ -229,20 +229,27 @@ pub fn dequantize_q6_k(bytes: &[u8], num_elements: usize) -> Vec<f32> {
 /// `dequantize_apr_q8()` / `dequantize_apr_q4()`.
 #[inline]
 pub fn dtype_to_ggml_qtype(dtype: &str) -> Option<u32> {
-    match dtype {
-        // GGML-compatible formats (passthrough from GGUF import)
-        "Q4_K" | "q4_k" => Some(12), // GGML_TYPE_Q4_K
-        "Q5_K" | "q5_k" => Some(13), // GGML_TYPE_Q5_K
-        "Q6_K" | "q6_k" => Some(14), // GGML_TYPE_Q6_K
-        "Q8_0" | "q8_0" => Some(8),  // GGML_TYPE_Q8_0
-        "Q4_0" | "q4_0" => Some(2),  // GGML_TYPE_Q4_0
-        "Q4_1" | "q4_1" => Some(3),  // GGML_TYPE_Q4_1
-        "Q5_0" | "q5_0" => Some(6),  // GGML_TYPE_Q5_0
-        // APR-native Q8/Q4 are NOT GGML — different binary layout
-        // "q8" | "Q8" => None (APR Q8: single f32 scale + N × i8)
-        // "q4" | "Q4" => None (APR Q4: block f16 scale + packed nibbles)
-        _ => None, // F32/F16/APR-native are not GGML quantized
-    }
+    // GH-321: Use unified GgmlQuantType enum for GGML-compatible formats.
+    // APR-native Q8/Q4 are NOT GGML — different binary layout — returns None.
+    // F32/F16/BF16 are not quantized — returns None.
+    crate::gguf::GgmlQuantType::from_str_lossy(dtype)
+        .filter(|qt| matches!(
+            qt,
+            crate::gguf::GgmlQuantType::Q4_0
+            | crate::gguf::GgmlQuantType::Q4_1
+            | crate::gguf::GgmlQuantType::Q5_0
+            | crate::gguf::GgmlQuantType::Q5_1
+            | crate::gguf::GgmlQuantType::Q8_0
+            | crate::gguf::GgmlQuantType::Q8_1
+            | crate::gguf::GgmlQuantType::Q2K
+            | crate::gguf::GgmlQuantType::Q3K
+            | crate::gguf::GgmlQuantType::Q4K
+            | crate::gguf::GgmlQuantType::Q5K
+            | crate::gguf::GgmlQuantType::Q6K
+            | crate::gguf::GgmlQuantType::IQ2XXS
+            | crate::gguf::GgmlQuantType::IQ2XS
+        ))
+        .map(crate::gguf::GgmlQuantType::as_id)
 }
 
 /// Check if dtype is a quantized format that can use GPU dequant kernels.
