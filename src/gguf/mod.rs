@@ -44,6 +44,7 @@ mod cuda_model;
 mod inference;
 mod inference_types;
 mod io;
+pub(crate) mod keys;
 mod loader;
 mod model;
 mod owned;

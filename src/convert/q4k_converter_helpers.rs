@@ -46,7 +46,7 @@ impl GgufToAprQ4KConverter {
         metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>,
     ) -> u32 {
         // First check for explicit rope.scaling.type in metadata
-        let scaling_key = format!("{}.rope.scaling.type", architecture);
+        let scaling_key = crate::gguf::keys::arch_key(architecture, crate::gguf::keys::ROPE_SCALING_TYPE);
         if let Some(crate::gguf::GGUFValue::String(s)) = metadata.get(&scaling_key) {
             match s.as_str() {
                 "none" | "linear" => return 0, // NORM style
@@ -124,28 +124,29 @@ impl GgufToAprQ4KConverter {
         let gguf_model = crate::gguf::GGUFModel::from_bytes(&gguf_data)?;
 
         // Extract model config from metadata
-        let architecture = Self::get_string(&gguf_model.metadata, "general.architecture")
+        use crate::gguf::keys;
+        let architecture = Self::get_string(&gguf_model.metadata, keys::GENERAL_ARCHITECTURE)
             .unwrap_or_else(|| "unknown".to_string());
         let hidden_size = Self::get_u32(
             &gguf_model.metadata,
-            &format!("{architecture}.embedding_length"),
+            &keys::arch_key(&architecture, keys::EMBEDDING_LENGTH),
         )
         .unwrap_or(0);
         let num_layers =
-            Self::get_u32(&gguf_model.metadata, &format!("{architecture}.block_count"))
+            Self::get_u32(&gguf_model.metadata, &keys::arch_key(&architecture, keys::BLOCK_COUNT))
                 .unwrap_or(0);
         let num_heads = Self::get_u32(
             &gguf_model.metadata,
-            &format!("{architecture}.attention.head_count"),
+            &keys::arch_key(&architecture, keys::ATTENTION_HEAD_COUNT),
         )
         .unwrap_or(0);
         let num_kv_heads = Self::get_u32(
             &gguf_model.metadata,
-            &format!("{architecture}.attention.head_count_kv"),
+            &keys::arch_key(&architecture, keys::ATTENTION_HEAD_COUNT_KV),
         )
         .unwrap_or(num_heads);
-        let vocab_size = Self::get_u32(&gguf_model.metadata, &format!("{architecture}.vocab_size"))
-            .or_else(|| Self::get_u32(&gguf_model.metadata, "tokenizer.ggml.vocab_size"))
+        let vocab_size = Self::get_u32(&gguf_model.metadata, &keys::arch_key(&architecture, keys::VOCAB_SIZE))
+            .or_else(|| Self::get_u32(&gguf_model.metadata, keys::TOKENIZER_VOCAB_SIZE))
             .unwrap_or_else(|| {
                 // Infer from embedding tensor shape if metadata not available
                 gguf_model
@@ -161,22 +162,22 @@ impl GgufToAprQ4KConverter {
             }) as usize;
         let intermediate_size = Self::get_u32(
             &gguf_model.metadata,
-            &format!("{architecture}.feed_forward_length"),
+            &keys::arch_key(&architecture, keys::FEED_FORWARD_LENGTH),
         )
         .unwrap_or(0);
         let context_length = Self::get_u32(
             &gguf_model.metadata,
-            &format!("{architecture}.context_length"),
+            &keys::arch_key(&architecture, keys::CONTEXT_LENGTH),
         )
         .unwrap_or(2048);
         let rope_theta = Self::get_f32(
             &gguf_model.metadata,
-            &format!("{architecture}.rope.freq_base"),
+            &keys::arch_key(&architecture, keys::ROPE_FREQ_BASE),
         )
         .unwrap_or(10000.0);
         let eps = Self::get_f32(
             &gguf_model.metadata,
-            &format!("{architecture}.attention.layer_norm_rms_epsilon"),
+            &keys::arch_key(&architecture, keys::ATTENTION_LAYER_NORM_RMS_EPSILON),
         )
         .unwrap_or(1e-5);
 
