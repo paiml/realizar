@@ -243,5 +243,6 @@ fn create_test_config() -> AprTransformerConfig {
         context_length: 128,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     }
 }

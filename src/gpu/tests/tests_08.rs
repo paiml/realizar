@@ -32,6 +32,7 @@ fn create_minimal_apr_config() -> AprTransformerConfig {
         context_length: 256,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     }
 }
 
@@ -47,6 +48,7 @@ fn create_gqa_apr_config() -> AprTransformerConfig {
         context_length: 256,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     }
 }
 
@@ -397,6 +399,7 @@ fn test_apr_q4_config_conversion_all_fields() {
         context_length: 4096,
         rope_theta: 500000.0,
         eps: 1e-6,
+            eos_token_id: None,
     };
 
     let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);

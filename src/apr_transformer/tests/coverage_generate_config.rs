@@ -76,6 +76,7 @@ fn test_transformer_config_custom() {
         context_length: 8192,
         rope_theta: 500000.0,
         eps: 1e-6,
+            eos_token_id: None,
     };
 
     assert_eq!(config.architecture, "llama");

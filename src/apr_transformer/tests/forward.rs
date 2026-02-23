@@ -29,6 +29,7 @@ fn test_forward_with_cache_gqa() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let mut transformer = AprTransformer::new(config.clone());
@@ -147,6 +148,7 @@ fn test_rope_at_high_position() {
         context_length: 1024,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let transformer = AprTransformer::new(config.clone());
@@ -172,6 +174,7 @@ fn test_rope_with_different_theta() {
         context_length: 64,
         rope_theta: 500000.0, // High theta like LLaMA 3
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let transformer = AprTransformer::new(config.clone());
@@ -196,6 +199,7 @@ fn test_attention_with_long_sequence() {
         context_length: 128,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let transformer = AprTransformer::new(config);
@@ -332,6 +336,7 @@ fn test_forward_multi_layer_deep() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let transformer = AprTransformer::new(config);
@@ -352,6 +357,7 @@ fn test_forward_with_cache_multi_layer() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let transformer = AprTransformer::new(config.clone());

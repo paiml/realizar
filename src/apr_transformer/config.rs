@@ -241,6 +241,12 @@ pub struct AprTransformerConfig {
     pub rope_theta: f32,
     /// Layer norm epsilon
     pub eps: f32,
+    /// GH-330: EOS token ID (Design by Contract class invariant).
+    ///
+    /// After construction, the config carries the model's own EOS token.
+    /// Callers must NOT use hardcoded fallbacks.
+    #[serde(default)]
+    pub eos_token_id: Option<u32>,
 }
 
 impl Default for AprTransformerConfig {
@@ -256,6 +262,7 @@ impl Default for AprTransformerConfig {
             context_length: 2048,
             rope_theta: 10000.0,
             eps: 1e-5,
+            eos_token_id: None,
         }
     }
 }

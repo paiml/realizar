@@ -68,6 +68,7 @@ fn make_pygmy_model_with_q4k_swiglu() -> AprTransformer {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let mut token_embedding = vec![0.0f32; vocab_size * hidden_dim];
@@ -168,6 +169,7 @@ fn make_pygmy_model_with_q4k_gelu() -> AprTransformer {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let mut token_embedding = vec![0.0f32; vocab_size * hidden_dim];

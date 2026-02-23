@@ -428,6 +428,7 @@ fn test_create_model_no_layers() {
             context_length: 256,
             rope_theta: 10000.0,
             eps: 1e-5,
+            eos_token_id: None,
         },
         token_embedding: vec![0.1; 64 * 100],
         layers: vec![],

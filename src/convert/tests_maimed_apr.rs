@@ -313,6 +313,7 @@ fn test_apr_roundtrip_minimal() {
         context_length: 16,
         rope_theta: 10000.0,
         eps: 1e-5,
+            eos_token_id: None,
     };
 
     let layer = AprTransformerLayer {
@@ -376,6 +377,7 @@ fn test_apr_bytes_config_preservation() {
         context_length: 2048,
         rope_theta: 500000.0, // Custom RoPE
         eps: 1e-6,
+            eos_token_id: None,
     };
 
     let transformer = AprTransformer {

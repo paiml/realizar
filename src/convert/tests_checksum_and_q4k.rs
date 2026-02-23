@@ -416,6 +416,7 @@ fn make_tiny_transformer(num_layers: usize) -> AprTransformer {
             context_length: 256,
             rope_theta: 10000.0,
             eps: 1e-5,
+            eos_token_id: None,
         },
         token_embedding: vec![0.1; hidden_dim * vocab_size],
         layers: (0..num_layers)

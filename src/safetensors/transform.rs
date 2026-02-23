@@ -81,6 +81,7 @@ fn make_valid_transformer(num_layers: usize) -> AprTransformer {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-6,
+            eos_token_id: None,
         },
         token_embedding: make_data(vocab_size * hidden_dim),
         layers: (0..num_layers)

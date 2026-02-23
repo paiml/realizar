@@ -231,6 +231,7 @@
             context_length: 512,
             rope_theta: 10000.0,
             eps: 1e-5,
+            eos_token_id: None,
         };
 
         let layers: Vec<AprTransformerLayer> = (0..num_layers)
