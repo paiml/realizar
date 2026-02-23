@@ -144,6 +144,7 @@ mod tests {
             top_k: 50,
             repetition_penalty: 1.1,
             trace: true,
+            stop_tokens: vec![],
         };
         let cloned = config.clone();
         assert_eq!(cloned.max_tokens, 100);

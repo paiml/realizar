@@ -363,6 +363,7 @@ fn test_generate_config_custom_values() {
         top_k: 50,
         repetition_penalty: 1.1,
         trace: true,
+        stop_tokens: vec![],
     };
     assert_eq!(config.max_tokens, 64);
     assert!((config.temperature - 1.0).abs() < f32::EPSILON);

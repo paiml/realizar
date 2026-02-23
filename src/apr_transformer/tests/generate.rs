@@ -11,6 +11,7 @@ fn test_generate_with_cache_repetition_penalty() {
         top_p: 1.0,
         repetition_penalty: 1.5, // Strong repetition penalty
         trace: false,
+        stop_tokens: vec![],
     };
 
     let result = transformer.generate_with_cache(&[0, 1, 2], &gen_config);

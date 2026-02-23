@@ -201,6 +201,11 @@ pub struct GenerateConfig {
     pub repetition_penalty: f32,
     /// Enable trace output (default: false)
     pub trace: bool,
+    /// GH-330: EOS token IDs for stopping generation.
+    ///
+    /// **Design by Contract**: These come from the model config, not hardcoded.
+    /// Empty means no EOS checking (generate until max_tokens).
+    pub stop_tokens: Vec<u32>,
 }
 
 impl Default for GenerateConfig {
@@ -212,6 +217,7 @@ impl Default for GenerateConfig {
             top_k: 0,
             repetition_penalty: 1.0,
             trace: false,
+            stop_tokens: Vec::new(),
         }
     }
 }

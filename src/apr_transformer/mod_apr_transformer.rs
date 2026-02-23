@@ -55,12 +55,14 @@ impl AprTransformer {
 
             tokens.push(next_token);
 
-            // Stop at EOS tokens:
-            // - Standard: 2
-            // - Qwen2: 151645 (EOS), 151643 (BOS)
-            // - LLaMA: 2
-            if next_token == 2 || next_token == 151645 || next_token == 151643 {
+            // GH-330: Stop at EOS from model config (Design by Contract)
+            if next_token == 0 {
                 break;
+            }
+            if let Some(eos) = self.config.eos_token_id {
+                if next_token == eos {
+                    break;
+                }
             }
         }
 
