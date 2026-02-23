@@ -728,6 +728,120 @@ mod tests {
         assert!(result.is_err(),
             "FALSIFY-L5: NaN in lm_head must be rejected by full validation pipeline");
     }
+
+    // =========================================================================
+    // FALSIFY-A: §2.1.3 Attention Projections — Five-Whys Gap Analysis (Refs PMAT-330)
+    //
+    // Contract: tensor-layout-v1.yaml §tensors.q_proj/k_proj/v_proj/o_proj
+    //   Fused QKV: [hidden + 2*kv_dim, hidden]
+    //   attn_output: [hidden, hidden]
+    //
+    // Five-Whys:
+    //   Why 1: Attention could produce wrong Q/K/V splits
+    //   Why 2: Fused QKV concatenation order wrong (KQV instead of QKV)
+    //   Why 3: No contractual test for QKV fusion layout
+    //   Why 4: GQA kv_dim != hidden_dim makes wrong fusion silently corrupt
+    //   Why 5: ValidatedWeight validates total size but not internal layout
+    //
+    // Popper (1959): "These tests attempt to falsify the claim that
+    // realizar's attention projection validation prevents garbage attention."
+    // =========================================================================
+
+    /// FALSIFY-A1r: ValidatedAprTransformer catches truncated QKV weight
+    ///
+    /// If fused QKV has fewer elements than (hidden + 2*kv_dim) * hidden,
+    /// the Q/K/V split will read past buffer bounds.
+    #[test]
+    fn falsify_a1r_validated_transformer_catches_truncated_qkv() {
+        let mut t = make_valid_transformer(1);
+        let len = t.layers[0].qkv_weight.len();
+        t.layers[0].qkv_weight.truncate(len - 10);
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-A1r: Truncated QKV weight must be rejected");
+        let err = result.unwrap_err();
+        assert!(err.tensor_name.contains("qkv"),
+            "Error must identify qkv_weight: {}", err);
+    }
+
+    /// FALSIFY-A2r: ValidatedAprTransformer catches all-zero QKV
+    ///
+    /// All-zero Q → identical attention scores → uniform attention → garbage.
+    #[test]
+    fn falsify_a2r_validated_transformer_catches_zero_qkv() {
+        let mut t = make_valid_transformer(1);
+        let len = t.layers[0].qkv_weight.len();
+        t.layers[0].qkv_weight = vec![0.0; len];
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-A2r: All-zero QKV weight must be rejected");
+    }
+
+    /// FALSIFY-A3r: ValidatedAprTransformer catches NaN in QKV
+    #[test]
+    fn falsify_a3r_validated_transformer_catches_nan_qkv() {
+        let mut t = make_valid_transformer(1);
+        t.layers[0].qkv_weight[5] = f32::NAN;
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-A3r: NaN in QKV weight must be rejected");
+    }
+
+    /// FALSIFY-A4r: ValidatedAprTransformer catches truncated attn_output
+    #[test]
+    fn falsify_a4r_validated_transformer_catches_truncated_attn_output() {
+        let mut t = make_valid_transformer(1);
+        let len = t.layers[0].attn_output_weight.len();
+        t.layers[0].attn_output_weight.truncate(len - 5);
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-A4r: Truncated attn_output must be rejected");
+    }
+
+    /// FALSIFY-A5r: ValidatedAprTransformer catches all-zero attn_output
+    ///
+    /// All-zero o_proj → attention output is always zero → layer produces
+    /// only the residual connection → attention is effectively disabled.
+    #[test]
+    fn falsify_a5r_validated_transformer_catches_zero_attn_output() {
+        let mut t = make_valid_transformer(1);
+        let len = t.layers[0].attn_output_weight.len();
+        t.layers[0].attn_output_weight = vec![0.0; len];
+        let result = ValidatedAprTransformer::validate(t);
+        assert!(result.is_err(),
+            "FALSIFY-A5r: All-zero attn_output must be rejected — disables attention");
+    }
+
+    /// FALSIFY-A6r: ValidatedWeight correctly validates GQA fused QKV dimensions
+    ///
+    /// For GQA with num_kv_heads < num_heads, the fused QKV shape is
+    /// [hidden + 2*kv_dim, hidden] which is NOT square.
+    #[test]
+    fn falsify_a6r_validated_weight_gqa_fused_qkv_shape() {
+        let hidden = 16;
+        let num_heads = 4;
+        let num_kv_heads = 2; // GQA: 2 KV heads, 4 Q heads
+        let head_dim = hidden / num_heads; // 4
+        let kv_dim = num_kv_heads * head_dim; // 8
+        let qkv_out = hidden + 2 * kv_dim; // 16 + 16 = 32
+
+        // Correct shape: [qkv_out=32, hidden=16] = 512 elements
+        let data: Vec<f32> = (0..qkv_out * hidden)
+            .map(|i| (i as f32 * 0.01).sin() * 0.1 + 0.05)
+            .collect();
+        let result = ValidatedWeight::new(data, qkv_out, hidden, "qkv_weight");
+        assert!(result.is_ok(),
+            "FALSIFY-A6r: GQA fused QKV [32, 16] must be valid: {:?}", result.err());
+
+        // Wrong shape (MHA assumption: qkv_out = 3*hidden = 48 instead of 32)
+        let wrong_qkv_out = 3 * hidden; // MHA assumption: 48
+        let wrong_data: Vec<f32> = (0..qkv_out * hidden) // 512 elements
+            .map(|i| (i as f32 * 0.01).sin() * 0.1 + 0.05)
+            .collect();
+        let result = ValidatedWeight::new(wrong_data, wrong_qkv_out, hidden, "qkv_weight");
+        assert!(result.is_err(),
+            "FALSIFY-A6r: MHA-assumed shape with GQA data must fail");
+    }
 }
 
 // T-COV-95 Coverage Bridge (Part 02 - Accessors, error paths, optional biases)
