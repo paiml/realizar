@@ -41,10 +41,23 @@ impl AprTransformer {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or((hidden_dim * 4) as u64) as usize;
 
+        // PMAT-125: Extract architecture from metadata (was missing, defaulted to "unknown")
+        // Check "architecture" first (APR v2 standard), then "model_type" (fallback)
+        // Moved before rope_theta so architecture-specific default can be used (R-02).
+        let architecture = metadata
+            .get("architecture")
+            .or_else(|| metadata.get("model_type"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_lowercase)
+            .filter(|s| s != "auto" && !s.is_empty()) // "Auto" is not a valid architecture
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // R-02 (Meyer DbC): rope_theta from metadata, or architecture-specific default.
         let rope_theta = metadata
             .get("rope_theta")
             .and_then(serde_json::Value::as_f64)
-            .unwrap_or(10000.0) as f32;
+            .unwrap_or_else(||
+                crate::gguf::default_rope_theta_for_architecture(&architecture) as f64) as f32;
 
         let rms_norm_eps = metadata
             .get("rms_norm_eps")
@@ -60,16 +73,6 @@ impl AprTransformer {
             .or_else(|| metadata.get("n_ctx"))
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(2048) as usize;
-
-        // PMAT-125: Extract architecture from metadata (was missing, defaulted to "unknown")
-        // Check "architecture" first (APR v2 standard), then "model_type" (fallback)
-        let architecture = metadata
-            .get("architecture")
-            .or_else(|| metadata.get("model_type"))
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_lowercase)
-            .filter(|s| s != "auto" && !s.is_empty()) // "Auto" is not a valid architecture
-            .unwrap_or_else(|| "unknown".to_string());
 
         AprTransformerConfig {
             architecture,

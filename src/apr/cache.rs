@@ -31,6 +31,68 @@ impl AprV2ModelCuda {
     /// PMAT-222: Added quantized dispatch for GGUF-sourced APR models.
     /// Phase 45: When test_executor is present, falls back to returning zeros.
     #[allow(clippy::many_single_char_names)] // Standard matrix notation
+    /// Dispatch quantized GEMV on GPU for Q4_K or Q6_K weights.
+    fn dispatch_quantized_gemv(
+        &mut self,
+        weight_name: &str,
+        a: &[f32],
+        c: &mut [f32],
+        m: usize,
+        k: usize,
+        n: usize,
+        qtype: u32,
+    ) -> Result<()> {
+        match qtype {
+            12 => {
+                if m == 1 {
+                    self.executor
+                        .q4k_gemv_cached(weight_name, a, c, n as u32, k as u32)
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "GPU Q4K GEMV cached".to_string(),
+                            reason: format!("CUDA Q4K GEMV '{}' failed: {e}", weight_name),
+                        })
+                } else {
+                    self.executor
+                        .batched_q4k_gemv_cached(weight_name, a, c, m as u32, k as u32, n as u32)
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "GPU Q4K batched GEMV cached".to_string(),
+                            reason: format!("CUDA batched Q4K GEMV '{}' failed: {e}", weight_name),
+                        })
+                }
+            }
+            14 => {
+                if m == 1 {
+                    self.executor
+                        .q6k_gemv_cached(weight_name, a, c, n as u32, k as u32)
+                        .map_err(|e| RealizarError::UnsupportedOperation {
+                            operation: "GPU Q6K GEMV cached".to_string(),
+                            reason: format!("CUDA Q6K GEMV '{}' failed: {e}", weight_name),
+                        })
+                } else {
+                    for row in 0..m {
+                        let row_input = &a[row * k..(row + 1) * k];
+                        let row_output = &mut c[row * n..(row + 1) * n];
+                        self.executor
+                            .q6k_gemv_cached(weight_name, row_input, row_output, n as u32, k as u32)
+                            .map_err(|e| RealizarError::UnsupportedOperation {
+                                operation: "GPU Q6K GEMV cached (batched)".to_string(),
+                                reason: format!("CUDA Q6K GEMV '{}' row {row} failed: {e}", weight_name),
+                            })?;
+                    }
+                    Ok(())
+                }
+            }
+            _ => {
+                self.executor
+                    .gemm_b_cached(weight_name, a, c, m as u32, n as u32, k as u32)
+                    .map_err(|e| RealizarError::UnsupportedOperation {
+                        operation: "GPU GEMM cached (qtype fallback)".to_string(),
+                        reason: format!("CUDA GEMM '{}' qtype={qtype} failed: {e}", weight_name),
+                    })
+            }
+        }
+    }
+
     fn gemm_cached_gpu(
         &mut self,
         weight_name: &str,
@@ -46,87 +108,14 @@ impl AprV2ModelCuda {
 
         // PMAT-222: Check if weight is quantized (GGUF-sourced APR) or F32 (SafeTensors APR)
         if self.executor.has_quantized_weights(weight_name) {
-            // Quantized path: dispatch to Q4K or Q6K GEMV kernels
+            // R-03 (Meyer DbC): Q4_K (GGML type 12) is the default for quantized APR files.
+            const GGML_TYPE_Q4_K: u32 = 12;
             let qtype = self
                 .executor
                 .get_quantized_weight_type(weight_name)
-                .unwrap_or(12);
+                .unwrap_or(GGML_TYPE_Q4_K);
             let mut c = vec![0.0f32; m * n];
-
-            match qtype {
-                12 => {
-                    // Q4_K: use batched GEMV for m>1, single GEMV for m=1
-                    if m == 1 {
-                        self.executor
-                            .q4k_gemv_cached(weight_name, a, &mut c, n as u32, k as u32)
-                            .map_err(|e| RealizarError::UnsupportedOperation {
-                                operation: "GPU Q4K GEMV cached".to_string(),
-                                reason: format!("CUDA Q4K GEMV '{}' failed: {e}", weight_name),
-                            })?;
-                    } else {
-                        self.executor
-                            .batched_q4k_gemv_cached(
-                                weight_name,
-                                a,
-                                &mut c,
-                                m as u32,
-                                k as u32,
-                                n as u32,
-                            )
-                            .map_err(|e| RealizarError::UnsupportedOperation {
-                                operation: "GPU Q4K batched GEMV cached".to_string(),
-                                reason: format!(
-                                    "CUDA batched Q4K GEMV '{}' failed: {e}",
-                                    weight_name
-                                ),
-                            })?;
-                    }
-                },
-                14 => {
-                    // Q6_K: use single GEMV, loop for batched
-                    if m == 1 {
-                        self.executor
-                            .q6k_gemv_cached(weight_name, a, &mut c, n as u32, k as u32)
-                            .map_err(|e| RealizarError::UnsupportedOperation {
-                                operation: "GPU Q6K GEMV cached".to_string(),
-                                reason: format!("CUDA Q6K GEMV '{}' failed: {e}", weight_name),
-                            })?;
-                    } else {
-                        // Batched Q6K: process each row individually
-                        for row in 0..m {
-                            let row_input = &a[row * k..(row + 1) * k];
-                            let row_output = &mut c[row * n..(row + 1) * n];
-                            self.executor
-                                .q6k_gemv_cached(
-                                    weight_name,
-                                    row_input,
-                                    row_output,
-                                    n as u32,
-                                    k as u32,
-                                )
-                                .map_err(|e| RealizarError::UnsupportedOperation {
-                                    operation: "GPU Q6K GEMV cached (batched)".to_string(),
-                                    reason: format!(
-                                        "CUDA Q6K GEMV '{}' row {row} failed: {e}",
-                                        weight_name
-                                    ),
-                                })?;
-                        }
-                    }
-                },
-                _ => {
-                    // Unsupported quantization type, fall back to F32 GEMM
-                    self.executor
-                        .gemm_b_cached(weight_name, a, &mut c, m as u32, n as u32, k as u32)
-                        .map_err(|e| RealizarError::UnsupportedOperation {
-                            operation: "GPU GEMM cached (qtype fallback)".to_string(),
-                            reason: format!(
-                                "CUDA GEMM '{}' qtype={qtype} failed: {e}",
-                                weight_name
-                            ),
-                        })?;
-                },
-            }
+            self.dispatch_quantized_gemv(weight_name, a, &mut c, m, k, n, qtype)?;
             Ok(c)
         } else {
             // F32 path: standard GEMM with cached weights

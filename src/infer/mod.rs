@@ -319,7 +319,8 @@ fn prepare_tokens_gguf(config: &InferenceConfig, prompt: &str) -> Result<Prepare
             let arch = mapped.model.metadata
                 .get(crate::gguf::keys::GENERAL_ARCHITECTURE)
                 .and_then(|v| if let GGUFValue::String(s) = v { Some(s.as_str()) } else { None })
-                .unwrap_or("llama");
+                // R-01 (Meyer DbC): "unknown" — don't pretend unidentified model is LLaMA.
+                .unwrap_or("unknown");
             let constraints = crate::gguf::ArchConstraints::from_architecture(arch);
             constraints.positional_encoding != crate::gguf::PositionalEncoding::Absolute
         },

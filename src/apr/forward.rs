@@ -1,5 +1,114 @@
 impl AprV2Model {
 
+    /// Resolve RoPE parameters from metadata with architecture-specific fallback.
+    fn resolve_rope_params(&self) -> (f32, u32) {
+        let arch = self.metadata.architecture.as_deref().unwrap_or("unknown");
+        let rope_theta = self.metadata.rope_theta.unwrap_or_else(||
+            crate::gguf::default_rope_theta_for_architecture(arch));
+        let rope_type = self.metadata.rope_type.unwrap_or_else(||
+            crate::gguf::infer_rope_type(arch));
+        (rope_theta, rope_type)
+    }
+
+    /// Look up token embeddings for a sequence of token IDs.
+    fn embed_tokens(
+        &self,
+        token_ids: &[u32],
+        hidden_dim: usize,
+    ) -> Result<Vec<f32>> {
+        let embed_name = self.find_tensor_name(&[
+            "model.embed_tokens.weight",
+            "embed_tokens.weight", // SafeTensors (no model. prefix)
+            "transformer.wte.weight",
+            "embeddings.word_embeddings.weight",
+            "tok_embeddings.weight",
+            "token_embd.weight", // GGUF naming convention
+        ])?;
+
+        let embeddings = self.get_tensor_f32(&embed_name)?;
+        let mut hidden = Vec::with_capacity(token_ids.len() * hidden_dim);
+
+        for &token_id in token_ids {
+            let offset = (token_id as usize) * hidden_dim;
+            if offset + hidden_dim <= embeddings.len() {
+                hidden.extend_from_slice(&embeddings[offset..offset + hidden_dim]);
+            } else {
+                hidden.extend(std::iter::repeat_n(0.0, hidden_dim));
+            }
+        }
+        Ok(hidden)
+    }
+
+    /// Project hidden state to vocabulary logits via LM head.
+    ///
+    /// Handles both regular lm_head [vocab_size, hidden_dim] and tied
+    /// embeddings [hidden_dim, vocab_size] with transposed access.
+    fn project_lm_head(
+        last_hidden: &[f32],
+        lm_head: &[f32],
+        hidden_dim: usize,
+        vocab_size: usize,
+        is_tied: bool,
+    ) -> Vec<f32> {
+        let mut logits = vec![0.0; vocab_size];
+        if is_tied && lm_head.len() == hidden_dim * vocab_size {
+            // Tied embedding: token_embd is [hidden_dim, vocab_size]
+            for (i, logit) in logits.iter_mut().enumerate() {
+                for (j, &h) in last_hidden.iter().enumerate() {
+                    *logit += h * lm_head.get(j * vocab_size + i).copied().unwrap_or(0.0);
+                }
+            }
+        } else {
+            // Regular lm_head: [vocab_size, hidden_dim]
+            for (i, logit) in logits.iter_mut().enumerate() {
+                for (j, &h) in last_hidden.iter().enumerate() {
+                    *logit += h * lm_head.get(i * hidden_dim + j).copied().unwrap_or(0.0);
+                }
+            }
+        }
+        logits
+    }
+
+    /// Apply RoPE to Q and K tensors for all positions in the sequence.
+    fn apply_rope_to_qk(
+        q: &mut [f32],
+        k: &mut [f32],
+        seq_len: usize,
+        num_heads: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+        hidden_dim: usize,
+        rope_theta: f32,
+        rope_type: u32,
+    ) {
+        let q_dim_per_token = hidden_dim;
+        let k_dim_per_token = num_kv_heads * head_dim;
+        for pos in 0..seq_len {
+            let q_start = pos * q_dim_per_token;
+            let q_end = q_start + q_dim_per_token;
+            if q_end <= q.len() {
+                apply_rope_norm(&mut q[q_start..q_end], num_heads, head_dim, pos, rope_theta, rope_type);
+            }
+            let k_start = pos * k_dim_per_token;
+            let k_end = k_start + k_dim_per_token;
+            if k_end <= k.len() {
+                apply_rope_norm(&mut k[k_start..k_end], num_kv_heads, head_dim, pos, rope_theta, rope_type);
+            }
+        }
+    }
+
+    /// Extract model dimensions from metadata.
+    fn resolve_model_dims(&self) -> (usize, usize, usize, usize, usize, usize, f32) {
+        let hidden_dim = self.metadata.hidden_size.unwrap_or(0);
+        let num_layers = self.metadata.num_layers.unwrap_or(0);
+        let num_heads = self.metadata.num_heads.unwrap_or(1);
+        let num_kv_heads = self.metadata.num_kv_heads.unwrap_or(num_heads);
+        let vocab_size = self.metadata.vocab_size.unwrap_or(0);
+        let intermediate_dim = self.metadata.intermediate_size.unwrap_or(hidden_dim * 4);
+        let eps = self.metadata.rms_norm_eps.unwrap_or(1e-6);
+        (hidden_dim, num_layers, num_heads, num_kv_heads, vocab_size, intermediate_dim, eps)
+    }
+
     /// Run transformer forward pass on token IDs
     ///
     /// Returns logits for the next token prediction.
@@ -28,35 +137,11 @@ impl AprV2Model {
             });
         }
 
-        let hidden_dim = self.metadata.hidden_size.unwrap_or(0);
-        let num_layers = self.metadata.num_layers.unwrap_or(0);
-        let num_heads = self.metadata.num_heads.unwrap_or(1);
-        let num_kv_heads = self.metadata.num_kv_heads.unwrap_or(num_heads);
-        let vocab_size = self.metadata.vocab_size.unwrap_or(0);
-        let intermediate_dim = self.metadata.intermediate_size.unwrap_or(hidden_dim * 4);
-        let eps = self.metadata.rms_norm_eps.unwrap_or(1e-6);
+        let (hidden_dim, num_layers, num_heads, num_kv_heads, vocab_size, intermediate_dim, eps) =
+            self.resolve_model_dims();
 
         // 1. Token embedding lookup
-        let embed_name = self.find_tensor_name(&[
-            "model.embed_tokens.weight",
-            "embed_tokens.weight", // SafeTensors (no model. prefix)
-            "transformer.wte.weight",
-            "embeddings.word_embeddings.weight",
-            "tok_embeddings.weight",
-            "token_embd.weight", // GGUF naming convention
-        ])?;
-
-        let embeddings = self.get_tensor_f32(&embed_name)?;
-        let mut hidden = Vec::with_capacity(token_ids.len() * hidden_dim);
-
-        for &token_id in token_ids {
-            let offset = (token_id as usize) * hidden_dim;
-            if offset + hidden_dim <= embeddings.len() {
-                hidden.extend_from_slice(&embeddings[offset..offset + hidden_dim]);
-            } else {
-                hidden.extend(std::iter::repeat_n(0.0, hidden_dim));
-            }
-        }
+        let mut hidden = self.embed_tokens(token_ids, hidden_dim)?;
 
         // 2. Process through transformer layers
         for layer_idx in 0..num_layers {
@@ -132,45 +217,11 @@ impl AprV2Model {
             );
 
             // BUG-2 FIX: Apply RoPE (Rotary Position Embedding) to Q and K
-            // Without RoPE, model cannot distinguish token positions → garbage output
-            // GH-329: Use shared infer_rope_type() as single source of truth
-            let rope_theta = self.metadata.rope_theta.unwrap_or(10000.0);
-            let rope_type = self.metadata.rope_type.unwrap_or_else(|| {
-                let arch = self.metadata.architecture.as_deref().unwrap_or("");
-                crate::gguf::infer_rope_type(arch)
-            });
-            let q_dim_per_token = hidden_dim;
-            let k_dim_per_token = num_kv_heads * head_dim;
-
-            for pos in 0..seq_len {
-                // Apply RoPE to Q at this position
-                let q_start = pos * q_dim_per_token;
-                let q_end = q_start + q_dim_per_token;
-                if q_end <= q.len() {
-                    apply_rope_norm(
-                        &mut q[q_start..q_end],
-                        num_heads,
-                        head_dim,
-                        pos,
-                        rope_theta,
-                        rope_type,
-                    );
-                }
-
-                // Apply RoPE to K at this position
-                let k_start = pos * k_dim_per_token;
-                let k_end = k_start + k_dim_per_token;
-                if k_end <= k.len() {
-                    apply_rope_norm(
-                        &mut k[k_start..k_end],
-                        num_kv_heads,
-                        head_dim,
-                        pos,
-                        rope_theta,
-                        rope_type,
-                    );
-                }
-            }
+            let (rope_theta, rope_type) = self.resolve_rope_params();
+            Self::apply_rope_to_qk(
+                &mut q, &mut k, seq_len, num_heads, num_kv_heads, head_dim,
+                hidden_dim, rope_theta, rope_type,
+            );
 
             let attn_out = simple_attention(&q, &k, &v, seq_len, num_heads, num_kv_heads, head_dim);
 
@@ -259,36 +310,12 @@ impl AprV2Model {
             "token_embd.weight",         // GGUF tied embeddings
         ])?;
         let lm_head = self.get_tensor_f32(&lm_head_name)?;
-
-        // Get hidden state for last token
         let last_hidden = &hidden[hidden.len() - hidden_dim..];
 
         // BUG-APR-001-FIX: Detect weight tying and handle transposed layout
-        // GGUF token_embd.weight is stored as [hidden_dim, vocab_size] (column-major)
-        // Regular lm_head.weight is stored as [vocab_size, hidden_dim] (row-major)
-        // When using tied embeddings, we need to transpose the access pattern.
-        let is_tied_embedding =
-            lm_head_name == "token_embd.weight" || lm_head_name.ends_with("embed_tokens.weight");
-
-        // Project to vocab
-        let mut logits = vec![0.0; vocab_size];
-        if is_tied_embedding && lm_head.len() == hidden_dim * vocab_size {
-            // Tied embedding: token_embd is [hidden_dim, vocab_size]
-            // Access: logit[i] = sum_j(hidden[j] * embed[j * vocab_size + i])
-            for (i, logit) in logits.iter_mut().enumerate() {
-                for (j, &h) in last_hidden.iter().enumerate() {
-                    *logit += h * lm_head.get(j * vocab_size + i).copied().unwrap_or(0.0);
-                }
-            }
-        } else {
-            // Regular lm_head: [vocab_size, hidden_dim]
-            // Access: logit[i] = sum_j(hidden[j] * lm_head[i * hidden_dim + j])
-            for (i, logit) in logits.iter_mut().enumerate() {
-                for (j, &h) in last_hidden.iter().enumerate() {
-                    *logit += h * lm_head.get(i * hidden_dim + j).copied().unwrap_or(0.0);
-                }
-            }
-        }
+        let is_tied = lm_head_name == "token_embd.weight"
+            || lm_head_name.ends_with("embed_tokens.weight");
+        let logits = Self::project_lm_head(last_hidden, &lm_head, hidden_dim, vocab_size, is_tied);
 
         Ok(logits)
     }
