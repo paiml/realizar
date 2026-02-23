@@ -6,13 +6,13 @@
 use super::{AprKVCache, AprTransformer, GenerateConfig};
 use crate::error::{RealizarError, Result};
 
-/// Common EOS token IDs across model families
-const EOS_TOKENS: [u32; 4] = [0, 2, 151645, 151643];
-
-/// Check if a token is an end-of-sequence marker
+/// GH-330: Check if a token is an end-of-sequence marker.
+///
+/// Uses the config-provided stop tokens (Design by Contract).
+/// Token 0 is always treated as EOS (padding/unknown).
 #[inline]
-fn is_eos_token(token: u32) -> bool {
-    EOS_TOKENS.contains(&token)
+fn is_eos_token(token: u32, stop_tokens: &[u32]) -> bool {
+    token == 0 || stop_tokens.contains(&token)
 }
 
 /// Sample the next token from logits using temperature scaling
@@ -74,7 +74,7 @@ fn generate_next_tokens(
         let next_token = sample_from_logits(&logits, config.temperature);
         output.push(next_token);
 
-        if is_eos_token(next_token) {
+        if is_eos_token(next_token, &config.stop_tokens) {
             break;
         }
 
@@ -185,7 +185,7 @@ where
         let next_token = sample_from_logits(&logits, config.temperature);
         output.push(next_token);
 
-        if is_eos_token(next_token) {
+        if is_eos_token(next_token, &config.stop_tokens) {
             break;
         }
 

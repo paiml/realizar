@@ -215,6 +215,7 @@ fn test_generate_config_greedy() {
         top_k: 1,
         repetition_penalty: 1.0,
         trace: false,
+        stop_tokens: vec![],
     };
     assert_eq!(config.temperature, 0.0);
     assert_eq!(config.top_k, 1);
@@ -229,6 +230,7 @@ fn test_generate_config_with_nucleus_sampling() {
         top_k: 40,
         repetition_penalty: 1.1,
         trace: false,
+        stop_tokens: vec![],
     };
     assert_eq!(config.top_p, 0.9);
 }
@@ -242,6 +244,7 @@ fn test_generate_config_with_trace() {
         top_k: 0,
         repetition_penalty: 1.0,
         trace: true,
+        stop_tokens: vec![],
     };
     assert!(config.trace);
 }

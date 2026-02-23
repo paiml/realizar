@@ -8,6 +8,7 @@ fn test_generate_config_custom() {
         top_k: 50,
         repetition_penalty: 1.1,
         trace: false,
+        stop_tokens: vec![],
     };
 
     assert_eq!(config.max_tokens, 100);
@@ -26,6 +27,7 @@ fn test_generate_config_clone() {
         top_k: 40,
         repetition_penalty: 1.2,
         trace: false,
+        stop_tokens: vec![],
     };
 
     let cloned = original.clone();

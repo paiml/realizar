@@ -199,11 +199,13 @@ fn try_apr_cuda_inference(
         log_apr_cuda_info(&info, &cuda_model, load_ms);
     }
 
+    // GH-330: EOS from model config (Design by Contract)
+    let model_eos: Vec<u32> = cuda_model.model().config.eos_token_id.into_iter().collect();
     let gen_config = QuantizedGenerateConfig {
         max_tokens: config.max_tokens.min(128),
         temperature: 0.0,
         top_k: 1,
-        stop_tokens: vec![151645], // Qwen2 EOS
+        stop_tokens: model_eos,
         trace: false,
     };
 
@@ -312,8 +314,8 @@ fn run_apr_cpu_inference(
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map_or(0, |(i, _)| i as u32);
 
-        // EOS check (Qwen2=151645, BOS=151643, standard=2)
-        if next_token == 151645 || next_token == 151643 || next_token == 2 {
+        // GH-330: EOS from model config (Design by Contract)
+        if next_token == 0 || validated.config.eos_token_id == Some(next_token) {
             break;
         }
 
@@ -494,7 +496,8 @@ fn try_safetensors_cuda_inference(
     }
 
     let infer_start = Instant::now();
-    let eos_id = 151645u32; // Qwen2 EOS
+    // GH-330: EOS from model config (Design by Contract)
+    let eos_id = cuda_model.model().config.eos_token_id.unwrap_or(0);
     let tokens = match cuda_model.generate(input_tokens, config.max_tokens.min(128), eos_id) {
         Ok(t) => t,
         Err(e) => {

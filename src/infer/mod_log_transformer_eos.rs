@@ -16,8 +16,9 @@ fn log_transformer_cpu_info(
     eprintln!("Backend: CPU (SIMD-accelerated)");
 }
 
-fn is_eos_token(token: u32) -> bool {
-    token == 151645 || token == 151643 || token == 2
+/// GH-330: Check EOS using config-provided stop tokens (Design by Contract).
+fn is_eos_token(token: u32, stop_tokens: &[u32]) -> bool {
+    token == 0 || stop_tokens.contains(&token)
 }
 
 fn greedy_argmax(logits: &[f32]) -> u32 {
@@ -45,7 +46,9 @@ fn greedy_decode_with_transformer(
 
     for _ in 0..max_tokens.min(128) {
         let next_token = greedy_argmax(&logits);
-        if is_eos_token(next_token) {
+        // GH-330: Use model config EOS
+        let stop_tokens: Vec<u32> = transformer.config.eos_token_id.into_iter().collect();
+        if is_eos_token(next_token, &stop_tokens) {
             break;
         }
         all_tokens.push(next_token);
