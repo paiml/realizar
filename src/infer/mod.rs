@@ -329,21 +329,16 @@ fn prepare_tokens_gguf(config: &InferenceConfig, prompt: &str) -> Result<Prepare
     // Only add if not already present AND model has a BOS token defined.
     let add_bos = match mapped.model.metadata.get("tokenizer.ggml.add_bos_token") {
         Some(GGUFValue::Bool(b)) => *b,
-        // Default: add BOS for SentencePiece models (llama), not for BPE (gpt2)
+        // GH-326: Derive BOS default from architecture constraints, not hardcoded string.
+        // Models with absolute position embeddings (GPT-2, BERT) use BPE → no BOS.
+        // Models with RoPE (LLaMA, Qwen, Mistral) use SentencePiece → add BOS.
         _ => {
-            let model_type = mapped
-                .model
-                .metadata
-                .get("tokenizer.ggml.model")
-                .and_then(|v| {
-                    if let GGUFValue::String(s) = v {
-                        Some(s.as_str())
-                    } else {
-                        None
-                    }
-                })
+            let arch = mapped.model.metadata
+                .get("general.architecture")
+                .and_then(|v| if let GGUFValue::String(s) = v { Some(s.as_str()) } else { None })
                 .unwrap_or("llama");
-            model_type != "gpt2"
+            let constraints = crate::gguf::ArchConstraints::from_architecture(arch);
+            constraints.positional_encoding != crate::gguf::PositionalEncoding::Absolute
         },
     };
 

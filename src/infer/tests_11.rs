@@ -287,25 +287,30 @@ fn test_apr_arch_empty_string_returns_model_name() {
 
 #[test]
 fn test_apr_arch_contains_qwen_substring() {
-    assert_eq!(apr_arch_to_template_hint("superqwen", "model"), "qwen2");
+    // GH-318: "superqwen" is not in the contract → falls back to model_name
+    assert_eq!(apr_arch_to_template_hint("superqwen", "model"), "model");
 }
 
 #[test]
 fn test_apr_arch_contains_llama_substring() {
+    // GH-318: "codellama" not in contract → defaults to "llama" →
+    // contains("llama") check triggers → returns "llama"
     assert_eq!(apr_arch_to_template_hint("codellama", "model"), "llama");
 }
 
 #[test]
 fn test_apr_arch_contains_mistral_substring() {
+    // GH-318: "mixtral-mistral-v2" not in contract → falls back to model_name
     assert_eq!(
         apr_arch_to_template_hint("mixtral-mistral-v2", "model"),
-        "mistral"
+        "model"
     );
 }
 
 #[test]
 fn test_apr_arch_contains_phi_substring() {
-    assert_eq!(apr_arch_to_template_hint("microsoft-phi2", "model"), "phi");
+    // GH-318: "microsoft-phi2" not in contract → falls back to model_name
+    assert_eq!(apr_arch_to_template_hint("microsoft-phi2", "model"), "model");
 }
 
 #[test]
