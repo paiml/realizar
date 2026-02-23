@@ -258,14 +258,17 @@ fn test_phase35_transformer_missing_tensor_error() {
     );
 
     // Extract error message
+    // Phase 2: ValidatedModelConfig catches vocab_size=0 (inferred from missing
+    // token_embd.weight) before tensor loading. Both error types are valid.
     match result {
         Err(e) => {
             let err = e.to_string();
             assert!(
                 err.contains("token_embd.weight")
                     || err.contains("Tensor")
-                    || err.contains("not found"),
-                "Error should mention missing tensor: {}",
+                    || err.contains("not found")
+                    || err.contains("vocab_size"),
+                "Error should mention missing tensor or invalid vocab_size: {}",
                 err
             );
         },
