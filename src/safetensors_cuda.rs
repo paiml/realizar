@@ -203,6 +203,8 @@ pub struct SafeTensorsCudaConfig {
     pub has_qk_norm: bool,
     /// GH-279: Whether attention projections have bias terms (Qwen2, phi)
     pub has_bias: bool,
+    /// GH-330: EOS token ID from config.json (Design by Contract)
+    pub eos_token_id: Option<u32>,
 }
 
 include!("apply.rs");

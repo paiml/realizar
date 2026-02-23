@@ -117,7 +117,7 @@ fn test_generate_stops_at_eos() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
-            eos_token_id: None,
+        eos_token_id: Some(2),
     };
     let mut model = AprTransformer::new(config);
 

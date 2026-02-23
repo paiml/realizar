@@ -117,20 +117,26 @@ fn apr_try_load_f32(
 }
 
 /// Infer vocab_size from APR metadata or embedding tensor shape.
+/// GH-337: Infer vocab size from metadata or embedding tensor shape.
+///
+/// **Design by Contract**: No hardcoded fallback. Returns 0 on failure
+/// (callers validate via contract gate).
 fn apr_infer_vocab_size(apr: &crate::apr::MappedAprModel) -> usize {
-    match apr.metadata.vocab_size {
-        Some(v) if v > 0 => v,
-        _ => apr
-            .tensors
-            .iter()
-            .find(|t| {
-                t.name.contains("embed_tokens")
-                    || t.name.contains("tok_embeddings")
-                    || t.name.contains("token_embd")
-            })
-            .and_then(|t| t.shape.first().copied())
-            .unwrap_or(151936),
+    if let Some(v) = apr.metadata.vocab_size {
+        if v > 0 {
+            return v;
+        }
     }
+    // Try embedding tensor shape (first dimension = vocab size)
+    apr.tensors
+        .iter()
+        .find(|t| {
+            t.name.contains("embed_tokens")
+                || t.name.contains("tok_embeddings")
+                || t.name.contains("token_embd")
+        })
+        .and_then(|t| t.shape.first().copied())
+        .unwrap_or(0)
 }
 
 impl OwnedQuantizedModel {

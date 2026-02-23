@@ -246,8 +246,8 @@ fn test_apr_transformer_new_basic() {
 fn test_apr_transformer_new_output_norm_is_ones() {
     let config = AprTransformerConfig {
         hidden_dim: 16,
-        ..Default::default()
         eos_token_id: None,
+        ..Default::default()
     };
     let model = AprTransformer::new(config);
     // Output norm weight should be initialized to 1.0
@@ -266,8 +266,8 @@ fn test_apr_transformer_config_accessor() {
     let config = AprTransformerConfig {
         architecture: "phi2".to_string(),
         hidden_dim: 256,
-        ..Default::default()
         eos_token_id: None,
+        ..Default::default()
     };
     let model = AprTransformer::new(config);
     let cfg = model.config();
