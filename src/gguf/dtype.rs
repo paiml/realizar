@@ -1,55 +1,22 @@
 
-/// Convert GGML qtype to APR dtype string
+/// GH-321: Convert GGML qtype to APR dtype string using unified enum.
 fn apr_qtype_to_dtype(qtype: u32) -> &'static str {
-    match qtype {
-        0 => "F32",
-        1 => "F16",
-        2 => "Q4_0",
-        3 => "Q4_1",
-        6 => "Q5_0",
-        7 => "Q5_1",
-        8 => "Q8_0",
-        9 => "Q8_1",
-        10 => "Q2_K",
-        11 => "Q3_K",
-        12 => "Q4_K",
-        13 => "Q5_K",
-        14 => "Q6_K",
-        16 => "IQ2_XXS",
-        17 => "IQ2_XS",
-        30 => "BF16",
-        _ => "F32",
-    }
+    crate::gguf::GgmlQuantType::from_id(qtype).map_or("F32", crate::gguf::GgmlQuantType::as_str)
 }
 
-/// Convert APR dtype string to byte for binary tensor entry
+/// GH-321: Convert APR dtype string to byte using unified enum.
 /// GH-191 FIX: Use GGML dtype values directly so they match TensorEntry::from_binary reader.
 fn apr_dtype_to_byte(dtype: &str) -> u8 {
-    match dtype {
-        "F32" => 0,
-        "F16" => 1,
-        "BF16" => 30,    // GGML BF16 type
-        "Q4_0" => 2,     // GGML type 2
-        "Q4_1" => 3,     // GGML type 3
-        "Q5_0" => 6,     // GGML type 6
-        "Q5_1" => 7,     // GGML type 7
-        "Q8_0" => 8,     // GGML type 8
-        "Q8_1" => 9,     // GGML type 9
-        "Q2_K" => 10,    // GGML type 10
-        "Q3_K" => 11,    // GGML type 11
-        "Q4_K" => 12,    // GGML type 12
-        "Q5_K" => 13,    // GGML type 13
-        "Q6_K" => 14,    // GGML type 14
-        "IQ2_XXS" => 16, // GGML type 16
-        "IQ2_XS" => 17,  // GGML type 17
-        _ => {
+    crate::gguf::GgmlQuantType::from_str_lossy(dtype).map_or_else(
+        || {
             eprintln!(
                 "WARN: Unknown dtype '{}' in dtype_to_byte, writing as F32",
                 dtype
             );
             0
         },
-    }
+        crate::gguf::GgmlQuantType::as_byte,
+    )
 }
 
 /// Write a single tensor entry to APR binary index format

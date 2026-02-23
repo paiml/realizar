@@ -33,28 +33,11 @@ use crate::format::{detect_format, ModelFormat};
 use std::path::PathBuf;
 use std::time::Instant;
 
-/// PMAT-173: Convert GGML quantization type to human-readable string
-/// Used for --verbose mode display (F-UX-038)
+/// PMAT-173 / GH-321: Convert GGML quantization type to human-readable string.
+/// Uses unified `GgmlQuantType` enum — single source of truth.
 pub(crate) fn qtype_to_dtype_str(qtype: u32) -> &'static str {
-    match qtype {
-        0 => "F32",
-        1 => "F16",
-        2 => "Q4_0",
-        3 => "Q4_1",
-        6 => "Q5_0",
-        7 => "Q5_1",
-        8 => "Q8_0",
-        9 => "Q8_1",
-        10 => "Q2_K",
-        11 => "Q3_K",
-        12 => "Q4_K",
-        13 => "Q5_K",
-        14 => "Q6_K",
-        16 => "IQ2_XXS",
-        17 => "IQ2_XS",
-        30 => "BF16",
-        _ => "Unknown",
-    }
+    crate::gguf::GgmlQuantType::from_id(qtype)
+        .map_or("Unknown", crate::gguf::GgmlQuantType::as_str)
 }
 
 /// Configuration for inference
