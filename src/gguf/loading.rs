@@ -117,7 +117,10 @@ fn apr_try_load_f32(
 }
 
 /// Infer vocab_size from APR metadata or embedding tensor shape.
-/// GH-324: Infer vocab size from embedding tensor using contract-driven names.
+/// GH-324: Infer vocab size from embedding tensor using contract-driven names only.
+///
+/// No substring fallback — if the contract doesn't have the embedding name,
+/// the model's naming convention needs to be added to tensor-names-v1.yaml.
 fn apr_infer_vocab_size(apr: &crate::apr::MappedAprModel) -> usize {
     use crate::tensor_names::{normalize_architecture, global_names, global_fallback_names, GlobalTensorRole};
 
@@ -127,11 +130,10 @@ fn apr_infer_vocab_size(apr: &crate::apr::MappedAprModel) -> usize {
         }
     }
 
-    // GH-324: Use contract names instead of substring matching
     let arch = apr.metadata.architecture.as_deref().unwrap_or("llama");
     let arch_key = normalize_architecture(arch);
 
-    // Collect all possible embedding names from the contract
+    // Contract-only: exact match against known embedding names
     let mut candidates: Vec<&str> = Vec::new();
     candidates.extend_from_slice(global_names(arch_key, GlobalTensorRole::Embedding));
     candidates.extend_from_slice(global_fallback_names(GlobalTensorRole::Embedding));
@@ -144,12 +146,8 @@ fn apr_infer_vocab_size(apr: &crate::apr::MappedAprModel) -> usize {
         }
     }
 
-    // Last resort: substring match for unusual naming
-    apr.tensors
-        .iter()
-        .find(|t| t.name.contains("embed") || t.name.contains("wte"))
-        .and_then(|t| t.shape.first().copied())
-        .unwrap_or(151936)
+    // No fallback — contract is the source of truth. Return 0 to signal failure.
+    0
 }
 
 impl OwnedQuantizedModel {
@@ -290,13 +288,17 @@ impl OwnedQuantizedModel {
             c.extend_from_slice(crate::tensor_names::global_fallback_names(crate::tensor_names::GlobalTensorRole::Embedding));
             c
         };
+        // GH-324: Contract-only matching, no substring fallback
         let embed_name = embed_candidates
             .iter()
             .find_map(|&name| apr.tensors.iter().find(|t| t.name == name))
-            .or_else(|| apr.tensors.iter().find(|t| t.name.contains("embed") || t.name.contains("wte")))
             .map(|t| t.name.as_str())
             .ok_or_else(|| RealizarError::FormatError {
-                reason: "APR: embedding tensor not found".to_string(),
+                reason: format!(
+                    "APR: embedding tensor not found. Tried contract names: {:?}. \
+                     Add this architecture's embedding name to tensor-names-v1.yaml.",
+                    embed_candidates
+                ),
             })?;
 
         let embed_tensor = apr.find_tensor(embed_name).ok_or_else(|| RealizarError::FormatError {
