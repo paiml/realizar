@@ -203,10 +203,10 @@ mod tests {
         assert_eq!(model.config.hidden_dim, 64);
         assert_eq!(model.config.num_layers, 1);
         assert_eq!(model.config.num_heads, 4);
-        // Note: Q4K converter writes "num_key_value_heads" but AprMetadata
-        // field is "num_kv_heads" (no alias for "num_key_value_heads"), so
-        // from_apr defaults to 2. This documents the actual behavior.
-        assert_eq!(model.config.num_kv_heads, 2);
+        // C-03 (Meyer DbC): num_kv_heads defaults to num_heads when absent.
+        // Q4K converter writes "num_key_value_heads" but AprMetadata reads "num_kv_heads",
+        // so the field is None. Correct default = num_heads (non-GQA) = 4.
+        assert_eq!(model.config.num_kv_heads, 4);
         assert_eq!(model.config.intermediate_dim, 128);
     }
 
@@ -362,7 +362,11 @@ mod tests {
         let model = OwnedQuantizedModel::from_apr(&mapped).unwrap();
 
         assert_eq!(model.config.num_heads, 8);
-        assert_eq!(model.config.num_kv_heads, 2);
+        // C-03 (Meyer DbC): Q4K converter writes "num_key_value_heads" but AprMetadata
+        // reads "num_kv_heads", causing a field name mismatch. When num_kv_heads is None,
+        // it correctly defaults to num_heads (8) rather than a hardcoded 2.
+        // TODO: Fix Q4K converter to write "num_kv_heads" for proper GQA round-trip.
+        assert_eq!(model.config.num_kv_heads, 8);
         assert_eq!(model.config.hidden_dim, 128);
     }
 include!("loader_gguf_model.rs");
