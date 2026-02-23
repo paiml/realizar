@@ -358,6 +358,40 @@ impl AppState {
         self
     }
 
+    /// GH-319: Get model architecture from whichever backend is loaded.
+    ///
+    /// Used for chat template auto-detection instead of hardcoding "qwen".
+    /// Returns the architecture string (e.g., "qwen2", "llama", "phi2").
+    #[must_use]
+    pub fn model_architecture(&self) -> Option<String> {
+        // Check quantized model first (most common GGUF path)
+        if let Some(qm) = &self.quantized_model {
+            return Some(qm.config.architecture.clone());
+        }
+
+        // Check APR transformer (SafeTensors/APR path)
+        if let Some(at) = &self.apr_transformer {
+            return Some(at.config.architecture.clone());
+        }
+
+        // Check cached model
+        #[cfg(feature = "gpu")]
+        if let Some(cm) = &self.cached_model {
+            return Some(cm.model().config.architecture.clone());
+        }
+
+        // Check CUDA model (requires read lock)
+        #[cfg(feature = "cuda")]
+        if let Some(cuda) = &self.cuda_model {
+            if let Ok(m) = cuda.read() {
+                return Some(m.model().config.architecture.clone());
+            }
+        }
+
+        // GpuModel doesn't carry architecture info
+        None
+    }
+
     /// GH-152: Enable verbose request/response logging
     #[must_use]
     pub fn with_verbose(mut self, verbose: bool) -> Self {

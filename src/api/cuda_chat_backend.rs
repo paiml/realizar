@@ -15,11 +15,13 @@ fn try_cuda_backend(
         Ok(t) => t,
         Err(r) => return Some(r),
     };
-    let prompt_ids = match tokenize_chat_prompt(&tokenizer, &request.messages, Some("qwen"), state)
-    {
-        Ok(ids) => ids,
-        Err(r) => return Some(r),
-    };
+    // GH-319: Use actual model architecture for chat template detection
+    let arch_hint = state.model_architecture();
+    let prompt_ids =
+        match tokenize_chat_prompt(&tokenizer, &request.messages, arch_hint.as_deref(), state) {
+            Ok(ids) => ids,
+            Err(r) => return Some(r),
+        };
     let prompt_tokens = prompt_ids.len();
     let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer);
 
@@ -103,11 +105,13 @@ fn try_quantized_backend(
         Ok(t) => t,
         Err(r) => return Some(r),
     };
-    let prompt_ids = match tokenize_chat_prompt(&tokenizer, &request.messages, Some("qwen"), state)
-    {
-        Ok(ids) => ids,
-        Err(r) => return Some(r),
-    };
+    // GH-319: Use actual model architecture for chat template detection
+    let arch_hint = state.model_architecture();
+    let prompt_ids =
+        match tokenize_chat_prompt(&tokenizer, &request.messages, arch_hint.as_deref(), state) {
+            Ok(ids) => ids,
+            Err(r) => return Some(r),
+        };
     let prompt_tokens = prompt_ids.len();
     let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer);
 
