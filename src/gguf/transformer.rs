@@ -6,7 +6,7 @@
 use crate::error::{RealizarError, Result};
 use crate::quantize::QK_K;
 
-use super::config::GGUFConfig;
+use super::config::{GGUFConfig, ValidatedModelConfig};
 use super::quantized::{QKVWeights, QuantizedTensorRef};
 use super::types::{
     GGUFModel, GGUF_TYPE_F32, GGUF_TYPE_Q2_K, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_1, GGUF_TYPE_Q4_K,
@@ -105,7 +105,8 @@ impl<'a> QuantizedGGUFTransformer<'a> {
     ///
     /// Returns error if required tensors are missing or have unsupported format
     pub fn from_gguf(model: &GGUFModel, data: &'a [u8]) -> Result<Self> {
-        let config = GGUFConfig::from_gguf(model)?;
+        // Phase 2: Validate config at construction boundary.
+        let config = ValidatedModelConfig::from_gguf(model)?.into_inner();
 
         // Token embedding - keep as f32 for efficient lookup
         let token_embedding = model.get_tensor_f32("token_embd.weight", data)?;

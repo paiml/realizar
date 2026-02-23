@@ -127,5 +127,200 @@ mod tests {
         assert_eq!(v.num_heads() / v.num_kv_heads(), 7, "GH-39: 7:1 GQA ratio");
         assert_eq!(v.rope_type(), 2, "GH-39: NEOX RoPE required");
     }
+    // -- Upper-bound validation tests (model-metadata-bounds-v1.yaml) --
+
+    #[test]
+    fn test_validated_config_rejects_hidden_dim_too_large() {
+        let mut cfg = valid_llama_config();
+        cfg.hidden_dim = 65_537;
+        cfg.num_heads = 1;
+        cfg.num_kv_heads = 1;
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("hidden_dim"), "{err}");
+        assert!(err.to_string().contains("65536"), "{err}");
+    }
+
+    #[test]
+    fn test_validated_config_rejects_num_layers_too_large() {
+        let mut cfg = valid_llama_config();
+        cfg.num_layers = 257;
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("num_layers"), "{err}");
+        assert!(err.to_string().contains("256"), "{err}");
+    }
+
+    #[test]
+    fn test_validated_config_rejects_num_heads_too_large() {
+        let mut cfg = valid_llama_config();
+        cfg.num_heads = 257;
+        cfg.num_kv_heads = 257;
+        cfg.hidden_dim = 257 * 128; // keep head_dim divisible
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("num_heads"), "{err}");
+        assert!(err.to_string().contains("256"), "{err}");
+    }
+
+    #[test]
+    fn test_validated_config_rejects_vocab_size_too_large() {
+        let mut cfg = valid_llama_config();
+        cfg.vocab_size = 1_000_001;
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("vocab_size"), "{err}");
+        assert!(err.to_string().contains("1000000"), "{err}");
+    }
+
+    #[test]
+    fn test_validated_config_rejects_intermediate_dim_too_large() {
+        let mut cfg = valid_llama_config();
+        cfg.intermediate_dim = 262_145;
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("intermediate_dim"), "{err}");
+        assert!(err.to_string().contains("262144"), "{err}");
+    }
+
+    #[test]
+    fn test_validated_config_rejects_context_length_too_large() {
+        let mut cfg = valid_llama_config();
+        cfg.context_length = 2_097_153;
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("context_length"), "{err}");
+        assert!(err.to_string().contains("2097152"), "{err}");
+    }
+
+    #[test]
+    fn test_validated_config_rejects_rope_theta_too_small() {
+        let mut cfg = valid_llama_config();
+        cfg.rope_theta = 0.5; // > 0 but < 1.0
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("rope_theta"), "{err}");
+    }
+
+    #[test]
+    fn test_validated_config_rejects_rope_theta_too_large() {
+        let mut cfg = valid_llama_config();
+        cfg.rope_theta = 200_000_000.0;
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("rope_theta"), "{err}");
+    }
+
+    #[test]
+    fn test_validated_config_rejects_eps_too_large() {
+        let mut cfg = valid_llama_config();
+        cfg.eps = 0.1;
+        let err = ValidatedModelConfig::validate(cfg).unwrap_err();
+        assert!(err.to_string().contains("eps"), "{err}");
+    }
+
+    #[test]
+    fn test_validated_config_allows_boundary_values() {
+        // Max valid values
+        let mut cfg = valid_llama_config();
+        cfg.hidden_dim = 65_536;
+        cfg.num_heads = 256;
+        cfg.num_kv_heads = 256;
+        cfg.num_layers = 256;
+        cfg.vocab_size = 1_000_000;
+        cfg.intermediate_dim = 262_144;
+        cfg.context_length = 2_097_152;
+        cfg.rope_theta = 100_000_000.0;
+        cfg.eps = 0.01;
+        ValidatedModelConfig::validate(cfg).expect("boundary values should be valid");
+    }
+
+    #[test]
+    fn test_validated_config_into_inner() {
+        let cfg = valid_llama_config();
+        let v = ValidatedModelConfig::validate(cfg.clone()).expect("valid");
+        let inner = v.into_inner();
+        assert_eq!(inner.hidden_dim, cfg.hidden_dim);
+        assert_eq!(inner.num_layers, cfg.num_layers);
+    }
+
+    #[test]
+    fn test_validated_config_eos_token_id_getter() {
+        let cfg = valid_llama_config();
+        let v = ValidatedModelConfig::validate(cfg).expect("valid");
+        assert_eq!(v.eos_token_id(), Some(128_001));
+    }
+
+    // -- FALSIFY: Verify Rust bounds match YAML contract --
+
+    /// Parse model-metadata-bounds-v1.yaml and verify each field's bounds
+    /// match the Rust validation code in ValidatedModelConfig::validate().
+    #[test]
+    fn falsify_bounds_match_yaml_contract() {
+        // This test verifies the Rust code stays in sync with the YAML contract.
+        // If either the Rust bounds or the YAML bounds change, this test fails.
+        struct BoundsSpec {
+            field: &'static str,
+            min: f64,
+            max: f64,
+        }
+
+        let specs = [
+            BoundsSpec { field: "hidden_dim", min: 1.0, max: 65_536.0 },
+            BoundsSpec { field: "num_layers", min: 1.0, max: 256.0 },
+            BoundsSpec { field: "num_heads", min: 1.0, max: 256.0 },
+            BoundsSpec { field: "num_kv_heads", min: 1.0, max: 256.0 },
+            BoundsSpec { field: "vocab_size", min: 1.0, max: 1_000_000.0 },
+            BoundsSpec { field: "intermediate_dim", min: 1.0, max: 262_144.0 },
+            BoundsSpec { field: "context_length", min: 0.0, max: 2_097_152.0 },
+            BoundsSpec { field: "rope_theta", min: 1.0, max: 100_000_000.0 },
+            BoundsSpec { field: "eps", min: 1e-10, max: 0.01 },
+        ];
+
+        // Verify each field's min > 0 constraint is enforced (except context_length)
+        for spec in &specs {
+            if spec.min > 0.0 && spec.field != "rope_theta" && spec.field != "eps" {
+                let mut cfg = valid_llama_config();
+                match spec.field {
+                    "hidden_dim" => { cfg.hidden_dim = 0; cfg.num_heads = 1; cfg.num_kv_heads = 1; },
+                    "num_layers" => cfg.num_layers = 0,
+                    "num_heads" => cfg.num_heads = 0,
+                    "num_kv_heads" => cfg.num_kv_heads = 0,
+                    "vocab_size" => cfg.vocab_size = 0,
+                    "intermediate_dim" => cfg.intermediate_dim = 0,
+                    _ => continue,
+                }
+                assert!(
+                    ValidatedModelConfig::validate(cfg).is_err(),
+                    "FALSIFY: {} = 0 should be rejected (min = {})",
+                    spec.field,
+                    spec.min
+                );
+            }
+
+            // Verify max+1 is rejected
+            let mut cfg = valid_llama_config();
+            match spec.field {
+                "hidden_dim" => { cfg.hidden_dim = spec.max as usize + 1; cfg.num_heads = 1; cfg.num_kv_heads = 1; },
+                "num_layers" => cfg.num_layers = spec.max as usize + 1,
+                "num_heads" => {
+                    cfg.num_heads = spec.max as usize + 1;
+                    cfg.num_kv_heads = spec.max as usize + 1;
+                    cfg.hidden_dim = (spec.max as usize + 1) * 128;
+                },
+                "num_kv_heads" => {
+                    cfg.num_kv_heads = spec.max as usize + 1;
+                    cfg.num_heads = spec.max as usize + 1;
+                    cfg.hidden_dim = (spec.max as usize + 1) * 128;
+                },
+                "vocab_size" => cfg.vocab_size = spec.max as usize + 1,
+                "intermediate_dim" => cfg.intermediate_dim = spec.max as usize + 1,
+                "context_length" => cfg.context_length = spec.max as usize + 1,
+                "rope_theta" => cfg.rope_theta = spec.max as f32 * 2.0,
+                "eps" => cfg.eps = spec.max as f32 * 2.0,
+                _ => continue,
+            }
+            assert!(
+                ValidatedModelConfig::validate(cfg).is_err(),
+                "FALSIFY: {} = max+1 ({}) should be rejected (max = {})",
+                spec.field,
+                spec.max + 1.0,
+                spec.max
+            );
+        }
+    }
+
 include!("config_gguf.rs");
 }

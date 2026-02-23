@@ -166,74 +166,32 @@ impl OwnedQuantizedModel {
         let data = apr.data();
         let data_offset = apr.data_offset() as usize;
 
-        // C-01/C-02/C-03 (Meyer DbC): Required model dimensions — no silent defaults.
-        // Architecture is required first (determines rope_theta/eps defaults).
-        let architecture = apr
-            .metadata
-            .architecture
-            .clone()
-            .ok_or_else(|| crate::RealizarError::InvalidConfiguration(
-                "C-01: APR model missing 'architecture' metadata — cannot infer model type".into()
-            ))?;
-        let hidden_dim = apr.metadata.hidden_size.ok_or_else(|| {
-            crate::RealizarError::InvalidConfiguration("C-03: APR model missing 'hidden_size' metadata".into())
-        })?;
-        let num_layers = apr.metadata.num_layers.ok_or_else(|| {
-            crate::RealizarError::InvalidConfiguration("C-03: APR model missing 'num_layers' metadata".into())
-        })?;
-        let num_heads = apr.metadata.num_heads.ok_or_else(|| {
-            crate::RealizarError::InvalidConfiguration("C-03: APR model missing 'num_heads' metadata".into())
-        })?;
-        let num_kv_heads = apr.metadata.num_kv_heads.unwrap_or(num_heads);
-        let intermediate_dim = apr.metadata.intermediate_size.ok_or_else(|| {
-            crate::RealizarError::InvalidConfiguration("C-03: APR model missing 'intermediate_size' metadata".into())
-        })?;
-        let eps = apr.metadata.rms_norm_eps
-            .unwrap_or_else(|| crate::gguf::ArchConstraints::from_architecture(&architecture).default_eps);
-        // C-02: rope_theta from metadata, or architecture-specific default
-        let rope_theta = apr.metadata.rope_theta
-            .unwrap_or_else(|| crate::gguf::default_rope_theta_for_architecture(&architecture));
+        // Phase 2: Deduplicated APR config extraction + validated construction.
         let vocab_size = apr_infer_vocab_size(apr);
-        let constraints = crate::gguf::ArchConstraints::from_architecture(&architecture);
-        // GH-329: Read from APR metadata, infer from architecture when absent
-        let rope_type = apr.metadata.rope_type
-            .unwrap_or_else(|| crate::gguf::infer_rope_type(&architecture));
-        let context_length = apr.metadata.max_position_embeddings.unwrap_or(0);
-        // GH-330: EOS from APR metadata, with architecture contract fallback
-        let eos_token_id = apr.metadata.get_embedded_eos_token_id()
-            .or_else(|| crate::gguf::default_eos_for_architecture(&architecture));
-        let config = GGUFConfig {
-            architecture,
-            constraints,
-            vocab_size,
-            hidden_dim,
-            num_layers,
-            num_heads,
-            num_kv_heads,
-            intermediate_dim,
-            eps,
-            rope_theta,
-            rope_type,
-            context_length,
-            explicit_head_dim: None,
-            bos_token_id: apr.metadata.get_embedded_bos_token_id(),
-            eos_token_id,
-        };
+        let validated = ValidatedModelConfig::from_apr(apr, vocab_size)?;
 
         // GH-279: Contract gate — validate architecture and dimensions before loading weights
         let _proof = crate::contract_gate::validate_model_load_basic(
-            &config.architecture,
-            config.num_layers,
-            config.hidden_dim,
-            config.num_heads,
-            config.num_kv_heads,
-            config.intermediate_dim,
-            config.vocab_size,
+            validated.architecture(),
+            validated.num_layers(),
+            validated.hidden_dim(),
+            validated.num_heads(),
+            validated.num_kv_heads(),
+            validated.intermediate_dim(),
+            validated.vocab_size(),
         )
         .map_err(crate::contract_gate::gate_error)?;
 
+        // Extract inner GGUFConfig for storage (struct field is typed GGUFConfig)
+        let config = validated.into_inner();
+
         // GH-278: Detect Conv1D layout from contract (not string matching)
         let transpose = config.constraints.needs_transpose();
+
+        // Extract dimensions from validated config for use below
+        let hidden_dim = config.hidden_dim;
+        let num_layers = config.num_layers;
+        let intermediate_dim = config.intermediate_dim;
 
         // Load token embeddings
         let token_embedding =

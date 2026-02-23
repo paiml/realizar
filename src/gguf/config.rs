@@ -305,6 +305,93 @@ pub(crate) fn default_rope_theta_for_architecture(arch: &str) -> f32 {
 }
 
 impl GGUFConfig {
+    /// Extract configuration from APR model metadata.
+    ///
+    /// Shared by both F32 loading (`loading.rs`) and quantized loading
+    /// (`loader_apr_quantized.rs`). Single source of truth for APR → `GGUFConfig`.
+    ///
+    /// # Arguments
+    ///
+    /// * `apr` - Memory-mapped APR model
+    /// * `vocab_size` - Pre-computed vocab size (caller infers from metadata or embedding tensor)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if required metadata fields (`architecture`, `hidden_size`,
+    /// `num_layers`, `num_heads`, `intermediate_size`) are missing.
+    pub fn from_apr(apr: &crate::apr::MappedAprModel, vocab_size: usize) -> Result<Self> {
+        // C-01 (Meyer DbC): Architecture is required (determines rope_theta/eps defaults).
+        let architecture = apr
+            .metadata
+            .architecture
+            .clone()
+            .ok_or_else(|| RealizarError::InvalidConfiguration(
+                "C-01: APR model missing 'architecture' metadata — cannot infer model type".into(),
+            ))?;
+        // C-03 (Meyer DbC): Required model dimensions — no silent defaults.
+        let hidden_dim = apr.metadata.hidden_size.ok_or_else(|| {
+            RealizarError::InvalidConfiguration(
+                "C-03: APR model missing 'hidden_size' metadata".into(),
+            )
+        })?;
+        let num_layers = apr.metadata.num_layers.ok_or_else(|| {
+            RealizarError::InvalidConfiguration(
+                "C-03: APR model missing 'num_layers' metadata".into(),
+            )
+        })?;
+        let num_heads = apr.metadata.num_heads.ok_or_else(|| {
+            RealizarError::InvalidConfiguration(
+                "C-03: APR model missing 'num_heads' metadata".into(),
+            )
+        })?;
+        let num_kv_heads = apr.metadata.num_kv_heads.unwrap_or(num_heads);
+        let intermediate_dim = apr.metadata.intermediate_size.ok_or_else(|| {
+            RealizarError::InvalidConfiguration(
+                "C-03: APR model missing 'intermediate_size' metadata".into(),
+            )
+        })?;
+        let constraints = ArchConstraints::from_architecture(&architecture);
+        let eps = apr
+            .metadata
+            .rms_norm_eps
+            .unwrap_or(constraints.default_eps);
+        // C-02: rope_theta from metadata, or architecture-specific default
+        let rope_theta = apr
+            .metadata
+            .rope_theta
+            .unwrap_or_else(|| default_rope_theta_for_architecture(&architecture));
+        // GH-329: Read from APR metadata, infer from architecture when absent
+        let rope_type = apr
+            .metadata
+            .rope_type
+            .unwrap_or_else(|| infer_rope_type(&architecture));
+        let context_length = apr.metadata.max_position_embeddings.unwrap_or(0);
+        // GH-330: EOS from APR metadata, with architecture contract fallback
+        let eos_token_id = apr
+            .metadata
+            .get_embedded_eos_token_id()
+            .or_else(|| default_eos_for_architecture(&architecture));
+        let bos_token_id = apr.metadata.get_embedded_bos_token_id();
+
+        Ok(Self {
+            architecture,
+            constraints,
+            vocab_size,
+            hidden_dim,
+            num_layers,
+            num_heads,
+            num_kv_heads,
+            intermediate_dim,
+            eps,
+            rope_theta,
+            rope_type,
+            context_length,
+            explicit_head_dim: None,
+            bos_token_id,
+            eos_token_id,
+        })
+    }
+
     /// Per-head dimension for Q/K projections.
     ///
     /// Uses explicit value from GGUF metadata if available, otherwise `hidden_dim / num_heads`.
@@ -547,6 +634,11 @@ impl ValidatedModelConfig {
                 reason: "num_kv_heads must be > 0".to_string(),
             });
         }
+        if config.intermediate_dim == 0 {
+            return Err(RealizarError::InvalidShape {
+                reason: "intermediate_dim must be > 0".to_string(),
+            });
+        }
         // GH-305: When head_dim is explicitly set (from GGUF metadata), hidden_dim may not
         // equal num_heads * head_dim (e.g., Qwen3-0.6B: hidden=1024, heads=16, head_dim=128).
         // Only enforce divisibility when head_dim is NOT explicitly overridden.
@@ -574,6 +666,9 @@ impl ValidatedModelConfig {
             });
         }
 
+        // Upper-bound + range checks from model-metadata-bounds-v1.yaml
+        validate_metadata_bounds(&config)?;
+
         Ok(Self { inner: config })
     }
 
@@ -587,6 +682,76 @@ impl ValidatedModelConfig {
     pub fn from_gguf(model: &GGUFModel) -> Result<Self> {
         let config = GGUFConfig::from_gguf(model)?;
         Self::validate(config)
+    }
+
+    /// Load and validate directly from an APR model.
+    ///
+    /// Calls `GGUFConfig::from_apr()` then validates the result.
+    ///
+    /// # Arguments
+    ///
+    /// * `apr` - Memory-mapped APR model
+    /// * `vocab_size` - Pre-computed vocab size (caller infers from metadata or embedding tensor)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if metadata extraction or validation fails.
+    pub fn from_apr(apr: &crate::apr::MappedAprModel, vocab_size: usize) -> Result<Self> {
+        let config = GGUFConfig::from_apr(apr, vocab_size)?;
+        Self::validate(config)
+    }
+
+    /// Load and validate from a `SafetensorsConfig` (config.json).
+    ///
+    /// Constructs a `GGUFConfig` from SafeTensors fields and validates dimension invariants.
+    /// This is a validation gate — the SafeTensors path continues building its own
+    /// `AprTransformerConfig`, but validates dimensions first.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if required fields are missing or invariants are violated.
+    pub fn from_safetensors_config(config: &crate::SafetensorsConfig) -> Result<Self> {
+        let hidden_dim = config.hidden_size.ok_or_else(|| RealizarError::InvalidShape {
+            reason: "config.json missing hidden_size".to_string(),
+        })?;
+        let num_layers = config.num_hidden_layers.ok_or_else(|| RealizarError::InvalidShape {
+            reason: "config.json missing num_hidden_layers".to_string(),
+        })?;
+        let num_heads = config.num_attention_heads.ok_or_else(|| RealizarError::InvalidShape {
+            reason: "config.json missing num_attention_heads".to_string(),
+        })?;
+        let num_kv_heads = config.num_kv_heads();
+        let vocab_size = config.vocab_size.ok_or_else(|| RealizarError::InvalidShape {
+            reason: "config.json missing vocab_size".to_string(),
+        })?;
+        let intermediate_dim = config.intermediate_size.unwrap_or(hidden_dim * 4);
+        let context_length = config.max_position_embeddings.unwrap_or(0);
+        let architecture = config.architecture();
+        let rope_theta = config
+            .rope_theta
+            .unwrap_or_else(|| default_rope_theta_for_architecture(&architecture));
+        let eps = config.rms_norm_eps.unwrap_or(1e-6);
+        let constraints = ArchConstraints::from_architecture(&architecture);
+
+        let rope_type = infer_rope_type(&architecture);
+        let raw = GGUFConfig {
+            architecture,
+            constraints,
+            hidden_dim,
+            num_layers,
+            num_heads,
+            num_kv_heads,
+            vocab_size,
+            intermediate_dim,
+            context_length,
+            rope_theta,
+            eps,
+            rope_type,
+            explicit_head_dim: None,
+            bos_token_id: config.bos_token_id,
+            eos_token_id: config.eos_token_id,
+        };
+        Self::validate(raw)
     }
 
     // -- Getters for all fields --
@@ -669,6 +834,12 @@ impl ValidatedModelConfig {
         self.inner.bos_token_id
     }
 
+    /// EOS token ID (None if unknown)
+    #[must_use]
+    pub fn eos_token_id(&self) -> Option<u32> {
+        self.inner.eos_token_id
+    }
+
     // -- Derived getters --
 
     /// Per-head dimension for Q/K projections.
@@ -698,6 +869,15 @@ impl ValidatedModelConfig {
     pub fn config(&self) -> &GGUFConfig {
         &self.inner
     }
+
+    /// Consume and return the inner `GGUFConfig`.
+    ///
+    /// Use this when the caller stores `GGUFConfig` (e.g., `OwnedQuantizedModel.config`)
+    /// but wants the validation guarantee at the construction boundary.
+    #[must_use]
+    pub fn into_inner(self) -> GGUFConfig {
+        self.inner
+    }
 }
 
 impl std::ops::Deref for ValidatedModelConfig {
@@ -706,6 +886,66 @@ impl std::ops::Deref for ValidatedModelConfig {
     fn deref(&self) -> &GGUFConfig {
         &self.inner
     }
+}
+
+/// Upper-bound and range checks from `model-metadata-bounds-v1.yaml`.
+///
+/// Extracted from `ValidatedModelConfig::validate()` for complexity compliance.
+/// Catches corrupted/impossible configs before they cause OOM or panics.
+fn validate_metadata_bounds(config: &GGUFConfig) -> Result<()> {
+    check_usize_max(config.hidden_dim, 65_536, "hidden_dim")?;
+    check_usize_max(config.num_layers, 256, "num_layers")?;
+    check_usize_max(config.num_heads, 256, "num_heads")?;
+    check_usize_max(config.num_kv_heads, 256, "num_kv_heads")?;
+    check_usize_max(config.vocab_size, 1_000_000, "vocab_size")?;
+    check_usize_max(config.intermediate_dim, 262_144, "intermediate_dim")?;
+    check_usize_max(config.context_length, 2_097_152, "context_length")?;
+
+    // rope_theta: must be >= 1.0 when set (0.0 means "not configured")
+    if config.rope_theta > 0.0 && config.rope_theta < 1.0 {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "rope_theta {} below minimum 1.0 (model-metadata-bounds-v1)",
+                config.rope_theta
+            ),
+        });
+    }
+    if config.rope_theta > 100_000_000.0 {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "rope_theta {} exceeds max 100000000.0 (model-metadata-bounds-v1)",
+                config.rope_theta
+            ),
+        });
+    }
+    // eps: must be in [1e-10, 0.01] when non-zero
+    if config.eps > 0.0 && config.eps < 1e-10 {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "eps {} below minimum 1e-10 (model-metadata-bounds-v1)",
+                config.eps
+            ),
+        });
+    }
+    if config.eps > 0.01 {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "eps {} exceeds max 0.01 (model-metadata-bounds-v1)",
+                config.eps
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// Check a `usize` field against its contract maximum.
+fn check_usize_max(value: usize, max: usize, field: &str) -> Result<()> {
+    if value > max {
+        return Err(RealizarError::InvalidShape {
+            reason: format!("{field} {value} exceeds max {max} (model-metadata-bounds-v1)"),
+        });
+    }
+    Ok(())
 }
 
 include!("config_validated.rs");

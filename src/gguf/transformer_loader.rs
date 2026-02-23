@@ -11,7 +11,8 @@ impl GGUFTransformer {
     ///
     /// Returns error if required tensors are missing or malformed
     pub fn from_gguf(model: &GGUFModel, file_data: &[u8]) -> Result<Self> {
-        let config = GGUFConfig::from_gguf(model)?;
+        // Phase 2: Validate config at construction boundary.
+        let config = ValidatedModelConfig::from_gguf(model)?.into_inner();
 
         // Load token embedding
         let token_embedding = model.get_tensor_f32("token_embd.weight", file_data)?;

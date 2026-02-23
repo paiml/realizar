@@ -26,10 +26,10 @@ pub struct GgufWeights {
 ///
 /// Returns error if required tensors are missing or shapes don't match.
 pub fn load_weights_from_gguf(mapped: &crate::gguf::MappedGGUFModel) -> Result<GgufWeights> {
-    use crate::gguf::GGUFConfig;
+    use crate::gguf::ValidatedModelConfig;
 
-    // Extract config from GGUF metadata
-    let gguf_config = GGUFConfig::from_gguf(&mapped.model)?;
+    // Phase 2: Validate config at construction boundary.
+    let gguf_config = ValidatedModelConfig::from_gguf(&mapped.model)?.into_inner();
 
     let config = GpuModelConfig {
         vocab_size: gguf_config.vocab_size,

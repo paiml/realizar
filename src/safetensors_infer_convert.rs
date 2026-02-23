@@ -82,6 +82,16 @@ impl SafetensorsToAprConverter {
             crate::gguf::default_rope_theta_for_architecture(&architecture));
         let eps = config.rms_norm_eps.unwrap_or(1e-6);
 
+        // Phase 2: Validate model dimensions at construction boundary.
+        // Non-fatal: logs a warning for invalid configs but allows conversion to
+        // proceed. The final ValidatedAprTransformer::validate() at the end is
+        // the hard gate. This catches obvious dimension errors early.
+        if let Err(e) = crate::gguf::ValidatedModelConfig::from_safetensors_config(config) {
+            eprintln!(
+                "[Phase2-WARN] SafeTensors config validation: {e} — proceeding with conversion"
+            );
+        }
+
         // GH-278: Log Qwen3.5 detection with hybrid attention info
         if config.is_hybrid_attention() {
             let layer_count = config.layer_types.as_ref().map_or(0, Vec::len);
@@ -109,7 +119,7 @@ impl SafetensorsToAprConverter {
             context_length,
             rope_theta,
             eps,
-            eos_token_id: None, // TODO(GH-330): populate from SafeTensors config.json
+            eos_token_id: config.eos_token_id,
         };
 
         // Extract embeddings (HuggingFace: model.embed_tokens.weight, GGUF: token_embd.weight)
