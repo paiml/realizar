@@ -36,11 +36,9 @@ impl GgufToAprQ4KConverter {
         }
     }
 
-    /// PMAT-107: Infer rope_type from architecture (matches llama.cpp llama-model.cpp:7763-7811)
+    /// GH-329: Infer rope_type from architecture, checking metadata first.
     ///
-    /// Returns:
-    /// - 0 = NORM style (adjacent pairs) - default for LLaMA, TinyLlama
-    /// - 2 = NEOX style (split halves) - for Qwen2, Phi3, Gemma, etc.
+    /// Delegates to shared `crate::gguf::infer_rope_type()` for architecture inference.
     fn infer_rope_type(
         architecture: &str,
         metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>,
@@ -54,47 +52,8 @@ impl GgufToAprQ4KConverter {
                 _ => {},
             }
         }
-
-        // Infer from architecture name (matches llama.cpp neox-style architectures)
-        let arch_lower = architecture.to_lowercase();
-        let neox_architectures = [
-            "qwen",
-            "qwen2",
-            "qwen3",
-            "stablelm",
-            "phi2",
-            "phi3",
-            "gemma",
-            "gemma2",
-            "gemma3",
-            "starcoder2",
-            "gptneox",
-            "falcon",
-            "codeshell",
-            "orion",
-            "bert",
-            "nomic-bert",
-            "dbrx",
-            "olmo2",
-            "olmoe",
-            "plamo",
-            "plamo2",
-            "openelm",
-            "exaone",
-            "minicpm3",
-            "nemotron",
-            "internlm2",
-            "deepseek2",
-        ];
-
-        for neox_arch in neox_architectures {
-            if arch_lower.contains(neox_arch) {
-                return 2; // NEOX style
-            }
-        }
-
-        // Default to NORM style (LLaMA, TinyLlama, etc.)
-        0
+        // GH-329: Use shared inference function (single source of truth)
+        crate::gguf::infer_rope_type(architecture)
     }
 
     /// Convert GGUF file to APR v2 with preserved Q4K quantization

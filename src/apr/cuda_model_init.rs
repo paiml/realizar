@@ -123,25 +123,12 @@ impl AprV2ModelCuda {
         executor.set_rope_theta(rope_theta);
 
         // CORRECTNESS-011: Set RoPE type (0=NORM adjacent pairs, 2=NEOX split halves)
-        // Five-Whys: GPU garbage output → wrong RoPE style → rope_type not set for APR models
-        // BUG-2 FIX: Infer rope_type from architecture when not explicitly set
+        // GH-329: Use shared infer_rope_type() as single source of truth
         let rope_type = model.metadata.rope_type.unwrap_or_else(|| {
-            // Infer from architecture name (matches llama.cpp neox-style architectures)
-            let arch = model.metadata.model_type.as_deref().unwrap_or("");
-            let arch_lower = arch.to_lowercase();
-            let is_neox = arch_lower.contains("qwen")
-                || arch_lower.contains("phi")
-                || arch_lower.contains("gemma")
-                || arch_lower.contains("falcon")
-                || arch_lower.contains("starcoder")
-                || arch_lower.contains("gptneox")
-                || arch_lower.contains("bert")
-                || arch_lower.contains("stablelm");
-            if is_neox {
-                2
-            } else {
-                0
-            }
+            let arch = model.metadata.architecture.as_deref()
+                .or(model.metadata.model_type.as_deref())
+                .unwrap_or("");
+            crate::gguf::infer_rope_type(arch)
         });
         let rms_norm_eps = model.metadata.rms_norm_eps.unwrap_or(1e-6);
 
