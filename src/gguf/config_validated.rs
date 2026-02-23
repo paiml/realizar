@@ -322,5 +322,95 @@ mod tests {
         }
     }
 
+    // -- FALSIFY: Verify special-tokens-registry matches Rust code --
+
+    /// Verify default_eos_for_architecture() matches special-tokens-registry-v1.yaml.
+    /// If either changes without updating the other, this test fails.
+    #[test]
+    fn falsify_eos_tokens_match_yaml_registry() {
+        // Canonical EOS values from special-tokens-registry-v1.yaml
+        let expected: &[(&str, Option<u32>)] = &[
+            ("qwen2", Some(151_645)),
+            ("qwen3", Some(151_645)),
+            ("qwen3moe", Some(151_645)),
+            ("qwen3_5", Some(248_044)),
+            ("llama", Some(128_001)),
+            ("mistral", Some(2)),
+            ("gemma", Some(1)),
+            ("gemma2", Some(1)),
+            ("deepseek", Some(1)),
+            ("deepseek2", Some(1)),
+            ("phi3", Some(32_000)),
+            ("phi2", Some(50_256)),
+            ("phi", Some(50_256)),
+            ("gpt2", Some(50_256)),
+            ("unknown_arch", None),
+        ];
+
+        for &(arch, want) in expected {
+            let got = default_eos_for_architecture(arch);
+            assert_eq!(
+                got, want,
+                "FALSIFY: default_eos_for_architecture(\"{arch}\") = {got:?}, expected {want:?} (special-tokens-registry-v1.yaml)"
+            );
+        }
+    }
+
+    /// Verify default_bos_for_architecture() matches special-tokens-registry-v1.yaml.
+    #[test]
+    fn falsify_bos_tokens_match_yaml_registry() {
+        let expected: &[(&str, Option<u32>)] = &[
+            ("qwen2", Some(151_643)),
+            ("qwen3", Some(151_643)),
+            ("qwen3moe", Some(151_643)),
+            ("llama", Some(128_000)),
+            ("mistral", Some(1)),
+            ("gemma", Some(2)),
+            ("gemma2", Some(2)),
+            ("deepseek", Some(0)),
+            ("deepseek2", Some(0)),
+            ("phi3", Some(1)),
+            // phi2/phi/gpt2/qwen3_5: no BOS
+            ("phi2", None),
+            ("phi", None),
+            ("gpt2", None),
+            ("qwen3_5", None),
+            ("unknown_arch", None),
+        ];
+
+        for &(arch, want) in expected {
+            let got = default_bos_for_architecture(arch);
+            assert_eq!(
+                got, want,
+                "FALSIFY: default_bos_for_architecture(\"{arch}\") = {got:?}, expected {want:?} (special-tokens-registry-v1.yaml)"
+            );
+        }
+    }
+
+    /// Verify EOS token IDs are within vocab bounds (proof obligation from YAML).
+    #[test]
+    fn falsify_eos_within_vocab_bounds() {
+        // (arch, eos_id, vocab_size) from special-tokens-registry-v1.yaml
+        let families: &[(&str, u32, u32)] = &[
+            ("qwen2", 151_645, 151_936),
+            ("qwen3", 151_645, 151_936),
+            ("qwen3_5", 248_044, 248_320),
+            ("llama", 128_001, 128_256),
+            ("mistral", 2, 32_000),
+            ("gemma", 1, 256_000),
+            ("deepseek", 1, 129_280),
+            ("phi3", 32_000, 32_064),
+            ("phi2", 50_256, 51_200),
+            ("gpt2", 50_256, 50_257),
+        ];
+
+        for &(arch, eos, vocab) in families {
+            assert!(
+                eos < vocab,
+                "FALSIFY: {arch} eos_token_id ({eos}) >= vocab_size ({vocab}) — violates eos_within_vocab proof obligation"
+            );
+        }
+    }
+
 include!("config_gguf.rs");
 }
