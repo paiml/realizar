@@ -186,7 +186,7 @@ impl OwnedQuantizedModel {
         // GH-329: Read from APR metadata, infer from architecture when absent
         let rope_type = apr.metadata.rope_type
             .unwrap_or_else(|| crate::gguf::infer_rope_type(&architecture));
-        let context_length = apr.metadata.max_position_embeddings.unwrap_or(2048);
+        let context_length = apr.metadata.max_position_embeddings.unwrap_or(0);
         // GH-330: EOS from APR metadata, with architecture contract fallback
         let eos_token_id = apr.metadata.get_embedded_eos_token_id()
             .or_else(|| crate::gguf::default_eos_for_architecture(&architecture));

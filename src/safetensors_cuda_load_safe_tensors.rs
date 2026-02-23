@@ -246,7 +246,7 @@ impl SafeTensorsCudaModel {
             num_kv_heads: json.num_kv_heads(),
             vocab_size,
             intermediate_dim: json.intermediate_size.unwrap_or(hidden_dim * 4),
-            context_length: json.max_position_embeddings.unwrap_or(2048),
+            context_length: json.max_position_embeddings.unwrap_or(0),
             rope_theta,
             eps: json.rms_norm_eps.unwrap_or(1e-6),
             tie_word_embeddings: json.tie_word_embeddings.unwrap_or(false),

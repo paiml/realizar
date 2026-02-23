@@ -75,7 +75,8 @@ impl LinearAttnState {
         let kd = config.linear_key_head_dim.unwrap_or(0);
         let vd = config.linear_value_head_dim.unwrap_or(0);
         let conv_dim = config.linear_conv_dim();
-        let kernel_size = config.linear_conv_kernel_dim.unwrap_or(4);
+        // N-04 (Meyer DbC): 0 when missing — no Qwen3.5-specific default.
+        let kernel_size = config.linear_conv_kernel_dim.unwrap_or(0);
 
         let mut recurrent = Vec::with_capacity(num_layers);
         let mut conv_buf = Vec::with_capacity(num_layers);
@@ -150,11 +151,12 @@ pub fn forward_linear_block_incremental(
     let hidden_dim = model.config.hidden_dim;
     let intermediate_dim = model.config.intermediate_dim;
 
-    let num_k_heads = model.config.linear_num_key_heads.unwrap_or(16);
-    let num_v_heads = model.config.linear_num_value_heads.unwrap_or(32);
-    let kd = model.config.linear_key_head_dim.unwrap_or(128);
-    let vd = model.config.linear_value_head_dim.unwrap_or(128);
-    let kernel_size = model.config.linear_conv_kernel_dim.unwrap_or(4);
+    // N-04 (Meyer DbC): 0 when missing — no Qwen3.5-specific defaults.
+    let num_k_heads = model.config.linear_num_key_heads.unwrap_or(0);
+    let num_v_heads = model.config.linear_num_value_heads.unwrap_or(0);
+    let kd = model.config.linear_key_head_dim.unwrap_or(0);
+    let vd = model.config.linear_value_head_dim.unwrap_or(0);
+    let kernel_size = model.config.linear_conv_kernel_dim.unwrap_or(0);
 
     let key_dim = num_k_heads * kd;
     let value_dim = num_v_heads * vd;
@@ -377,11 +379,12 @@ pub fn forward_linear_block_with_cache(
     let hidden_dim = model.config.hidden_dim;
     let intermediate_dim = model.config.intermediate_dim;
 
-    let num_k_heads = model.config.linear_num_key_heads.unwrap_or(16);
-    let num_v_heads = model.config.linear_num_value_heads.unwrap_or(32);
-    let kd = model.config.linear_key_head_dim.unwrap_or(128);
-    let vd = model.config.linear_value_head_dim.unwrap_or(128);
-    let kernel_size = model.config.linear_conv_kernel_dim.unwrap_or(4);
+    // N-04 (Meyer DbC): 0 when missing — no Qwen3.5-specific defaults.
+    let num_k_heads = model.config.linear_num_key_heads.unwrap_or(0);
+    let num_v_heads = model.config.linear_num_value_heads.unwrap_or(0);
+    let kd = model.config.linear_key_head_dim.unwrap_or(0);
+    let vd = model.config.linear_value_head_dim.unwrap_or(0);
+    let kernel_size = model.config.linear_conv_kernel_dim.unwrap_or(0);
 
     let key_dim = num_k_heads * kd;
     let value_dim = num_v_heads * vd;
