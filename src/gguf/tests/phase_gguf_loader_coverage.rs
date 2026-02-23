@@ -102,8 +102,8 @@ fn test_phase33_loader_wrong_version() {
     let mut data = Vec::new();
     // Magic
     data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
-    // Version 2 (not supported)
-    data.extend_from_slice(&2u32.to_le_bytes());
+    // Version 99 (truly unsupported; v2 is valid per GH-310)
+    data.extend_from_slice(&99u32.to_le_bytes());
     // Tensor count
     data.extend_from_slice(&0u64.to_le_bytes());
     // Metadata count

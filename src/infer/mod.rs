@@ -477,21 +477,12 @@ fn prepare_tokens_apr(config: &InferenceConfig, prompt: &str) -> Result<Prepared
     })
 }
 
-/// Map SafeTensors architecture string to chat template hint
-fn safetensors_arch_to_template_hint<'a>(architecture: &str, model_name: &'a str) -> &'a str {
-    let arch_lower = architecture.to_lowercase();
-    if arch_lower.contains("qwen") {
-        "qwen2"
-    } else if arch_lower.contains("llama") {
-        "llama"
-    } else if arch_lower.contains("mistral") {
-        "mistral"
-    } else if arch_lower.contains("phi") {
-        "phi"
-    } else {
-        // Fall back to model name heuristic
-        apr_arch_to_template_hint("unknown", model_name)
-    }
+/// Map SafeTensors architecture string to chat template hint.
+///
+/// GH-317/318: Contract-driven — uses normalize_architecture() from
+/// tensor-names-v1.yaml. No contains() heuristics, no model_name fallback.
+fn safetensors_arch_to_template_hint(_architecture: &str, _model_name: &str) -> &'static str {
+    crate::tensor_names::normalize_architecture(_architecture)
 }
 
 include!("inference_result.rs");

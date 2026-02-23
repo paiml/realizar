@@ -237,8 +237,8 @@
     fn test_gguf_model_unsupported_version() {
         use crate::gguf::test_factory::GGUFBuilder;
         let mut data = GGUFBuilder::new().architecture("llama").build();
-        // Corrupt version to 2 (only v3 is supported)
-        data[4..8].copy_from_slice(&2u32.to_le_bytes());
+        // Corrupt version to 99 (truly unsupported; v2 and v3 are valid per GH-310)
+        data[4..8].copy_from_slice(&99u32.to_le_bytes());
         let result = GGUFModel::from_bytes(&data);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();

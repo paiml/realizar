@@ -52,18 +52,18 @@ pub fn build_executable_pygmy_apr() -> Vec<u8> {
     let metadata_bytes = metadata.as_bytes();
     let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
 
-    // Tensors needed for forward pass (all F32):
+    // GH-317: Contract-compliant tensor names (model.layers.N. prefix for llama)
     // - model.embed_tokens.weight [vocab=10, hidden=8] = 80 floats
-    // - layers.0.input_layernorm.weight [hidden=8] = 8 floats
-    // - layers.0.self_attn.q_proj.weight [hidden=8, hidden=8] = 64 floats
-    // - layers.0.self_attn.k_proj.weight [kv_dim=8, hidden=8] = 64 floats
-    // - layers.0.self_attn.v_proj.weight [kv_dim=8, hidden=8] = 64 floats
-    // - layers.0.self_attn.o_proj.weight [hidden=8, hidden=8] = 64 floats
-    // - layers.0.post_attention_layernorm.weight [hidden=8] = 8 floats
-    // - layers.0.mlp.gate_proj.weight [inter=16, hidden=8] = 128 floats
-    // - layers.0.mlp.up_proj.weight [inter=16, hidden=8] = 128 floats
-    // - layers.0.mlp.down_proj.weight [hidden=8, inter=16] = 128 floats
-    // - norm.weight [hidden=8] = 8 floats
+    // - model.layers.0.input_layernorm.weight [hidden=8] = 8 floats
+    // - model.layers.0.self_attn.q_proj.weight [hidden=8, hidden=8] = 64 floats
+    // - model.layers.0.self_attn.k_proj.weight [kv_dim=8, hidden=8] = 64 floats
+    // - model.layers.0.self_attn.v_proj.weight [kv_dim=8, hidden=8] = 64 floats
+    // - model.layers.0.self_attn.o_proj.weight [hidden=8, hidden=8] = 64 floats
+    // - model.layers.0.post_attention_layernorm.weight [hidden=8] = 8 floats
+    // - model.layers.0.mlp.gate_proj.weight [inter=16, hidden=8] = 128 floats
+    // - model.layers.0.mlp.up_proj.weight [inter=16, hidden=8] = 128 floats
+    // - model.layers.0.mlp.down_proj.weight [hidden=8, inter=16] = 128 floats
+    // - model.norm.weight [hidden=8] = 8 floats
     // - lm_head.weight [vocab=10, hidden=8] = 80 floats
 
     let tensor_defs: Vec<(&str, Vec<u64>, usize)> = vec![
@@ -73,51 +73,51 @@ pub fn build_executable_pygmy_apr() -> Vec<u8> {
             vocab_size * hidden_size * 4,
         ),
         (
-            "layers.0.input_layernorm.weight",
+            "model.layers.0.input_layernorm.weight",
             vec![hidden_size as u64],
             hidden_size * 4,
         ),
         (
-            "layers.0.self_attn.q_proj.weight",
+            "model.layers.0.self_attn.q_proj.weight",
             vec![hidden_size as u64, hidden_size as u64],
             hidden_size * hidden_size * 4,
         ),
         (
-            "layers.0.self_attn.k_proj.weight",
+            "model.layers.0.self_attn.k_proj.weight",
             vec![hidden_size as u64, hidden_size as u64],
             hidden_size * hidden_size * 4,
         ),
         (
-            "layers.0.self_attn.v_proj.weight",
+            "model.layers.0.self_attn.v_proj.weight",
             vec![hidden_size as u64, hidden_size as u64],
             hidden_size * hidden_size * 4,
         ),
         (
-            "layers.0.self_attn.o_proj.weight",
+            "model.layers.0.self_attn.o_proj.weight",
             vec![hidden_size as u64, hidden_size as u64],
             hidden_size * hidden_size * 4,
         ),
         (
-            "layers.0.post_attention_layernorm.weight",
+            "model.layers.0.post_attention_layernorm.weight",
             vec![hidden_size as u64],
             hidden_size * 4,
         ),
         (
-            "layers.0.mlp.gate_proj.weight",
+            "model.layers.0.mlp.gate_proj.weight",
             vec![intermediate_size as u64, hidden_size as u64],
             hidden_size * intermediate_size * 4,
         ),
         (
-            "layers.0.mlp.up_proj.weight",
+            "model.layers.0.mlp.up_proj.weight",
             vec![intermediate_size as u64, hidden_size as u64],
             hidden_size * intermediate_size * 4,
         ),
         (
-            "layers.0.mlp.down_proj.weight",
+            "model.layers.0.mlp.down_proj.weight",
             vec![hidden_size as u64, intermediate_size as u64],
             hidden_size * intermediate_size * 4,
         ),
-        ("norm.weight", vec![hidden_size as u64], hidden_size * 4),
+        ("model.norm.weight", vec![hidden_size as u64], hidden_size * 4),
         (
             "lm_head.weight",
             vec![vocab_size as u64, hidden_size as u64],
@@ -254,60 +254,60 @@ fn test_active_apr_pygmy_has_all_tensors() {
     let data = build_executable_pygmy_apr();
     let model = AprV2Model::from_bytes(data).expect("Should parse");
 
-    // Check all required tensors exist
+    // GH-317: Check all required tensors exist (contract-compliant names)
     assert!(
         model.get_tensor("model.embed_tokens.weight").is_some(),
         "Missing embed_tokens"
     );
     assert!(
         model
-            .get_tensor("layers.0.input_layernorm.weight")
+            .get_tensor("model.layers.0.input_layernorm.weight")
             .is_some(),
         "Missing input_layernorm"
     );
     assert!(
         model
-            .get_tensor("layers.0.self_attn.q_proj.weight")
+            .get_tensor("model.layers.0.self_attn.q_proj.weight")
             .is_some(),
         "Missing q_proj"
     );
     assert!(
         model
-            .get_tensor("layers.0.self_attn.k_proj.weight")
+            .get_tensor("model.layers.0.self_attn.k_proj.weight")
             .is_some(),
         "Missing k_proj"
     );
     assert!(
         model
-            .get_tensor("layers.0.self_attn.v_proj.weight")
+            .get_tensor("model.layers.0.self_attn.v_proj.weight")
             .is_some(),
         "Missing v_proj"
     );
     assert!(
         model
-            .get_tensor("layers.0.self_attn.o_proj.weight")
+            .get_tensor("model.layers.0.self_attn.o_proj.weight")
             .is_some(),
         "Missing o_proj"
     );
     assert!(
         model
-            .get_tensor("layers.0.post_attention_layernorm.weight")
+            .get_tensor("model.layers.0.post_attention_layernorm.weight")
             .is_some(),
         "Missing post_attention_layernorm"
     );
     assert!(
-        model.get_tensor("layers.0.mlp.gate_proj.weight").is_some(),
+        model.get_tensor("model.layers.0.mlp.gate_proj.weight").is_some(),
         "Missing gate_proj"
     );
     assert!(
-        model.get_tensor("layers.0.mlp.up_proj.weight").is_some(),
+        model.get_tensor("model.layers.0.mlp.up_proj.weight").is_some(),
         "Missing up_proj"
     );
     assert!(
-        model.get_tensor("layers.0.mlp.down_proj.weight").is_some(),
+        model.get_tensor("model.layers.0.mlp.down_proj.weight").is_some(),
         "Missing down_proj"
     );
-    assert!(model.get_tensor("norm.weight").is_some(), "Missing norm");
+    assert!(model.get_tensor("model.norm.weight").is_some(), "Missing norm");
     assert!(
         model.get_tensor("lm_head.weight").is_some(),
         "Missing lm_head"

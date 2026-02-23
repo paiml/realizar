@@ -288,13 +288,15 @@ fn test_prepared_tokens_no_prompt() {
 
 #[test]
 fn test_safetensors_arch_qwen() {
+    // GH-317/318: Exact match via normalize_architecture contract
     assert_eq!(
         safetensors_arch_to_template_hint("Qwen2ForCausalLM", "model"),
         "qwen2"
     );
+    // "QwenModel" is not in the contract — defaults to "llama"
     assert_eq!(
         safetensors_arch_to_template_hint("QwenModel", "model"),
-        "qwen2"
+        "llama"
     );
 }
 
@@ -316,17 +318,22 @@ fn test_safetensors_arch_mistral() {
 
 #[test]
 fn test_safetensors_arch_phi() {
+    // GH-317/318: PhiForCausalLM maps to "phi2" (Phi-1.5/Phi-2), Phi3ForCausalLM maps to "phi"
     assert_eq!(
         safetensors_arch_to_template_hint("PhiForCausalLM", "model"),
+        "phi2"
+    );
+    assert_eq!(
+        safetensors_arch_to_template_hint("Phi3ForCausalLM", "model"),
         "phi"
     );
 }
 
 #[test]
 fn test_safetensors_arch_unknown() {
-    // Falls through to apr_arch_to_template_hint("unknown", model_name)
+    // GH-317/318: Unknown HF class names default to "llama" via normalize_architecture
     let result = safetensors_arch_to_template_hint("CustomModel", "my-model-instruct");
-    assert_eq!(result, "my-model-instruct");
+    assert_eq!(result, "llama");
 }
 
 // ============================================================================

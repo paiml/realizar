@@ -369,6 +369,8 @@ pub mod serve;
 pub mod speculative;
 pub mod stats;
 pub mod tensor;
+/// GH-311: Contract-driven tensor name resolution (tensor-names-v1.yaml codegen)
+pub mod tensor_names;
 /// Model fixture testing infrastructure with PyTorch-style patterns.
 ///
 /// Provides standardized testing for model formats (GGUF, APR, SafeTensors)
