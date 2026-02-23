@@ -23,6 +23,7 @@ fn test_imp_114a_flattened_batched_gemm_correctness() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -101,6 +102,7 @@ fn test_imp_114b_flattened_matches_loop() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -161,6 +163,7 @@ fn test_imp_114c_flattened_attention_correctness() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -222,6 +225,7 @@ fn test_imp_114d_large_batch_flattened() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

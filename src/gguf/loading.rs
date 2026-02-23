@@ -186,6 +186,9 @@ impl OwnedQuantizedModel {
         let rope_type = apr.metadata.rope_type
             .unwrap_or_else(|| crate::gguf::infer_rope_type(&architecture));
         let context_length = apr.metadata.max_position_embeddings.unwrap_or(2048);
+        // GH-330: EOS from APR metadata, with architecture contract fallback
+        let eos_token_id = apr.metadata.get_embedded_eos_token_id()
+            .or_else(|| crate::gguf::default_eos_for_architecture(&architecture));
         let config = GGUFConfig {
             architecture,
             constraints,
@@ -201,6 +204,7 @@ impl OwnedQuantizedModel {
             context_length,
             explicit_head_dim: None,
             bos_token_id: apr.metadata.get_embedded_bos_token_id(),
+            eos_token_id,
         };
 
         // GH-279: Contract gate — validate architecture and dimensions before loading weights

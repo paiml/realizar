@@ -16,6 +16,7 @@
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         assert_eq!(config.architecture, "llama");
@@ -48,6 +49,7 @@
             rope_type: 2,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         let cloned = config.clone();
@@ -73,6 +75,7 @@
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         let debug_str = format!("{:?}", config);
@@ -98,6 +101,7 @@
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         assert_eq!(config.num_heads / config.num_kv_heads, 4);
@@ -121,6 +125,7 @@
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         assert_eq!(config.num_heads, config.num_kv_heads);
@@ -144,6 +149,7 @@
             rope_type: 2, // NEOX
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         assert_eq!(config.rope_type, 2);
@@ -167,6 +173,7 @@
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         assert!(config.rope_theta > 100_000.0);
@@ -191,6 +198,7 @@
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         assert!((config.eps - 1e-6).abs() < 1e-10);
@@ -214,6 +222,7 @@
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         let head_dim = config.hidden_dim / config.num_heads;
@@ -238,6 +247,7 @@
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         let head_dim = config.hidden_dim / config.num_heads;
@@ -263,6 +273,7 @@
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         let head_dim = config.hidden_dim / config.num_heads;
@@ -288,6 +299,7 @@
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         let debug = format!("{:?}", config);
@@ -321,6 +333,7 @@
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         let cloned = original.clone();
@@ -395,6 +408,7 @@
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: Some(128_000),
+            eos_token_id: Some(128_001),
         }
     }
 

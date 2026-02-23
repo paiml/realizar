@@ -18,6 +18,7 @@ fn test_imp_119c_gpu_fused_multihead_long_sequence() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -81,6 +82,7 @@ fn test_imp_119d_adaptive_cpu_gpu_dispatch() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

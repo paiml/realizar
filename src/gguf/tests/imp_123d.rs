@@ -201,6 +201,7 @@ fn test_imp_124a_forward_single_with_cache_adaptive() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
     let mut cache = OwnedQuantizedKVCache::new(
@@ -251,6 +252,7 @@ fn test_imp_124b_adaptive_matches_standard() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
     let mut cache1 = OwnedQuantizedKVCache::new(config.num_layers, config.hidden_dim, 128);
@@ -300,6 +302,7 @@ fn test_imp_124c_tracks_metrics_per_layer() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
     let mut cache = OwnedQuantizedKVCache::new(config.num_layers, config.hidden_dim, 128);
@@ -354,6 +357,7 @@ fn test_imp_124d_long_cache_uses_gpu() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
     let mut cache = OwnedQuantizedKVCache::new(
@@ -407,6 +411,7 @@ fn test_imp_125a_generate_with_cache_adaptive() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
     let metrics = std::sync::Arc::new(DispatchMetrics::new());

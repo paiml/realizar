@@ -109,6 +109,7 @@ fn test_parity008e_benchmark_reproducibility() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
 

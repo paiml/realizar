@@ -322,6 +322,7 @@ fn test_from_gguf_transformer_preserves_config() {
             eps: 1e-6,
             rope_type: 0,
             bos_token_id: None,
+            eos_token_id: None,
         },
         token_embedding: vec![0.0; 512 * 32000],
         position_embedding: None,

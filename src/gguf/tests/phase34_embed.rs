@@ -21,6 +21,7 @@ fn test_phase34_embed_different_dimensions() {
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         let model = create_test_model_with_config(&config);
@@ -48,6 +49,7 @@ fn test_phase34_fused_matmul_all_qtypes_comprehensive() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

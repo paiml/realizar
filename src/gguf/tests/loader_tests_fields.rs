@@ -15,6 +15,7 @@ fn test_loader_part02_owned_model_with_biases() {
         eps: 1e-5,
         rope_type: 2,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let token_embedding = vec![0.1f32; 50 * 32];
@@ -98,6 +99,7 @@ fn test_loader_part02_owned_qkv_separate() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let kv_dim = 16; // num_kv_heads * head_dim

@@ -35,6 +35,7 @@ fn test_phase34_cached_sync_new() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -63,6 +64,7 @@ fn test_phase34_cached_sync_model_accessor() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -96,6 +98,7 @@ fn test_phase34_cached_sync_concurrent_model_access() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -139,6 +142,7 @@ fn test_phase34_cached_sync_send_sync_bounds() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -185,6 +189,7 @@ fn test_phase34_cached_sync_multiple_configs() {
             },
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         let model = create_test_model_with_config(&config);
@@ -220,6 +225,7 @@ fn test_phase34_cached_sync_no_gpu_feature() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let _model = create_test_model_with_config(&config);
@@ -248,6 +254,7 @@ fn test_phase34_cached_sync_rapid_access() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -280,6 +287,7 @@ fn test_phase34_cached_sync_thread_stress() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

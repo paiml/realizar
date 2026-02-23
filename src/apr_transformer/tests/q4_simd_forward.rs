@@ -372,6 +372,7 @@ fn test_from_gguf_basic_fused_qkv() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let gguf_model = create_test_model_with_config(&config);

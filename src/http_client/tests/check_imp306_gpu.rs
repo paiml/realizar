@@ -334,6 +334,7 @@ fn test_imp_400c_realizar_native_forward_performance() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     // Create layers with properly sized weights

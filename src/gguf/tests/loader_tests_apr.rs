@@ -252,6 +252,7 @@ fn test_to_apr_bytes_various_qtypes() {
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         let layer = OwnedQuantizedLayer {

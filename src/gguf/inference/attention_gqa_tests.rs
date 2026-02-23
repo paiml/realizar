@@ -69,6 +69,7 @@ fn create_gqa_model(
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     // GQA dimensions

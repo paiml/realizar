@@ -19,6 +19,7 @@ fn test_loader_part02_config_clone() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let cloned = config.clone();
@@ -52,6 +53,7 @@ fn test_loader_part02_config_debug() {
         eps: 1e-6,
         rope_type: 2,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let debug_str = format!("{:?}", config);

@@ -18,6 +18,7 @@ fn test_imp_108c_attention_softmax_normalized() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
