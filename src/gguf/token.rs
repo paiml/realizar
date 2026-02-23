@@ -167,12 +167,12 @@ impl GGUFModel {
             .map(|(id, token)| (token.as_str(), id as u32))
             .collect();
 
-        // Identify special tokens (high-ID tokens with <|...|> pattern)
-        // These need priority matching to avoid being split by greedy algorithm
+        // GH-320: Identify special tokens by pattern, not by hardcoded ID threshold.
+        // Matches <|...|> tokens at any ID position in the vocabulary.
         let special_tokens: Vec<(&str, u32)> = vocab
             .iter()
             .enumerate()
-            .filter(|(id, tok)| *id >= 151643 && tok.starts_with("<|") && tok.ends_with("|>"))
+            .filter(|(_id, tok)| tok.starts_with("<|") && tok.ends_with("|>"))
             .map(|(id, tok)| (tok.as_str(), id as u32))
             .collect();
 
