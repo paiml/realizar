@@ -17,7 +17,9 @@ use std::collections::HashMap;
 /// GGUF magic number: "GGUF" in little-endian
 pub const GGUF_MAGIC: u32 = 0x4655_4747;
 
-/// Supported GGUF versions
+/// GGUF version 2 (same structure as v3, no big-endian)
+pub const GGUF_VERSION_V2: u32 = 2;
+/// GGUF version 3 (current, adds big-endian support)
 pub const GGUF_VERSION_V3: u32 = 3;
 
 // ============================================================================
