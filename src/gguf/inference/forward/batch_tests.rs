@@ -29,6 +29,7 @@ fn test_config() -> GGUFConfig {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     }
 }
 

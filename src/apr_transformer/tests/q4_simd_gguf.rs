@@ -25,6 +25,7 @@ fn test_from_gguf_separate_qkv() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let q_weight = create_q4k_test_data(hidden_dim, hidden_dim);
@@ -108,6 +109,7 @@ fn test_from_gguf_gqa_config() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let gguf_model = create_test_model_with_config(&config);
@@ -142,6 +144,7 @@ fn test_from_gguf_with_ffn_gate() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let kv_dim = 4 * (hidden_dim / 4);

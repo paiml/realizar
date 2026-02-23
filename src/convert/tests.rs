@@ -85,6 +85,7 @@ mod tests {
             rope_type: 2, // NEOX style
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         let layers: Vec<GGUFTransformerLayer> = (0..num_layers)

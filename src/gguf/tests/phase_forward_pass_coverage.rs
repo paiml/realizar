@@ -31,6 +31,7 @@ fn test_phase33_forward_basic() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -63,6 +64,7 @@ fn test_phase33_forward_multi_token() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -90,6 +92,7 @@ fn test_phase33_forward_multi_layer() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -120,6 +123,7 @@ fn test_phase33_forward_cached_single() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -148,6 +152,7 @@ fn test_phase33_forward_cached_sequence() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -182,6 +187,7 @@ fn test_phase33_forward_cached_multi_layer() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -215,6 +221,7 @@ fn test_phase33_forward_single_layer_single_head() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

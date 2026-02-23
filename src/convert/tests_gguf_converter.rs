@@ -177,6 +177,7 @@
             eps: 1e-5,
             rope_type: 0, // NORM style (adjacent pairs)
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         let layers: Vec<GGUFTransformerLayer> = (0..num_layers)

@@ -41,6 +41,7 @@ mod potemkin_village {
             rope_type: 0, // 0 = NORM (standard LLaMA)
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         // Create mock quantized model using test helper

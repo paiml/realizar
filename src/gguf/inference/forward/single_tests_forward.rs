@@ -23,6 +23,7 @@ fn test_forward_single_gqa_config() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let hidden_dim = config.hidden_dim;
@@ -104,6 +105,7 @@ fn test_forward_single_multiple_layers() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let hidden_dim = config.hidden_dim;

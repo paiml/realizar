@@ -69,6 +69,7 @@ fn test_imp_101a_rope_preserves_norm() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = OwnedQuantizedModel {
@@ -129,6 +130,7 @@ fn test_imp_101a_rope_position_dependent() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = OwnedQuantizedModel {
@@ -204,6 +206,7 @@ fn test_imp_101b_causal_attention_mask() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = OwnedQuantizedModel {
@@ -277,6 +280,7 @@ fn test_imp_101b_causal_attention_softmax_normalized() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = OwnedQuantizedModel {
@@ -359,6 +363,7 @@ fn test_imp_101c_kv_cache_from_config() {
         rope_theta: 10000.0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let cache = OwnedQuantizedKVCache::from_config(&config, 1024);

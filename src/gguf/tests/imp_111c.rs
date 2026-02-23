@@ -17,6 +17,7 @@ fn test_imp_111c_tiled_causal_attention() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -100,6 +101,7 @@ fn test_imp_111d_tiled_attention_various_tile_sizes() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -169,6 +171,7 @@ fn test_imp_113a_batched_gemm_single_dispatch() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -251,6 +254,7 @@ fn test_imp_113b_single_dispatch_attention_correctness() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -315,6 +319,7 @@ fn test_imp_113c_single_dispatch_dispatch_count() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -373,6 +378,7 @@ fn test_imp_113d_batched_softmax_correctness() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

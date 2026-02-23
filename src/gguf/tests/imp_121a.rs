@@ -34,6 +34,7 @@ fn test_imp_121a_cached_sync_has_adaptive_attention() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -84,6 +85,7 @@ fn test_imp_121b_cached_sync_adaptive_multihead() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -133,6 +135,7 @@ fn test_imp_121c_generate_with_adaptive_attention() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -180,6 +183,7 @@ fn test_imp_121d_thread_safe_adaptive_attention() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -250,6 +254,7 @@ fn test_imp_122a_adaptive_attention_with_cache() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -307,6 +312,7 @@ fn test_imp_122b_adaptive_matches_standard() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -365,6 +371,7 @@ fn test_imp_122c_long_sequence_uses_gpu() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

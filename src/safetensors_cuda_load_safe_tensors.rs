@@ -265,7 +265,7 @@ impl SafeTensorsCudaModel {
             LayerTensorRole, FusedTensorRole,
         };
 
-        let check = |role: LayerTensorRole, label: &str| {
+        let mut check = |role: LayerTensorRole, label: &str| {
             if !has_layer(st_model, arch, layer_idx, role) {
                 missing.push(format!("layer {layer_idx} {label}"));
             }

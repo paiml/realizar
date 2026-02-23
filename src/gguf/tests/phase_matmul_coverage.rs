@@ -37,6 +37,7 @@ fn test_phase34_embed_single_token() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -63,6 +64,7 @@ fn test_phase34_embed_multiple_tokens() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -89,6 +91,7 @@ fn test_phase34_embed_out_of_vocab() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -117,6 +120,7 @@ fn test_phase34_embed_boundary_token() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -144,6 +148,7 @@ fn test_phase34_embed_empty() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -173,6 +178,7 @@ fn test_phase34_embed_into_single() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -202,6 +208,7 @@ fn test_phase34_embed_into_out_of_vocab() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -258,6 +265,7 @@ fn test_phase34_fused_matmul_q4_0_single_seq() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -296,6 +304,7 @@ fn test_phase34_fused_matmul_q4_0_multi_seq() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -362,6 +371,7 @@ fn test_phase34_fused_matmul_q8_0_single_seq() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -399,6 +409,7 @@ fn test_phase34_fused_matmul_q8_0_multi_seq() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

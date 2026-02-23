@@ -23,6 +23,7 @@ mod tests {
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         let model = OwnedQuantizedModel {
@@ -77,6 +78,7 @@ mod tests {
             rope_type: 1,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         assert_eq!(config.architecture, "mistral");
@@ -125,6 +127,7 @@ mod tests {
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: None,
+            eos_token_id: None,
         };
 
         let model = OwnedQuantizedModel {
@@ -192,6 +195,7 @@ mod tests {
             rope_type: 0,
             explicit_head_dim: None,
             bos_token_id: Some(1),
+            eos_token_id: Some(2),
         };
         assert_eq!(
             config.bos_token_id,

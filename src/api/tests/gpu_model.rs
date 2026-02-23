@@ -84,6 +84,7 @@ async fn test_quantized_model_empty_messages_error() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -144,6 +145,7 @@ async fn test_quantized_model_temperature_zero() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -197,6 +199,7 @@ async fn test_quantized_model_max_tokens() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -363,6 +366,7 @@ async fn test_empty_prompt_after_tokenization() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);
@@ -423,6 +427,7 @@ async fn test_finish_reason_length() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_quantized_model(&config);

@@ -23,6 +23,7 @@ fn test_imp_118a_true_batched_gemm_correctness() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -105,6 +106,7 @@ fn test_imp_118b_true_batched_gemm_matches_flattened() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -167,6 +169,7 @@ fn test_imp_118c_true_batched_gemm_large_batch() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -226,6 +229,7 @@ fn test_imp_118d_true_batched_attention() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -297,6 +301,7 @@ fn test_imp_119a_gpu_fused_attention_correctness() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -362,6 +367,7 @@ fn test_imp_119b_gpu_fused_matches_cpu_fused() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

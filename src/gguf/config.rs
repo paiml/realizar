@@ -237,6 +237,12 @@ pub struct GGUFConfig {
     /// BOS token ID from GGUF metadata (used for GPU validation probe)
     /// None means BOS is unknown — GPU validation will be skipped.
     pub bos_token_id: Option<u32>,
+    /// GH-330: EOS token ID from GGUF metadata.
+    ///
+    /// **Design by Contract (Meyer 1992)**: This is a class invariant —
+    /// after construction, the model must know its own EOS token.
+    /// Callers must NOT use hardcoded fallbacks like `unwrap_or(151645)`.
+    pub eos_token_id: Option<u32>,
 }
 
 /// Architecture-default BOS token IDs for weights-only GGUFs.
@@ -255,6 +261,25 @@ fn default_bos_for_architecture(arch: &str) -> Option<u32> {
         "gemma" | "gemma2" => Some(2),
         "deepseek" | "deepseek2" => Some(0),
         // phi/phi3: no BOS token (empty string in spec)
+        _ => None,
+    }
+}
+
+/// GH-330: Architecture-default EOS token IDs for weights-only GGUFs.
+///
+/// Same rationale as `default_bos_for_architecture` — weights-only GGUFs
+/// lack `tokenizer.ggml.eos_token_id`. This provides a known-good EOS
+/// based on the architecture contract.
+///
+/// Sources: `contracts/model-families/*.yaml`, HuggingFace configs
+pub(crate) fn default_eos_for_architecture(arch: &str) -> Option<u32> {
+    match arch {
+        "qwen2" | "qwen3" => Some(151_645),
+        "llama" => Some(128_001),
+        "mistral" => Some(2),
+        "gemma" | "gemma2" => Some(1),
+        "deepseek" | "deepseek2" => Some(100_001),
+        "phi2" | "phi3" | "phi" => Some(50_256),
         _ => None,
     }
 }
@@ -437,6 +462,13 @@ impl GGUFConfig {
             fallback
         });
 
+        // GH-330: EOS token ID from GGUF metadata.
+        // Design by Contract: this is the class invariant — the config carries
+        // the model's own EOS token. No hardcoded fallback (Meyer 1992).
+        let eos_token_id = model.eos_token_id().or_else(|| {
+            default_eos_for_architecture(&architecture)
+        });
+
         Ok(Self {
             architecture,
             constraints,
@@ -452,6 +484,7 @@ impl GGUFConfig {
             rope_type,
             explicit_head_dim,
             bos_token_id,
+            eos_token_id,
         })
     }
 }

@@ -104,6 +104,7 @@ fn test_forward_with_separate_qkv() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     // Create separate Q, K, V weights
@@ -244,6 +245,7 @@ fn test_forward_cached_separate_qkv() {
         rope_type: 0,
             explicit_head_dim: None,
         bos_token_id: None,
+            eos_token_id: None,
     };
 
     let layer = OwnedQuantizedLayer {
