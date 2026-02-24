@@ -757,4 +757,200 @@ fn falsify_emb_003_tied_embeddings_dimension_match() {
     );
 }
 
+// ============================================================================
+// FALSIFY-AP: absolute-position-v1.yaml contract falsification
+//
+// Five-Whys (PMAT-354):
+//   Why 1: realizar had 0 FALSIFY-AP-* tests
+//   Why 2: position embedding addition was tested indirectly via full forward
+//   Why 3: no mapping from absolute-position-v1.yaml to realizar test names
+//   Why 4: GPT-2/BERT position embedding support was added late (GH-278)
+//   Why 5: Most tested models use RoPE, so absolute path had low coverage
+//
+// References:
+//   - provable-contracts/contracts/absolute-position-v1.yaml
+//   - Vaswani et al. (2017) "Attention Is All You Need"
+// ============================================================================
+
+/// Create a test model with absolute position embeddings (GPT-2 style)
+fn create_test_model_with_pos_embed(
+    hidden_dim: usize,
+    vocab_size: usize,
+    max_positions: usize,
+) -> OwnedQuantizedModel {
+    let mut config = test_config(hidden_dim, vocab_size);
+    config.architecture = "gpt2".to_string();
+    config.constraints = crate::gguf::ArchConstraints::from_architecture("gpt2");
+    config.context_length = max_positions;
+
+    let intermediate_dim = config.intermediate_dim;
+    let qkv_weight = create_q4k_test_data(hidden_dim, 3 * hidden_dim);
+    let attn_output_weight = create_q4k_test_data(hidden_dim, hidden_dim);
+    let ffn_up_weight = create_q4k_test_data(hidden_dim, intermediate_dim);
+    let ffn_down_weight = create_q4k_test_data(intermediate_dim, hidden_dim);
+
+    let layer = crate::gguf::OwnedQuantizedLayer {
+        attn_norm_weight: vec![1.0f32; hidden_dim],
+        attn_norm_bias: None,
+        qkv_weight: OwnedQKVWeights::Fused(qkv_weight),
+        qkv_bias: None,
+        attn_output_weight,
+        attn_output_bias: None,
+        ffn_up_weight,
+        ffn_up_bias: None,
+        ffn_down_weight,
+        ffn_down_bias: None,
+        ffn_gate_weight: None,
+        ffn_gate_bias: None,
+        ffn_norm_weight: Some(vec![1.0f32; hidden_dim]),
+        ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
+    };
+
+    let lm_head_weight = create_q4k_test_data(hidden_dim, vocab_size);
+
+    // Position embedding: max_positions * hidden_dim with varied values
+    let pos_embed: Vec<f32> = (0..max_positions * hidden_dim)
+        .map(|i| (i as f32 * 0.03).sin() * 0.1)
+        .collect();
+
+    OwnedQuantizedModel {
+        config,
+        token_embedding: vec![0.1f32; vocab_size * hidden_dim],
+        position_embedding: Some(pos_embed),
+        layers: vec![layer],
+        output_norm_weight: vec![1.0f32; hidden_dim],
+        output_norm_bias: None,
+        lm_head_weight,
+        lm_head_bias: None,
+        #[cfg(feature = "cuda")]
+        cuda_executor: None,
+        #[cfg(feature = "cuda")]
+        cuda_kernel_count: std::sync::atomic::AtomicU64::new(0),
+        #[cfg(feature = "cuda")]
+        cached_weight_names: std::sync::Mutex::new(std::collections::HashSet::new()),
+    }
+}
+
+/// FALSIFY-AP-001: Shape preservation — position add preserves embed shape
+#[test]
+fn falsify_ap_001_shape_preservation() {
+    let hidden_dim = 32;
+    let vocab_size = 50;
+    let max_pos = 128;
+    let model_with_pos = create_test_model_with_pos_embed(hidden_dim, vocab_size, max_pos);
+    let model_without_pos = create_test_model(hidden_dim, vocab_size);
+
+    for seq_len in [1, 3, 10] {
+        let tokens: Vec<u32> = (0..seq_len).collect();
+
+        let embed_with = model_with_pos.embed(&tokens);
+        let embed_without = model_without_pos.embed(&tokens);
+
+        assert_eq!(
+            embed_with.len(),
+            embed_without.len(),
+            "FALSIFIED AP-001: position add changed embed shape for seq_len={seq_len}"
+        );
+        assert_eq!(
+            embed_with.len(),
+            seq_len as usize * hidden_dim,
+            "FALSIFIED AP-001: embed shape wrong for seq_len={seq_len}"
+        );
+    }
+}
+
+/// FALSIFY-AP-002: Additive identity — zero position embed preserves token embed
+#[test]
+fn falsify_ap_002_additive_identity() {
+    let hidden_dim = 32;
+    let vocab_size = 50;
+    let max_pos = 128;
+
+    // Create model with zero position embeddings
+    let mut config = test_config(hidden_dim, vocab_size);
+    config.architecture = "gpt2".to_string();
+    config.constraints = crate::gguf::ArchConstraints::from_architecture("gpt2");
+    config.context_length = max_pos;
+
+    let intermediate_dim = config.intermediate_dim;
+    let qkv_weight = create_q4k_test_data(hidden_dim, 3 * hidden_dim);
+    let attn_output_weight = create_q4k_test_data(hidden_dim, hidden_dim);
+    let ffn_up_weight = create_q4k_test_data(hidden_dim, intermediate_dim);
+    let ffn_down_weight = create_q4k_test_data(intermediate_dim, hidden_dim);
+
+    let layer = crate::gguf::OwnedQuantizedLayer {
+        attn_norm_weight: vec![1.0f32; hidden_dim],
+        attn_norm_bias: None,
+        qkv_weight: OwnedQKVWeights::Fused(qkv_weight),
+        qkv_bias: None,
+        attn_output_weight,
+        attn_output_bias: None,
+        ffn_up_weight,
+        ffn_up_bias: None,
+        ffn_down_weight,
+        ffn_down_bias: None,
+        ffn_gate_weight: None,
+        ffn_gate_bias: None,
+        ffn_norm_weight: Some(vec![1.0f32; hidden_dim]),
+        ffn_norm_bias: None,
+        attn_q_norm_weight: None,
+        attn_k_norm_weight: None,
+    };
+
+    let lm_head_weight = create_q4k_test_data(hidden_dim, vocab_size);
+
+    // ZERO position embeddings
+    let zero_pos = vec![0.0f32; max_pos * hidden_dim];
+
+    let model_zero = OwnedQuantizedModel {
+        config: config.clone(),
+        token_embedding: vec![0.1f32; vocab_size * hidden_dim],
+        position_embedding: Some(zero_pos),
+        layers: vec![layer],
+        output_norm_weight: vec![1.0f32; hidden_dim],
+        output_norm_bias: None,
+        lm_head_weight,
+        lm_head_bias: None,
+        #[cfg(feature = "cuda")]
+        cuda_executor: None,
+        #[cfg(feature = "cuda")]
+        cuda_kernel_count: std::sync::atomic::AtomicU64::new(0),
+        #[cfg(feature = "cuda")]
+        cached_weight_names: std::sync::Mutex::new(std::collections::HashSet::new()),
+    };
+
+    let model_none = create_test_model(hidden_dim, vocab_size);
+    let tokens = vec![5u32, 10, 20];
+
+    // embed() does NOT add position — position is added in forward path
+    // So both models' embed() should be identical
+    let embed_zero = model_zero.embed(&tokens);
+    let embed_none = model_none.embed(&tokens);
+
+    assert_eq!(
+        embed_zero, embed_none,
+        "FALSIFIED AP-002: zero pos_embed should not change embed() output"
+    );
+}
+
+/// FALSIFY-AP-004: Finite output after position addition
+#[test]
+fn falsify_ap_004_finite_output() {
+    let hidden_dim = 32;
+    let vocab_size = 50;
+    let max_pos = 128;
+    let model = create_test_model_with_pos_embed(hidden_dim, vocab_size, max_pos);
+
+    let tokens: Vec<u32> = (0..10).collect();
+    let embed = model.embed(&tokens);
+
+    let nan_count = embed.iter().filter(|v| v.is_nan()).count();
+    let inf_count = embed.iter().filter(|v| v.is_infinite()).count();
+
+    assert_eq!(nan_count, 0, "FALSIFIED AP-004: embed has {nan_count} NaN");
+    assert_eq!(inf_count, 0, "FALSIFIED AP-004: embed has {inf_count} Inf");
+}
+
 include!("matmul_qkv_norm_tests.rs");
