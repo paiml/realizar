@@ -375,4 +375,127 @@ mod rope_contract_tests {
             );
         }
     }
+
+    /// FALSIFY-RP-002: Relative position — dot product depends only on m-n
+    ///
+    /// Contract: ⟨RoPE(q,m), RoPE(k,n)⟩ = ⟨RoPE(q,0), RoPE(k,n-m)⟩
+    #[test]
+    fn falsify_rp_002_relative_position() {
+        let dim = 16;
+        let half = dim / 2;
+        let base = 10000.0_f32;
+
+        let q1_orig: Vec<f32> = (0..half).map(|i| (i as f32 * 0.37).sin()).collect();
+        let q2_orig: Vec<f32> = (0..half).map(|i| (i as f32 * 0.37).cos()).collect();
+        let k1_orig: Vec<f32> = (0..half).map(|i| (i as f32 * 0.73).cos()).collect();
+        let k2_orig: Vec<f32> = (0..half).map(|i| (i as f32 * 0.73).sin()).collect();
+
+        fn make_cos_sin(pos: f32, half: usize, dim: usize, base: f32) -> (Vec<f32>, Vec<f32>) {
+            let cos_vals: Vec<f32> = (0..half)
+                .map(|i| (pos * base.powf(-2.0 * i as f32 / dim as f32)).cos())
+                .collect();
+            let sin_vals: Vec<f32> = (0..half)
+                .map(|i| (pos * base.powf(-2.0 * i as f32 / dim as f32)).sin())
+                .collect();
+            (cos_vals, sin_vals)
+        }
+
+        // Test (m, n) pairs with same relative offset of 5
+        let offsets = [(10, 15), (20, 25), (50, 55)];
+        let mut dots = Vec::new();
+
+        for &(m, n) in &offsets {
+            let mut q1 = q1_orig.clone();
+            let mut q2 = q2_orig.clone();
+            let mut k1 = k1_orig.clone();
+            let mut k2 = k2_orig.clone();
+
+            let (cos_m, sin_m) = make_cos_sin(m as f32, half, dim, base);
+            let (cos_n, sin_n) = make_cos_sin(n as f32, half, dim, base);
+
+            apply_rope_rotation_simd(&mut q1, &mut q2, &cos_m, &sin_m);
+            apply_rope_rotation_simd(&mut k1, &mut k2, &cos_n, &sin_n);
+
+            let dot: f32 = q1.iter().zip(k1.iter()).map(|(&a, &b)| a * b).sum::<f32>()
+                + q2.iter().zip(k2.iter()).map(|(&a, &b)| a * b).sum::<f32>();
+            dots.push(dot);
+        }
+
+        for i in 1..dots.len() {
+            let diff = (dots[i] - dots[0]).abs();
+            assert!(
+                diff < 1e-3,
+                "FALSIFIED RP-002: dot products for same relative offset differ: {:?}",
+                dots
+            );
+        }
+    }
+
+    mod rp_proptest_falsify {
+        use super::*;
+        use proptest::prelude::*;
+
+        // RP-001-prop: norm preservation for random dimensions and positions
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(200))]
+            #[test]
+            fn falsify_rp_001_prop_norm_preservation(
+                half in prop::sample::select(vec![4_usize, 8, 16, 32]),
+                pos in 0.0_f32..1000.0,
+            ) {
+                let dim = half * 2;
+                let base = 10000.0_f32;
+                let mut x1: Vec<f32> = (0..half).map(|i| (i as f32 * 0.37 * pos.sin()).cos()).collect();
+                let mut x2: Vec<f32> = (0..half).map(|i| (i as f32 * 0.73 * pos.cos()).sin()).collect();
+
+                let norm_before: f32 = x1.iter().chain(x2.iter()).map(|v| v * v).sum::<f32>().sqrt();
+
+                let cos_vals: Vec<f32> = (0..half)
+                    .map(|i| (pos * base.powf(-2.0 * i as f32 / dim as f32)).cos())
+                    .collect();
+                let sin_vals: Vec<f32> = (0..half)
+                    .map(|i| (pos * base.powf(-2.0 * i as f32 / dim as f32)).sin())
+                    .collect();
+
+                apply_rope_rotation_simd(&mut x1, &mut x2, &cos_vals, &sin_vals);
+
+                let norm_after: f32 = x1.iter().chain(x2.iter()).map(|v| v * v).sum::<f32>().sqrt();
+                prop_assert!(
+                    (norm_after - norm_before).abs() < 1e-3,
+                    "FALSIFIED RP-001-prop: norm {} → {} (d={}, pos={})",
+                    norm_before, norm_after, dim, pos
+                );
+            }
+        }
+
+        // RP-004-prop: zero position identity for random vectors
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(200))]
+            #[test]
+            fn falsify_rp_004_prop_zero_identity(
+                half in prop::sample::select(vec![4_usize, 8, 16, 32]),
+            ) {
+                let mut x1: Vec<f32> = (0..half).map(|i| (i as f32 * 0.37).sin() * 5.0).collect();
+                let mut x2: Vec<f32> = (0..half).map(|i| (i as f32 * 0.73).cos() * 5.0).collect();
+                let x1_orig = x1.clone();
+                let x2_orig = x2.clone();
+
+                let cos_vals = vec![1.0f32; half]; // cos(0) = 1
+                let sin_vals = vec![0.0f32; half]; // sin(0) = 0
+
+                apply_rope_rotation_simd(&mut x1, &mut x2, &cos_vals, &sin_vals);
+
+                for i in 0..half {
+                    prop_assert!(
+                        (x1[i] - x1_orig[i]).abs() < 1e-5,
+                        "FALSIFIED RP-004-prop: x1[{i}] changed at pos 0"
+                    );
+                    prop_assert!(
+                        (x2[i] - x2_orig[i]).abs() < 1e-5,
+                        "FALSIFIED RP-004-prop: x2[{i}] changed at pos 0"
+                    );
+                }
+            }
+        }
+    }
 }
