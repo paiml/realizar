@@ -465,3 +465,62 @@ mod rmsnorm_contract_tests {
         }
     }
 }
+
+// =========================================================================
+// FALSIFY-GE: gelu-kernel-v1.yaml contract (realizar gelu in-place)
+// =========================================================================
+#[cfg(test)]
+mod gelu_contract_tests {
+    use super::*;
+
+    /// FALSIFY-GE-001: Non-negativity — gelu(x) >= 0 for positive x
+    #[test]
+    fn falsify_ge_001_non_negativity() {
+        let mut input = vec![0.001, 0.1, 1.0, 5.0, 10.0, 100.0];
+        gelu(&mut input);
+        for (i, &val) in input.iter().enumerate() {
+            assert!(val >= 0.0, "FALSIFIED GE-001: gelu(positive)[{i}] = {val} < 0");
+        }
+    }
+
+    /// FALSIFY-GE-002: Monotonicity — ordering preserved for positive inputs
+    #[test]
+    fn falsify_ge_002_positive_monotonicity() {
+        let mut input = vec![0.1, 0.5, 1.0, 2.0, 5.0, 10.0];
+        gelu(&mut input);
+        for i in 1..input.len() {
+            assert!(
+                input[i] > input[i - 1],
+                "FALSIFIED GE-002: gelu not monotonic: [{i}]={} not > [{}]={}",
+                input[i], i - 1, input[i - 1]
+            );
+        }
+    }
+
+    /// FALSIFY-GE-003: Zero preservation — gelu(0) = 0
+    #[test]
+    fn falsify_ge_003_zero_preservation() {
+        let mut input = vec![0.0];
+        gelu(&mut input);
+        assert!(input[0].abs() < 1e-7, "FALSIFIED GE-003: gelu(0) = {}", input[0]);
+    }
+
+    /// FALSIFY-GE-006: Large input stability
+    #[test]
+    fn falsify_ge_006_large_input_stability() {
+        let mut pos = vec![10.0, 50.0, 100.0];
+        let mut neg = vec![-10.0, -50.0, -100.0];
+        gelu(&mut pos);
+        gelu(&mut neg);
+
+        for (i, (&val, &orig)) in pos.iter().zip([10.0, 50.0, 100.0].iter()).enumerate() {
+            assert!(
+                (val - orig).abs() < 0.01,
+                "FALSIFIED GE-006: gelu({orig}) = {val}, expected ≈ {orig}"
+            );
+        }
+        for (i, &val) in neg.iter().enumerate() {
+            assert!(val.abs() < 0.01, "FALSIFIED GE-006: gelu(neg)[{i}] = {val}, expected ≈ 0");
+        }
+    }
+}
