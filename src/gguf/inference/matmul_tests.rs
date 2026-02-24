@@ -1192,4 +1192,104 @@ fn falsify_ap_003_max_position_bounds() {
     let _ = diff_count; // Acknowledged — position addition may be in forward(), not embed()
 }
 
+// ============================================================================
+// FALSIFY-PIPE-001: Cross-contract pipeline test (realizar GGUF path)
+//
+// Five-Whys (PMAT-354, Phase 8):
+//   Why 1: no test exercises the full §2.1.1 pipeline as a single chain
+//   Why 2: EM, TE, SM tests each validate one contract in isolation
+//   Why 3: bugs can hide at contract boundaries (shape mismatch between stages)
+//   Why 4: the embed→lm_head→softmax chain is the critical inference path
+//   Why 5: cross-contract pipeline faults would only show in integration
+//
+// Pipeline: embed(token_ids) → fused_rmsnorm_lm_head → softmax
+// Claims verified:
+//   EM-001: embed output length = seq_len * hidden_dim
+//   TE-001: lm_head output length = vocab_size
+//   SM-001: softmax(logits) sums to 1.0
+//   SM-002: all probabilities non-negative
+//   SM-003: argmax preserved through softmax
+// ============================================================================
+
+/// FALSIFY-PIPE-001: Full embed → lm_head → softmax pipeline
+#[test]
+fn falsify_pipe_001_embed_lm_head_softmax_pipeline() {
+    let hidden_dim = 32;
+    let vocab_size = 50;
+    let model = create_test_model(hidden_dim, vocab_size);
+
+    let tokens = vec![0u32, 3, 10, 25, 49];
+
+    // Stage 1: Embed tokens
+    let embedded = model.embed(&tokens);
+
+    // EM-001: embed shape = seq_len * hidden_dim
+    assert_eq!(
+        embedded.len(),
+        tokens.len() * hidden_dim,
+        "FALSIFIED PIPE-001/EM-001: embed len={} != {}*{hidden_dim}",
+        embedded.len(), tokens.len()
+    );
+
+    // EM-004: all embed values finite
+    for (i, &v) in embedded.iter().enumerate() {
+        assert!(
+            v.is_finite(),
+            "FALSIFIED PIPE-001/EM-004: embed[{i}] = {v} not finite"
+        );
+    }
+
+    // Stage 2: Apply lm_head to last hidden state (simulates single-token decode)
+    let last_hidden = &embedded[(tokens.len() - 1) * hidden_dim..];
+    let logits = model.fused_rmsnorm_lm_head(last_hidden).unwrap();
+
+    // TE-001: logits length = vocab_size
+    assert_eq!(
+        logits.len(),
+        vocab_size,
+        "FALSIFIED PIPE-001/TE-001: logits len={} != vocab_size={vocab_size}",
+        logits.len()
+    );
+
+    // TE-004: all logits finite
+    for (i, &l) in logits.iter().enumerate() {
+        assert!(
+            l.is_finite(),
+            "FALSIFIED PIPE-001/TE-004: logits[{i}] = {l} not finite"
+        );
+    }
+
+    // Stage 3: Apply softmax
+    let max_val = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let exps: Vec<f32> = logits.iter().map(|&x| (x - max_val).exp()).collect();
+    let sum: f32 = exps.iter().sum();
+    let probs: Vec<f32> = exps.iter().map(|&e| e / sum).collect();
+
+    // SM-001: sums to 1.0
+    let prob_sum: f32 = probs.iter().sum();
+    assert!(
+        (prob_sum - 1.0).abs() < 1e-4,
+        "FALSIFIED PIPE-001/SM-001: prob sum={prob_sum}"
+    );
+
+    // SM-002: all non-negative
+    for (i, &p) in probs.iter().enumerate() {
+        assert!(
+            p >= 0.0,
+            "FALSIFIED PIPE-001/SM-002: prob[{i}]={p} negative"
+        );
+    }
+
+    // SM-003: argmax preserved
+    let logit_argmax = logits.iter().enumerate()
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0;
+    let prob_argmax = probs.iter().enumerate()
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0;
+    assert_eq!(
+        logit_argmax, prob_argmax,
+        "FALSIFIED PIPE-001/SM-003: argmax changed {} → {}",
+        logit_argmax, prob_argmax
+    );
+}
+
 include!("matmul_qkv_norm_tests.rs");
