@@ -702,4 +702,31 @@
                 }
             }
         }
+
+        // FALSIFY-SM-003-prop: Order preservation for random vectors
+        //
+        // Contract: argmax(softmax(x)) = argmax(x) when no duplicate max.
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(500))]
+            #[test]
+            fn falsify_sm_003_prop_order_preservation(
+                logits in proptest::collection::vec(-50.0_f32..50.0, 2..32),
+            ) {
+                let has_dupes = logits.windows(2).any(|w| (w[0] - w[1]).abs() < 1e-10);
+                if has_dupes {
+                    return Ok(());
+                }
+
+                let input_argmax = logits.iter().enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0;
+                let mut x = logits;
+                softmax_simd(&mut x);
+                let output_argmax = x.iter().enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0;
+                prop_assert_eq!(
+                    input_argmax, output_argmax,
+                    "FALSIFIED SM-003-prop: argmax {} -> {}", input_argmax, output_argmax
+                );
+            }
+        }
     }
