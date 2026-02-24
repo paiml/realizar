@@ -833,6 +833,134 @@ mod ln_contract_tests {
 }
 
 // =========================================================================
+// FALSIFY-SI: silu-kernel-v1.yaml contract (realizar silu in-place)
+//
+// Five-Whys (PMAT-354, Phase 11):
+//   Why 1: realizar had zero FALSIFY-SI-* tests despite 6+ silu implementations
+//   Why 2: unit tests verify SIMD parity, not mathematical invariants
+//   Why 3: no mapping from silu-kernel-v1.yaml to realizar test names
+//   Why 4: realizar predates the provable-contracts YAML convention
+//   Why 5: SiLU was "obviously correct" (delegates to trueno::silu_scalar)
+//
+// References:
+//   - provable-contracts/contracts/silu-kernel-v1.yaml
+//   - Ramachandran et al. (2017) "Searching for Activation Functions"
+// =========================================================================
+
+#[cfg(test)]
+mod silu_contract_tests {
+    use super::*;
+
+    /// FALSIFY-SI-001: Zero preservation — SiLU(0) = 0
+    #[test]
+    fn falsify_si_001_zero_preservation() {
+        let mut input = vec![0.0];
+        silu(&mut input);
+        assert!(input[0].abs() < 1e-7, "FALSIFIED SI-001: SiLU(0) = {}", input[0]);
+    }
+
+    /// FALSIFY-SI-002: Global lower bound — SiLU(x) > -0.279 for all x
+    #[test]
+    fn falsify_si_002_global_lower_bound() {
+        let mut input = vec![-100.0, -50.0, -10.0, -5.0, -2.0, -1.278, -1.0, -0.5, 0.0, 0.5, 1.0, 5.0, 100.0];
+        silu(&mut input);
+        for (i, &val) in input.iter().enumerate() {
+            assert!(val > -0.28, "FALSIFIED SI-002: SiLU[{i}] = {val}, expected > -0.279");
+        }
+    }
+
+    /// FALSIFY-SI-003: Monotonic for positive inputs
+    #[test]
+    fn falsify_si_003_monotonic_positive() {
+        let mut input = vec![0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0, 100.0];
+        silu(&mut input);
+        for i in 1..input.len() {
+            assert!(
+                input[i] > input[i - 1],
+                "FALSIFIED SI-003: SiLU not monotonic: [{i}]={} not > [{}]={}",
+                input[i], i - 1, input[i - 1]
+            );
+        }
+    }
+
+    /// FALSIFY-SI-005: Asymptotic linearity — |SiLU(x) - x| < 0.01 for x > 10
+    #[test]
+    fn falsify_si_005_asymptotic_linearity() {
+        let originals = [10.0f32, 20.0, 50.0, 100.0, 500.0];
+        let mut input = originals.to_vec();
+        silu(&mut input);
+        for (i, (&val, &orig)) in input.iter().zip(originals.iter()).enumerate() {
+            assert!(
+                (val - orig).abs() < 0.01,
+                "FALSIFIED SI-005: |SiLU({orig}) - {orig}| = {} >= 0.01",
+                (val - orig).abs()
+            );
+        }
+    }
+
+    /// FALSIFY-SI-006: Large negative → 0
+    #[test]
+    fn falsify_si_006_large_negative_vanishes() {
+        let mut input = vec![-10.0, -20.0, -50.0, -100.0, -500.0];
+        silu(&mut input);
+        for (i, &val) in input.iter().enumerate() {
+            assert!(val.abs() < 0.01, "FALSIFIED SI-006: SiLU(neg)[{i}] = {val}, expected ≈ 0");
+        }
+    }
+
+    mod si_proptest_falsify {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(500))]
+            #[test]
+            fn falsify_si_002_prop_lower_bound(x in -1000.0_f32..1000.0) {
+                let mut input = vec![x];
+                silu(&mut input);
+                prop_assert!(input[0] > -0.28, "FALSIFIED SI-002-prop: SiLU({x}) = {}", input[0]);
+            }
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(300))]
+            #[test]
+            fn falsify_si_003_prop_monotonic_positive(
+                a in 0.001_f32..100.0,
+                b in 0.001_f32..100.0,
+            ) {
+                if a != b {
+                    let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+                    let mut v_lo = vec![lo];
+                    let mut v_hi = vec![hi];
+                    silu(&mut v_lo);
+                    silu(&mut v_hi);
+                    prop_assert!(
+                        v_hi[0] > v_lo[0],
+                        "FALSIFIED SI-003-prop: SiLU({hi})={} not > SiLU({lo})={}",
+                        v_hi[0], v_lo[0]
+                    );
+                }
+            }
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(200))]
+            #[test]
+            fn falsify_si_005_prop_asymptotic(x in 10.0_f32..500.0) {
+                let mut input = vec![x];
+                silu(&mut input);
+                prop_assert!(
+                    (input[0] - x).abs() < 0.01,
+                    "FALSIFIED SI-005-prop: |SiLU({x}) - {x}| = {}",
+                    (input[0] - x).abs()
+                );
+            }
+        }
+    }
+}
+
+// =========================================================================
 // FALSIFY-GE: gelu-kernel-v1.yaml contract (realizar gelu in-place)
 // =========================================================================
 #[cfg(test)]
