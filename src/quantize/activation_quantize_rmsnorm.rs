@@ -566,6 +566,65 @@
         }
     }
 
+    /// FALSIFY-SM-008: SIMD equivalence — |softmax_simd(x) - softmax_scalar(x)| < 8 ULP
+    ///
+    /// Five-Whys (PMAT-354):
+    ///   Why 1: YAML SM-004 specifies SIMD equivalence but no test existed
+    ///   Why 2: our SM-004 tests "bounded" (SM-BND-001), not SIMD equivalence
+    ///   Why 3: naming mismatch — we numbered locally, not from the YAML
+    ///   Why 4: SIMD parity was assumed correct from inference end-to-end tests
+    ///   Why 5: nobody wrote an explicit scalar-vs-SIMD comparison test
+    ///
+    /// Contract: softmax_simd(x) and softmax_scalar(x) must agree within 8 ULP.
+    /// Numbered SM-008 to avoid collision with our existing SM-004 (bounded).
+    #[test]
+    fn falsify_sm_008_simd_scalar_equivalence() {
+        let test_cases: Vec<Vec<f32>> = vec![
+            vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            vec![-10.0, 0.0, 10.0],
+            vec![100.0, 100.0, 100.0, 100.0],
+            vec![1e-6, 1e-6, 1e-6],
+            (0..32).map(|i| (i as f32 * 0.7).sin()).collect(),
+            (0..128).map(|i| i as f32 - 64.0).collect(),
+            vec![-500.0, 0.0, 500.0],
+        ];
+
+        for (idx, base) in test_cases.iter().enumerate() {
+            let mut simd_input = base.clone();
+            let mut scalar_input = base.clone();
+
+            softmax_simd(&mut simd_input);
+            softmax_scalar(&mut scalar_input);
+
+            for (i, (&s, &r)) in simd_input.iter().zip(scalar_input.iter()).enumerate() {
+                // 8 ULP tolerance: |diff| / min(|s|, |r|) < 8 * f32::EPSILON
+                let diff = (s - r).abs();
+                let ulp_bound = 8.0 * f32::EPSILON * s.abs().max(r.abs()).max(f32::MIN_POSITIVE);
+                assert!(
+                    diff <= ulp_bound,
+                    "FALSIFIED SM-008: case {idx}[{i}] SIMD={s} vs scalar={r}, diff={diff} > {ulp_bound} (8 ULP)"
+                );
+            }
+        }
+    }
+
+    /// FALSIFY-SM-009: Single element boundary — softmax([x]) = [1.0] for any x
+    ///
+    /// Contract: YAML SM-005 = softmax of a single element is always 1.0.
+    /// Numbered SM-009 to avoid collision with our existing SM-005 (stability).
+    #[test]
+    fn falsify_sm_009_single_element() {
+        for x in [0.0f32, 1.0, -1.0, 100.0, -100.0, f32::MIN_POSITIVE, 1e30] {
+            let mut v = vec![x];
+            softmax_simd(&mut v);
+            assert!(
+                (v[0] - 1.0).abs() < 1e-6,
+                "FALSIFIED SM-009: softmax([{x}]) = {}, expected 1.0",
+                v[0]
+            );
+        }
+    }
+
     // ============= quantize_activations_q8_0 tests =============
 
     #[test]
