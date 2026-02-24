@@ -520,6 +520,52 @@
         }
     }
 
+    /// FALSIFY-SM-006: Identical elements → uniform distribution
+    ///
+    /// Contract: softmax([c, c, ..., c]) = [1/n, 1/n, ..., 1/n]
+    #[test]
+    fn falsify_sm_006_identical_elements_uniform() {
+        for n in [2, 4, 8, 16] {
+            let mut x = vec![5.0f32; n];
+            softmax_simd(&mut x);
+            let expected = 1.0 / n as f32;
+
+            for (i, &p) in x.iter().enumerate() {
+                assert!(
+                    (p - expected).abs() < 1e-6,
+                    "FALSIFIED SM-006: n={n} x[{i}] = {p}, expected {expected}"
+                );
+            }
+        }
+    }
+
+    /// FALSIFY-SM-007: Translation invariance — σ(x + c) = σ(x) for any scalar c
+    ///
+    /// Five-Whys (PMAT-354):
+    ///   Why 1: SM-INV-003 (translation invariance) had ZERO coverage
+    ///   Why 2: max-subtraction trick IMPLEMENTS this but nobody tested it
+    ///   Why 3: foundational to numerical stability but untested
+    ///
+    /// Contract: σ(x + c·1) = σ(x) for any scalar c.
+    #[test]
+    fn falsify_sm_007_translation_invariance() {
+        let base = vec![1.0f32, 3.0, -2.0, 0.5];
+        let mut base_probs = base.clone();
+        softmax_simd(&mut base_probs);
+
+        for c in [100.0f32, -100.0, 0.0, 42.0, -999.0] {
+            let mut shifted: Vec<f32> = base.iter().map(|&x| x + c).collect();
+            softmax_simd(&mut shifted);
+
+            for (i, (&orig, &shift)) in base_probs.iter().zip(shifted.iter()).enumerate() {
+                assert!(
+                    (orig - shift).abs() < 1e-5,
+                    "FALSIFIED SM-007: σ(x+{c})[{i}] = {shift} != σ(x)[{i}] = {orig}"
+                );
+            }
+        }
+    }
+
     // ============= quantize_activations_q8_0 tests =============
 
     #[test]
