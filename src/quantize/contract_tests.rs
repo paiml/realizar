@@ -609,10 +609,17 @@ mod tests {
 
     #[test]
     fn falsify_007_no_catch_all_in_dispatch_sites() {
-        // Dispatch sites from tensor-layout-v1.yaml quant_dispatch.dispatch_sites
+        // PMAT-334 fix: Scan ALL WeightQuantType dispatch sites, not just 2.
+        // Any non-test .rs file under src/ that matches on WeightQuantType.
         let dispatch_files = [
             "src/cuda/executor/layers/gemv_dispatch.rs",
             "src/cuda/types.rs",
+            "src/cuda/transformer_workspace.rs",
+            "src/cuda/executor/layers/indexed_ffn.rs",
+            "src/cuda/executor/layers/logits.rs",
+            "src/cuda/executor/layers/forward_workspace_captured.rs",
+            "src/cuda/executor/layers/transformer_layer_indexed.rs",
+            "src/cuda/executor/layers/indexed_transformer.rs",
         ];
 
         let crate_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
