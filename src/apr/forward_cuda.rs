@@ -177,6 +177,11 @@ impl AprV2ModelCuda {
             if offset + hidden_dim <= embeddings.len() {
                 hidden.extend_from_slice(&embeddings[offset..offset + hidden_dim]);
             } else {
+                // N-09: OOB token → zeros. Contract: embedding-lookup-v1.yaml
+                eprintln!(
+                    "Warning: forward_cuda_embed token_id {} OOB (offset={offset}, embed_len={}). N-09 escape.",
+                    token_id, embeddings.len()
+                );
                 hidden.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }

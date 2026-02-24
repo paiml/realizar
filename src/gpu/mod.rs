@@ -243,7 +243,12 @@ pub fn batch_embed(embedding_table: &[f32], tokens: &[usize], hidden_dim: usize)
         if end_idx <= embedding_table.len() {
             result.extend_from_slice(&embedding_table[start_idx..end_idx]);
         } else {
-            // Pad with zeros for out-of-bounds tokens
+            // N-09: OOB token → zeros. Contract: embedding-lookup-v1.yaml
+            // requires token_ids[i] < vocab_size.
+            eprintln!(
+                "Warning: batch_embed token {} OOB (offset={start_idx}, table_len={}). N-09 escape.",
+                token, embedding_table.len()
+            );
             result.extend(std::iter::repeat_n(0.0, hidden_dim));
         }
     }
