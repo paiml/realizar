@@ -476,10 +476,20 @@ impl AprV2ModelCuda {
         ])?;
         let lm_head = self.model.get_tensor_f32(&lm_head_name)?;
 
+        // Contract: tied-embeddings-v1.yaml — lm_head must have vocab_size * hidden_dim elements
+        let expected_len = vocab_size * hidden_dim;
+        if lm_head.len() != expected_len {
+            eprintln!(
+                "Warning: lm_head '{}' has {} elements, expected {} (vocab={} * hidden={}). \
+                 PMAT-328 dimension mismatch.",
+                lm_head_name, lm_head.len(), expected_len, vocab_size, hidden_dim
+            );
+        }
+
         let is_tied_embedding = lm_head_name == "token_embd.weight"
             || lm_head_name.ends_with("embed_tokens.weight");
 
-        let lm_head_for_gemm = if is_tied_embedding && lm_head.len() == hidden_dim * vocab_size {
+        let lm_head_for_gemm = if is_tied_embedding && lm_head.len() == expected_len {
             lm_head.clone()
         } else {
             transpose_matrix(&lm_head, vocab_size, hidden_dim)
