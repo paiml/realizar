@@ -370,3 +370,101 @@ impl StreamingKVCacheFp16 {
 }
 
 include!("streaming_kv_streaming.rs");
+
+// =========================================================================
+// FALSIFY-KV: kv-cache-sizing-v1.yaml contract (realizar StreamingKVCache)
+//
+// Five-Whys (PMAT-354):
+//   Why 1: realizar had KV cache tests but zero FALSIFY-KV-* tests
+//   Why 2: tests verify append/get, not sizing formula invariants
+//   Why 3: no mapping from kv-cache-sizing-v1.yaml to realizar test names
+//   Why 4: realizar predates the provable-contracts YAML convention
+//   Why 5: KV sizing was "obviously correct" (simple multiplication)
+//
+// References:
+//   - provable-contracts/contracts/kv-cache-sizing-v1.yaml
+// =========================================================================
+#[cfg(test)]
+mod kv_contract_tests {
+    use super::*;
+
+    /// FALSIFY-KV-001: Per-token KV bytes — 2 * n_kv * d_k * sizeof(f32)
+    ///
+    /// Formula: memory = num_layers * max_positions * num_heads * head_dim * 2 * 4
+    #[test]
+    fn falsify_kv_001_memory_formula() {
+        let test_cases = vec![
+            // (layers, max_pos, heads, head_dim)
+            (1, 1, 1, 1),
+            (32, 2048, 32, 128),   // 7B model
+            (40, 4096, 40, 128),   // 13B model
+            (1, 512, 8, 64),
+        ];
+
+        for (nl, mp, nh, hd) in test_cases {
+            let cache = StreamingKVCache::new(nl, mp, nh, hd);
+            let expected = nl * mp * nh * hd * 2 * 4;
+            assert_eq!(
+                cache.memory_bytes(),
+                expected,
+                "FALSIFIED KV-001: memory_bytes({nl}, {mp}, {nh}, {hd}) = {}, expected {expected}",
+                cache.memory_bytes()
+            );
+        }
+    }
+
+    /// FALSIFY-KV-002: Monotonic — longer sequence => more memory
+    #[test]
+    fn falsify_kv_002_monotonic_sequence_length() {
+        let seq_lengths = [128, 256, 512, 1024, 2048, 4096];
+        let mut prev_bytes = 0;
+
+        for &sl in &seq_lengths {
+            let cache = StreamingKVCache::new(32, sl, 32, 128);
+            let bytes = cache.memory_bytes();
+            assert!(
+                bytes > prev_bytes,
+                "FALSIFIED KV-002: memory({sl}) = {bytes} not > memory(prev) = {prev_bytes}"
+            );
+            prev_bytes = bytes;
+        }
+    }
+
+    /// FALSIFY-KV-002b: Monotonic — more layers => more memory
+    #[test]
+    fn falsify_kv_002b_monotonic_layers() {
+        let layer_counts = [1, 8, 16, 32, 40, 64];
+        let mut prev_bytes = 0;
+
+        for &nl in &layer_counts {
+            let cache = StreamingKVCache::new(nl, 2048, 32, 128);
+            let bytes = cache.memory_bytes();
+            assert!(
+                bytes > prev_bytes,
+                "FALSIFIED KV-002b: memory(layers={nl}) = {bytes} not > {prev_bytes}"
+            );
+            prev_bytes = bytes;
+        }
+    }
+
+    /// FALSIFY-KV-001b: FP16 cache uses exactly half the memory of FP32
+    #[test]
+    fn falsify_kv_001b_fp16_half_memory() {
+        let nl = 32;
+        let mp = 2048;
+        let nh = 32;
+        let hd = 128;
+
+        let f32_cache = StreamingKVCache::new(nl, mp, nh, hd);
+        let f16_cache = StreamingKVCacheFp16::new(nl, mp, nh, hd);
+
+        let f32_bytes = f32_cache.memory_bytes();
+        let f16_bytes = f16_cache.memory_bytes();
+
+        assert_eq!(
+            f16_bytes * 2,
+            f32_bytes,
+            "FALSIFIED KV-001b: FP16 ({f16_bytes}) * 2 != FP32 ({f32_bytes})"
+        );
+    }
+}
