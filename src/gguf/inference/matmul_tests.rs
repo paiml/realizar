@@ -1172,6 +1172,65 @@ fn falsify_ap_004_finite_output() {
     assert_eq!(inf_count, 0, "FALSIFIED AP-004: embed has {inf_count} Inf");
 }
 
+// =========================================================================
+// PROPTEST FALSIFY: AP property-based falsification (realizar GGUF path)
+//
+// Five-Whys (PMAT-354, Phase 9):
+//   Why 1: AP-001/002/004 had zero proptest coverage in realizar
+//   Why 2: All AP tests used fixed hidden_dim=32, vocab_size=50, max_pos=128
+//   Why 3: Position embedding index math could overflow at edge seq_len
+//   Why 4: proptest explores seq_len/dimension combos humans miss
+//   Why 5: YAML absolute-position-v1 calls for proptest on all claims
+// =========================================================================
+
+mod ap_proptest_falsify {
+    use super::*;
+    use proptest::prelude::*;
+
+    // AP-001-prop: shape preservation for random seq_len
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(30))]
+        #[test]
+        fn falsify_ap_001_prop_shape(
+            hidden_dim in prop::sample::select(vec![32_usize, 64]),
+            vocab_size in prop::sample::select(vec![50_usize, 100]),
+            seq_len in 1_usize..16,
+        ) {
+            let max_pos = 128;
+            let model = create_test_model_with_pos_embed(hidden_dim, vocab_size, max_pos);
+            let tokens: Vec<u32> = (0..seq_len).map(|i| (i % vocab_size) as u32).collect();
+            let embed = model.embed(&tokens);
+            prop_assert_eq!(
+                embed.len(), seq_len * hidden_dim,
+                "FALSIFIED AP-001-prop: embed len={} != {}*{}={} (v={})",
+                embed.len(), seq_len, hidden_dim, seq_len * hidden_dim, vocab_size
+            );
+        }
+    }
+
+    // AP-004-prop: finite output for random tokens and dims
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(30))]
+        #[test]
+        fn falsify_ap_004_prop_finite(
+            hidden_dim in prop::sample::select(vec![32_usize, 64]),
+            vocab_size in prop::sample::select(vec![50_usize, 100]),
+            seq_len in 1_usize..16,
+        ) {
+            let max_pos = 128;
+            let model = create_test_model_with_pos_embed(hidden_dim, vocab_size, max_pos);
+            let tokens: Vec<u32> = (0..seq_len).map(|i| (i % vocab_size) as u32).collect();
+            let embed = model.embed(&tokens);
+            for (i, &v) in embed.iter().enumerate() {
+                prop_assert!(
+                    v.is_finite(),
+                    "FALSIFIED AP-004-prop: embed[{i}]={v} not finite (h={hidden_dim}, v={vocab_size}, s={seq_len})"
+                );
+            }
+        }
+    }
+}
+
 /// FALSIFY-TE-002: Tied equivalence — tied lm_head produces same output as
 /// explicit matmul with a copy of the embedding weight matrix
 ///
