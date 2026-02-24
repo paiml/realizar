@@ -314,3 +314,154 @@ pub fn apply_per_head_rms_norm(qk: &mut [f32], weight: &[f32], num_heads: usize,
 }
 
 include!("ops_gelu_zero_positive.rs");
+
+#[cfg(test)]
+mod rmsnorm_contract_tests {
+    use super::*;
+
+    // =========================================================================
+    // FALSIFY-RN: rmsnorm-kernel-v1.yaml contract (realizar rms_norm)
+    //
+    // Five-Whys (PMAT-354):
+    //   Why 1: realizar had zero FALSIFY-RN-* tests despite 15+ RMSNorm functions
+    //   Why 2: ops.rs had no test module at all — tested only via integration
+    //   Why 3: no mapping from rmsnorm-kernel-v1.yaml to realizar test names
+    //   Why 4: realizar predates the provable-contracts YAML convention
+    //   Why 5: rms_norm was tested via end-to-end model runs, not unit contracts
+    //
+    // References:
+    //   - provable-contracts/contracts/rmsnorm-kernel-v1.yaml
+    //   - Zhang & Sennrich (2019) "Root Mean Square Layer Normalization"
+    // =========================================================================
+
+    /// FALSIFY-RN-001: Finiteness — output must be finite for all finite input when eps > 0
+    #[test]
+    fn falsify_rn_001_finiteness() {
+        let weight = vec![1.0f32; 8];
+        let eps = 1e-5;
+
+        let test_cases: Vec<(&str, Vec<f32>)> = vec![
+            ("normal", vec![1.0, 2.0, 3.0, 4.0, -1.0, -2.0, -3.0, -4.0]),
+            ("small", vec![1e-7; 8]),
+            ("large", vec![1e6; 8]),
+            ("mixed", vec![-1e5, 1e5, -1e-5, 1e-5, 0.0, 0.0, 1.0, -1.0]),
+        ];
+
+        for (name, input) in &test_cases {
+            let output = rms_norm(input, &weight, eps);
+
+            for (i, &val) in output.iter().enumerate() {
+                assert!(
+                    val.is_finite(),
+                    "FALSIFIED RN-001: output[{i}] = {val} not finite for case '{name}'"
+                );
+            }
+        }
+    }
+
+    /// FALSIFY-RN-001b: rms_norm_into also produces finite output
+    #[test]
+    fn falsify_rn_001_into_finiteness() {
+        let weight = vec![1.0f32; 4];
+        let input = vec![1e-7, 1e7, -1e-7, -1e7];
+        let mut output = vec![0.0f32; 4];
+
+        rms_norm_into(&input, &weight, 1e-5, &mut output);
+
+        for (i, &val) in output.iter().enumerate() {
+            assert!(
+                val.is_finite(),
+                "FALSIFIED RN-001: rms_norm_into output[{i}] = {val} not finite"
+            );
+        }
+    }
+
+    /// FALSIFY-RN-002: Scale invariance — RMSNorm(α·x) = sign(α)·RMSNorm(x)
+    #[test]
+    fn falsify_rn_002_scale_invariance() {
+        let weight = vec![1.0f32; 4];
+        let eps = 1e-6;
+        let x = vec![3.0f32, -1.0, 2.0, -4.0];
+        let y_base = rms_norm(&x, &weight, eps);
+
+        for &alpha in &[2.0_f32, 0.5, 100.0, -1.0, -3.0] {
+            let x_scaled: Vec<f32> = x.iter().map(|&v| v * alpha).collect();
+            let y_scaled = rms_norm(&x_scaled, &weight, eps);
+
+            let sign = alpha.signum();
+            for (i, (&ys, &yb)) in y_scaled.iter().zip(y_base.iter()).enumerate() {
+                let expected = sign * yb;
+                let diff = (ys - expected).abs();
+                assert!(
+                    diff < 1e-4,
+                    "FALSIFIED RN-002: rms_norm({alpha}·x)[{i}] = {ys}, expected {expected}"
+                );
+            }
+        }
+    }
+
+    /// FALSIFY-RN-004: Zero vector — RMSNorm(0) = 0 (not NaN)
+    #[test]
+    fn falsify_rn_004_zero_vector() {
+        let weight = vec![1.0f32; 4];
+        let x = vec![0.0f32; 4];
+        let y = rms_norm(&x, &weight, 1e-5);
+
+        for (i, &val) in y.iter().enumerate() {
+            assert!(
+                val.is_finite(),
+                "FALSIFIED RN-004: rms_norm(0)[{i}] = {val} (expected finite)"
+            );
+            assert!(
+                val.abs() < 1e-3,
+                "FALSIFIED RN-004: rms_norm(0)[{i}] = {val} (expected ≈ 0)"
+            );
+        }
+    }
+
+    /// FALSIFY-RN-005: Unit γ normalized RMS ≈ 1
+    ///
+    /// After RMSNorm with unit weights, RMS of output should be ≈ 1
+    #[test]
+    fn falsify_rn_005_unit_gamma_normalized_rms() {
+        let weight = vec![1.0f32; 8];
+        let eps = 1e-6;
+
+        let test_vectors: Vec<Vec<f32>> = vec![
+            vec![1.0, -2.0, 3.0, -0.5, 4.0, -1.0, 2.5, -3.0],
+            vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0],
+        ];
+
+        for (idx, x) in test_vectors.iter().enumerate() {
+            let y = rms_norm(x, &weight, eps);
+
+            let rms_out: f32 =
+                (y.iter().map(|&v| v * v).sum::<f32>() / y.len() as f32).sqrt();
+
+            assert!(
+                (rms_out - 1.0).abs() < 0.01,
+                "FALSIFIED RN-005: RMS(rms_norm(x)) = {rms_out}, expected ≈ 1.0 (case {idx})"
+            );
+        }
+    }
+
+    /// FALSIFY-RN-002b: rms_norm and rms_norm_into produce same result
+    #[test]
+    fn falsify_rn_consistency_norm_vs_norm_into() {
+        let weight = vec![1.5f32, 0.5, 2.0, 0.8];
+        let input = vec![3.0f32, -1.0, 2.0, -4.0];
+        let eps = 1e-5;
+
+        let y_alloc = rms_norm(&input, &weight, eps);
+        let mut y_into = vec![0.0f32; 4];
+        rms_norm_into(&input, &weight, eps, &mut y_into);
+
+        for (i, (&a, &b)) in y_alloc.iter().zip(y_into.iter()).enumerate() {
+            let diff = (a - b).abs();
+            assert!(
+                diff < 1e-6,
+                "FALSIFIED: rms_norm vs rms_norm_into mismatch at [{i}]: {a} vs {b}"
+            );
+        }
+    }
+}
