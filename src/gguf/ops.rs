@@ -551,6 +551,288 @@ mod rmsnorm_contract_tests {
 }
 
 // =========================================================================
+// FALSIFY-LN: layernorm-kernel-v1.yaml contract (realizar layer_norm)
+//
+// Five-Whys (PMAT-354, Phase 10):
+//   Why 1: realizar had 10+ layer_norm tests but zero FALSIFY-LN-* tagged tests
+//   Why 2: existing tests verify shapes/integration, not mathematical invariants
+//   Why 3: no mapping from layernorm-kernel-v1.yaml to realizar test names
+//   Why 4: realizar predates the provable-contracts YAML convention
+//   Why 5: layer_norm was "obviously correct" (y = (x-μ)/σ * γ + β)
+//
+// References:
+//   - provable-contracts/contracts/layernorm-kernel-v1.yaml
+//   - Ba et al. (2016) "Layer Normalization"
+// =========================================================================
+
+#[cfg(test)]
+mod ln_contract_tests {
+    use super::*;
+
+    /// FALSIFY-LN-001: Centering — mean of LN output ≈ 0 (with bias=0)
+    #[test]
+    fn falsify_ln_001_centering() {
+        let dim = 8;
+        let weight = vec![1.0f32; dim];
+        let bias = vec![0.0f32; dim];
+        let data = vec![1.0, -2.0, 3.0, 0.5, -1.5, 2.5, -0.5, 1.5];
+        let y = layer_norm(&data, &weight, Some(&bias), 1e-5);
+
+        let mean: f32 = y.iter().sum::<f32>() / dim as f32;
+        assert!(
+            mean.abs() < 1e-5,
+            "FALSIFIED LN-001: mean(LN(x)) = {mean}, expected ≈ 0"
+        );
+    }
+
+    /// FALSIFY-LN-002: Standardization — variance of LN output ≈ 1 (with weight=1)
+    #[test]
+    fn falsify_ln_002_standardization() {
+        let dim = 8;
+        let weight = vec![1.0f32; dim];
+        let bias = vec![0.0f32; dim];
+        let data = vec![1.0, -2.0, 3.0, 0.5, -1.5, 2.5, -0.5, 1.5];
+        let y = layer_norm(&data, &weight, Some(&bias), 1e-5);
+
+        let mean: f32 = y.iter().sum::<f32>() / dim as f32;
+        let var: f32 = y.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / dim as f32;
+        assert!(
+            (var - 1.0).abs() < 0.05,
+            "FALSIFIED LN-002: var(LN(x)) = {var}, expected ≈ 1.0"
+        );
+    }
+
+    /// FALSIFY-LN-003: Denominator safety — output finite for all finite input
+    #[test]
+    fn falsify_ln_003_denominator_safety() {
+        let weight = vec![1.0f32; 4];
+        let bias = vec![0.0f32; 4];
+        let test_cases: Vec<(&str, Vec<f32>)> = vec![
+            ("normal", vec![1.0, 2.0, 3.0, 4.0]),
+            ("small", vec![1e-7, 1e-7, 1e-7, 1e-7]),
+            ("large", vec![1e6, 1e6, 1e6, 1e6]),
+            ("mixed_sign", vec![-3.0, 2.0, -1.0, 4.0]),
+            ("near_zero", vec![1e-20, 0.0, 1e-20, 0.0]),
+            ("all_zero", vec![0.0, 0.0, 0.0, 0.0]),
+        ];
+
+        for (name, data) in &test_cases {
+            let y = layer_norm(data, &weight, Some(&bias), 1e-5);
+            for (i, &val) in y.iter().enumerate() {
+                assert!(
+                    val.is_finite(),
+                    "FALSIFIED LN-003: output[{i}] = {val} not finite for case '{name}'"
+                );
+            }
+        }
+    }
+
+    /// FALSIFY-LN-005: Idempotency — LN(LN(x)) ≈ LN(x)
+    #[test]
+    fn falsify_ln_005_idempotency() {
+        let dim = 6;
+        let weight = vec![1.0f32; dim];
+        let bias = vec![0.0f32; dim];
+        let data = vec![10.0, -5.0, 3.0, 7.0, -2.0, 0.5];
+        let y1 = layer_norm(&data, &weight, Some(&bias), 1e-5);
+        let y2 = layer_norm(&y1, &weight, Some(&bias), 1e-5);
+
+        for (i, (&a, &b)) in y1.iter().zip(y2.iter()).enumerate() {
+            let diff = (a - b).abs();
+            assert!(
+                diff < 1e-4,
+                "FALSIFIED LN-005: LN(LN(x))[{i}] = {b}, LN(x)[{i}] = {a}, diff = {diff}"
+            );
+        }
+    }
+
+    /// FALSIFY-LN-006: Shift invariance — LN(x + c) = LN(x)
+    #[test]
+    fn falsify_ln_006_shift_invariance() {
+        let dim = 5;
+        let weight = vec![1.0f32; dim];
+        let bias = vec![0.0f32; dim];
+        let data = vec![1.0, -2.0, 3.0, 0.5, -1.5];
+        let y_base = layer_norm(&data, &weight, Some(&bias), 1e-5);
+
+        for &c in &[10.0_f32, -100.0, 0.001, 1000.0] {
+            let shifted: Vec<f32> = data.iter().map(|&v| v + c).collect();
+            let y_shifted = layer_norm(&shifted, &weight, Some(&bias), 1e-5);
+
+            for (i, (&a, &b)) in y_base.iter().zip(y_shifted.iter()).enumerate() {
+                let tol = 1e-3 * a.abs().max(1.0);
+                assert!(
+                    (a - b).abs() < tol,
+                    "FALSIFIED LN-006: LN(x)[{i}]={a}, LN(x+{c})[{i}]={b}"
+                );
+            }
+        }
+    }
+
+    /// FALSIFY-LN-007: Constant input → output ≈ 0 (bias=0)
+    #[test]
+    fn falsify_ln_007_constant_input() {
+        let weight = vec![1.0f32; 4];
+        let bias = vec![0.0f32; 4];
+        for &c in &[0.0_f32, 1.0, -5.0, 1e6, 1e-6] {
+            let data = vec![c; 4];
+            let y = layer_norm(&data, &weight, Some(&bias), 1e-5);
+
+            for (i, &val) in y.iter().enumerate() {
+                assert!(
+                    val.is_finite(),
+                    "FALSIFIED LN-003 (via LN-007): NaN/Inf for constant {c}"
+                );
+                assert!(
+                    val.abs() < 1e-3,
+                    "FALSIFIED LN-007: LN([{c};4])[{i}] = {val}, expected ≈ 0"
+                );
+            }
+        }
+    }
+
+    /// FALSIFY-LN-001b: layer_norm_into also centers
+    #[test]
+    fn falsify_ln_001_into_centering() {
+        let dim = 8;
+        let weight = vec![1.0f32; dim];
+        let bias = vec![0.0f32; dim];
+        let data = vec![1.0, -2.0, 3.0, 0.5, -1.5, 2.5, -0.5, 1.5];
+        let mut output = vec![0.0f32; dim];
+        layer_norm_into(&data, &weight, Some(&bias), 1e-5, &mut output);
+
+        let mean: f32 = output.iter().sum::<f32>() / dim as f32;
+        assert!(
+            mean.abs() < 1e-5,
+            "FALSIFIED LN-001b: mean(layer_norm_into(x)) = {mean}"
+        );
+    }
+
+    /// FALSIFY-LN consistency: layer_norm and layer_norm_into produce same result
+    #[test]
+    fn falsify_ln_consistency_norm_vs_norm_into() {
+        let dim = 8;
+        let weight = vec![1.0f32; dim];
+        let bias = vec![0.0f32; dim];
+        let data = vec![3.0, -1.0, 2.0, -4.0, 5.0, -0.5, 1.5, -2.5];
+
+        let y_alloc = layer_norm(&data, &weight, Some(&bias), 1e-5);
+        let mut y_into = vec![0.0f32; dim];
+        layer_norm_into(&data, &weight, Some(&bias), 1e-5, &mut y_into);
+
+        for (i, (&a, &b)) in y_alloc.iter().zip(y_into.iter()).enumerate() {
+            let diff = (a - b).abs();
+            assert!(
+                diff < 1e-6,
+                "FALSIFIED LN consistency: layer_norm[{i}]={a}, layer_norm_into[{i}]={b}"
+            );
+        }
+    }
+
+    mod ln_proptest_falsify {
+        use super::*;
+        use proptest::prelude::*;
+
+        // LN-001-prop: centering
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(200))]
+            #[test]
+            fn falsify_ln_001_prop_centering(
+                dim in prop::sample::select(vec![4_usize, 8, 16, 32, 64]),
+                scale in 0.01_f32..100.0,
+            ) {
+                let weight = vec![1.0f32; dim];
+                let bias = vec![0.0f32; dim];
+                let data: Vec<f32> = (0..dim).map(|i| (i as f32 * 0.37 * scale).sin() * scale).collect();
+                let y = layer_norm(&data, &weight, Some(&bias), 1e-5);
+
+                let mean: f32 = y.iter().sum::<f32>() / dim as f32;
+                prop_assert!(
+                    mean.abs() < 1e-4,
+                    "FALSIFIED LN-001-prop: mean(LN(x)) = {} (d={}, scale={})",
+                    mean, dim, scale
+                );
+            }
+        }
+
+        // LN-002-prop: standardization
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(200))]
+            #[test]
+            fn falsify_ln_002_prop_standardization(
+                dim in prop::sample::select(vec![8_usize, 16, 32, 64]),
+                scale in 0.1_f32..100.0,
+            ) {
+                let weight = vec![1.0f32; dim];
+                let bias = vec![0.0f32; dim];
+                let data: Vec<f32> = (0..dim).map(|i| (i as f32 * 0.23).sin() * scale).collect();
+                let y = layer_norm(&data, &weight, Some(&bias), 1e-5);
+
+                let mean: f32 = y.iter().sum::<f32>() / dim as f32;
+                let var: f32 = y.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / dim as f32;
+                prop_assert!(
+                    (var - 1.0).abs() < 0.1,
+                    "FALSIFIED LN-002-prop: var(LN(x)) = {} (d={}, scale={})",
+                    var, dim, scale
+                );
+            }
+        }
+
+        // LN-006-prop: shift invariance
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(100))]
+            #[test]
+            fn falsify_ln_006_prop_shift_invariance(
+                dim in prop::sample::select(vec![4_usize, 8, 16, 32]),
+                shift in prop::sample::select(vec![-100.0_f32, -1.0, 0.5, 10.0, 1000.0]),
+            ) {
+                let weight = vec![1.0f32; dim];
+                let bias = vec![0.0f32; dim];
+                let data: Vec<f32> = (0..dim).map(|i| (i as f32 * 0.37).sin() * 5.0).collect();
+                let y_base = layer_norm(&data, &weight, Some(&bias), 1e-5);
+
+                let shifted: Vec<f32> = data.iter().map(|&v| v + shift).collect();
+                let y_shifted = layer_norm(&shifted, &weight, Some(&bias), 1e-5);
+
+                for (i, (&a, &b)) in y_base.iter().zip(y_shifted.iter()).enumerate() {
+                    let tol = 1e-3 * a.abs().max(1.0);
+                    prop_assert!(
+                        (a - b).abs() < tol,
+                        "FALSIFIED LN-006-prop: LN(x)[{i}]={a}, LN(x+{shift})[{i}]={b} (d={dim})"
+                    );
+                }
+            }
+        }
+
+        // LN-007-prop: constant input
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(100))]
+            #[test]
+            fn falsify_ln_007_prop_constant_input(
+                dim in prop::sample::select(vec![4_usize, 8, 16, 32]),
+                c in prop::sample::select(vec![-1e6_f32, -1.0, 0.0, 1.0, 1e6]),
+            ) {
+                let weight = vec![1.0f32; dim];
+                let bias = vec![0.0f32; dim];
+                let data = vec![c; dim];
+                let y = layer_norm(&data, &weight, Some(&bias), 1e-5);
+
+                for (i, &val) in y.iter().enumerate() {
+                    prop_assert!(
+                        val.is_finite(),
+                        "FALSIFIED LN-003-prop: NaN/Inf at [{i}] for constant {c} (d={dim})"
+                    );
+                    prop_assert!(
+                        val.abs() < 1e-3,
+                        "FALSIFIED LN-007-prop: LN([{c};{dim}])[{i}] = {val} (expected ≈ 0)"
+                    );
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
 // FALSIFY-GE: gelu-kernel-v1.yaml contract (realizar gelu in-place)
 // =========================================================================
 #[cfg(test)]
