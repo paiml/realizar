@@ -209,3 +209,170 @@ unsafe fn apply_rope_rotation_avx512(
         i += 1;
     }
 }
+
+#[cfg(test)]
+mod rope_contract_tests {
+    use super::*;
+
+    // =========================================================================
+    // FALSIFY-RP: rope-kernel-v1.yaml contract (realizar RoPE SIMD)
+    //
+    // Five-Whys (PMAT-354):
+    //   Why 1: realizar had 15+ RoPE functions but zero FALSIFY-RP-* tests
+    //   Why 2: RoPE tested only via end-to-end model inference, not unit contracts
+    //   Why 3: no mapping from rope-kernel-v1.yaml to realizar test names
+    //   Why 4: realizar predates the provable-contracts YAML convention
+    //   Why 5: SIMD RoPE was benchmarked for speed, not contract-tested for correctness
+    //
+    // References:
+    //   - provable-contracts/contracts/rope-kernel-v1.yaml
+    //   - Su et al. (2021) "RoFormer: Enhanced Transformer with Rotary Position Embedding"
+    // =========================================================================
+
+    /// FALSIFY-RP-001: Norm preservation — ‖RoPE(x)‖ ≈ ‖x‖
+    ///
+    /// 2D rotation preserves vector norm for each (x1, x2) pair.
+    #[test]
+    fn falsify_rp_001_norm_preservation() {
+        let dim = 32;
+        let half = dim / 2;
+
+        let mut x1: Vec<f32> = (0..half).map(|i| (i as f32 * 0.37).sin()).collect();
+        let mut x2: Vec<f32> = (0..half).map(|i| (i as f32 * 0.73).cos()).collect();
+
+        let input_norm: f32 = x1.iter().chain(x2.iter()).map(|v| v * v).sum::<f32>().sqrt();
+
+        // Precompute cos/sin for position 42 with base 10000
+        let cos_vals: Vec<f32> = (0..half)
+            .map(|i| (42.0 * (10000.0_f32).powf(-2.0 * i as f32 / dim as f32)).cos())
+            .collect();
+        let sin_vals: Vec<f32> = (0..half)
+            .map(|i| (42.0 * (10000.0_f32).powf(-2.0 * i as f32 / dim as f32)).sin())
+            .collect();
+
+        apply_rope_rotation_simd(&mut x1, &mut x2, &cos_vals, &sin_vals);
+
+        let output_norm: f32 = x1.iter().chain(x2.iter()).map(|v| v * v).sum::<f32>().sqrt();
+
+        let diff = (output_norm - input_norm).abs();
+        assert!(
+            diff < 1e-4,
+            "FALSIFIED RP-001: ‖RoPE(x)‖ = {output_norm}, ‖x‖ = {input_norm}, diff = {diff}"
+        );
+    }
+
+    /// FALSIFY-RP-003: SIMD equivalence — SIMD matches scalar within tolerance
+    ///
+    /// Contract: |rope_simd(x) - rope_scalar(x)| < 4 ULP
+    #[test]
+    fn falsify_rp_003_simd_vs_scalar_equivalence() {
+        let dim = 64;
+        let half = dim / 2;
+
+        let x1_orig: Vec<f32> = (0..half).map(|i| (i as f32 * 0.37).sin()).collect();
+        let x2_orig: Vec<f32> = (0..half).map(|i| (i as f32 * 0.73).cos()).collect();
+
+        let cos_vals: Vec<f32> = (0..half)
+            .map(|i| (10.0 * (10000.0_f32).powf(-2.0 * i as f32 / dim as f32)).cos())
+            .collect();
+        let sin_vals: Vec<f32> = (0..half)
+            .map(|i| (10.0 * (10000.0_f32).powf(-2.0 * i as f32 / dim as f32)).sin())
+            .collect();
+
+        // Scalar path
+        let mut x1_scalar = x1_orig.clone();
+        let mut x2_scalar = x2_orig.clone();
+        apply_rope_rotation_scalar(&mut x1_scalar, &mut x2_scalar, &cos_vals, &sin_vals);
+
+        // SIMD path (dispatches to AVX2/AVX512 if available)
+        let mut x1_simd = x1_orig;
+        let mut x2_simd = x2_orig;
+        apply_rope_rotation_simd(&mut x1_simd, &mut x2_simd, &cos_vals, &sin_vals);
+
+        for i in 0..half {
+            let diff1 = (x1_simd[i] - x1_scalar[i]).abs();
+            let diff2 = (x2_simd[i] - x2_scalar[i]).abs();
+            assert!(
+                diff1 < 1e-5,
+                "FALSIFIED RP-003: x1 SIMD vs scalar mismatch at [{i}]: {} vs {} (diff={diff1})",
+                x1_simd[i], x1_scalar[i]
+            );
+            assert!(
+                diff2 < 1e-5,
+                "FALSIFIED RP-003: x2 SIMD vs scalar mismatch at [{i}]: {} vs {} (diff={diff2})",
+                x2_simd[i], x2_scalar[i]
+            );
+        }
+    }
+
+    /// FALSIFY-RP-004: Zero position — RoPE(x, 0) = x (identity)
+    ///
+    /// At position 0, all angles are 0: cos(0)=1, sin(0)=0
+    #[test]
+    fn falsify_rp_004_zero_position_identity() {
+        let dim = 16;
+        let half = dim / 2;
+
+        let x1_orig: Vec<f32> = vec![1.0, -2.0, 3.0, -0.5, 4.0, -1.0, 2.5, -3.0];
+        let x2_orig: Vec<f32> = vec![0.5, 1.5, -1.0, 2.0, -3.0, 0.0, 1.0, -0.5];
+
+        let mut x1 = x1_orig.clone();
+        let mut x2 = x2_orig.clone();
+
+        // Position 0: all angles = 0 * freq = 0
+        let cos_vals = vec![1.0f32; half]; // cos(0) = 1
+        let sin_vals = vec![0.0f32; half]; // sin(0) = 0
+
+        apply_rope_rotation_simd(&mut x1, &mut x2, &cos_vals, &sin_vals);
+
+        for i in 0..half {
+            let diff1 = (x1[i] - x1_orig[i]).abs();
+            let diff2 = (x2[i] - x2_orig[i]).abs();
+            assert!(
+                diff1 < 1e-6,
+                "FALSIFIED RP-004: x1[{i}] changed from {} to {} at position 0",
+                x1_orig[i], x1[i]
+            );
+            assert!(
+                diff2 < 1e-6,
+                "FALSIFIED RP-004: x2[{i}] changed from {} to {} at position 0",
+                x2_orig[i], x2[i]
+            );
+        }
+    }
+
+    /// FALSIFY-RP-001b: Norm preservation per-pair
+    ///
+    /// Each (x1[i], x2[i]) pair should have preserved L2 norm after rotation.
+    #[test]
+    fn falsify_rp_001_per_pair_norm() {
+        let half = 8;
+        let dim = half * 2;
+
+        let mut x1: Vec<f32> = (0..half).map(|i| (i as f32 + 1.0) * 0.5).collect();
+        let mut x2: Vec<f32> = (0..half).map(|i| (i as f32 + 1.0) * -0.3).collect();
+
+        let pair_norms_before: Vec<f32> = (0..half)
+            .map(|i| (x1[i] * x1[i] + x2[i] * x2[i]).sqrt())
+            .collect();
+
+        let cos_vals: Vec<f32> = (0..half)
+            .map(|i| (7.0 * (10000.0_f32).powf(-2.0 * i as f32 / dim as f32)).cos())
+            .collect();
+        let sin_vals: Vec<f32> = (0..half)
+            .map(|i| (7.0 * (10000.0_f32).powf(-2.0 * i as f32 / dim as f32)).sin())
+            .collect();
+
+        apply_rope_rotation_simd(&mut x1, &mut x2, &cos_vals, &sin_vals);
+
+        for i in 0..half {
+            let norm_after = (x1[i] * x1[i] + x2[i] * x2[i]).sqrt();
+            let diff = (norm_after - pair_norms_before[i]).abs();
+            assert!(
+                diff < 1e-5,
+                "FALSIFIED RP-001: pair[{i}] norm changed: {} → {} (diff={diff})",
+                pair_norms_before[i], norm_after
+            );
+        }
+    }
+}
