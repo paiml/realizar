@@ -733,6 +733,83 @@ fn falsify_emb_007_temperature_monotonicity() {
     );
 }
 
+// =========================================================================
+// PROPTEST FALSIFY: EM property-based falsification (realizar GGUF path)
+//
+// Five-Whys (PMAT-354, Phase 9):
+//   Why 1: EM tests used fixed hidden_dim=32, vocab_size=50
+//   Why 2: embedding lookup could have off-by-one at edge vocab sizes
+//   Why 3: proptest explores vocab/hidden combos humans don't anticipate
+//   Why 4: GGUF F32 embedding format could break at certain alignments
+//   Why 5: YAML contracts explicitly call for "proptest with random..."
+// =========================================================================
+
+mod em_proptest_falsify {
+    use super::*;
+    use proptest::prelude::*;
+
+    // EM-001-prop: embed output shape for random dimensions
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+        #[test]
+        fn falsify_em_001_prop_output_shape(
+            hidden_dim in prop::sample::select(vec![32_usize, 64, 128]),
+            vocab_size in prop::sample::select(vec![50_usize, 100, 256]),
+            seq_len in 1_usize..16,
+        ) {
+            let model = create_test_model(hidden_dim, vocab_size);
+            let tokens: Vec<u32> = (0..seq_len).map(|i| (i % vocab_size) as u32).collect();
+            let output = model.embed(&tokens);
+            prop_assert_eq!(
+                output.len(), seq_len * hidden_dim,
+                "FALSIFIED EM-001-prop: len={} != {}*{}={} (v={})",
+                output.len(), seq_len, hidden_dim, seq_len * hidden_dim, vocab_size
+            );
+        }
+    }
+
+    // EM-003-prop: determinism for random tokens
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(30))]
+        #[test]
+        fn falsify_em_003_prop_determinism(
+            hidden_dim in prop::sample::select(vec![32_usize, 64]),
+            vocab_size in prop::sample::select(vec![50_usize, 100]),
+            token_ids in proptest::collection::vec(0_u32..49, 1..8),
+        ) {
+            let model = create_test_model(hidden_dim, vocab_size);
+            let out1 = model.embed(&token_ids);
+            let out2 = model.embed(&token_ids);
+            prop_assert_eq!(
+                out1, out2,
+                "FALSIFIED EM-003-prop: two embed calls differ (h={}, v={})",
+                hidden_dim, vocab_size
+            );
+        }
+    }
+
+    // EM-004-prop: finite output for random tokens
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+        #[test]
+        fn falsify_em_004_prop_finite(
+            hidden_dim in prop::sample::select(vec![32_usize, 64, 128]),
+            vocab_size in prop::sample::select(vec![50_usize, 100, 256]),
+            token_ids in proptest::collection::vec(0_u32..49, 1..8),
+        ) {
+            let model = create_test_model(hidden_dim, vocab_size);
+            let output = model.embed(&token_ids);
+            for (i, &v) in output.iter().enumerate() {
+                prop_assert!(
+                    v.is_finite(),
+                    "FALSIFIED EM-004-prop: output[{}]={} not finite (h={}, v={})",
+                    i, v, hidden_dim, vocab_size
+                );
+            }
+        }
+    }
+}
+
 // ============================================================================
 // FALSIFY-TE: tied-embeddings-v1.yaml contract mapping
 //
