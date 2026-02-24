@@ -417,6 +417,109 @@
         assert!(!x[2].is_nan());
     }
 
+    // ================================================================
+    // FALSIFY-SM: softmax-kernel-v1.yaml contract falsification
+    //
+    // Five-Whys (PMAT-354):
+    //   Why 1: realizar had 8 softmax tests but 0 FALSIFY-SM-* tagged
+    //   Why 2: existing tests verify SIMD parity, not contract claims
+    //   Why 3: no mapping from softmax-kernel-v1.yaml to realizar tests
+    //   Why 4: realizar predates the provable-contracts YAML
+    //   Why 5: softmax correctness was verified indirectly via inference
+    //
+    // References:
+    //   - provable-contracts/contracts/softmax-kernel-v1.yaml
+    // ================================================================
+
+    /// FALSIFY-SM-001: Output sums to 1 (partition of unity)
+    #[test]
+    fn falsify_sm_001_sums_to_one() {
+        let cases: Vec<Vec<f32>> = vec![
+            vec![1.0, 2.0, 3.0],
+            vec![-10.0, 0.0, 10.0],
+            (0..128).map(|i| (i as f32 * 0.37).sin() * 5.0).collect(),
+        ];
+
+        for (idx, logits) in cases.iter().enumerate() {
+            let mut x = logits.clone();
+            softmax_simd(&mut x);
+            let sum: f32 = x.iter().sum();
+            assert!(
+                (sum - 1.0).abs() < 1e-4,
+                "FALSIFIED SM-001: case {idx} sum={sum}"
+            );
+        }
+    }
+
+    /// FALSIFY-SM-002: All outputs strictly positive (within f32 range)
+    #[test]
+    fn falsify_sm_002_strictly_positive() {
+        // Use moderate range to stay within f32 representable softmax outputs
+        let mut x: Vec<f32> = (0..10).map(|i| (i as f32 - 5.0) * 2.0).collect();
+        softmax_simd(&mut x);
+
+        for (i, &p) in x.iter().enumerate() {
+            assert!(
+                p > 0.0,
+                "FALSIFIED SM-002: x[{i}] = {p} not strictly positive"
+            );
+        }
+    }
+
+    /// FALSIFY-SM-003: Order preservation (argmax invariant)
+    #[test]
+    fn falsify_sm_003_order_preservation() {
+        let original = vec![1.0f32, 5.0, 3.0, 2.0, 4.0];
+        let input_argmax = original
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .0;
+
+        let mut x = original;
+        softmax_simd(&mut x);
+        let output_argmax = x
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .0;
+
+        assert_eq!(
+            input_argmax, output_argmax,
+            "FALSIFIED SM-003: argmax changed {input_argmax} → {output_argmax}"
+        );
+    }
+
+    /// FALSIFY-SM-004: Each output bounded in (0, 1)
+    #[test]
+    fn falsify_sm_004_bounded_zero_one() {
+        let mut x: Vec<f32> = (0..32).map(|i| (i as f32 * 1.7).sin() * 10.0).collect();
+        softmax_simd(&mut x);
+
+        for (i, &p) in x.iter().enumerate() {
+            assert!(
+                p > 0.0 && p < 1.0,
+                "FALSIFIED SM-004: x[{i}] = {p} not in (0, 1)"
+            );
+        }
+    }
+
+    /// FALSIFY-SM-005: Numerical stability — no NaN/Inf
+    #[test]
+    fn falsify_sm_005_numerical_stability() {
+        let mut x = vec![-500.0f32, 0.0, 500.0];
+        softmax_simd(&mut x);
+
+        for (i, &p) in x.iter().enumerate() {
+            assert!(
+                p.is_finite(),
+                "FALSIFIED SM-005: x[{i}] = {p} is not finite"
+            );
+        }
+    }
+
     // ============= quantize_activations_q8_0 tests =============
 
     #[test]
