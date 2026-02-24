@@ -110,15 +110,11 @@ impl AprTransformer {
                 }
                 embeddings.extend_from_slice(&self.token_embedding[offset..offset + hidden_dim]);
             } else {
-                // Out of vocab - return zeros
-                if debug {
-                    eprintln!(
-                        "[DEBUG] embed token {}: OUT OF VOCAB (offset {} > {})",
-                        token_id,
-                        offset,
-                        self.token_embedding.len()
-                    );
-                }
+                // N-09: OOB token → zeros. Contract: embedding-lookup-v1.yaml
+                eprintln!(
+                    "Warning: AprTransformer::embed token_id {} OOB (offset={offset}, len={}). N-09 escape.",
+                    token_id, self.token_embedding.len()
+                );
                 embeddings.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }
