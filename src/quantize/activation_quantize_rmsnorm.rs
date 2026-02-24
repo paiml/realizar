@@ -650,3 +650,56 @@
             assert_eq!(*q, 127); // Should quantize to max
         }
     }
+
+    // ================================================================
+    // FALSIFY-SM proptest variants
+    //
+    // Property-based counterparts to the deterministic SM-001..SM-009
+    // tests above. These use random inputs to hunt for edge cases that
+    // hand-crafted vectors miss.
+    //
+    // References:
+    //   - provable-contracts/contracts/softmax-kernel-v1.yaml
+    // ================================================================
+
+    mod softmax_proptest_falsify {
+        use super::*;
+        use proptest::prelude::*;
+
+        // FALSIFY-SM-001-prop: Normalization for random vectors
+        //
+        // Contract: sum(softmax(x)) = 1.0 for any non-empty input.
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(500))]
+            #[test]
+            fn falsify_sm_001_prop_sums_to_one(
+                logits in proptest::collection::vec(-100.0_f32..100.0, 2..64),
+            ) {
+                let mut x = logits;
+                softmax_simd(&mut x);
+                let sum: f32 = x.iter().sum();
+                prop_assert!(
+                    (sum - 1.0).abs() < 1e-4,
+                    "FALSIFIED SM-001-prop: sum={} for {} elements", sum, x.len()
+                );
+            }
+        }
+
+        // FALSIFY-SM-002-prop: Positivity for random vectors
+        //
+        // Contract: softmax(x)[i] >= 0 and is finite for all i.
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(500))]
+            #[test]
+            fn falsify_sm_002_prop_positive(
+                logits in proptest::collection::vec(-500.0_f32..500.0, 2..32),
+            ) {
+                let mut x = logits;
+                softmax_simd(&mut x);
+                for (i, &p) in x.iter().enumerate() {
+                    prop_assert!(p >= 0.0, "FALSIFIED SM-002-prop: probs[{}]={} negative", i, p);
+                    prop_assert!(p.is_finite(), "FALSIFIED SM-002-prop: probs[{}]={} non-finite", i, p);
+                }
+            }
+        }
+    }
