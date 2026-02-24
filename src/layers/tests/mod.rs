@@ -9,3 +9,4 @@ mod attention_forward;
 mod softmax_empty;
 // mod tests_10; // TODO: Fix compilation errors in this file
 mod attention_getters;
+mod lp_contract;
