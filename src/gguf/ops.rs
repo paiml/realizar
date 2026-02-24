@@ -1018,3 +1018,154 @@ mod gelu_contract_tests {
         }
     }
 }
+
+// =========================================================================
+// FALSIFY-SG: swiglu-kernel-v1.yaml contract (realizar fused_swiglu)
+//
+// Five-Whys (PMAT-354, Phase 11):
+//   Why 1: realizar had 10+ swiglu unit tests but zero FALSIFY-SG-* tests
+//   Why 2: unit tests verify SIMD parity, not mathematical invariants
+//   Why 3: no mapping from swiglu-kernel-v1.yaml to realizar test names
+//   Why 4: realizar predates the provable-contracts YAML convention
+//   Why 5: SwiGLU was "obviously correct" (SiLU(gate) * up)
+//
+// Note: realizar's SwiGLU API is fused_swiglu_simd(gate, up) which modifies
+// gate in-place. Tests use the silu() + element-wise multiply decomposition.
+//
+// References:
+//   - provable-contracts/contracts/swiglu-kernel-v1.yaml
+//   - Shazeer (2020) "GLU Variants Improve Transformer"
+// =========================================================================
+
+#[cfg(test)]
+mod swiglu_contract_tests {
+    use super::*;
+
+    /// Scalar reference: SwiGLU(gate, up) = SiLU(gate) * up
+    fn swiglu_ref(gate: f32, up: f32) -> f32 {
+        trueno::silu_scalar(gate) * up
+    }
+
+    /// FALSIFY-SG-001: Zero preservation — SwiGLU(0, up) = 0 for any up
+    #[test]
+    fn falsify_sg_001_zero_gate_preservation() {
+        for &up in &[-10.0f32, -1.0, 0.0, 1.0, 10.0] {
+            let mut gate = vec![0.0];
+            let up_vec = vec![up];
+            silu(&mut gate);
+            gate[0] *= up_vec[0];
+            assert!(gate[0].abs() < 1e-7, "FALSIFIED SG-001: SwiGLU(0, {up}) = {}", gate[0]);
+        }
+    }
+
+    /// FALSIFY-SG-002: Fused equivalence — fused matches decomposed
+    #[test]
+    fn falsify_sg_002_fused_equivalence() {
+        let cases: Vec<(f32, f32)> = vec![
+            (1.0, 1.0), (-2.0, 3.0), (5.0, -1.0), (0.5, 0.5), (100.0, 0.0),
+        ];
+        for &(g, u) in &cases {
+            let expected = swiglu_ref(g, u);
+            // Use the in-place silu + multiply approach
+            let mut gate = vec![g];
+            silu(&mut gate);
+            let actual = gate[0] * u;
+            assert!(
+                (actual - expected).abs() < 1e-5,
+                "FALSIFIED SG-002: silu({g})*{u} = {actual}, expected {expected}"
+            );
+        }
+    }
+
+    /// FALSIFY-SG-003: SiLU lower bound in gate — SiLU(z) > -0.279
+    #[test]
+    fn falsify_sg_003_silu_lower_bound() {
+        let mut gates = vec![-1000.0f32, -1.278, -1.0, 0.0, 1.0, 1000.0];
+        let orig = gates.clone();
+        silu(&mut gates);
+        for (i, &val) in gates.iter().enumerate() {
+            assert!(val > -0.28, "FALSIFIED SG-003: SiLU({}) = {val}", orig[i]);
+        }
+    }
+
+    /// FALSIFY-SG-004: Finite output for all finite inputs
+    #[test]
+    fn falsify_sg_004_finite_output() {
+        let vals = vec![-100.0, -10.0, -1.0, 0.0, 1.0, 10.0, 100.0];
+        for &g in &vals {
+            for &u in &vals {
+                let y = swiglu_ref(g, u);
+                assert!(y.is_finite(), "FALSIFIED SG-004: SwiGLU({g},{u}) = {y}");
+            }
+        }
+    }
+
+    /// FALSIFY-SG-005: Empty input produces empty output
+    #[test]
+    fn falsify_sg_005_empty_input() {
+        let mut gate: Vec<f32> = vec![];
+        silu(&mut gate);
+        assert!(gate.is_empty(), "FALSIFIED SG-005: empty SiLU produced non-empty");
+    }
+
+    /// FALSIFY-SG-006: Monotonicity of gate — for positive x and positive gates
+    #[test]
+    fn falsify_sg_006_gate_monotonicity() {
+        let up = 5.0f32;
+        let gate_values: Vec<f32> = vec![0.1, 0.5, 1.0, 2.0, 5.0, 10.0];
+        let results: Vec<f32> = gate_values.iter().map(|&g| swiglu_ref(g, up)).collect();
+        for i in 1..results.len() {
+            assert!(
+                results[i] > results[i - 1],
+                "FALSIFIED SG-006: SwiGLU({},{up}) = {} not > SwiGLU({},{up}) = {}",
+                gate_values[i], results[i], gate_values[i-1], results[i-1]
+            );
+        }
+    }
+
+    mod sg_proptest_falsify {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(300))]
+            #[test]
+            fn falsify_sg_001_prop_zero_gate(up in -100.0_f32..100.0) {
+                let y = swiglu_ref(0.0, up);
+                prop_assert!(y.abs() < 1e-6, "FALSIFIED SG-001-prop: SwiGLU(0,{up}) = {y}");
+            }
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(300))]
+            #[test]
+            fn falsify_sg_004_prop_finite(
+                gate in -100.0_f32..100.0,
+                up in -100.0_f32..100.0,
+            ) {
+                let y = swiglu_ref(gate, up);
+                prop_assert!(y.is_finite(), "FALSIFIED SG-004-prop: SwiGLU({gate},{up}) = {y}");
+            }
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(200))]
+            #[test]
+            fn falsify_sg_006_prop_gate_monotonic(
+                up in 1.0_f32..50.0,
+                a in 0.1_f32..50.0,
+                b in 0.1_f32..50.0,
+            ) {
+                if a != b {
+                    let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+                    let y_lo = swiglu_ref(lo, up);
+                    let y_hi = swiglu_ref(hi, up);
+                    prop_assert!(
+                        y_hi > y_lo,
+                        "FALSIFIED SG-006-prop: SwiGLU({hi},{up})={y_hi} not > SwiGLU({lo},{up})={y_lo}"
+                    );
+                }
+            }
+        }
+    }
+}
