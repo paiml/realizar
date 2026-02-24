@@ -1141,6 +1141,118 @@ fn falsify_te_003_tied_no_extra_weight_data() {
     );
 }
 
+// =========================================================================
+// PROPTEST FALSIFY: TE property-based falsification (realizar GGUF path)
+//
+// Five-Whys (PMAT-354, Phase 9):
+//   Why 1: TE-001/002/004 used fixed hidden_dim=32, vocab_size=50
+//   Why 2: Q4K quantization has block-size constraints (groups of 256)
+//   Why 3: edge vocab/hidden combos might produce wrong output dimensions
+//   Why 4: proptest explores dimension space humans don't anticipate
+//   Why 5: tied embedding equivalence (TE-002) could break at edge sizes
+// =========================================================================
+
+mod te_proptest_falsify {
+    use super::*;
+    use proptest::prelude::*;
+
+    // TE-001-prop: lm_head output shape for random hidden/vocab dimensions
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(30))]
+        #[test]
+        fn falsify_te_001_prop_output_shape(
+            hidden_dim in prop::sample::select(vec![32_usize, 64, 128]),
+            vocab_size in prop::sample::select(vec![50_usize, 100, 256, 512]),
+        ) {
+            let model = create_test_model(hidden_dim, vocab_size);
+            let hidden_state = vec![0.1f32; hidden_dim];
+            let logits = model
+                .fused_matmul(&hidden_state, model.lm_head_weight())
+                .expect("fused_matmul should succeed");
+            prop_assert_eq!(
+                logits.len(), vocab_size,
+                "FALSIFIED TE-001-prop: logits len={} != vocab_size={} (h={})",
+                logits.len(), vocab_size, hidden_dim
+            );
+        }
+    }
+
+    // TE-002-prop: tied equivalence for random hidden states
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(20))]
+        #[test]
+        fn falsify_te_002_prop_tied_equivalence(
+            hidden_dim in prop::sample::select(vec![32_usize, 64]),
+            vocab_size in prop::sample::select(vec![50_usize, 100]),
+            scale in 0.01_f32..2.0,
+        ) {
+            let mut model = create_test_model(hidden_dim, vocab_size);
+
+            // Create F32 tied lm_head from token_embedding
+            let tied_data = model.token_embedding.clone();
+            let tied_bytes: Vec<u8> = tied_data
+                .iter()
+                .flat_map(|f| f.to_le_bytes())
+                .collect();
+            let tied_lm_head = OwnedQuantizedTensor {
+                data: tied_bytes,
+                qtype: GGUF_TYPE_F32,
+                in_dim: hidden_dim,
+                out_dim: vocab_size,
+            };
+            model.lm_head_weight = tied_lm_head;
+
+            let hidden_state: Vec<f32> = (0..hidden_dim)
+                .map(|i| (i as f32 * 0.07 * scale).sin())
+                .collect();
+
+            let logits = model
+                .fused_matmul(&hidden_state, &model.lm_head_weight)
+                .expect("tied fused_matmul should succeed");
+
+            // Manual dot product for F32 tied weights
+            let mut expected = vec![0.0f32; vocab_size];
+            for j in 0..vocab_size {
+                for i in 0..hidden_dim {
+                    expected[j] += hidden_state[i] * tied_data[j * hidden_dim + i];
+                }
+            }
+
+            for (j, (&actual, &exp)) in logits.iter().zip(expected.iter()).enumerate() {
+                prop_assert!(
+                    (actual - exp).abs() < 1e-3,
+                    "FALSIFIED TE-002-prop: logits[{j}]={actual} != expected {exp} (h={hidden_dim}, v={vocab_size})"
+                );
+            }
+        }
+    }
+
+    // TE-004-prop: finite output for random hidden states
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(50))]
+        #[test]
+        fn falsify_te_004_prop_finite(
+            hidden_dim in prop::sample::select(vec![32_usize, 64, 128]),
+            vocab_size in prop::sample::select(vec![50_usize, 100, 256]),
+            scale in 0.001_f32..10.0,
+        ) {
+            let model = create_test_model(hidden_dim, vocab_size);
+            let hidden_state: Vec<f32> = (0..hidden_dim)
+                .map(|i| (i as f32 * 0.03 * scale).cos())
+                .collect();
+            let logits = model
+                .fused_matmul(&hidden_state, model.lm_head_weight())
+                .expect("fused_matmul should succeed");
+            for (i, &v) in logits.iter().enumerate() {
+                prop_assert!(
+                    v.is_finite(),
+                    "FALSIFIED TE-004-prop: logits[{i}]={v} not finite (h={hidden_dim}, v={vocab_size})"
+                );
+            }
+        }
+    }
+}
+
 /// FALSIFY-AP-003: Max position bounds — position >= max_positions handled safely
 ///
 /// Five-Whys (PMAT-354):
