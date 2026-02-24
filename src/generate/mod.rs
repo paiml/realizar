@@ -402,3 +402,8 @@ mod generate_tests_part_02;
 // Algorithm-specific tests
 #[cfg(test)]
 mod algorithms_tests;
+
+// FALSIFY-SA: Sampling contract tests (sampling-algorithms-v1.yaml)
+#[cfg(test)]
+#[path = "tests_sampling_contract.rs"]
+mod tests_sampling_contract;
