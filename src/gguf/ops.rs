@@ -464,6 +464,90 @@ mod rmsnorm_contract_tests {
             );
         }
     }
+
+    // =========================================================================
+    // PROPTEST FALSIFY: RMSNorm property-based falsification
+    //
+    // Five-Whys (PMAT-354, Phase 10):
+    //   Why 1: RN-001..005 used fixed dimensions (d=4 or d=8)
+    //   Why 2: Scale invariance (RN-002) could break at edge float ranges
+    //   Why 3: proptest explores dimension/value combos humans miss
+    //   Why 4: rms_norm and rms_norm_into consistency untested at scale
+    //   Why 5: YAML rmsnorm-kernel-v1 calls for proptest on all claims
+    // =========================================================================
+
+    mod rn_proptest_falsify {
+        use super::*;
+        use proptest::prelude::*;
+
+        // RN-001-prop: finiteness for random vectors
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(200))]
+            #[test]
+            fn falsify_rn_001_prop_finiteness(
+                dim in prop::sample::select(vec![4_usize, 8, 16, 32, 64]),
+                scale in 0.001_f32..1000.0,
+            ) {
+                let weight = vec![1.0f32; dim];
+                let data: Vec<f32> = (0..dim).map(|i| (i as f32 * 0.13 * scale).sin()).collect();
+                let output = rms_norm(&data, &weight, 1e-5);
+                for (i, &val) in output.iter().enumerate() {
+                    prop_assert!(
+                        val.is_finite(),
+                        "FALSIFIED RN-001-prop: output[{}]={} not finite (d={}, scale={})",
+                        i, val, dim, scale
+                    );
+                }
+            }
+        }
+
+        // RN-002-prop: scale invariance for random vectors
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(100))]
+            #[test]
+            fn falsify_rn_002_prop_scale_invariance(
+                dim in prop::sample::select(vec![4_usize, 8, 16, 32]),
+                alpha in prop::sample::select(vec![-10.0_f32, -1.0, 0.5, 2.0, 100.0]),
+            ) {
+                let weight = vec![1.0f32; dim];
+                let eps = 1e-6;
+                let data: Vec<f32> = (0..dim).map(|i| (i as f32 * 0.37).sin() * 5.0).collect();
+                let y_base = rms_norm(&data, &weight, eps);
+
+                let x_scaled: Vec<f32> = data.iter().map(|&v| v * alpha).collect();
+                let y_scaled = rms_norm(&x_scaled, &weight, eps);
+
+                let sign = alpha.signum();
+                for (i, (&ys, &yb)) in y_scaled.iter().zip(y_base.iter()).enumerate() {
+                    let expected = sign * yb;
+                    prop_assert!(
+                        (ys - expected).abs() < 1e-3,
+                        "FALSIFIED RN-002-prop: [{i}] got {ys}, expected {expected} (alpha={alpha}, d={dim})"
+                    );
+                }
+            }
+        }
+
+        // RN-005-prop: unit gamma normalized RMS
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(100))]
+            #[test]
+            fn falsify_rn_005_prop_unit_gamma_rms(
+                dim in prop::sample::select(vec![8_usize, 16, 32, 64]),
+            ) {
+                let weight = vec![1.0f32; dim];
+                let data: Vec<f32> = (0..dim).map(|i| (i as f32 * 0.23).sin() * 10.0).collect();
+                let y = rms_norm(&data, &weight, 1e-6);
+
+                let rms_out: f32 = (y.iter().map(|&v| v * v).sum::<f32>() / y.len() as f32).sqrt();
+                prop_assert!(
+                    (rms_out - 1.0).abs() < 0.05,
+                    "FALSIFIED RN-005-prop: RMS(output)={} != 1.0 (d={})",
+                    rms_out, dim
+                );
+            }
+        }
+    }
 }
 
 // =========================================================================
