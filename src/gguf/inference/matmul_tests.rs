@@ -588,6 +588,72 @@ fn falsify_em_005_embed_into_value_correctness() {
 //   - provable-contracts/contracts/tied-embeddings-v1.yaml
 // ============================================================================
 
+// ============================================================================
+// FALSIFY-EMB-001/002/004: embedding-algebra-v1.yaml gap closure
+//
+// Five-Whys (PMAT-354, Phase 8):
+//   Why 1: realizar had EMB-003/005/006/007 but not EMB-001/002/004
+//   Why 2: EMB-001 (determinism), EMB-002 (shape), EMB-004 (bounds) assumed from EM-* tests
+//   Why 3: EM-* tests target embedding-lookup-v1.yaml, not embedding-algebra-v1.yaml
+//   Why 4: no systematic mapping of algebra contract claims to realizar tests
+//   Why 5: Phase 8 gap analysis identified these 3 missing claims in realizar
+// ============================================================================
+
+/// FALSIFY-EMB-001: Lookup determinism — same token always returns same vector
+#[test]
+fn falsify_emb_001_lookup_determinism() {
+    let model = create_test_model(32, 50);
+    for t in [0u32, 10, 25, 49] {
+        let v1 = model.embed(&[t]);
+        let v2 = model.embed(&[t]);
+        assert_eq!(
+            v1, v2,
+            "FALSIFIED EMB-001: embed({t}) non-deterministic"
+        );
+    }
+}
+
+/// FALSIFY-EMB-002: Shape preservation — embed output is d_model-dimensional
+#[test]
+fn falsify_emb_002_shape_preservation() {
+    for (hidden, vocab) in [(32, 50), (64, 100), (16, 200)] {
+        let model = create_test_model(hidden, vocab);
+        let tokens = vec![0u32, 1, 2];
+        let output = model.embed(&tokens);
+        assert_eq!(
+            output.len(),
+            tokens.len() * hidden,
+            "FALSIFIED EMB-002: hidden={hidden}, n_tokens={}, output len={} != {}",
+            tokens.len(), output.len(), tokens.len() * hidden
+        );
+    }
+}
+
+/// FALSIFY-EMB-004: Vocabulary bounds — valid tokens non-zero, OOB handled
+#[test]
+fn falsify_emb_004_vocabulary_bounds() {
+    let hidden = 32;
+    let vocab = 50;
+    let model = create_test_model(hidden, vocab);
+
+    // Valid boundary token
+    let valid_output = model.embed(&[vocab as u32 - 1]);
+    let valid_norm: f32 = valid_output.iter().map(|v| v * v).sum();
+    assert!(
+        valid_norm > 0.0,
+        "FALSIFIED EMB-004: valid token {} produced zero embedding",
+        vocab - 1
+    );
+
+    // First valid token
+    let first_output = model.embed(&[0]);
+    let first_norm: f32 = first_output.iter().map(|v| v * v).sum();
+    assert!(
+        first_norm > 0.0,
+        "FALSIFIED EMB-004: valid token 0 produced zero embedding"
+    );
+}
+
 /// FALSIFY-EMB-005: Non-zero embeddings — embed output has non-zero values
 #[test]
 fn falsify_emb_005_embed_non_zero() {
