@@ -10,6 +10,11 @@ impl OwnedQuantizedModel {
             if end <= self.token_embedding.len() {
                 embeddings.extend_from_slice(&self.token_embedding[start..end]);
             } else {
+                // N-09: OOB token → zeros. Contract: embedding-lookup-v1.yaml
+                eprintln!(
+                    "Warning: OwnedQuantizedModel::embed token_id {} OOB (end={end}, len={}). N-09 escape.",
+                    token_id, self.token_embedding.len()
+                );
                 embeddings.extend(std::iter::repeat_n(0.0, hidden_dim));
             }
         }
@@ -25,6 +30,11 @@ impl OwnedQuantizedModel {
         if end <= self.token_embedding.len() {
             output[..hidden_dim].copy_from_slice(&self.token_embedding[start..end]);
         } else {
+            // N-09: OOB token → zeros. Contract: embedding-lookup-v1.yaml
+            eprintln!(
+                "Warning: embed_into token_id {} OOB (end={end}, len={}). N-09 escape.",
+                token_id, self.token_embedding.len()
+            );
             output[..hidden_dim].iter_mut().for_each(|x| *x = 0.0);
         }
     }
