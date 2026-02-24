@@ -444,4 +444,133 @@ fn test_qkv_matmul_separate_multi_position() {
     assert_eq!(output.len(), 768);
 }
 
+// ============================================================================
+// FALSIFY-EM-001..005: embedding-lookup-v1.yaml contract falsification
+//
+// Five-Whys (PMAT-354):
+//   Why 1: realizar has embed unit tests but zero FALSIFY-EM-* tagged tests
+//   Why 2: unit tests verify individual examples, not contract claims
+//   Why 3: no mapping from embedding-lookup-v1.yaml to realizar test names
+//   Why 4: matmul_tests.rs predates provable-contracts YAML
+//   Why 5: embed was "obviously correct" (simple slice copy) so no formal contracts
+//
+// References:
+//   - provable-contracts/contracts/embedding-lookup-v1.yaml
+//   - src/gguf/inference/matmul_fused.rs::embed()
+// ============================================================================
+
+#[test]
+fn falsify_em_001_embed_output_shape() {
+    let hidden_dim = 32;
+    let vocab_size = 50;
+    let model = create_test_model(hidden_dim, vocab_size);
+
+    for seq_len in [1, 3, 10, 49] {
+        let tokens: Vec<u32> = (0..seq_len).collect();
+        let output = model.embed(&tokens);
+        assert_eq!(
+            output.len(),
+            seq_len as usize * hidden_dim,
+            "FALSIFIED EM-001: embed({seq_len} tokens) produced {} elements, expected {}",
+            output.len(),
+            seq_len as usize * hidden_dim
+        );
+    }
+}
+
+#[test]
+fn falsify_em_001b_embed_empty_input() {
+    let model = create_test_model(32, 50);
+    let output = model.embed(&[]);
+    assert!(
+        output.is_empty(),
+        "FALSIFIED EM-001b: empty token list should produce empty output"
+    );
+}
+
+#[test]
+fn falsify_em_002_embed_oob_produces_zeros() {
+    let hidden_dim = 32;
+    let vocab_size = 50;
+    let model = create_test_model(hidden_dim, vocab_size);
+
+    // Token 100 is OOB for vocab_size=50
+    let output = model.embed(&[100]);
+    assert_eq!(output.len(), hidden_dim);
+
+    let all_zero = output.iter().all(|&x| x == 0.0);
+    assert!(
+        all_zero,
+        "FALSIFIED EM-002: OOB token should produce all zeros"
+    );
+}
+
+#[test]
+fn falsify_em_002b_embed_boundary_token() {
+    let hidden_dim = 32;
+    let vocab_size = 50;
+    let model = create_test_model(hidden_dim, vocab_size);
+
+    // Last valid token (49)
+    let output = model.embed(&[49]);
+    assert_eq!(output.len(), hidden_dim);
+    // Should be valid (0.1 in our test data), not zeros
+    assert!(
+        output.iter().all(|&x| (x - 0.1).abs() < f32::EPSILON),
+        "FALSIFIED EM-002b: boundary token should produce valid embeddings"
+    );
+}
+
+#[test]
+fn falsify_em_003_embed_determinism() {
+    let model = create_test_model(32, 50);
+    let tokens = vec![0u32, 10, 25, 49];
+
+    let r1 = model.embed(&tokens);
+    let r2 = model.embed(&tokens);
+
+    assert_eq!(
+        r1, r2,
+        "FALSIFIED EM-003: embed() is non-deterministic"
+    );
+}
+
+#[test]
+fn falsify_em_004_embed_finite_output() {
+    let model = create_test_model(32, 50);
+    let tokens: Vec<u32> = (0..50).collect();
+    let output = model.embed(&tokens);
+
+    let nan_count = output.iter().filter(|v| v.is_nan()).count();
+    let inf_count = output.iter().filter(|v| v.is_infinite()).count();
+
+    assert_eq!(
+        nan_count, 0,
+        "FALSIFIED EM-004: embed output contains {} NaN values",
+        nan_count
+    );
+    assert_eq!(
+        inf_count, 0,
+        "FALSIFIED EM-004: embed output contains {} Inf values",
+        inf_count
+    );
+}
+
+#[test]
+fn falsify_em_005_embed_into_value_correctness() {
+    let hidden_dim = 32;
+    let vocab_size = 50;
+    let model = create_test_model(hidden_dim, vocab_size);
+
+    // embed and embed_into should produce same result for same token
+    let batch_output = model.embed(&[5]);
+    let mut single_output = vec![0.0f32; hidden_dim];
+    model.embed_into(5, &mut single_output);
+
+    assert_eq!(
+        batch_output, single_output,
+        "FALSIFIED EM-005: embed([5]) != embed_into(5)"
+    );
+}
+
 include!("matmul_qkv_norm_tests.rs");
