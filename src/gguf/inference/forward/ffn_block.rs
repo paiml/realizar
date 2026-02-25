@@ -57,11 +57,16 @@ impl OwnedQuantizedModel {
                     hidden.to_vec()
                 };
 
-                let mut ffn_up = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                let out_dim = layer.ffn_up_weight.out_dim;
+                let mut ffn_up = vec![0.0f32; out_dim];
+                let mut ffn_gate = vec![0.0f32; out_dim];
+                self.fused_gate_up_matmul_into(
+                    &ffn_input, gate_weight, &layer.ffn_up_weight,
+                    &mut ffn_gate, &mut ffn_up,
+                )?;
                 if let Some(ref bias) = layer.ffn_up_bias {
                     ops::add_bias(&mut ffn_up, bias);
                 }
-                let mut ffn_gate = self.fused_matmul(&ffn_input, gate_weight)?;
                 if let Some(ref bias) = layer.ffn_gate_bias {
                     ops::add_bias(&mut ffn_gate, bias);
                 }

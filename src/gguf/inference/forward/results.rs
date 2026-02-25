@@ -40,6 +40,21 @@ impl OwnedQuantizedModel {
                     &mut scratch.ffn_up,
                     &mut scratch.ffn_gate,
                 )?;
+            } else if up_weight.qtype == gate_weight.qtype
+                && up_weight.in_dim == gate_weight.in_dim
+                && up_weight.out_dim == gate_weight.out_dim
+                && (up_weight.qtype == GGUF_TYPE_Q4_K
+                    || up_weight.qtype == GGUF_TYPE_Q5_K
+                    || up_weight.qtype == GGUF_TYPE_Q6_K)
+            {
+                // Fused gate+up for same-type K-quant weights (PMAT-FFN-FUSION)
+                self.fused_gate_up_matmul_into(
+                    &scratch.normed[..hidden_dim],
+                    gate_weight,
+                    up_weight,
+                    &mut scratch.ffn_gate,
+                    &mut scratch.ffn_up,
+                )?;
             } else {
                 use crate::quantize::fused_q4k_q8k_parallel_matvec_into;
                 let (up_result, gate_result) = rayon::join(
@@ -85,12 +100,13 @@ impl OwnedQuantizedModel {
             }
         } else {
             let up_weight = &layer.ffn_up_weight;
-            let (up_result, gate_result) = rayon::join(
-                || self.fused_matmul_into(&scratch.normed[..hidden_dim], up_weight, &mut scratch.ffn_up),
-                || self.fused_matmul_into(&scratch.normed[..hidden_dim], gate_weight, &mut scratch.ffn_gate),
-            );
-            up_result?;
-            gate_result?;
+            self.fused_gate_up_matmul_into(
+                &scratch.normed[..hidden_dim],
+                gate_weight,
+                up_weight,
+                &mut scratch.ffn_gate,
+                &mut scratch.ffn_up,
+            )?;
         }
         Ok(())
     }

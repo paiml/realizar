@@ -68,6 +68,7 @@ pub mod contract_tests;
 pub mod dequant;
 pub mod encode;
 pub mod format_trait;
+pub mod fused_gate_up;
 pub mod fused_k;
 pub mod fused_q5k_q6k;
 pub mod generic_dot;
@@ -123,6 +124,12 @@ pub use simd::{extract_scale_min, extract_scale_min_from_slice, read_f16};
 pub use format_trait::{Q4_0Fmt, Q8_0Fmt, QuantBlockFormat, QuantFamily, Q4K, Q5K, Q6K};
 pub use generic_dot::{compute_bsums, generic_fused_dot_scalar};
 pub use generic_matvec::{generic_parallel_matvec, generic_parallel_matvec_into};
+
+// Re-export fused gate+up kernel (PMAT-FFN-FUSION)
+pub use fused_gate_up::{
+    fused_gate_up_q4k_into, fused_gate_up_q5k_into, fused_gate_up_q6k_into,
+    generic_fused_gate_up_matvec_into,
+};
 
 // Re-export bsum precomputation (Contract: quantized-dot-product-v1.yaml, Step 3)
 pub use bsum_precompute::{fused_q4k_q8k_parallel_matvec_with_bsums_into, precompute_q8k_bsums};
