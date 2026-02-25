@@ -75,6 +75,81 @@ impl OwnedQuantizedModel {
         }
     }
 
+    /// Fused gate+up matmul into pre-allocated output buffers (PMAT-FFN-FUSION)
+    ///
+    /// Computes both gate and up projections in a single rayon dispatch when both
+    /// weights share the same quantization type. Falls back to `rayon::join` with
+    /// two separate `fused_matmul_into` calls for mixed types.
+    pub(crate) fn fused_gate_up_matmul_into(
+        &self,
+        input: &[f32],
+        gate_weight: &OwnedQuantizedTensor,
+        up_weight: &OwnedQuantizedTensor,
+        gate_output: &mut [f32],
+        up_output: &mut [f32],
+    ) -> Result<()> {
+        use crate::quantize::{
+            fused_gate_up_q4k_into, fused_gate_up_q5k_into, fused_gate_up_q6k_into,
+        };
+
+        let in_dim = gate_weight.in_dim;
+        let out_dim = gate_weight.out_dim;
+        let seq_len = input.len() / in_dim;
+
+        // Only fuse for single-token case with matching types and dimensions
+        if seq_len == 1
+            && gate_weight.qtype == up_weight.qtype
+            && gate_weight.in_dim == up_weight.in_dim
+            && gate_weight.out_dim == up_weight.out_dim
+        {
+            match gate_weight.qtype {
+                GGUF_TYPE_Q4_K => {
+                    return fused_gate_up_q4k_into(
+                        &gate_weight.data,
+                        &up_weight.data,
+                        input,
+                        in_dim,
+                        out_dim,
+                        gate_output,
+                        up_output,
+                    );
+                }
+                GGUF_TYPE_Q5_K => {
+                    return fused_gate_up_q5k_into(
+                        &gate_weight.data,
+                        &up_weight.data,
+                        input,
+                        in_dim,
+                        out_dim,
+                        gate_output,
+                        up_output,
+                    );
+                }
+                GGUF_TYPE_Q6_K => {
+                    return fused_gate_up_q6k_into(
+                        &gate_weight.data,
+                        &up_weight.data,
+                        input,
+                        in_dim,
+                        out_dim,
+                        gate_output,
+                        up_output,
+                    );
+                }
+                _ => {} // Fall through to rayon::join fallback
+            }
+        }
+
+        // Fallback: two separate matmuls via rayon::join
+        let (gate_result, up_result) = rayon::join(
+            || self.fused_matmul_into(input, gate_weight, gate_output),
+            || self.fused_matmul_into(input, up_weight, up_output),
+        );
+        gate_result?;
+        up_result?;
+        Ok(())
+    }
+
     /// QKV projection matmul
     pub fn qkv_matmul(&self, input: &[f32], qkv: &OwnedQKVWeights) -> Result<Vec<f32>> {
         let hidden_dim = self.config.hidden_dim;
