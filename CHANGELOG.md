@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-02-26
+
+### Changed
+- Bumped trueno dependency to 0.16.0
+- Bumped aprender dependency to >=0.27
+- Minor version bump for PAIML Sovereign AI Stack coordinated release
+
 ## [0.6.0] - 2026-01-15
 
 ### 🏆 MILESTONE: APR 2.71x Ollama GPU Achieved
@@ -203,7 +210,9 @@ Both GGUF and APR formats now exceed 2X Ollama on GPU!
 - Serde v1 - Serialization
 - Thiserror v1 - Error handling
 
-[Unreleased]: https://github.com/paiml/realizar/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/paiml/realizar/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/paiml/realizar/compare/v0.6.0...v0.8.0
+[0.6.0]: https://github.com/paiml/realizar/compare/v0.3.2...v0.6.0
 [0.3.2]: https://github.com/paiml/realizar/compare/v0.2.0...v0.3.2
 [0.2.0]: https://github.com/paiml/realizar/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/paiml/realizar/releases/tag/v0.1.0
