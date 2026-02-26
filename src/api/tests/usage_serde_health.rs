@@ -6,8 +6,8 @@ fn test_usage_serde() {
         completion_tokens: 5,
         total_tokens: 15,
     };
-    let json = serde_json::to_string(&usage).unwrap();
-    let deserialized: crate::api::Usage = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&usage).expect("JSON serialization failed");
+    let deserialized: crate::api::Usage = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.total_tokens, 15);
 }
 
@@ -22,9 +22,9 @@ async fn test_health_endpoint() {
         .method("GET")
         .uri("/health")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -35,9 +35,9 @@ async fn test_nonexistent_endpoint_404() {
         .method("GET")
         .uri("/v1/nonexistent")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
@@ -49,9 +49,9 @@ async fn test_wrong_method_for_endpoint() {
         .method("GET")
         .uri("/v1/generate")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::METHOD_NOT_ALLOWED
             || response.status() == StatusCode::NOT_FOUND,
@@ -66,9 +66,9 @@ async fn test_chat_completions_missing_messages() {
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
         .body(Body::from(r#"{"model":"test"}"#))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::BAD_REQUEST
             || response.status() == StatusCode::UNPROCESSABLE_ENTITY,
@@ -86,9 +86,9 @@ async fn test_chat_completions_with_trace_header() {
         .body(Body::from(
             r#"{"model":"test","messages":[{"role":"user","content":"Hi"}]}"#,
         ))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND

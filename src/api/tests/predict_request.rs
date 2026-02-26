@@ -22,9 +22,9 @@ fn test_predict_request_serde() {
         include_confidence: true,
         top_k: Some(3),
     };
-    let json = serde_json::to_string(&req).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
     assert!(json.contains("features"));
-    let parsed: PredictRequest = serde_json::from_str(&json).unwrap();
+    let parsed: PredictRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.features.len(), 3);
     assert!(parsed.include_confidence);
 }
@@ -32,7 +32,7 @@ fn test_predict_request_serde() {
 #[test]
 fn test_predict_request_minimal() {
     let json = r#"{"features": [1.0, 2.0]}"#;
-    let req: PredictRequest = serde_json::from_str(json).unwrap();
+    let req: PredictRequest = serde_json::from_str(json).expect("JSON deserialization failed");
     assert!(req.model.is_none());
     assert!(req.feature_names.is_none());
     assert!(req.top_k.is_none());
@@ -48,9 +48,9 @@ fn test_predict_response_serde() {
         top_k_predictions: None,
         latency_ms: 10.5,
     };
-    let json = serde_json::to_string(&resp).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
     assert!(json.contains("test-123"));
-    let parsed: PredictResponse = serde_json::from_str(&json).unwrap();
+    let parsed: PredictResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.model, "default");
 }
 
@@ -73,7 +73,7 @@ fn test_predict_response_with_top_k() {
         ]),
         latency_ms: 5.0,
     };
-    let json = serde_json::to_string(&resp).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
     assert!(json.contains("class_0"));
     assert!(json.contains("class_1"));
 }
@@ -84,8 +84,8 @@ fn test_prediction_with_score_serde() {
         label: "positive".to_string(),
         score: 0.75,
     };
-    let json = serde_json::to_string(&pws).unwrap();
-    let parsed: PredictionWithScore = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&pws).expect("JSON serialization failed");
+    let parsed: PredictionWithScore = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.label, "positive");
     assert!((parsed.score - 0.75).abs() < f32::EPSILON);
 }
@@ -108,9 +108,9 @@ fn test_explain_request_serde() {
         top_k_features: 3,
         method: "shap".to_string(),
     };
-    let json = serde_json::to_string(&req).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
     assert!(json.contains("feature_names"));
-    let parsed: ExplainRequest = serde_json::from_str(&json).unwrap();
+    let parsed: ExplainRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.top_k_features, 3);
     assert_eq!(parsed.method, "shap");
 }
@@ -119,7 +119,7 @@ fn test_explain_request_serde() {
 fn test_explain_request_default_method() {
     // Method should have a default value
     let json = r#"{"features": [1.0], "feature_names": ["x"]}"#;
-    let req: ExplainRequest = serde_json::from_str(json).unwrap();
+    let req: ExplainRequest = serde_json::from_str(json).expect("JSON deserialization failed");
     // default_explain_method() returns something
     assert!(!req.method.is_empty());
 }
@@ -140,9 +140,9 @@ fn test_explain_response_serde() {
         summary: "Top features: x, z".to_string(),
         latency_ms: 15.0,
     };
-    let json = serde_json::to_string(&resp).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
     assert!(json.contains("shap_values"));
-    let parsed: ExplainResponse = serde_json::from_str(&json).unwrap();
+    let parsed: ExplainResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.explanation.shap_values.len(), 3);
 }
 
@@ -158,10 +158,10 @@ fn test_shap_explanation_serde() {
         feature_names: vec!["f1".to_string(), "f2".to_string(), "f3".to_string()],
         prediction: 0.6,
     };
-    let json = serde_json::to_string(&shap).unwrap();
+    let json = serde_json::to_string(&shap).expect("JSON serialization failed");
     assert!(json.contains("base_value"));
     assert!(json.contains("prediction"));
-    let parsed: ShapExplanation = serde_json::from_str(&json).unwrap();
+    let parsed: ShapExplanation = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert!((parsed.prediction - 0.6).abs() < f32::EPSILON);
 }
 
@@ -173,8 +173,8 @@ fn test_shap_explanation_empty() {
         feature_names: vec![],
         prediction: 0.0,
     };
-    let json = serde_json::to_string(&shap).unwrap();
-    let parsed: ShapExplanation = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&shap).expect("JSON serialization failed");
+    let parsed: ShapExplanation = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert!(parsed.shap_values.is_empty());
 }
 
@@ -249,11 +249,11 @@ async fn test_apr_predict_empty_features() {
                 .method("POST")
                 .uri("/v1/predict")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // Should return BAD_REQUEST for empty features
     assert!(
         response.status() == StatusCode::BAD_REQUEST
@@ -275,11 +275,11 @@ async fn test_apr_predict_with_top_k() {
                 .method("POST")
                 .uri("/v1/predict")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // May succeed or fail depending on model state
     assert!(
         response.status() == StatusCode::OK
@@ -302,11 +302,11 @@ async fn test_apr_explain_empty_features() {
                 .method("POST")
                 .uri("/v1/explain")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // Should return BAD_REQUEST for empty features
     assert!(
         response.status() == StatusCode::BAD_REQUEST
@@ -328,11 +328,11 @@ async fn test_apr_explain_mismatched_names() {
                 .method("POST")
                 .uri("/v1/explain")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // Should return BAD_REQUEST for mismatched counts
     assert!(
         response.status() == StatusCode::BAD_REQUEST
@@ -354,11 +354,11 @@ async fn test_apr_explain_valid() {
                 .method("POST")
                 .uri("/v1/explain")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // Should succeed or return service unavailable
     assert!(
         response.status() == StatusCode::OK || response.status() == StatusCode::SERVICE_UNAVAILABLE
@@ -373,10 +373,10 @@ async fn test_apr_audit_invalid_uuid() {
             Request::builder()
                 .uri("/v1/audit/not-a-valid-uuid")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // Should return BAD_REQUEST for invalid UUID
     assert!(
         response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::NOT_FOUND
@@ -391,10 +391,10 @@ async fn test_apr_audit_nonexistent_id() {
             Request::builder()
                 .uri("/v1/audit/00000000-0000-0000-0000-000000000000")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // Should return NOT_FOUND for nonexistent record
     assert!(
         response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::BAD_REQUEST

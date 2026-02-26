@@ -2,10 +2,10 @@
 #[test]
 fn test_q8_0_parallel_thread_consistency_p19() {
     let data = generate_q8_0_block_data(32);
-    let reference = dequantize_q8_0_parallel(&data).unwrap();
+    let reference = dequantize_q8_0_parallel(&data).expect("test value should be present");
 
     for run in 0..10 {
-        let result = dequantize_q8_0_parallel(&data).unwrap();
+        let result = dequantize_q8_0_parallel(&data).expect("test value should be present");
         for i in 0..result.len() {
             assert_eq!(
                 result[i], reference[i],
@@ -51,7 +51,7 @@ fn test_q4k_dequant_with_large_scale_p19() {
     let result = dequantize_q4_k_parallel(&data);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     for val in &output {
         assert!(val.is_finite(), "Large scale produced non-finite: {}", val);
     }
@@ -68,7 +68,7 @@ fn test_q4k_dequant_with_small_scale_p19() {
     let result = dequantize_q4_k_parallel(&data);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     for val in &output {
         assert!(val.is_finite());
     }

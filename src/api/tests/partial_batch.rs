@@ -241,7 +241,7 @@
         let response = ContinuousBatchResponse::single(vec![1], 1, 100.0);
         let _send_result = resp_tx.send(response);
 
-        let client_result = handle.await.unwrap();
+        let client_result = handle.await.expect("test value should be present");
 
         // Client timed out
         assert_eq!(client_result, "timeout");
@@ -330,11 +330,11 @@
             num_generated: 5,
         };
 
-        let json = serde_json::to_string(&result).unwrap();
+        let json = serde_json::to_string(&result).expect("JSON serialization failed");
         assert!(json.contains("42"));
         assert!(json.contains("Hello world"));
 
-        let parsed: GpuBatchResult = serde_json::from_str(&json).unwrap();
+        let parsed: GpuBatchResult = serde_json::from_str(&json).expect("JSON deserialization failed");
         assert_eq!(parsed.index, 42);
         assert_eq!(parsed.num_generated, 5);
     }

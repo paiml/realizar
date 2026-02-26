@@ -61,7 +61,7 @@ fn test_build_trace_data_none() {
 fn test_build_trace_data_brick() {
     let (brick, step, layer) = build_trace_data(Some("brick"), 5000, 20, 10, 28);
     assert!(brick.is_some());
-    let trace = brick.unwrap();
+    let trace = brick.expect("test value should be present");
     assert_eq!(trace.level, "brick");
     assert!(trace.total_time_us > 0);
     assert!(!trace.breakdown.is_empty());
@@ -75,7 +75,7 @@ fn test_build_trace_data_step() {
     // "step" level only returns step trace
     assert!(brick.is_none());
     assert!(step.is_some());
-    let step_trace = step.unwrap();
+    let step_trace = step.expect("test value should be present");
     assert_eq!(step_trace.level, "step");
     assert!(layer.is_none());
 }
@@ -87,7 +87,7 @@ fn test_build_trace_data_layer() {
     assert!(brick.is_none());
     assert!(step.is_none());
     assert!(layer.is_some());
-    let layer_trace = layer.unwrap();
+    let layer_trace = layer.expect("test value should be present");
     assert_eq!(layer_trace.level, "layer");
 }
 

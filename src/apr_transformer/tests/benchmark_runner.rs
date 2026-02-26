@@ -66,7 +66,7 @@ fn test_benchmark_runner_benchmark_decode() {
     let result = runner.benchmark_decode(&[0, 1], 3);
     assert!(result.is_ok());
 
-    let bench = result.unwrap();
+    let bench = result.expect("test value should be present");
     assert!(bench.tokens_generated > 0);
     assert!(bench.total_time_ms > 0.0);
 }
@@ -220,7 +220,7 @@ fn test_forward_with_small_vocab() {
     let transformer = AprTransformer::new(config.clone());
     let result = transformer.forward(&[0, 1, 2]);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), config.vocab_size);
+    assert_eq!(result.expect("test value should be present").len(), config.vocab_size);
 }
 
 // ============================================================================

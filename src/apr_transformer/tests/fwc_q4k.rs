@@ -415,7 +415,7 @@ fn test_from_apr_bytes_gguf_naming() {
 
     let apr = AprTransformer::from_apr_bytes(&build_apr_v2(&meta, &tensors));
     assert!(apr.is_ok(), "GGUF naming: {}", apr.unwrap_err());
-    let model = apr.unwrap();
+    let model = apr.expect("test value should be present");
     assert_eq!(model.config.hidden_dim, hidden);
     assert_eq!(model.config.vocab_size, vocab);
     assert_eq!(model.layers.len(), 1);
@@ -485,6 +485,6 @@ fn test_forward_batch_gelu_f32_no_q4k() {
 
     let result = apr.forward(&[1, 2]);
     assert!(result.is_ok(), "GELU F32 batch: {}", result.unwrap_err());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), vocab);
 }

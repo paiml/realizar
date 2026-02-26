@@ -276,7 +276,7 @@ fn test_loader_part02_layer_ffn_components() {
     assert_eq!(layer.ffn_up_weight.len(), hidden_dim * intermediate_dim);
     assert_eq!(layer.ffn_down_weight.len(), intermediate_dim * hidden_dim);
     assert_eq!(
-        layer.ffn_gate_weight.as_ref().unwrap().len(),
+        layer.ffn_gate_weight.as_ref().expect("test value should be present").len(),
         hidden_dim * intermediate_dim
     );
 }

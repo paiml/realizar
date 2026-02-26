@@ -383,7 +383,7 @@ fn test_data_storm_tensor_dimensions_2d() {
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
 
     // Verify dimensions are parsed correctly
-    let tensor = model.tensors.iter().find(|t| t.name == "matrix").unwrap();
+    let tensor = model.tensors.iter().find(|t| t.name == "matrix").expect("test value should be present");
     assert_eq!(tensor.n_dims, 2);
     // Dimensions reversed from GGML format
     assert!(tensor.dims.contains(&32) && tensor.dims.contains(&64));
@@ -402,7 +402,7 @@ fn test_data_storm_tensor_dimensions_3d() {
         .tensors
         .iter()
         .find(|t| t.name == "tensor_3d")
-        .unwrap();
+        .expect("test value should be present");
     assert_eq!(tensor.n_dims, 3);
 }
 

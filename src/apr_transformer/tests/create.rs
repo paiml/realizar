@@ -58,7 +58,7 @@ fn create_test_transformer(
 #[test]
 fn test_generate_max_tokens_boundary() {
     let t = create_test_transformer(16, 1, 100);
-    let result = t.generate(&[1], 1).unwrap();
+    let result = t.generate(&[1], 1).expect("test value should be present");
     // Prompt (1) + at most 1 generated token
     assert!(result.len() <= 2, "len: {}", result.len());
     assert!(result.len() >= 2, "should generate at least 1 token");
@@ -67,7 +67,7 @@ fn test_generate_max_tokens_boundary() {
 #[test]
 fn test_generate_zero_max_tokens() {
     let t = create_test_transformer(16, 1, 100);
-    let result = t.generate(&[1], 0).unwrap();
+    let result = t.generate(&[1], 0).expect("test value should be present");
     // Zero max tokens means no generation
     assert_eq!(result.len(), 1, "should only have prompt");
 }
@@ -76,7 +76,7 @@ fn test_generate_zero_max_tokens() {
 fn test_generate_returns_prompt_plus_generated() {
     let t = create_test_transformer(16, 1, 100);
     let prompt = vec![1u32, 5, 10];
-    let result = t.generate(&prompt, 3).unwrap();
+    let result = t.generate(&prompt, 3).expect("test value should be present");
     // Should start with the prompt
     assert_eq!(&result[..3], &[1, 5, 10]);
     assert!(result.len() >= 3, "should at least contain prompt");
@@ -98,14 +98,14 @@ fn test_forward_empty_returns_error() {
 #[test]
 fn test_forward_single_token_returns_vocab_logits() {
     let t = create_test_transformer(16, 1, 100);
-    let logits = t.forward(&[1]).unwrap();
+    let logits = t.forward(&[1]).expect("test value should be present");
     assert_eq!(logits.len(), 100, "should have vocab_size logits");
 }
 
 #[test]
 fn test_forward_multi_token_returns_last_position_logits() {
     let t = create_test_transformer(16, 1, 100);
-    let logits = t.forward(&[1, 2, 3]).unwrap();
+    let logits = t.forward(&[1, 2, 3]).expect("test value should be present");
     assert_eq!(logits.len(), 100);
 }
 
@@ -116,7 +116,7 @@ fn test_forward_multi_token_returns_last_position_logits() {
 #[test]
 fn test_predict_next_returns_valid_token() {
     let t = create_test_transformer(16, 1, 100);
-    let next = t.predict_next(&[1]).unwrap();
+    let next = t.predict_next(&[1]).expect("test value should be present");
     assert!(next < 100, "token {next} should be < vocab_size 100");
 }
 
@@ -130,8 +130,8 @@ fn test_predict_next_empty_error() {
 #[test]
 fn test_predict_next_deterministic() {
     let t = create_test_transformer(16, 1, 100);
-    let a = t.predict_next(&[1]).unwrap();
-    let b = t.predict_next(&[1]).unwrap();
+    let a = t.predict_next(&[1]).expect("test value should be present");
+    let b = t.predict_next(&[1]).expect("test value should be present");
     assert_eq!(a, b, "predict_next should be deterministic");
 }
 
@@ -225,7 +225,7 @@ fn test_config_accessor_returns_correct_values() {
 fn test_forward_with_cache_first_token() {
     let t = create_test_transformer(16, 1, 100);
     let mut cache = AprKVCache::new(t.config());
-    let logits = t.forward_with_cache(1, &mut cache, 0).unwrap();
+    let logits = t.forward_with_cache(1, &mut cache, 0).expect("test value should be present");
     assert_eq!(logits.len(), 100);
 }
 
@@ -233,8 +233,8 @@ fn test_forward_with_cache_first_token() {
 fn test_forward_with_cache_sequential() {
     let t = create_test_transformer(16, 1, 100);
     let mut cache = AprKVCache::new(t.config());
-    let _l1 = t.forward_with_cache(1, &mut cache, 0).unwrap();
-    let l2 = t.forward_with_cache(2, &mut cache, 1).unwrap();
+    let _l1 = t.forward_with_cache(1, &mut cache, 0).expect("test value should be present");
+    let l2 = t.forward_with_cache(2, &mut cache, 1).expect("test value should be present");
     assert_eq!(l2.len(), 100);
 }
 
@@ -243,7 +243,7 @@ fn test_forward_with_cache_many_positions() {
     let t = create_test_transformer(16, 1, 100);
     let mut cache = AprKVCache::new(t.config());
     for pos in 0..10 {
-        let logits = t.forward_with_cache(1, &mut cache, pos).unwrap();
+        let logits = t.forward_with_cache(1, &mut cache, pos).expect("test value should be present");
         assert_eq!(logits.len(), 100, "pos {pos}");
     }
 }
@@ -260,7 +260,7 @@ fn test_generate_with_cache_basic() {
         temperature: 0.0,
         ..Default::default()
     };
-    let result = t.generate_with_cache(&[1], &config).unwrap();
+    let result = t.generate_with_cache(&[1], &config).expect("test value should be present");
     assert!(!result.is_empty(), "should at least have prompt");
     assert!(result.len() <= 4, "prompt(1) + max 3 generated");
 }
@@ -283,7 +283,7 @@ fn test_generate_with_cache_nonzero_temperature() {
         temperature: 0.8,
         ..Default::default()
     };
-    let result = t.generate_with_cache(&[1], &config).unwrap();
+    let result = t.generate_with_cache(&[1], &config).expect("test value should be present");
     assert!(!result.is_empty());
 }
 
@@ -295,7 +295,7 @@ fn test_generate_with_cache_multi_prompt_tokens() {
         temperature: 0.0,
         ..Default::default()
     };
-    let result = t.generate_with_cache(&[1, 5, 10], &config).unwrap();
+    let result = t.generate_with_cache(&[1, 5, 10], &config).expect("test value should be present");
     // Should start with prompt
     assert_eq!(result[0], 1);
     assert_eq!(result[1], 5);
@@ -409,7 +409,7 @@ fn test_kv_cache_len_after_forward() {
     let t = create_test_transformer(16, 1, 100);
     let mut cache = AprKVCache::new(t.config());
     assert_eq!(cache.len(), 0);
-    let _ = t.forward_with_cache(1, &mut cache, 0).unwrap();
+    let _ = t.forward_with_cache(1, &mut cache, 0).expect("test value should be present");
     assert_eq!(cache.len(), 1);
 }
 
@@ -418,7 +418,7 @@ fn test_kv_cache_grows_with_tokens() {
     let t = create_test_transformer(16, 1, 100);
     let mut cache = AprKVCache::new(t.config());
     for pos in 0..5 {
-        let _ = t.forward_with_cache(1, &mut cache, pos).unwrap();
+        let _ = t.forward_with_cache(1, &mut cache, pos).expect("test value should be present");
     }
     assert_eq!(cache.len(), 5);
 }

@@ -16,7 +16,7 @@ fn test_q4k_with_inf_scale_p22() {
     let result = dequantize_q4_k_parallel(&data);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     // With infinite scale, results will be inf
     for val in &output {
         // Should be inf or finite (not NaN unless quants are 0)
@@ -36,7 +36,7 @@ fn test_q4k_with_nan_scale_p22() {
     let result = dequantize_q4_k_parallel(&data);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     // With NaN scale, all results should be NaN
     for val in &output {
         assert!(val.is_nan(), "Expected NaN, got {}", val);
@@ -101,10 +101,10 @@ fn test_rope_with_inf_inputs_p22() {
 fn test_q4k_parallel_stress_consistency_p22() {
     // Run many times to catch race conditions
     let data = generate_q4k_with_scales(64, [0x00, 0x3C], [0x00, 0x38]);
-    let reference = dequantize_q4_k_simd(&data).unwrap();
+    let reference = dequantize_q4_k_simd(&data).expect("test value should be present");
 
     for iteration in 0..20 {
-        let result = dequantize_q4_k_simd(&data).unwrap();
+        let result = dequantize_q4_k_simd(&data).expect("test value should be present");
         for i in 0..result.len() {
             assert!(
                 (result[i] - reference[i]).abs() < 1e-10
@@ -122,10 +122,10 @@ fn test_q4k_parallel_stress_consistency_p22() {
 #[test]
 fn test_q8_0_parallel_stress_consistency_p22() {
     let data = generate_q8_0_with_scale(128, [0x00, 0x3C]);
-    let reference = dequantize_q8_0_simd(&data).unwrap();
+    let reference = dequantize_q8_0_simd(&data).expect("test value should be present");
 
     for iteration in 0..20 {
-        let result = dequantize_q8_0_simd(&data).unwrap();
+        let result = dequantize_q8_0_simd(&data).expect("test value should be present");
         for i in 0..result.len() {
             assert!(
                 (result[i] - reference[i]).abs() < 1e-10,
@@ -192,28 +192,28 @@ fn test_q4k_scale_extraction_blocks_4_to_7_p22() {
 #[test]
 fn test_q4k_parallel_boundary_1_superblock_p22() {
     let data = generate_q4k_with_scales(1, [0x00, 0x3C], [0x00, 0x38]);
-    let result = dequantize_q4_k_parallel(&data).unwrap();
+    let result = dequantize_q4_k_parallel(&data).expect("test value should be present");
     assert_eq!(result.len(), QK_K);
 }
 
 #[test]
 fn test_q4k_parallel_boundary_2_superblocks_p22() {
     let data = generate_q4k_with_scales(2, [0x00, 0x3C], [0x00, 0x38]);
-    let result = dequantize_q4_k_parallel(&data).unwrap();
+    let result = dequantize_q4_k_parallel(&data).expect("test value should be present");
     assert_eq!(result.len(), 2 * QK_K);
 }
 
 #[test]
 fn test_q8_0_parallel_boundary_1_block_p22() {
     let data = generate_q8_0_with_scale(1, [0x00, 0x3C]);
-    let result = dequantize_q8_0_parallel(&data).unwrap();
+    let result = dequantize_q8_0_parallel(&data).expect("test value should be present");
     assert_eq!(result.len(), 32);
 }
 
 #[test]
 fn test_q8_0_parallel_boundary_2_blocks_p22() {
     let data = generate_q8_0_with_scale(2, [0x00, 0x3C]);
-    let result = dequantize_q8_0_parallel(&data).unwrap();
+    let result = dequantize_q8_0_parallel(&data).expect("test value should be present");
     assert_eq!(result.len(), 64);
 }
 

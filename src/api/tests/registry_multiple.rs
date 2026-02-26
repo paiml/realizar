@@ -14,10 +14,10 @@ async fn test_registry_multiple_failures_no_state_leak() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req1).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req1).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response1 = app.clone().oneshot(request1).await.unwrap();
+    let response1 = app.clone().oneshot(request1).await.expect("test value should be present");
     let status1 = response1.status();
 
     // Second request with different non-existent model
@@ -30,10 +30,10 @@ async fn test_registry_multiple_failures_no_state_leak() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req2).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req2).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response2 = app.clone().oneshot(request2).await.unwrap();
+    let response2 = app.clone().oneshot(request2).await.expect("test value should be present");
     let status2 = response2.status();
 
     // Both should fail gracefully with same behavior (no state corruption)
@@ -84,8 +84,8 @@ async fn test_stream_resource_boundedness() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
     // The request MUST complete within a reasonable timeout
     // This falsifies the hypothesis of "Zombified Connections"
@@ -96,7 +96,7 @@ async fn test_stream_resource_boundedness() {
         "Stream request must complete within timeout (no zombified connection)"
     );
 
-    let response = result.unwrap().unwrap();
+    let response = result.expect("test value should be present").expect("test value should be present");
     // Must return a response, not hang
     assert!(
         response.status() == StatusCode::OK
@@ -130,8 +130,8 @@ async fn test_stream_memory_boundedness() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap();
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present");
 
             app_clone.oneshot(request).await
         });
@@ -142,7 +142,7 @@ async fn test_stream_memory_boundedness() {
     for handle in handles {
         let result = handle.await;
         assert!(result.is_ok(), "Concurrent stream request must complete");
-        let response = result.unwrap();
+        let response = result.expect("test value should be present");
         assert!(response.is_ok(), "Concurrent stream must not error");
     }
 }

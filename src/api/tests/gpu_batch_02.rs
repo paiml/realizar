@@ -183,8 +183,8 @@ fn test_gpu_batch_request_json_roundtrip() {
         stop: vec![],
     };
 
-    let json = serde_json::to_string(&request).unwrap();
-    let decoded: GpuBatchRequest = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&request).expect("JSON serialization failed");
+    let decoded: GpuBatchRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
 
     assert_eq!(decoded.prompts, request.prompts);
     assert_eq!(decoded.max_tokens, request.max_tokens);
@@ -208,8 +208,8 @@ fn test_gpu_batch_response_json_roundtrip() {
         },
     };
 
-    let json = serde_json::to_string(&response).unwrap();
-    let decoded: GpuBatchResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&response).expect("JSON serialization failed");
+    let decoded: GpuBatchResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
 
     assert_eq!(decoded.results.len(), response.results.len());
 }
@@ -223,8 +223,8 @@ fn test_gpu_status_response_json_roundtrip() {
         recommended_min_batch: 32,
     };
 
-    let json = serde_json::to_string(&response).unwrap();
-    let decoded: GpuStatusResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&response).expect("JSON serialization failed");
+    let decoded: GpuStatusResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
 
     assert_eq!(decoded.cache_ready, response.cache_ready);
     assert_eq!(decoded.cache_memory_bytes, response.cache_memory_bytes);

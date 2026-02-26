@@ -125,7 +125,7 @@ fn test_generate_gpu_large_vocab_greedy_path() {
     let prompt = vec![1, 2, 3];
     let result = generate_gpu(&mut model, &prompt, 3);
     assert!(result.is_ok());
-    assert!(result.unwrap().len() >= prompt.len());
+    assert!(result.expect("test value should be present").len() >= prompt.len());
 }
 
 #[test]
@@ -135,7 +135,7 @@ fn test_generate_gpu_large_vocab_many_tokens() {
     let prompt = vec![1, 2];
     let result = generate_gpu(&mut model, &prompt, 5);
     assert!(result.is_ok());
-    assert!(result.unwrap().len() > prompt.len());
+    assert!(result.expect("test value should be present").len() > prompt.len());
 }
 
 // ============================================================================
@@ -149,7 +149,7 @@ fn test_forward_single_token_cpu_fallback_large_vocab() {
     let tokens = vec![1, 2, 3];
     let result = forward_single_token(&mut model, &tokens);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), config.vocab_size);
+    assert_eq!(result.expect("test value should be present").len(), config.vocab_size);
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn test_forward_single_token_cpu_fallback_single_token() {
     let tokens = vec![100];
     let result = forward_single_token(&mut model, &tokens);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), config.vocab_size);
+    assert_eq!(result.expect("test value should be present").len(), config.vocab_size);
 }
 
 // ============================================================================
@@ -173,7 +173,7 @@ fn test_forward_single_token_greedy_cpu_fallback() {
     let tokens = vec![1, 2, 3];
     let result = forward_single_token_greedy(&mut model, &tokens);
     assert!(result.is_ok());
-    assert!(result.unwrap() < config.vocab_size);
+    assert!(result.expect("test value should be present") < config.vocab_size);
 }
 
 #[test]
@@ -196,7 +196,7 @@ fn test_forward_block_single_swiglu_path() {
     let input = vec![0.1f32; hidden_dim];
     let result = forward_block_single(&mut model, &input, 0);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), hidden_dim);
+    assert_eq!(result.expect("test value should be present").len(), hidden_dim);
 }
 
 #[test]
@@ -241,7 +241,7 @@ fn test_forward_block_single_gqa_4_to_1() {
     let input = vec![0.1f32; config.hidden_dim];
     let result = forward_block_single(&mut model, &input, 0);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), config.hidden_dim);
+    assert_eq!(result.expect("test value should be present").len(), config.hidden_dim);
 }
 
 // ============================================================================
@@ -258,7 +258,7 @@ fn test_optimized_gqa_attention_gqa_4_to_1() {
     let qkv = vec![0.1f32; seq_len * (config.hidden_dim + 2 * config.kv_dim())];
     let result = optimized_gqa_attention(&mut model, &qkv, seq_len);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), seq_len * config.hidden_dim);
+    assert_eq!(result.expect("test value should be present").len(), seq_len * config.hidden_dim);
 }
 
 #[test]
@@ -271,7 +271,7 @@ fn test_optimized_gqa_attention_long_sequence() {
     let qkv = vec![0.1f32; seq_len * (config.hidden_dim + 2 * config.kv_dim())];
     let result = optimized_gqa_attention(&mut model, &qkv, seq_len);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), seq_len * config.hidden_dim);
+    assert_eq!(result.expect("test value should be present").len(), seq_len * config.hidden_dim);
 }
 
 #[test]
@@ -297,7 +297,7 @@ fn test_simplified_attention_longer_sequence() {
     let qkv = vec![0.1f32; seq_len * 3 * config.hidden_dim];
     let result = simplified_attention(&config, &qkv, seq_len);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), seq_len * config.hidden_dim);
+    assert_eq!(result.expect("test value should be present").len(), seq_len * config.hidden_dim);
 }
 
 #[test]
@@ -412,7 +412,7 @@ fn test_block_weights_swiglu_gate_construction() {
         linear_attn: None,
     };
     assert!(weights.ffn_gate_weight.is_some());
-    assert_eq!(weights.ffn_gate_weight.as_ref().unwrap().len(), 32 * 64);
+    assert_eq!(weights.ffn_gate_weight.as_ref().expect("test value should be present").len(), 32 * 64);
 }
 
 // ============================================================================
@@ -426,7 +426,7 @@ fn test_full_generation_flow_large_vocab() {
     let prompt = vec![1, 2, 3, 4, 5];
     let result = generate_gpu(&mut model, &prompt, 3);
     assert!(result.is_ok());
-    assert!(result.unwrap().starts_with(&prompt));
+    assert!(result.expect("test value should be present").starts_with(&prompt));
 }
 
 #[test]
@@ -448,7 +448,7 @@ fn test_forward_block_chain_with_swiglu() {
     for block_idx in 0..config.num_layers {
         let result = forward_block_single(&mut model, &hidden, block_idx);
         assert!(result.is_ok());
-        hidden = result.unwrap();
+        hidden = result.expect("test value should be present");
     }
     assert_eq!(hidden.len(), config.hidden_dim);
 }

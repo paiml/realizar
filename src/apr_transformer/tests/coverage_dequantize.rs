@@ -245,10 +245,10 @@ fn test_mmap_transformer_get_tensor_bytes_out_of_bounds() {
 
     // Write to temp file
     use std::io::Write;
-    let mut temp_file = tempfile::NamedTempFile::new().unwrap();
-    temp_file.write_all(&data).unwrap();
+    let mut temp_file = tempfile::NamedTempFile::new().expect("test value should be present");
+    temp_file.write_all(&data).expect("test value should be present");
 
-    let transformer = MmapAprTransformer::from_file(temp_file.path()).unwrap();
+    let transformer = MmapAprTransformer::from_file(temp_file.path()).expect("test value should be present");
 
     // Try to read beyond file bounds
     let result = transformer.get_tensor_bytes(0, 1000);
@@ -262,8 +262,8 @@ fn test_mmap_transformer_invalid_magic() {
     let mut data = vec![0u8; APR_TRANSFORMER_HEADER_SIZE + 100];
     data[0..4].copy_from_slice(b"GGUF"); // Wrong magic
 
-    let mut temp_file = tempfile::NamedTempFile::new().unwrap();
-    temp_file.write_all(&data).unwrap();
+    let mut temp_file = tempfile::NamedTempFile::new().expect("test value should be present");
+    temp_file.write_all(&data).expect("test value should be present");
 
     let result = MmapAprTransformer::from_file(temp_file.path());
     assert!(result.is_err());
@@ -275,8 +275,8 @@ fn test_mmap_transformer_file_too_small() {
 
     let data = vec![0u8; 32]; // Too small
 
-    let mut temp_file = tempfile::NamedTempFile::new().unwrap();
-    temp_file.write_all(&data).unwrap();
+    let mut temp_file = tempfile::NamedTempFile::new().expect("test value should be present");
+    temp_file.write_all(&data).expect("test value should be present");
 
     let result = MmapAprTransformer::from_file(temp_file.path());
     assert!(result.is_err());
@@ -290,8 +290,8 @@ fn test_mmap_transformer_unsupported_version() {
     data[0..4].copy_from_slice(&MAGIC);
     data[4..8].copy_from_slice(&99u32.to_le_bytes()); // Invalid version
 
-    let mut temp_file = tempfile::NamedTempFile::new().unwrap();
-    temp_file.write_all(&data).unwrap();
+    let mut temp_file = tempfile::NamedTempFile::new().expect("test value should be present");
+    temp_file.write_all(&data).expect("test value should be present");
 
     let result = MmapAprTransformer::from_file(temp_file.path());
     assert!(result.is_err());
@@ -316,10 +316,10 @@ fn test_mmap_transformer_accessors() {
     data[40..44].copy_from_slice(&1e-5f32.to_le_bytes());
     data[44..48].copy_from_slice(&(APR_TRANSFORMER_HEADER_SIZE as u32).to_le_bytes());
 
-    let mut temp_file = tempfile::NamedTempFile::new().unwrap();
-    temp_file.write_all(&data).unwrap();
+    let mut temp_file = tempfile::NamedTempFile::new().expect("test value should be present");
+    temp_file.write_all(&data).expect("test value should be present");
 
-    let transformer = MmapAprTransformer::from_file(temp_file.path()).unwrap();
+    let transformer = MmapAprTransformer::from_file(temp_file.path()).expect("test value should be present");
 
     assert!(transformer.is_mmap());
     assert_eq!(transformer.file_size(), data.len());
@@ -355,12 +355,12 @@ fn test_mmap_transformer_get_tensor_f32() {
         data[offset..offset + 4].copy_from_slice(&bytes);
     }
 
-    let mut temp_file = tempfile::NamedTempFile::new().unwrap();
-    temp_file.write_all(&data).unwrap();
+    let mut temp_file = tempfile::NamedTempFile::new().expect("test value should be present");
+    temp_file.write_all(&data).expect("test value should be present");
 
-    let transformer = MmapAprTransformer::from_file(temp_file.path()).unwrap();
+    let transformer = MmapAprTransformer::from_file(temp_file.path()).expect("test value should be present");
 
-    let floats = transformer.get_tensor_f32(0, 4).unwrap();
+    let floats = transformer.get_tensor_f32(0, 4).expect("test value should be present");
     assert_eq!(floats.len(), 4);
     assert!((floats[0] - 1.0).abs() < 1e-6);
     assert!((floats[1] - 2.0).abs() < 1e-6);

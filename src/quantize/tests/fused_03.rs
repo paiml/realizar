@@ -37,7 +37,7 @@ fn test_fused_q8_0_q8_0_sequential_path() {
 
     let result = fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -52,7 +52,7 @@ fn test_fused_q8_0_q8_0_parallel_path() {
 
     let result = fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -138,7 +138,7 @@ fn test_q4_0_matvec_multiple_blocks_per_row() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -194,14 +194,14 @@ fn test_interleaved_q4k_varied_values() {
         data[i] = i as u8;
     }
 
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
 
     // Check d and dmin were parsed
     assert!(interleaved.d[0] > 0.0);
     assert!(interleaved.dmin[0] > 0.0);
 
     let activations: Vec<f32> = (0..256).map(|i| (i as f32) / 256.0).collect();
-    let result = interleaved.dot(&activations).unwrap();
+    let result = interleaved.dot(&activations).expect("test value should be present");
     assert!(result.is_finite());
 }
 
@@ -233,7 +233,7 @@ fn test_q4_0_matvec_with_non_zero_weights() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
 
     // With non-zero weights and activations, output should be non-zero
     // (though exact values depend on quantization details)

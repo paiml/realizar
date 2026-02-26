@@ -182,7 +182,7 @@ fn test_quantize_to_q8_blocks_success() {
     let values = vec![1.0f32; 64]; // 2 blocks
     let result = quantize_to_q8_blocks(&values);
     assert!(result.is_ok());
-    let blocks = result.unwrap();
+    let blocks = result.expect("test value should be present");
     assert_eq!(blocks.len(), 2);
 }
 
@@ -191,7 +191,7 @@ fn test_quantize_to_q8_blocks_empty() {
     let values: Vec<f32> = vec![];
     let result = quantize_to_q8_blocks(&values);
     assert!(result.is_ok());
-    let blocks = result.unwrap();
+    let blocks = result.expect("test value should be present");
     assert!(blocks.is_empty());
 }
 
@@ -200,7 +200,7 @@ fn test_quantize_to_q8_blocks_single_block() {
     let values = vec![0.5f32; 32];
     let result = quantize_to_q8_blocks(&values);
     assert!(result.is_ok());
-    let blocks = result.unwrap();
+    let blocks = result.expect("test value should be present");
     assert_eq!(blocks.len(), 1);
 }
 
@@ -211,7 +211,7 @@ fn test_quantize_to_q8_blocks_single_block() {
 #[test]
 fn test_dequantize_q8_blocks_roundtrip() {
     let original = vec![0.5f32; 64];
-    let blocks = quantize_to_q8_blocks(&original).unwrap();
+    let blocks = quantize_to_q8_blocks(&original).expect("test value should be present");
     let dequantized = dequantize_q8_blocks(&blocks);
 
     assert_eq!(dequantized.len(), original.len());
@@ -247,7 +247,7 @@ fn test_interleaved_q4k_empty() {
     let data: Vec<u8> = vec![];
     let result = InterleavedQ4K::from_q4k(&data);
     assert!(result.is_ok());
-    let interleaved = result.unwrap();
+    let interleaved = result.expect("test value should be present");
     assert_eq!(interleaved.num_super_blocks, 0);
     assert_eq!(interleaved.num_values(), 0);
 }
@@ -269,7 +269,7 @@ fn test_interleaved_q4k_single_superblock() {
 
     let result = InterleavedQ4K::from_q4k(&data);
     assert!(result.is_ok());
-    let interleaved = result.unwrap();
+    let interleaved = result.expect("test value should be present");
     assert_eq!(interleaved.num_super_blocks, 1);
     assert_eq!(interleaved.num_values(), 256);
     assert_eq!(interleaved.d.len(), 1);
@@ -283,7 +283,7 @@ fn test_interleaved_q4k_two_superblocks() {
     let data = vec![0u8; 288]; // 2 super-blocks
     let result = InterleavedQ4K::from_q4k(&data);
     assert!(result.is_ok());
-    let interleaved = result.unwrap();
+    let interleaved = result.expect("test value should be present");
     assert_eq!(interleaved.num_super_blocks, 2);
     assert_eq!(interleaved.num_values(), 512);
 }
@@ -291,7 +291,7 @@ fn test_interleaved_q4k_two_superblocks() {
 #[test]
 fn test_interleaved_q4k_dot_wrong_length() {
     let data = vec![0u8; 144];
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
 
     // Wrong activation length
     let activations = vec![1.0f32; 100]; // Should be 256
@@ -313,22 +313,22 @@ fn test_interleaved_q4k_dot_success() {
         data[i] = 0x55; // Arbitrary pattern
     }
 
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     let activations = vec![1.0f32; 256];
 
     let result = interleaved.dot(&activations);
     assert!(result.is_ok());
     // Result should be finite
-    assert!(result.unwrap().is_finite());
+    assert!(result.expect("test value should be present").is_finite());
 }
 
 #[test]
 fn test_interleaved_q4k_dot_zero_activations() {
     let data = vec![0u8; 144];
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
 
     let activations = vec![0.0f32; 256];
-    let result = interleaved.dot(&activations).unwrap();
+    let result = interleaved.dot(&activations).expect("test value should be present");
     assert_eq!(result, 0.0);
 }
 
@@ -372,7 +372,7 @@ fn test_fused_q4_0_q8_0_sequential_path() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -388,7 +388,7 @@ fn test_fused_q4_0_q8_0_parallel_path() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -404,7 +404,7 @@ fn test_fused_q4_0_q8_0_boundary_1024() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 

@@ -357,7 +357,7 @@ fn test_menagerie_4_layer_pygmy_parses() {
         model.err()
     );
 
-    let model = model.unwrap();
+    let model = model.expect("test value should be present");
     // 4 layers * 10 tensors + 3 global = 43 tensors
     assert!(
         model.tensors.len() >= 40,
@@ -377,7 +377,7 @@ fn test_menagerie_8_layer_pygmy_parses() {
         model.err()
     );
 
-    let model = model.unwrap();
+    let model = model.expect("test value should be present");
     // 8 layers * 10 tensors + 3 global = 83 tensors
     assert!(
         model.tensors.len() >= 80,

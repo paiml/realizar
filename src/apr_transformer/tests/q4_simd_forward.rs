@@ -7,7 +7,7 @@ fn test_forward_with_cache_single_token() {
     let result = transformer.forward_with_cache(&[0], &mut cache);
 
     assert!(result.is_ok());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), 100);
     assert_eq!(cache.len(), 1);
 }
@@ -84,7 +84,7 @@ fn test_forward_with_cache_vs_no_cache() {
     assert!(cache_result.is_ok());
 
     // Both should produce same-size output
-    assert_eq!(no_cache_result.unwrap().len(), cache_result.unwrap().len());
+    assert_eq!(no_cache_result.expect("test value should be present").len(), cache_result.expect("test value should be present").len());
 }
 
 // ============================================================================
@@ -144,7 +144,7 @@ fn test_forward_large_sequence() {
     let result = transformer.forward(&tokens);
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 100);
+    assert_eq!(result.expect("test value should be present").len(), 100);
 }
 
 #[test]

@@ -324,7 +324,7 @@ fn test_connection_pool_release() {
     let config = ConnectionConfig::new();
     let pool = ConnectionPool::new(config);
 
-    let conn = pool.acquire().unwrap();
+    let conn = pool.acquire().expect("test value should be present");
     pool.release(conn);
 
     assert_eq!(pool.active_connections(), 0);
@@ -337,11 +337,11 @@ fn test_connection_pool_reuse() {
     let pool = ConnectionPool::new(config);
 
     // Acquire and release
-    let conn1 = pool.acquire().unwrap();
+    let conn1 = pool.acquire().expect("test value should be present");
     pool.release(conn1);
 
     // Should reuse from idle pool
-    let _conn2 = pool.acquire().unwrap();
+    let _conn2 = pool.acquire().expect("test value should be present");
     assert_eq!(pool.idle_connections(), 0);
 }
 
@@ -350,8 +350,8 @@ fn test_connection_pool_exhausted() {
     let config = ConnectionConfig::new().with_max_connections(2);
     let pool = ConnectionPool::new(config);
 
-    let _conn1 = pool.acquire().unwrap();
-    let _conn2 = pool.acquire().unwrap();
+    let _conn1 = pool.acquire().expect("test value should be present");
+    let _conn2 = pool.acquire().expect("test value should be present");
 
     // Third should fail
     let result = pool.acquire();
@@ -372,7 +372,7 @@ fn test_connection_pool_check_health() {
     let config = ConnectionConfig::new().with_idle_timeout(Duration::from_millis(1));
     let pool = ConnectionPool::new(config);
 
-    let conn = pool.acquire().unwrap();
+    let conn = pool.acquire().expect("test value should be present");
 
     // New connection should be healthy
     let health = pool.check_health(&conn);

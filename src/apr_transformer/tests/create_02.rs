@@ -208,7 +208,7 @@ fn test_generate_zero_tokens_returns_prompt() {
     let transformer = AprTransformer::new(config);
     let result = transformer.generate(&[1], 0);
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     assert_eq!(tokens.len(), 1); // Just the prompt
     assert_eq!(tokens[0], 1);
 }

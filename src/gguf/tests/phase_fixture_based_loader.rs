@@ -80,7 +80,7 @@ fn test_fixture_load_qwen_model() {
     assert_eq!(model.architecture(), Some("qwen2"));
     assert_eq!(model.num_kv_heads(), Some(4));
     // Qwen uses different RoPE theta
-    assert!(model.rope_freq_base().unwrap() > 100000.0);
+    assert!(model.rope_freq_base().expect("test value should be present") > 100000.0);
 }
 
 // =============================================================================
@@ -134,7 +134,7 @@ fn test_fixture_rope_freq_base() {
 
     let rope_base = model.rope_freq_base();
     assert!(rope_base.is_some());
-    assert!((rope_base.unwrap() - 10000.0).abs() < 1.0);
+    assert!((rope_base.expect("test value should be present") - 10000.0).abs() < 1.0);
 }
 
 /// Test RMS epsilon metadata
@@ -148,7 +148,7 @@ fn test_fixture_rms_epsilon() {
 
     let eps = model.rms_epsilon();
     assert!(eps.is_some());
-    assert!(eps.unwrap() < 0.001);
+    assert!(eps.expect("test value should be present") < 0.001);
 }
 
 /// Test context length metadata
@@ -297,7 +297,7 @@ fn test_fixture_load_embedding_tensor() {
         "Should have token_embd.weight tensor"
     );
 
-    let tensor_info = embed_tensor.unwrap();
+    let tensor_info = embed_tensor.expect("test value should be present");
     let embed_data = model.get_tensor_f32(&tensor_info.name, &bytes);
     assert!(embed_data.is_ok(), "Should be able to load embedding data");
 }
@@ -314,7 +314,7 @@ fn test_fixture_load_q4k_tensor() {
     let q4k_tensor = model.tensors.iter().find(|t| t.name.contains("attn_qkv"));
     assert!(q4k_tensor.is_some(), "Should have Q4_K attention tensor");
 
-    let tensor_info = q4k_tensor.unwrap();
+    let tensor_info = q4k_tensor.expect("test value should be present");
     // Q4_K type is 12
     assert_eq!(tensor_info.qtype, 12, "Should be Q4_K type");
 }
@@ -334,7 +334,7 @@ fn test_fixture_load_f32_tensor() {
         .find(|t| t.name.contains("output_norm"));
     assert!(norm_tensor.is_some(), "Should have output_norm tensor");
 
-    let tensor_info = norm_tensor.unwrap();
+    let tensor_info = norm_tensor.expect("test value should be present");
     // F32 type is 0
     assert_eq!(tensor_info.qtype, 0, "Norm should be F32 type");
 }
@@ -390,7 +390,7 @@ fn test_fixture_mha_vs_gqa() {
     assert_ne!(gqa_model.num_heads(), gqa_model.num_kv_heads());
 
     // GQA should have more Q heads than KV heads
-    assert!(gqa_model.num_heads().unwrap() > gqa_model.num_kv_heads().unwrap());
+    assert!(gqa_model.num_heads().expect("test value should be present") > gqa_model.num_kv_heads().expect("test value should be present"));
 }
 
 // =============================================================================
@@ -414,7 +414,7 @@ fn test_fixture_gguf_version() {
     let bytes = fixture.read_bytes().expect("read");
 
     // Bytes 4-8 should be version (little endian u32)
-    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+    let version = u32::from_le_bytes(bytes[4..8].try_into().expect("try_into conversion failed"));
     assert_eq!(version, 3, "Should be GGUF v3");
 }
 

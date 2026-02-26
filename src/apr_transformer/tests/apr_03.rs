@@ -25,7 +25,7 @@ fn test_from_apr_bytes_q4k_perrow_path() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok(), "Q4_K perrow: {}", result.unwrap_err());
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     assert_eq!(apr.layers.len(), 1);
     // 2D weights with dims[1]=128 hit perrow dequant path
     assert_eq!(
@@ -125,7 +125,7 @@ fn test_from_apr_bytes_weight_tying_via_embed() {
         result.unwrap_err()
     );
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     // lm_head should be same as embedding
     assert_eq!(apr.lm_head_weight.len(), vocab * hidden);
 }
@@ -220,7 +220,7 @@ fn test_from_apr_bytes_gguf_naming() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok(), "GGUF naming: {}", result.unwrap_err());
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     assert_eq!(apr.layers.len(), 1);
     assert!(apr.layers[0].ffn_norm_weight.is_some());
     assert!(apr.layers[0].ffn_gate_weight.is_some());
@@ -262,7 +262,7 @@ fn test_from_apr_bytes_metadata_aliases() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok(), "Metadata aliases: {}", result.unwrap_err());
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     assert_eq!(apr.config.architecture, "qwen2");
     assert_eq!(apr.config.hidden_dim, hidden);
     assert_eq!(apr.config.intermediate_dim, intermediate);
@@ -287,7 +287,7 @@ fn test_from_apr_bytes_architecture_auto_filtered() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok());
     // "Auto" should be filtered out and defaulted to "unknown"
-    assert_eq!(result.unwrap().config.architecture, "unknown");
+    assert_eq!(result.expect("test value should be present").config.architecture, "unknown");
 }
 
 // ============================================================================
@@ -384,7 +384,7 @@ fn test_from_apr_bytes_q4k_lm_head() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok(), "Q4K lm_head: {}", result.unwrap_err());
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     assert!(apr.lm_head_weight_q4k.is_some());
 }
 
@@ -417,6 +417,6 @@ fn test_from_apr_bytes_q6k_lm_head() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok(), "Q6K lm_head: {}", result.unwrap_err());
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     assert!(apr.lm_head_weight_q6k.is_some());
 }

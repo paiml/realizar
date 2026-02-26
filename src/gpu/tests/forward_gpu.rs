@@ -6,7 +6,7 @@
 #[test]
 fn test_forward_gpu_incremental_basic() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("forward_incremental");
     model.with_test_executor(Box::new(mock));
@@ -26,7 +26,7 @@ fn test_forward_gpu_incremental_basic() {
     let result = model.forward_gpu_incremental(3, &mut kv_cache);
 
     assert!(result.is_ok());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), config.vocab_size);
 
     // Cache should now have 3 positions
@@ -36,7 +36,7 @@ fn test_forward_gpu_incremental_basic() {
 #[test]
 fn test_forward_gpu_incremental_sequential() {
     let config = create_kv_test_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("forward_incremental_seq");
     model.with_test_executor(Box::new(mock));
@@ -63,7 +63,7 @@ fn test_forward_gpu_incremental_sequential() {
 #[test]
 fn test_forward_gpu_incremental_out_of_bounds_error() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mut kv_cache = StreamingKVCache::new(
         config.num_layers,
@@ -81,7 +81,7 @@ fn test_forward_gpu_incremental_out_of_bounds_error() {
 #[test]
 fn test_forward_gpu_incremental_gqa() {
     let config = create_kv_gqa_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("incremental_gqa");
     model.with_test_executor(Box::new(mock));
@@ -105,7 +105,7 @@ fn test_forward_gpu_incremental_gqa() {
 #[test]
 fn test_forward_gpu_incremental_deep_model() {
     let config = create_kv_deep_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("incremental_deep");
     model.with_test_executor(Box::new(mock));
@@ -132,7 +132,7 @@ fn test_forward_gpu_incremental_deep_model() {
 #[test]
 fn test_generate_with_cache_basic() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("test value should be present");
 
     let mock = MockExecutor::new("generate_cache");
     model.with_test_executor(Box::new(mock));
@@ -142,7 +142,7 @@ fn test_generate_with_cache_basic() {
     let result = model.generate_with_cache(&prompt, &gen_config);
 
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     // Should have at least prompt tokens
     assert!(tokens.len() >= prompt.len());
 }
@@ -150,7 +150,7 @@ fn test_generate_with_cache_basic() {
 #[test]
 fn test_generate_with_cache_empty_prompt_error() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("test value should be present");
 
     let gen_config = GpuGenerateConfig::deterministic(5);
     let prompt: Vec<usize> = vec![];
@@ -162,7 +162,7 @@ fn test_generate_with_cache_empty_prompt_error() {
 #[test]
 fn test_generate_with_cache_with_stop_tokens() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("test value should be present");
 
     let mock = MockExecutor::new("generate_stop");
     model.with_test_executor(Box::new(mock));
@@ -178,7 +178,7 @@ fn test_generate_with_cache_with_stop_tokens() {
 #[test]
 fn test_generate_with_cache_with_sampling() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("test value should be present");
 
     let mock = MockExecutor::new("generate_sampling");
     model.with_test_executor(Box::new(mock));
@@ -193,7 +193,7 @@ fn test_generate_with_cache_with_sampling() {
 #[test]
 fn test_generate_with_cache_gqa() {
     let config = create_kv_gqa_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("test value should be present");
 
     let mock = MockExecutor::new("generate_gqa");
     model.with_test_executor(Box::new(mock));
@@ -208,7 +208,7 @@ fn test_generate_with_cache_gqa() {
 #[test]
 fn test_generate_with_cache_max_tokens_reached() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("test value should be present");
 
     let mock = MockExecutor::new("generate_max_tokens");
     model.with_test_executor(Box::new(mock));
@@ -220,7 +220,7 @@ fn test_generate_with_cache_max_tokens_reached() {
     let result = model.generate_with_cache(&prompt, &gen_config);
 
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     // Should have prompt + up to max_tokens (may stop earlier if stop token hit)
     assert!(tokens.len() <= prompt.len() + max_tokens);
 }
@@ -228,7 +228,7 @@ fn test_generate_with_cache_max_tokens_reached() {
 #[test]
 fn test_generate_with_cache_single_token_prompt() {
     let config = create_kv_test_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("test value should be present");
 
     let mock = MockExecutor::new("generate_single_prompt");
     model.with_test_executor(Box::new(mock));
@@ -238,7 +238,7 @@ fn test_generate_with_cache_single_token_prompt() {
     let result = model.generate_with_cache(&prompt, &gen_config);
 
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     assert!(!tokens.is_empty());
 }
 
@@ -249,7 +249,7 @@ fn test_generate_with_cache_single_token_prompt() {
 #[test]
 fn test_kv_cache_state_isolation_between_calls() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("state_isolation");
     model.with_test_executor(Box::new(mock));
@@ -285,7 +285,7 @@ fn test_kv_cache_state_isolation_between_calls() {
 #[test]
 fn test_kv_cache_clear_between_generations() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("clear_between_gen");
     model.with_test_executor(Box::new(mock));
@@ -336,7 +336,7 @@ fn test_kv_cache_large_context() {
 #[test]
 fn test_kv_cache_stress_many_positions() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("stress_positions");
     model.with_test_executor(Box::new(mock));
@@ -370,7 +370,7 @@ fn test_rope_applied_in_forward_with_cache() {
     // RoPE is applied internally during forward_gpu_with_cache
     // We verify it doesn't panic and produces consistent output
     let config = create_kv_test_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("rope_forward");
     model.with_test_executor(Box::new(mock));
@@ -390,7 +390,7 @@ fn test_rope_applied_in_forward_with_cache() {
 fn test_rope_applied_in_incremental_forward() {
     // RoPE uses start_pos in incremental forward
     let config = create_kv_test_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("rope_incremental");
     model.with_test_executor(Box::new(mock));
@@ -418,7 +418,7 @@ fn test_rope_theta_variations() {
     // Higher rope_theta (e.g., for longer context)
     config.rope_theta = 100000.0;
 
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
     let mock = MockExecutor::new("rope_theta");
     model.with_test_executor(Box::new(mock));
 

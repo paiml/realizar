@@ -117,7 +117,7 @@ fn test_capacity_factor_all_equal_scores() {
     let scores = vec![0.5, 0.5, 0.5, 0.5];
     let result = router.route(&scores);
     assert!(result.is_ok());
-    assert!(result.unwrap() < 4);
+    assert!(result.expect("test value should be present") < 4);
 }
 
 #[test]
@@ -253,7 +253,7 @@ fn test_power_of_two_single_expert() {
     let scores = vec![0.9];
     let result = router.route(&scores);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0);
+    assert_eq!(result.expect("test value should be present"), 0);
 
     for _ in 0..5 {
         router.record_start(0);
@@ -353,7 +353,7 @@ fn test_capacity_factor_negative_scores() {
     let result = router.route(&scores);
     assert!(result.is_ok());
     // -0.1 is the highest (least negative)
-    assert_eq!(result.unwrap(), 1);
+    assert_eq!(result.expect("test value should be present"), 1);
 }
 
 #[test]

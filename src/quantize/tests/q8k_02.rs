@@ -122,7 +122,7 @@ fn test_dequant_q4_0_single_block() {
     // All quants = 0 (neutral)
     let result = dequantize_q4_0(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 32);
+    assert_eq!(result.expect("test value should be present").len(), 32);
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn test_dequant_q4_0_multiple_blocks() {
     let data = vec![0u8; num_blocks * 18];
     let result = dequantize_q4_0(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), num_blocks * 32);
+    assert_eq!(result.expect("test value should be present").len(), num_blocks * 32);
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn test_dequant_q4_0_empty() {
     let data: Vec<u8> = vec![];
     let result = dequantize_q4_0(&data);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
+    assert!(result.expect("test value should be present").is_empty());
 }
 
 // ============================================================================
@@ -154,7 +154,7 @@ fn test_dequant_q8_0_single_block() {
     data[0..2].copy_from_slice(&0x3C00u16.to_le_bytes());
     let result = dequantize_q8_0(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 32);
+    assert_eq!(result.expect("test value should be present").len(), 32);
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn test_dequant_q8_0_multiple_blocks() {
     let data = vec![0u8; num_blocks * 34];
     let result = dequantize_q8_0(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), num_blocks * 32);
+    assert_eq!(result.expect("test value should be present").len(), num_blocks * 32);
 }
 
 #[test]
@@ -177,7 +177,7 @@ fn test_dequant_q8_0_nonzero_quants() {
     }
     let result = dequantize_q8_0(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     assert!(values.iter().any(|&v| v != 0.0));
 }
 
@@ -195,7 +195,7 @@ fn test_dequant_q4_1_single_block() {
     data[2..4].copy_from_slice(&0x0000u16.to_le_bytes());
     let result = dequantize_q4_1(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 32);
+    assert_eq!(result.expect("test value should be present").len(), 32);
 }
 
 #[test]
@@ -204,7 +204,7 @@ fn test_dequant_q4_1_multiple_blocks() {
     let data = vec![0u8; num_blocks * 20];
     let result = dequantize_q4_1(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), num_blocks * 32);
+    assert_eq!(result.expect("test value should be present").len(), num_blocks * 32);
 }
 
 // ============================================================================
@@ -219,7 +219,7 @@ fn test_dequant_q5_0_single_block() {
     data[0..2].copy_from_slice(&0x3C00u16.to_le_bytes());
     let result = dequantize_q5_0(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 32);
+    assert_eq!(result.expect("test value should be present").len(), 32);
 }
 
 #[test]
@@ -228,7 +228,7 @@ fn test_dequant_q5_0_multiple_blocks() {
     let data = vec![0u8; num_blocks * 22];
     let result = dequantize_q5_0(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), num_blocks * 32);
+    assert_eq!(result.expect("test value should be present").len(), num_blocks * 32);
 }
 
 // ============================================================================
@@ -245,7 +245,7 @@ fn test_dequant_q5_1_single_block() {
     data[2..4].copy_from_slice(&0x0000u16.to_le_bytes());
     let result = dequantize_q5_1(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 32);
+    assert_eq!(result.expect("test value should be present").len(), 32);
 }
 
 #[test]
@@ -254,7 +254,7 @@ fn test_dequant_q5_1_multiple_blocks() {
     let data = vec![0u8; num_blocks * 24];
     let result = dequantize_q5_1(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), num_blocks * 32);
+    assert_eq!(result.expect("test value should be present").len(), num_blocks * 32);
 }
 
 // ============================================================================
@@ -281,7 +281,7 @@ fn test_dequant_q4_0_large() {
     let data = vec![0u8; 100 * 18];
     let result = dequantize_q4_0(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 3200);
+    assert_eq!(result.expect("test value should be present").len(), 3200);
 }
 
 #[test]
@@ -295,7 +295,7 @@ fn test_dequant_q8_0_all_positive_quants() {
     }
     let result = dequantize_q8_0(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     assert!(values.iter().all(|&v| v > 0.0));
 }
 
@@ -310,7 +310,7 @@ fn test_dequant_q8_0_all_negative_quants() {
     }
     let result = dequantize_q8_0(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     assert!(values.iter().all(|&v| v < 0.0));
 }
 

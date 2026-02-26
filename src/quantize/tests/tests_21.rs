@@ -247,7 +247,7 @@ fn test_fused_rmsnorm_q4_0_matmul_exact_weight_size() {
     let weight_data = vec![0u8; 72];
     let result = fused_rmsnorm_q4_0_matmul(&input, &norm_weight, 1e-5, &weight_data, 64, 2);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 2);
+    assert_eq!(result.expect("test value should be present").len(), 2);
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn test_fused_rmsnorm_ffn_up_gate_exact_weights() {
     let result =
         fused_rmsnorm_ffn_up_gate(&input, &norm_weight, 1e-5, &up_weight, &gate_weight, 64, 4);
     assert!(result.is_ok());
-    let (up_out, gate_out) = result.unwrap();
+    let (up_out, gate_out) = result.expect("test value should be present");
     assert_eq!(up_out.len(), 4);
     assert_eq!(gate_out.len(), 4);
 }

@@ -94,7 +94,7 @@ fn test_from_bytes_valid_with_all_metadata() {
         .ffn_hidden_dim("llama", 128)
         .vocab_size("llama", 100)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.header.version, 3);
 }
 
@@ -110,10 +110,10 @@ fn test_metadata_architecture() {
         .num_layers("llama", 1)
         .num_heads("llama", 4)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let arch = model.architecture();
     assert!(arch.is_some());
-    assert_eq!(arch.unwrap(), "llama");
+    assert_eq!(arch.expect("test value should be present"), "llama");
 }
 
 #[test]
@@ -124,10 +124,10 @@ fn test_metadata_embedding_dim() {
         .num_layers("llama", 1)
         .num_heads("llama", 4)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let dim = model.embedding_dim();
     assert!(dim.is_some());
-    assert_eq!(dim.unwrap(), 128);
+    assert_eq!(dim.expect("test value should be present"), 128);
 }
 
 #[test]
@@ -138,10 +138,10 @@ fn test_metadata_num_layers() {
         .num_layers("llama", 4)
         .num_heads("llama", 4)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let layers = model.num_layers();
     assert!(layers.is_some());
-    assert_eq!(layers.unwrap(), 4);
+    assert_eq!(layers.expect("test value should be present"), 4);
 }
 
 #[test]
@@ -152,10 +152,10 @@ fn test_metadata_num_heads() {
         .num_layers("llama", 1)
         .num_heads("llama", 8)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let heads = model.num_heads();
     assert!(heads.is_some());
-    assert_eq!(heads.unwrap(), 8);
+    assert_eq!(heads.expect("test value should be present"), 8);
 }
 
 #[test]
@@ -167,10 +167,10 @@ fn test_metadata_num_kv_heads() {
         .num_heads("llama", 8)
         .num_kv_heads("llama", 4)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let kv_heads = model.num_kv_heads();
     assert!(kv_heads.is_some());
-    assert_eq!(kv_heads.unwrap(), 4);
+    assert_eq!(kv_heads.expect("test value should be present"), 4);
 }
 
 #[test]
@@ -182,10 +182,10 @@ fn test_metadata_context_length() {
         .num_heads("llama", 4)
         .context_length("llama", 2048)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let ctx = model.context_length();
     assert!(ctx.is_some());
-    assert_eq!(ctx.unwrap(), 2048);
+    assert_eq!(ctx.expect("test value should be present"), 2048);
 }
 
 #[test]
@@ -197,10 +197,10 @@ fn test_metadata_rope_freq_base() {
         .num_heads("llama", 4)
         .rope_freq_base("llama", 500000.0)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let base = model.rope_freq_base();
     assert!(base.is_some());
-    assert!((base.unwrap() - 500000.0).abs() < 1.0);
+    assert!((base.expect("test value should be present") - 500000.0).abs() < 1.0);
 }
 
 #[test]
@@ -212,10 +212,10 @@ fn test_metadata_rms_epsilon() {
         .num_heads("llama", 4)
         .rms_epsilon("llama", 1e-6)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let eps = model.rms_epsilon();
     assert!(eps.is_some());
-    assert!((eps.unwrap() - 1e-6).abs() < 1e-8);
+    assert!((eps.expect("test value should be present") - 1e-6).abs() < 1e-8);
 }
 
 #[test]
@@ -227,7 +227,7 @@ fn test_metadata_missing_returns_none() {
         .num_layers("llama", 1)
         .num_heads("llama", 4)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     // These should be None since we didn't set them
     // (Some may have defaults - just verify they don't panic)
     let _ = model.rope_type();
@@ -247,7 +247,7 @@ fn test_decode_empty_tokens() {
         .num_layers("llama", 1)
         .num_heads("llama", 4)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let text = model.decode(&[]);
     assert!(text.is_empty());
 }
@@ -260,7 +260,7 @@ fn test_encode_empty_string() {
         .num_layers("llama", 1)
         .num_heads("llama", 4)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let tokens = model.encode("");
     // encode may return None or Some(empty) for empty string
     if let Some(tokens) = tokens {
@@ -276,7 +276,7 @@ fn test_vocabulary() {
         .num_layers("llama", 1)
         .num_heads("llama", 4)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     // May return None if no vocab metadata
     let vocab = model.vocabulary();
     let _ = vocab; // Just verify no panic
@@ -366,14 +366,14 @@ fn test_transformer_from_gguf_minimal() {
         )
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let transformer = GGUFTransformer::from_gguf(&model, &data);
     assert!(
         transformer.is_ok(),
         "from_gguf failed: {:?}",
         transformer.err()
     );
-    let t = transformer.unwrap();
+    let t = transformer.expect("test value should be present");
     assert_eq!(t.config.hidden_dim, hidden);
     assert_eq!(t.config.num_layers, 1);
     assert_eq!(t.layers.len(), 1);
@@ -391,7 +391,7 @@ fn test_transformer_from_gguf_no_tensors() {
         .num_heads("llama", 4)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let transformer = GGUFTransformer::from_gguf(&model, &data);
     // Should fail because required tensors are missing
     assert!(transformer.is_err());
@@ -409,7 +409,7 @@ fn test_header_version_and_counts() {
         .num_layers("llama", 1)
         .num_heads("llama", 4)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.header.version, 3);
     // We set architecture, hidden_dim, num_layers, num_heads = 4 metadata entries
     assert!(model.header.metadata_count >= 4);
@@ -423,7 +423,7 @@ fn test_tensor_count_zero() {
         .num_layers("llama", 1)
         .num_heads("llama", 4)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.header.tensor_count, 0);
     assert!(model.tensors.is_empty());
 }
@@ -437,7 +437,7 @@ fn test_tensor_count_with_tensors() {
         .num_heads("llama", 1)
         .add_f32_tensor("test.weight", &[4, 4], &vec![0.1f32; 16])
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.header.tensor_count, 1);
     assert_eq!(model.tensors.len(), 1);
     assert_eq!(model.tensors[0].name, "test.weight");

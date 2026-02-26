@@ -67,11 +67,11 @@ async fn test_chat_completions_with_temperature_very_low() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -98,11 +98,11 @@ async fn test_chat_completions_with_high_temperature() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -129,11 +129,11 @@ async fn test_chat_completions_with_top_p() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -160,11 +160,11 @@ async fn test_chat_completions_with_max_tokens() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -191,11 +191,11 @@ async fn test_chat_completions_with_stop_tokens() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -222,11 +222,11 @@ async fn test_chat_completions_with_user_field() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -253,11 +253,11 @@ async fn test_chat_completions_with_n_parameter() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -293,11 +293,11 @@ async fn test_chat_completions_all_parameters() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -328,11 +328,11 @@ async fn test_chat_completions_with_trace_level_brick() {
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
                 .header("X-Trace-Level", "brick")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -359,11 +359,11 @@ async fn test_chat_completions_with_trace_level_step() {
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
                 .header("X-Trace-Level", "step")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -390,11 +390,11 @@ async fn test_chat_completions_with_trace_level_layer() {
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
                 .header("X-Trace-Level", "layer")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -421,11 +421,11 @@ async fn test_chat_completions_with_trace_level_invalid() {
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
                 .header("X-Trace-Level", "invalid_level")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // Should still succeed, just no trace data
     assert!(

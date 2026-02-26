@@ -118,7 +118,7 @@ fn test_phase34_cached_sync_concurrent_model_access() {
     }
 
     // Wait for all threads and verify they completed
-    let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    let results: Vec<_> = handles.into_iter().map(|h| h.join().expect("thread join failed")).collect();
     assert_eq!(results, vec![0, 10, 20, 30]);
 }
 
@@ -156,7 +156,7 @@ fn test_phase34_cached_sync_send_sync_bounds() {
     let arc_sync = Arc::new(cached_sync);
     let arc_clone = Arc::clone(&arc_sync);
     let handle = std::thread::spawn(move || arc_clone.model().config.hidden_dim);
-    assert_eq!(handle.join().unwrap(), 64);
+    assert_eq!(handle.join().expect("thread join failed"), 64);
 }
 
 #[test]

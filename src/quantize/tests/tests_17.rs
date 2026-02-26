@@ -325,7 +325,7 @@ fn test_fused_rmsnorm_q4_0_matmul_min_dimensions() {
     let result = fused_rmsnorm_q4_0_matmul(&input, &norm_weight, eps, &weight_data, 32, 1);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), 1);
 }
 
@@ -343,7 +343,7 @@ fn test_fused_rmsnorm_q4_0_matmul_64_input() {
     let result = fused_rmsnorm_q4_0_matmul(&input, &norm_weight, eps, &weight_data, 64, 4);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), 4);
 }
 
@@ -360,7 +360,7 @@ fn test_fused_rmsnorm_q4_0_matmul_partial_block() {
     let result = fused_rmsnorm_q4_0_matmul(&input, &norm_weight, eps, &weight_data, 48, 2);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), 2);
 }
 
@@ -382,7 +382,7 @@ fn test_fused_rmsnorm_ffn_up_gate_min_dimensions() {
         fused_rmsnorm_ffn_up_gate(&input, &norm_weight, eps, &up_weight, &gate_weight, 32, 1);
 
     assert!(result.is_ok());
-    let (up_out, gate_out) = result.unwrap();
+    let (up_out, gate_out) = result.expect("test value should be present");
     assert_eq!(up_out.len(), 1);
     assert_eq!(gate_out.len(), 1);
 }
@@ -402,7 +402,7 @@ fn test_fused_rmsnorm_ffn_up_gate_64_input() {
         fused_rmsnorm_ffn_up_gate(&input, &norm_weight, eps, &up_weight, &gate_weight, 64, 8);
 
     assert!(result.is_ok());
-    let (up_out, gate_out) = result.unwrap();
+    let (up_out, gate_out) = result.expect("test value should be present");
     assert_eq!(up_out.len(), 8);
     assert_eq!(gate_out.len(), 8);
 }

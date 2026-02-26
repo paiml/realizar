@@ -179,7 +179,7 @@ fn test_fused_rmsnorm_q4_0_matmul_zero_out_dim() {
 
     let result = fused_rmsnorm_q4_0_matmul(&input, &norm_weight, 1e-5, &weight_data, 32, 0);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
+    assert!(result.expect("test value should be present").is_empty());
 }
 
 // ============================================================================
@@ -232,7 +232,7 @@ fn test_fused_rmsnorm_ffn_up_gate_zero_out_dim() {
     let result =
         fused_rmsnorm_ffn_up_gate(&input, &norm_weight, 1e-5, &up_weight, &gate_weight, 32, 0);
     assert!(result.is_ok());
-    let (up, gate) = result.unwrap();
+    let (up, gate) = result.expect("test value should be present");
     assert!(up.is_empty());
     assert!(gate.is_empty());
 }

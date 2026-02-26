@@ -75,7 +75,7 @@ fn test_phase33_loader_valid_header() {
     let data = build_gguf_header(0, 0);
     let result = GGUFModel::from_bytes(&data);
     assert!(result.is_ok(), "Valid header should parse");
-    let model = result.unwrap();
+    let model = result.expect("test value should be present");
     assert_eq!(model.header.magic, GGUF_MAGIC);
     assert_eq!(model.header.version, GGUF_VERSION_V3);
     assert_eq!(model.header.tensor_count, 0);

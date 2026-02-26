@@ -2,7 +2,7 @@
 #[test]
 fn test_reload_request_empty() {
     let json = "{}";
-    let req: ReloadRequest = serde_json::from_str(json).unwrap();
+    let req: ReloadRequest = serde_json::from_str(json).expect("JSON deserialization failed");
     assert!(req.model.is_none());
     assert!(req.path.is_none());
 }
@@ -14,8 +14,8 @@ fn test_reload_response_serde() {
         message: "Reloaded".to_string(),
         reload_time_ms: 500,
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let parsed: ReloadResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let parsed: ReloadResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert!(parsed.success);
     assert_eq!(parsed.reload_time_ms, 500);
 }
@@ -30,8 +30,8 @@ fn test_completion_request_serde() {
         top_p: None,
         stop: Some(vec!["END".to_string()]),
     };
-    let json = serde_json::to_string(&req).unwrap();
-    let parsed: CompletionRequest = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
+    let parsed: CompletionRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.model, "default");
     assert_eq!(parsed.max_tokens, Some(100));
 }
@@ -55,8 +55,8 @@ fn test_completion_response_serde() {
             total_tokens: 2,
         },
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let parsed: CompletionResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let parsed: CompletionResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.choices.len(), 1);
     assert_eq!(parsed.choices[0].text, "world");
 }
@@ -74,8 +74,8 @@ fn test_gpu_batch_request_serde() {
         top_k: 40,
         stop: vec!["<|end|>".to_string()],
     };
-    let json = serde_json::to_string(&req).unwrap();
-    let parsed: gpu_handlers::GpuBatchRequest = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
+    let parsed: gpu_handlers::GpuBatchRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.prompts.len(), 2);
     assert_eq!(parsed.max_tokens, 64);
 }
@@ -97,8 +97,8 @@ fn test_gpu_batch_response_serde() {
             throughput_tps: 300.0,
         },
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let parsed: gpu_handlers::GpuBatchResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let parsed: gpu_handlers::GpuBatchResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.results.len(), 1);
     assert!(parsed.stats.throughput_tps > 0.0);
 }
@@ -111,8 +111,8 @@ fn test_gpu_warmup_response_serde() {
         num_layers: 12,
         message: "Warmed up".to_string(),
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let parsed: gpu_handlers::GpuWarmupResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let parsed: gpu_handlers::GpuWarmupResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert!(parsed.success);
     assert_eq!(parsed.num_layers, 12);
 }
@@ -125,8 +125,8 @@ fn test_gpu_status_response_serde() {
         batch_threshold: 32,
         recommended_min_batch: 4,
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let parsed: gpu_handlers::GpuStatusResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let parsed: gpu_handlers::GpuStatusResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert!(!parsed.cache_ready);
     assert_eq!(parsed.batch_threshold, 32);
 }
@@ -139,8 +139,8 @@ fn test_gpu_batch_result_serde() {
         text: "generated".to_string(),
         num_generated: 3,
     };
-    let json = serde_json::to_string(&result).unwrap();
-    let parsed: gpu_handlers::GpuBatchResult = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&result).expect("JSON serialization failed");
+    let parsed: gpu_handlers::GpuBatchResult = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.index, 5);
     assert_eq!(parsed.token_ids, vec![10, 20, 30]);
 }
@@ -154,8 +154,8 @@ fn test_gpu_batch_stats_serde() {
         processing_time_ms: 50.5,
         throughput_tps: 5069.3,
     };
-    let json = serde_json::to_string(&stats).unwrap();
-    let parsed: gpu_handlers::GpuBatchStats = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&stats).expect("JSON serialization failed");
+    let parsed: gpu_handlers::GpuBatchStats = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert!(parsed.gpu_used);
     assert_eq!(parsed.batch_size, 8);
 }
@@ -176,11 +176,11 @@ async fn test_realize_embed_handler_via_http() {
                 .method("POST")
                 .uri("/v1/embeddings")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // May return OK or error depending on mock state
     assert!(
         response.status() == StatusCode::OK
@@ -197,15 +197,15 @@ async fn test_openai_models_handler_via_http() {
             Request::builder()
                 .uri("/v1/models")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert_eq!(response.status(), StatusCode::OK);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
-    let parsed: OpenAIModelsResponse = serde_json::from_slice(&body).unwrap();
+        .expect("test value should be present");
+    let parsed: OpenAIModelsResponse = serde_json::from_slice(&body).expect("JSON from_slice failed");
     assert!(!parsed.data.is_empty());
 }
 
@@ -224,11 +224,11 @@ async fn test_openai_chat_completions_non_streaming() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // Accept various status codes since mock state may not have full model
     assert!(
         response.status() == StatusCode::OK
@@ -252,11 +252,11 @@ async fn test_openai_completions_handler_via_http() {
                 .method("POST")
                 .uri("/v1/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -274,10 +274,10 @@ async fn test_gpu_warmup_handler_via_http() {
                 .uri("/v1/gpu/warmup")
                 .header("content-type", "application/json")
                 .body(Body::from("{}"))
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // GPU warmup returns status even without GPU
     assert!(
         response.status() == StatusCode::OK
@@ -295,10 +295,10 @@ async fn test_gpu_status_handler_via_http() {
             Request::builder()
                 .uri("/v1/gpu/status")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::SERVICE_UNAVAILABLE
@@ -319,11 +319,11 @@ async fn test_gpu_batch_completions_handler_via_http() {
                 .method("POST")
                 .uri("/v1/batch/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -340,10 +340,10 @@ async fn test_server_metrics_handler_via_http() {
             Request::builder()
                 .uri("/v1/metrics")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -359,11 +359,11 @@ async fn test_tokenize_handler_via_http() {
                 .method("POST")
                 .uri("/tokenize")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -383,11 +383,11 @@ async fn test_batch_tokenize_handler_via_http() {
                 .method("POST")
                 .uri("/batch/tokenize")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -412,11 +412,11 @@ async fn test_generate_handler_via_http() {
                 .method("POST")
                 .uri("/generate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND

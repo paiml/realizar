@@ -50,7 +50,7 @@ fn test_active_pygmy_load_quantized_transformer() {
         result.err()
     );
 
-    let transformer = result.unwrap();
+    let transformer = result.expect("test value should be present");
     assert_eq!(transformer.config.hidden_dim, 32);
     assert_eq!(transformer.config.num_layers, 1);
     assert_eq!(transformer.config.num_heads, 4);
@@ -73,7 +73,7 @@ fn test_active_pygmy_load_owned_quantized_model() {
         result.err()
     );
 
-    let model = result.unwrap();
+    let model = result.expect("test value should be present");
     assert_eq!(model.config.hidden_dim, 32);
     assert_eq!(model.config.num_layers, 1);
     assert_eq!(model.config.num_heads, 4);
@@ -140,7 +140,7 @@ fn test_active_pygmy_forward_cached() {
 
     assert!(result.is_ok(), "forward_cached failed: {:?}", result.err());
 
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
 
     // Verify logits shape
     assert_eq!(logits.len(), 32); // vocab_size
@@ -179,7 +179,7 @@ fn test_active_pygmy_multi_token_generation() {
     for gen_idx in 0..2 {
         let pos = prompt_tokens.len() + gen_idx;
         // Use argmax of last logits as next token (greedy sampling)
-        let last_logits = all_logits.last().unwrap();
+        let last_logits = all_logits.last().expect("test value should be present");
         let next_token = last_logits
             .iter()
             .enumerate()
@@ -305,8 +305,8 @@ fn test_active_pygmy_cache_isolation() {
     let mut cache2 = OwnedQuantizedKVCache::from_config(config, 32);
 
     // Run same token through both
-    let logits1 = model.forward_cached(1, &mut cache1, 0).unwrap();
-    let logits2 = model.forward_cached(1, &mut cache2, 0).unwrap();
+    let logits1 = model.forward_cached(1, &mut cache1, 0).expect("test value should be present");
+    let logits2 = model.forward_cached(1, &mut cache2, 0).expect("test value should be present");
 
     // Results should be identical (same input, same initial state)
     assert_eq!(logits1.len(), logits2.len());
@@ -333,9 +333,9 @@ fn test_active_pygmy_cache_accumulation() {
 
     // Same token at different positions should give different results
     // (due to RoPE position encoding and attention over previous tokens)
-    let logits0 = model.forward_cached(5, &mut cache, 0).unwrap();
-    let logits1 = model.forward_cached(5, &mut cache, 1).unwrap();
-    let logits2 = model.forward_cached(5, &mut cache, 2).unwrap();
+    let logits0 = model.forward_cached(5, &mut cache, 0).expect("test value should be present");
+    let logits1 = model.forward_cached(5, &mut cache, 1).expect("test value should be present");
+    let logits2 = model.forward_cached(5, &mut cache, 2).expect("test value should be present");
 
     // Logits may or may not differ with position depending on weight values
     // With Q4_0 quantized weights that decode to similar values, differences

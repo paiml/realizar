@@ -191,7 +191,7 @@ fn test_from_gguf_with_ffn_gate() {
 
     // Gate weight should be present
     assert!(layer.ffn_gate_weight.is_some());
-    let gate = layer.ffn_gate_weight.as_ref().unwrap();
+    let gate = layer.ffn_gate_weight.as_ref().expect("test value should be present");
     assert_eq!(gate.in_dim, hidden_dim);
     assert_eq!(gate.out_dim, 128);
 

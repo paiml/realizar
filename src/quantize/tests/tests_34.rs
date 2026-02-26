@@ -126,7 +126,7 @@ fn test_q8_blocks_not_multiple_of_32() {
 #[test]
 fn test_q8_blocks_roundtrip_uniform() {
     let values = vec![42.0f32; 64]; // 2 blocks
-    let blocks = quantize_to_q8_blocks(&values).unwrap();
+    let blocks = quantize_to_q8_blocks(&values).expect("test value should be present");
     assert_eq!(blocks.len(), 2);
 
     let dequantized = dequantize_q8_blocks(&blocks);
@@ -145,7 +145,7 @@ fn test_q8_blocks_roundtrip_uniform() {
 #[test]
 fn test_q8_blocks_roundtrip_mixed() {
     let values: Vec<f32> = (0..96).map(|i| (i as f32 - 48.0) * 2.0).collect();
-    let blocks = quantize_to_q8_blocks(&values).unwrap();
+    let blocks = quantize_to_q8_blocks(&values).expect("test value should be present");
     assert_eq!(blocks.len(), 3);
 
     let dequantized = dequantize_q8_blocks(&blocks);
@@ -161,7 +161,7 @@ fn test_q8_blocks_roundtrip_mixed() {
 #[test]
 fn test_q8_blocks_roundtrip_zeros() {
     let values = vec![0.0f32; 32];
-    let blocks = quantize_to_q8_blocks(&values).unwrap();
+    let blocks = quantize_to_q8_blocks(&values).expect("test value should be present");
     let dequantized = dequantize_q8_blocks(&blocks);
     for deq in &dequantized {
         assert!((deq - 0.0).abs() < 0.01);
@@ -171,7 +171,7 @@ fn test_q8_blocks_roundtrip_zeros() {
 #[test]
 fn test_q8_blocks_empty() {
     let values: Vec<f32> = vec![];
-    let blocks = quantize_to_q8_blocks(&values).unwrap();
+    let blocks = quantize_to_q8_blocks(&values).expect("test value should be present");
     assert!(blocks.is_empty());
     let dequantized = dequantize_q8_blocks(&blocks);
     assert!(dequantized.is_empty());
@@ -184,17 +184,17 @@ fn test_q8_blocks_empty() {
 #[test]
 fn test_interleaved_q4k_dot_empty() {
     let data = vec![];
-    let iq = InterleavedQ4K::from_q4k(&data).unwrap();
+    let iq = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     let activations = vec![];
     let result = iq.dot(&activations);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 #[test]
 fn test_interleaved_q4k_dot_mismatch() {
     let data = vec![0u8; 144]; // 1 super-block = 256 values
-    let iq = InterleavedQ4K::from_q4k(&data).unwrap();
+    let iq = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     let activations = vec![1.0f32; 128]; // Wrong size
     let result = iq.dot(&activations);
     assert!(result.is_err());
@@ -203,9 +203,9 @@ fn test_interleaved_q4k_dot_mismatch() {
 #[test]
 fn test_interleaved_q4k_dot_zero_weights() {
     let data = vec![0u8; 144]; // All zeros, d=0
-    let iq = InterleavedQ4K::from_q4k(&data).unwrap();
+    let iq = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     let activations = vec![1.0f32; 256];
-    let result = iq.dot(&activations).unwrap();
+    let result = iq.dot(&activations).expect("test value should be present");
     assert_eq!(result, 0.0); // d=0 means all values dequantize to 0
 }
 
@@ -224,9 +224,9 @@ fn test_interleaved_q4k_dot_nonzero() {
     for i in 0..128 {
         data[16 + i] = 0x11;
     }
-    let iq = InterleavedQ4K::from_q4k(&data).unwrap();
+    let iq = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     let activations = vec![1.0f32; 256];
-    let result = iq.dot(&activations).unwrap();
+    let result = iq.dot(&activations).expect("test value should be present");
     // Result should be non-zero since d > 0, scales > 0, qs > 0
     assert!(result.abs() > 0.0, "Expected non-zero dot product");
 }

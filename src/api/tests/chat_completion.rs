@@ -169,7 +169,7 @@ fn test_build_trace_data_brick_level() {
     assert!(step.is_none());
     assert!(layer.is_none());
 
-    let trace = brick.unwrap();
+    let trace = brick.expect("test value should be present");
     assert_eq!(trace.level, "brick");
     assert_eq!(trace.operations, 20); // completion_tokens
     assert_eq!(trace.total_time_us, 10000);
@@ -187,7 +187,7 @@ fn test_build_trace_data_step_level() {
     assert!(step.is_some());
     assert!(layer.is_none());
 
-    let trace = step.unwrap();
+    let trace = step.expect("test value should be present");
     assert_eq!(trace.level, "step");
     assert_eq!(trace.operations, 50); // completion_tokens
     assert_eq!(trace.total_time_us, 5000);
@@ -205,7 +205,7 @@ fn test_build_trace_data_layer_level() {
     assert!(step.is_none());
     assert!(layer.is_some());
 
-    let trace = layer.unwrap();
+    let trace = layer.expect("test value should be present");
     assert_eq!(trace.level, "layer");
     assert_eq!(trace.operations, 6); // num_layers
     assert_eq!(trace.total_time_us, 12000);

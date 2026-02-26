@@ -13,10 +13,10 @@ async fn test_chat_completions_empty_content() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Empty content should trigger empty prompt handling
     assert!(
         response.status() == StatusCode::OK
@@ -45,10 +45,10 @@ async fn test_chat_completions_unicode_content() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -71,10 +71,10 @@ async fn test_chat_completions_multiline_content() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -107,10 +107,10 @@ async fn test_chat_completions_all_optional_params() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -134,10 +134,10 @@ async fn test_chat_completions_negative_temperature() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Negative temperature might be rejected or clamped
     assert!(
         response.status() == StatusCode::OK
@@ -167,10 +167,10 @@ async fn test_chat_completions_trace_header() {
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
         .header("x-request-id", "test-trace-12345")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -198,10 +198,10 @@ async fn test_stream_handler_empty_messages() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Empty messages should be rejected (or NOT_FOUND if no model)
     assert!(
         response.status() == StatusCode::BAD_REQUEST
@@ -225,10 +225,10 @@ async fn test_stream_handler_model_not_found() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Non-existent model should return NOT_FOUND or fall back to default
     assert!(
         response.status() == StatusCode::NOT_FOUND
@@ -254,10 +254,10 @@ async fn test_stream_handler_whitespace_content() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Whitespace-only content might be rejected or processed
     assert!(
         response.status() == StatusCode::OK
@@ -284,10 +284,10 @@ async fn test_stream_handler_with_top_p() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -313,10 +313,10 @@ async fn test_stream_handler_extreme_top_p() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -342,10 +342,10 @@ async fn test_stream_handler_zero_max_tokens() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Zero max_tokens might return empty or error
     assert!(
         response.status() == StatusCode::OK
@@ -376,10 +376,10 @@ async fn test_registry_malfunction_structured_error() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     let status = response.status();
 
     // Graceful degradation: must return structured error, not panic
@@ -394,7 +394,7 @@ async fn test_registry_malfunction_structured_error() {
     if status != StatusCode::OK {
         let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
             .await
-            .unwrap();
+            .expect("test value should be present");
         let body_str = String::from_utf8_lossy(&body);
 
         // Must be valid JSON

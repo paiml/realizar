@@ -218,7 +218,7 @@ proptest! {
     fn prop_extract_scale_min_range(
         scales in prop::collection::vec(any::<u8>(), 12..=12)
     ) {
-        let scales_arr: [u8; 12] = scales.try_into().unwrap();
+        let scales_arr: [u8; 12] = scales.try_into().expect("try_into conversion failed");
 
         for i in 0..8 {
             let (s, m) = extract_scale_min(&scales_arr, i);
@@ -384,11 +384,11 @@ proptest! {
         // Find max input and its softmax output
         let (max_idx, _) = x.iter().enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .unwrap();
+            .expect("test value should be present");
 
         let (softmax_max_idx, _) = x_copy.iter().enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .unwrap();
+            .expect("test value should be present");
 
         prop_assert_eq!(
             max_idx, softmax_max_idx,

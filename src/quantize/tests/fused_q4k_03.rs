@@ -7,7 +7,7 @@ fn test_fused_q4k_q8k_dot_negative_quants() {
 
     let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_finite());
+    assert!(result.expect("test value should be present").is_finite());
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn test_fused_q4k_q8k_dot_simd_empty_inputs() {
 
     let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 #[test]
@@ -56,7 +56,7 @@ fn test_fused_q4k_q8k_dot_simd_single_block() {
 
     let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_finite());
+    assert!(result.expect("test value should be present").is_finite());
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn test_fused_q4k_q8k_dot_simd_multiple_blocks() {
 
     let result = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_finite());
+    assert!(result.expect("test value should be present").is_finite());
 }
 
 // ============================================================================
@@ -84,8 +84,8 @@ fn test_fused_q4k_q8k_dot_scalar_simd_equivalence_zero() {
     let q8k_scales = vec![1.0f32; 1];
     let q8k_quants = vec![1i8; QK_K];
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
-    let simd = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("test value should be present");
+    let simd = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("test value should be present");
 
     assert!(
         (scalar - simd).abs() < 1e-5,
@@ -101,8 +101,8 @@ fn test_fused_q4k_q8k_dot_scalar_simd_equivalence_basic() {
     let q8k_scales = vec![0.5f32; 1];
     let q8k_quants = vec![2i8; QK_K];
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
-    let simd = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("test value should be present");
+    let simd = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("test value should be present");
 
     assert!(scalar.is_finite());
     assert!(simd.is_finite());
@@ -125,8 +125,8 @@ fn test_fused_q4k_q8k_dot_scalar_simd_equivalence_varied() {
         .map(|i| ((i % 256) as i8).wrapping_sub(64))
         .collect();
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
-    let simd = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("test value should be present");
+    let simd = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("test value should be present");
 
     assert!(scalar.is_finite());
     assert!(simd.is_finite());
@@ -149,8 +149,8 @@ fn test_fused_q4k_q8k_dot_scalar_simd_equivalence_many_blocks() {
         .map(|i| ((i % 127) as i8) - 63)
         .collect();
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
-    let simd = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("test value should be present");
+    let simd = fused_q4k_q8k_dot_simd(&q4k_data, &q8k_scales, &q8k_quants).expect("test value should be present");
 
     assert!(scalar.is_finite());
     assert!(simd.is_finite());
@@ -170,7 +170,7 @@ fn test_fused_q4k_dot_large_scale() {
 
     let result = fused_q4k_dot(&q4k_data, &activations);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_finite());
+    assert!(result.expect("test value should be present").is_finite());
 }
 
 #[test]
@@ -190,7 +190,7 @@ fn test_fused_q4k_dot_large_activations() {
 
     let result = fused_q4k_dot(&q4k_data, &activations);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_finite());
+    assert!(result.expect("test value should be present").is_finite());
 }
 
 #[test]
@@ -201,7 +201,7 @@ fn test_fused_q4k_q8k_dot_extreme_quants() {
 
     let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_finite());
+    assert!(result.expect("test value should be present").is_finite());
 }
 
 #[test]
@@ -212,7 +212,7 @@ fn test_fused_q4k_q8k_dot_min_quants() {
 
     let result = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_finite());
+    assert!(result.expect("test value should be present").is_finite());
 }
 
 // ============================================================================

@@ -212,7 +212,7 @@ fn test_apr_f32_to_gpu_basic_conversion() {
     let result = AprF32ToGpuAdapter::to_gpu_model(&apr);
 
     assert!(result.is_ok(), "F32 conversion should succeed");
-    let gpu_model = result.unwrap();
+    let gpu_model = result.expect("test value should be present");
 
     // Verify config is correctly transferred
     assert_eq!(gpu_model.config.vocab_size, 100);
@@ -229,7 +229,7 @@ fn test_apr_f32_to_gpu_gqa_config_preserved() {
     let result = AprF32ToGpuAdapter::to_gpu_model(&apr);
 
     assert!(result.is_ok());
-    let gpu_model = result.unwrap();
+    let gpu_model = result.expect("test value should be present");
 
     // GQA config should be preserved
     assert_eq!(gpu_model.config.num_heads, 8);
@@ -402,7 +402,7 @@ fn test_apr_q4_to_gpu_basic_conversion() {
     let result = AprToGpuAdapter::to_gpu_model(&apr);
 
     assert!(result.is_ok(), "Q4 conversion should succeed");
-    let gpu_model = result.unwrap();
+    let gpu_model = result.expect("test value should be present");
 
     assert_eq!(gpu_model.config.vocab_size, 100);
     assert_eq!(gpu_model.config.hidden_dim, 64);
@@ -462,7 +462,7 @@ fn test_apr_q4_extract_qkv_mha() {
     let kv_dim = config.num_kv_heads * head_dim;
     let qkv_out_dim = config.hidden_dim + 2 * kv_dim;
     let expected_len = config.hidden_dim * qkv_out_dim;
-    assert_eq!(result.unwrap().len(), expected_len);
+    assert_eq!(result.expect("test value should be present").len(), expected_len);
 }
 
 #[test]
@@ -491,7 +491,7 @@ fn test_apr_q4_extract_qkv_gqa() {
     let kv_dim = config.num_kv_heads * head_dim; // 2 * 8 = 16
     let qkv_out_dim = config.hidden_dim + 2 * kv_dim; // 64 + 32 = 96
     let expected_len = config.hidden_dim * qkv_out_dim;
-    assert_eq!(result.unwrap().len(), expected_len);
+    assert_eq!(result.expect("test value should be present").len(), expected_len);
 }
 
 include!("transpose_3x3_2x4.rs");

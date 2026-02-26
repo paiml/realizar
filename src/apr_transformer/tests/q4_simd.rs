@@ -248,7 +248,7 @@ fn test_layer_q4_with_swiglu_gate() {
     };
 
     assert!(layer.ffn_gate_weight.is_some());
-    let gate = layer.ffn_gate_weight.as_ref().unwrap();
+    let gate = layer.ffn_gate_weight.as_ref().expect("test value should be present");
     assert_eq!(gate.in_dim, hidden_dim);
     assert_eq!(gate.out_dim, intermediate_dim);
 }
@@ -340,7 +340,7 @@ fn test_forward_single_token() {
     let result = transformer.forward(&[0]);
 
     assert!(result.is_ok());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), 100); // vocab_size
 }
 
@@ -350,7 +350,7 @@ fn test_forward_multiple_tokens() {
     let result = transformer.forward(&[0, 1, 2]);
 
     assert!(result.is_ok());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), 100); // Only last token logits returned
 }
 
@@ -369,7 +369,7 @@ fn test_forward_multi_layer() {
     let result = transformer.forward(&[42]);
 
     assert!(result.is_ok());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), 100);
 }
 
@@ -379,7 +379,7 @@ fn test_forward_with_swiglu() {
     let result = transformer.forward(&[1, 2, 3]);
 
     assert!(result.is_ok());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), 100);
 }
 
@@ -391,7 +391,7 @@ fn test_forward_single_with_scratch() {
     let result = transformer.forward_single_with_scratch(0, &mut scratch);
 
     assert!(result.is_ok());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), 100);
 }
 

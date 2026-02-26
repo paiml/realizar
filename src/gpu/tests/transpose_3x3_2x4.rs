@@ -77,7 +77,7 @@ fn test_mock_executor_with_gpu_model_from_apr_f32() {
     let result = AprF32ToGpuAdapter::to_gpu_model(&apr);
     assert!(result.is_ok());
 
-    let mut gpu_model = result.unwrap();
+    let mut gpu_model = result.expect("test value should be present");
 
     // Inject mock executor
     let mock = MockExecutor::new("apr_f32_test");
@@ -97,7 +97,7 @@ fn test_mock_executor_with_gpu_model_from_apr_q4() {
     let result = AprToGpuAdapter::to_gpu_model(&apr);
     assert!(result.is_ok());
 
-    let mut gpu_model = result.unwrap();
+    let mut gpu_model = result.expect("test value should be present");
 
     // Inject mock executor
     let mock = MockExecutor::new("apr_q4_test");
@@ -114,7 +114,7 @@ fn test_mock_executor_with_gpu_model_from_apr_q4() {
 #[test]
 fn test_mock_executor_generate_with_adapted_model() {
     let apr = create_minimal_f32_apr();
-    let mut gpu_model = AprF32ToGpuAdapter::to_gpu_model(&apr).unwrap();
+    let mut gpu_model = AprF32ToGpuAdapter::to_gpu_model(&apr).expect("test value should be present");
 
     let mock = MockExecutor::new("generate_test");
     gpu_model.with_test_executor(Box::new(mock));
@@ -124,14 +124,14 @@ fn test_mock_executor_generate_with_adapted_model() {
     let result = gpu_model.generate(&prompt, &gen_config);
 
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     assert!(tokens.len() >= prompt.len());
 }
 
 #[test]
 fn test_mock_executor_clear_and_restore() {
     let apr = create_minimal_f32_apr();
-    let mut gpu_model = AprF32ToGpuAdapter::to_gpu_model(&apr).unwrap();
+    let mut gpu_model = AprF32ToGpuAdapter::to_gpu_model(&apr).expect("test value should be present");
 
     // Initially no test executor
     assert!(!gpu_model.has_test_executor());
@@ -158,7 +158,7 @@ fn test_mock_executor_clear_and_restore() {
 #[test]
 fn test_gpu_model_config_from_apr_f32_dimensions() {
     let apr = create_minimal_f32_apr();
-    let gpu_model = AprF32ToGpuAdapter::to_gpu_model(&apr).unwrap();
+    let gpu_model = AprF32ToGpuAdapter::to_gpu_model(&apr).expect("test value should be present");
 
     // Verify derived dimensions
     let config = gpu_model.config();
@@ -171,7 +171,7 @@ fn test_gpu_model_config_from_apr_f32_dimensions() {
 #[test]
 fn test_gpu_model_config_from_apr_f32_gqa_dimensions() {
     let apr = create_gqa_f32_apr();
-    let gpu_model = AprF32ToGpuAdapter::to_gpu_model(&apr).unwrap();
+    let gpu_model = AprF32ToGpuAdapter::to_gpu_model(&apr).expect("test value should be present");
 
     let config = gpu_model.config();
     assert_eq!(config.head_dim(), 8); // 64 / 8
@@ -183,7 +183,7 @@ fn test_gpu_model_config_from_apr_f32_gqa_dimensions() {
 #[test]
 fn test_gpu_model_config_from_apr_q4_dimensions() {
     let apr = create_minimal_q4_apr();
-    let gpu_model = AprToGpuAdapter::to_gpu_model(&apr).unwrap();
+    let gpu_model = AprToGpuAdapter::to_gpu_model(&apr).expect("test value should be present");
 
     let config = gpu_model.config();
     assert_eq!(config.head_dim(), 16);
@@ -219,7 +219,7 @@ fn test_apr_f32_to_gpu_multiple_layers() {
     let result = AprF32ToGpuAdapter::to_gpu_model(&apr);
     assert!(result.is_ok());
 
-    let gpu_model = result.unwrap();
+    let gpu_model = result.expect("test value should be present");
     assert_eq!(gpu_model.config.num_layers, 4);
 }
 
@@ -251,7 +251,7 @@ fn test_apr_q4_to_gpu_single_layer() {
     let result = AprToGpuAdapter::to_gpu_model(&apr);
     assert!(result.is_ok());
 
-    let gpu_model = result.unwrap();
+    let gpu_model = result.expect("test value should be present");
     assert_eq!(gpu_model.config.num_layers, 1);
 }
 
@@ -303,7 +303,7 @@ fn test_apr_q4_to_gpu_no_layers() {
 fn test_dequantize_tensor_zero_expected() {
     let result = AprToGpuAdapter::dequantize_tensor(&[], 0);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 0);
+    assert_eq!(result.expect("test value should be present").len(), 0);
 }
 
 #[test]
@@ -315,7 +315,7 @@ fn test_dequantize_tensor_single_block() {
 
     let result = AprToGpuAdapter::dequantize_tensor(&data, 32);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 32);
+    assert_eq!(result.expect("test value should be present").len(), 32);
 }
 
 #[test]
@@ -328,7 +328,7 @@ fn test_dequantize_tensor_needs_padding() {
     let result = AprToGpuAdapter::dequantize_tensor(&data, 64);
     assert!(result.is_ok());
 
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     assert_eq!(values.len(), 64);
     // Last 32 values should be zero (padded)
     for &v in &values[32..] {
@@ -347,7 +347,7 @@ fn test_dequantize_tensor_needs_truncation() {
 
     let result = AprToGpuAdapter::dequantize_tensor(&data, 32);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 32);
+    assert_eq!(result.expect("test value should be present").len(), 32);
 }
 
 // ============================================================================
@@ -409,7 +409,7 @@ fn test_extract_ffn_weights_dimensions() {
         AprToGpuAdapter::extract_ffn_weights(&layer, config.hidden_dim, config.intermediate_dim);
     assert!(result.is_ok());
 
-    let (fc1, fc2) = result.unwrap();
+    let (fc1, fc2) = result.expect("test value should be present");
     assert_eq!(fc1.len(), config.hidden_dim * config.intermediate_dim);
     assert_eq!(fc2.len(), config.intermediate_dim * config.hidden_dim);
 }
@@ -422,6 +422,6 @@ fn test_extract_out_weights_dimensions() {
     let result = AprToGpuAdapter::extract_out_weights(&layer, config.hidden_dim);
     assert!(result.is_ok());
 
-    let weights = result.unwrap();
+    let weights = result.expect("test value should be present");
     assert_eq!(weights.len(), config.hidden_dim * config.hidden_dim);
 }

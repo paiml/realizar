@@ -290,7 +290,7 @@ fn test_from_apr_bytes_f16_embedding_and_lm_head() {
         result.unwrap_err()
     );
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     assert_eq!(apr.token_embedding.len(), vocab * hidden);
     assert_eq!(apr.lm_head_weight.len(), vocab * hidden);
     // F16(0.01) -> F32 should be approximately 0.01
@@ -322,7 +322,7 @@ fn test_from_apr_bytes_q8_0_weights() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok(), "Q8_0 weights: {}", result.unwrap_err());
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     assert_eq!(apr.layers.len(), 1);
     // Q8_0 dequantized weights should be 1.0 (scale=1.0, quant=1)
     assert!((apr.layers[0].qkv_weight[0] - 1.0).abs() < 0.01);
@@ -353,13 +353,13 @@ fn test_from_apr_bytes_q4k_flat_weights() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok(), "Q4_K flat: {}", result.unwrap_err());
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     // Q4K weights loaded — also check q4k_layers populated
     assert!(
         apr.q4k_layers.is_some(),
         "Q4K raw bytes should be extracted"
     );
-    let q4k = apr.q4k_layers.as_ref().unwrap();
+    let q4k = apr.q4k_layers.as_ref().expect("test value should be present");
     assert_eq!(q4k.len(), 1);
     assert!(q4k[0].attn_q_weight.is_some());
     assert!(q4k[0].ffn_gate_weight.is_some());
@@ -390,7 +390,7 @@ fn test_from_apr_bytes_q5k_flat_weights() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok(), "Q5_K flat: {}", result.unwrap_err());
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     assert_eq!(apr.layers.len(), 1);
     // Q5_K should also produce q4k raw bytes (dtype 13 accepted by get_q4k_raw_bytes)
     assert!(apr.q4k_layers.is_some());
@@ -430,10 +430,10 @@ fn test_from_apr_bytes_q6k_flat_weights() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok(), "Q6_K flat: {}", result.unwrap_err());
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     // Q6K tensors should produce q4k_layers with q6k fields populated
     assert!(apr.q4k_layers.is_some());
-    let q4k = apr.q4k_layers.as_ref().unwrap();
+    let q4k = apr.q4k_layers.as_ref().expect("test value should be present");
     assert!(q4k[0].ffn_down_weight_q6k.is_some());
     assert!(q4k[0].ffn_up_weight_q6k.is_some());
     assert!(q4k[0].attn_v_weight_q6k.is_some());

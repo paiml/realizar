@@ -80,7 +80,7 @@ fn test_q4k_simd_exactly_64_superblocks_chunk_boundary_p22() {
     let result = dequantize_q4_k_simd(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), 64 * QK_K);
 
     // Verify all values are finite
@@ -96,7 +96,7 @@ fn test_q4k_simd_127_superblocks_just_under_threshold_p22() {
     let result = dequantize_q4_k_simd(&data);
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 127 * QK_K);
+    assert_eq!(result.expect("test value should be present").len(), 127 * QK_K);
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn test_q4k_simd_128_superblocks_threshold_p22() {
     let result = dequantize_q4_k_simd(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), 128 * QK_K);
 }
 
@@ -117,7 +117,7 @@ fn test_q4k_simd_129_superblocks_above_threshold_p22() {
     let result = dequantize_q4_k_simd(&data);
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 129 * QK_K);
+    assert_eq!(result.expect("test value should be present").len(), 129 * QK_K);
 }
 
 #[test]
@@ -127,11 +127,11 @@ fn test_q4k_simd_256_superblocks_multiple_chunks_p22() {
     let result = dequantize_q4_k_simd(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), 256 * QK_K);
 
     // Verify consistency
-    let parallel = dequantize_q4_k_parallel(&data).unwrap();
+    let parallel = dequantize_q4_k_parallel(&data).expect("test value should be present");
     for i in 0..output.len() {
         let diff = (output[i] - parallel[i]).abs();
         assert!(diff < 1e-6, "SIMD/parallel mismatch at {}", i);
@@ -145,7 +145,7 @@ fn test_q4k_simd_320_superblocks_5_chunks_p22() {
     let result = dequantize_q4_k_simd(&data);
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 320 * QK_K);
+    assert_eq!(result.expect("test value should be present").len(), 320 * QK_K);
 }
 
 #[test]
@@ -155,7 +155,7 @@ fn test_q4k_simd_333_superblocks_partial_chunk_p22() {
     let result = dequantize_q4_k_simd(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), 333 * QK_K);
 }
 
@@ -263,11 +263,11 @@ fn test_q8_0_simd_large_parallel_p22() {
     let result = dequantize_q8_0_simd(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), 256 * 32);
 
     // Verify against parallel
-    let parallel = dequantize_q8_0_parallel(&data).unwrap();
+    let parallel = dequantize_q8_0_parallel(&data).expect("test value should be present");
     for i in 0..output.len() {
         let diff = (output[i] - parallel[i]).abs();
         assert!(diff < 1e-6, "Q8_0 SIMD/parallel mismatch at {}", i);

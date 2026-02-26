@@ -289,7 +289,7 @@ fn test_phase33_loader_get_tensor_q4_0() {
         "Q4_0 extraction should work: {:?}",
         result.err()
     );
-    let tensor = result.unwrap();
+    let tensor = result.expect("test value should be present");
     assert_eq!(tensor.len(), 32);
 }
 
@@ -318,7 +318,7 @@ fn test_phase33_loader_get_tensor_q8_0() {
         "Q8_0 extraction should work: {:?}",
         result.err()
     );
-    let tensor = result.unwrap();
+    let tensor = result.expect("test value should be present");
     assert_eq!(tensor.len(), 32);
 }
 
@@ -349,7 +349,7 @@ fn test_phase33_loader_get_tensor_f16() {
         "F16 extraction should work: {:?}",
         result.err()
     );
-    let tensor = result.unwrap();
+    let tensor = result.expect("test value should be present");
     assert_eq!(tensor.len(), 4);
     assert!((tensor[0] - 1.0).abs() < 0.01);
 }
@@ -381,7 +381,7 @@ fn test_phase33_loader_get_tensor_q4_1() {
         "Q4_1 extraction should work: {:?}",
         result.err()
     );
-    let tensor = result.unwrap();
+    let tensor = result.expect("test value should be present");
     assert_eq!(tensor.len(), 32);
 }
 
@@ -411,7 +411,7 @@ fn test_phase33_loader_get_tensor_q5_0() {
         "Q5_0 extraction should work: {:?}",
         result.err()
     );
-    let tensor = result.unwrap();
+    let tensor = result.expect("test value should be present");
     assert_eq!(tensor.len(), 32);
 }
 
@@ -443,6 +443,6 @@ fn test_phase33_loader_get_tensor_q5_1() {
         "Q5_1 extraction should work: {:?}",
         result.err()
     );
-    let tensor = result.unwrap();
+    let tensor = result.expect("test value should be present");
     assert_eq!(tensor.len(), 32);
 }

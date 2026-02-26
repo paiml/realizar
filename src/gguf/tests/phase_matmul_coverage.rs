@@ -282,7 +282,7 @@ fn test_phase34_fused_matmul_q4_0_single_seq() {
         result.err()
     );
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
     assert!(output.iter().all(|x| x.is_finite()));
 }
@@ -322,7 +322,7 @@ fn test_phase34_fused_matmul_q4_0_multi_seq() {
         result.err()
     );
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim * seq_len);
     assert!(output.iter().all(|x| x.is_finite()));
 }
@@ -388,7 +388,7 @@ fn test_phase34_fused_matmul_q8_0_single_seq() {
         result.err()
     );
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -422,7 +422,7 @@ fn test_phase34_fused_matmul_q8_0_multi_seq() {
 
     let result = model.fused_matmul(&input, &weight);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), out_dim * seq_len);
+    assert_eq!(result.expect("test value should be present").len(), out_dim * seq_len);
 }
 
 // =============================================================================

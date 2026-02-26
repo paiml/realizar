@@ -45,7 +45,7 @@ async fn test_gpu_model_tokenizer_missing_error() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
                 .expect("build"),
         )
         .await
@@ -103,7 +103,7 @@ async fn test_quantized_model_empty_messages_error() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
                 .expect("build"),
         )
         .await
@@ -164,7 +164,7 @@ async fn test_quantized_model_temperature_zero() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
                 .expect("build"),
         )
         .await
@@ -218,7 +218,7 @@ async fn test_quantized_model_max_tokens() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
                 .expect("build"),
         )
         .await
@@ -255,7 +255,7 @@ async fn test_registry_fallback_path() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
                 .expect("build"),
         )
         .await
@@ -290,7 +290,7 @@ async fn test_registry_streaming_fallback() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
                 .expect("build"),
         )
         .await
@@ -330,7 +330,7 @@ async fn test_stream_handler_endpoint() {
                 .method("POST")
                 .uri("/v1/chat/completions/stream")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
                 .expect("build"),
         )
         .await
@@ -385,7 +385,7 @@ async fn test_empty_prompt_after_tokenization() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
                 .expect("build"),
         )
         .await
@@ -447,7 +447,7 @@ async fn test_finish_reason_length() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
                 .expect("build"),
         )
         .await

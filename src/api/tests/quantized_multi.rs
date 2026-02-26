@@ -47,7 +47,7 @@ async fn test_quantized_multi_turn_conversation() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
                 .expect("build"),
         )
         .await

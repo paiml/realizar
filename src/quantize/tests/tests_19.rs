@@ -90,7 +90,7 @@ fn test_dequantize_q4_k_parallel_single_superblock_p19() {
     let result = dequantize_q4_k_parallel(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), QK_K); // 256 values per super-block
 
     // All values should be finite
@@ -106,7 +106,7 @@ fn test_dequantize_q4_k_parallel_multiple_superblocks_p19() {
     let result = dequantize_q4_k_parallel(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), num_super_blocks * QK_K);
 
     // All values should be finite
@@ -123,7 +123,7 @@ fn test_dequantize_q4_k_parallel_large_input_p19() {
     let result = dequantize_q4_k_parallel(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), num_super_blocks * QK_K);
 }
 
@@ -154,7 +154,7 @@ fn test_dequantize_q4_k_parallel_empty_input_p19() {
 
     // Empty input is a multiple of 144 (0 * 144 = 0), should succeed with empty output
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 0);
+    assert_eq!(result.expect("test value should be present").len(), 0);
 }
 
 #[test]
@@ -162,9 +162,9 @@ fn test_dequantize_q4_k_parallel_deterministic_p19() {
     let data = generate_q4k_superblock_data(4);
 
     // Run multiple times and verify determinism
-    let result1 = dequantize_q4_k_parallel(&data).unwrap();
-    let result2 = dequantize_q4_k_parallel(&data).unwrap();
-    let result3 = dequantize_q4_k_parallel(&data).unwrap();
+    let result1 = dequantize_q4_k_parallel(&data).expect("test value should be present");
+    let result2 = dequantize_q4_k_parallel(&data).expect("test value should be present");
+    let result3 = dequantize_q4_k_parallel(&data).expect("test value should be present");
 
     for i in 0..result1.len() {
         assert_eq!(
@@ -197,7 +197,7 @@ fn test_dequantize_q4_k_parallel_scale_variations_p19() {
     let result = dequantize_q4_k_parallel(&data);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
 
     // First super-block values should be larger on average
     let sum_first: f32 = output[..QK_K].iter().map(|v| v.abs()).sum();
@@ -220,7 +220,7 @@ fn test_dequantize_q4_k_simd_single_superblock_p19() {
     let result = dequantize_q4_k_simd(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), QK_K);
 }
 
@@ -231,7 +231,7 @@ fn test_dequantize_q4_k_simd_multiple_superblocks_p19() {
     let result = dequantize_q4_k_simd(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), num_super_blocks * QK_K);
 }
 
@@ -240,8 +240,8 @@ fn test_dequantize_q4_k_simd_parity_with_parallel_p19() {
     // SIMD and parallel should produce identical results
     let data = generate_q4k_superblock_data(4);
 
-    let simd_result = dequantize_q4_k_simd(&data).unwrap();
-    let parallel_result = dequantize_q4_k_parallel(&data).unwrap();
+    let simd_result = dequantize_q4_k_simd(&data).expect("test value should be present");
+    let parallel_result = dequantize_q4_k_parallel(&data).expect("test value should be present");
 
     assert_eq!(simd_result.len(), parallel_result.len());
 
@@ -266,7 +266,7 @@ fn test_dequantize_q4_k_simd_large_for_avx2_path_p19() {
     let result = dequantize_q4_k_simd(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), num_super_blocks * QK_K);
 }
 
@@ -278,7 +278,7 @@ fn test_dequantize_q4_k_simd_small_for_sequential_path_p19() {
     let result = dequantize_q4_k_simd(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), num_super_blocks * QK_K);
 }
 
@@ -387,7 +387,7 @@ fn test_dequantize_q8_0_parallel_single_block_p19() {
     let result = dequantize_q8_0_parallel(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), 32); // 32 values per block
 }
 
@@ -398,7 +398,7 @@ fn test_dequantize_q8_0_parallel_multiple_blocks_p19() {
     let result = dequantize_q8_0_parallel(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), num_blocks * 32);
 }
 
@@ -410,7 +410,7 @@ fn test_dequantize_q8_0_parallel_large_input_p19() {
     let result = dequantize_q8_0_parallel(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), num_blocks * 32);
 }
 
@@ -431,15 +431,15 @@ fn test_dequantize_q8_0_parallel_empty_input_p19() {
     let result = dequantize_q8_0_parallel(&data);
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 0);
+    assert_eq!(result.expect("test value should be present").len(), 0);
 }
 
 #[test]
 fn test_dequantize_q8_0_parallel_deterministic_p19() {
     let data = generate_q8_0_block_data(8);
 
-    let result1 = dequantize_q8_0_parallel(&data).unwrap();
-    let result2 = dequantize_q8_0_parallel(&data).unwrap();
+    let result1 = dequantize_q8_0_parallel(&data).expect("test value should be present");
+    let result2 = dequantize_q8_0_parallel(&data).expect("test value should be present");
 
     for i in 0..result1.len() {
         assert_eq!(result1[i], result2[i], "Non-deterministic at index {}", i);

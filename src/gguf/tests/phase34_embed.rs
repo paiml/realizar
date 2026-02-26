@@ -76,7 +76,7 @@ fn test_phase34_fused_matmul_all_qtypes_comprehensive() {
             name,
             result.err()
         );
-        let output = result.unwrap();
+        let output = result.expect("test value should be present");
         assert_eq!(output.len(), out_dim, "{} output size mismatch", name);
         assert!(
             output.iter().all(|x| x.is_finite()),

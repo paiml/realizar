@@ -201,8 +201,8 @@ fn test_phase35_full_model_config() {
     assert_eq!(model.num_heads(), Some(8));
     assert_eq!(model.num_kv_heads(), Some(2));
     assert_eq!(model.context_length(), Some(2048));
-    assert!((model.rope_freq_base().unwrap() - 10000.0).abs() < 1.0);
-    assert!((model.rms_epsilon().unwrap() - 1e-5).abs() < 1e-7);
+    assert!((model.rope_freq_base().expect("test value should be present") - 10000.0).abs() < 1.0);
+    assert!((model.rms_epsilon().expect("test value should be present") - 1e-5).abs() < 1e-7);
     assert_eq!(model.bos_token_id(), Some(1));
     assert_eq!(model.eos_token_id(), Some(2));
     assert_eq!(model.rope_type(), Some(0)); // NORM for llama

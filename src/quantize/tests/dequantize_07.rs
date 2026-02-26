@@ -9,7 +9,7 @@ fn test_dequantize_q8_0_simd_single_block_p19() {
     let result = dequantize_q8_0_simd(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), 32);
 }
 
@@ -20,7 +20,7 @@ fn test_dequantize_q8_0_simd_multiple_blocks_p19() {
     let result = dequantize_q8_0_simd(&data);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), num_blocks * 32);
 }
 
@@ -28,8 +28,8 @@ fn test_dequantize_q8_0_simd_multiple_blocks_p19() {
 fn test_dequantize_q8_0_simd_parity_with_parallel_p19() {
     let data = generate_q8_0_block_data(8);
 
-    let simd_result = dequantize_q8_0_simd(&data).unwrap();
-    let parallel_result = dequantize_q8_0_parallel(&data).unwrap();
+    let simd_result = dequantize_q8_0_simd(&data).expect("test value should be present");
+    let parallel_result = dequantize_q8_0_parallel(&data).expect("test value should be present");
 
     assert_eq!(simd_result.len(), parallel_result.len());
 
@@ -423,10 +423,10 @@ fn test_apply_rope_rotation_scalar_negative_values_p19() {
 fn test_q4k_parallel_thread_consistency_p19() {
     // Run many times to catch potential race conditions
     let data = generate_q4k_superblock_data(16);
-    let reference = dequantize_q4_k_parallel(&data).unwrap();
+    let reference = dequantize_q4_k_parallel(&data).expect("test value should be present");
 
     for run in 0..10 {
-        let result = dequantize_q4_k_parallel(&data).unwrap();
+        let result = dequantize_q4_k_parallel(&data).expect("test value should be present");
         for i in 0..result.len() {
             assert_eq!(
                 result[i], reference[i],

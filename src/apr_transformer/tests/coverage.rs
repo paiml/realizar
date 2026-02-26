@@ -202,7 +202,7 @@ fn test_quantized_transformer_forward_single_token() {
     let result = transformer.forward(&[0]);
     assert!(result.is_ok());
 
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), config.vocab_size);
 }
 
@@ -214,7 +214,7 @@ fn test_quantized_transformer_forward_multiple_tokens() {
     let result = transformer.forward(&[0, 1, 2, 3]);
     assert!(result.is_ok());
 
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), config.vocab_size);
 }
 
@@ -237,7 +237,7 @@ fn test_quantized_transformer_forward_with_cache() {
     let result = transformer.forward_with_cache(0, &mut cache, 0);
     assert!(result.is_ok());
 
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), config.vocab_size);
 }
 
@@ -262,7 +262,7 @@ fn test_quantized_transformer_to_bytes_and_from_bytes() {
     // Serialize
     let bytes = transformer.to_bytes();
     assert!(bytes.is_ok());
-    let bytes = bytes.unwrap();
+    let bytes = bytes.expect("test value should be present");
 
     // Verify magic
     assert_eq!(&bytes[0..4], MAGIC);
@@ -270,7 +270,7 @@ fn test_quantized_transformer_to_bytes_and_from_bytes() {
     // Deserialize
     let recovered = QuantizedAprTransformer::from_bytes(&bytes);
     assert!(recovered.is_ok());
-    let recovered = recovered.unwrap();
+    let recovered = recovered.expect("test value should be present");
 
     // Verify config matches
     assert_eq!(recovered.config().hidden_dim, config.hidden_dim);
@@ -299,7 +299,7 @@ fn test_quantized_transformer_from_bytes_invalid_quant_type() {
     let config = create_test_apr_config();
     let transformer = QuantizedAprTransformer::new(config, AprQuantizationType::F32);
 
-    let mut bytes = transformer.to_bytes().unwrap();
+    let mut bytes = transformer.to_bytes().expect("test value should be present");
 
     // Corrupt quantization type byte (offset 48)
     bytes[48] = 255; // Invalid quant type

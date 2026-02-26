@@ -192,7 +192,7 @@ fn test_fwc_q4k_fused_first_token() {
         "Q4K fused first token: {}",
         result.unwrap_err()
     );
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), 16);
     assert!(logits.iter().all(|x| x.is_finite()));
 }
@@ -202,14 +202,14 @@ fn test_fwc_q4k_fused_multi_token() {
     let apr = build_apr_with_q4k_fused(32, 64, 4, 4, 16);
     let mut cache = AprKVCache::new(&apr.config);
 
-    let _ = apr.forward_with_cache(1, &mut cache, 0).unwrap();
+    let _ = apr.forward_with_cache(1, &mut cache, 0).expect("test value should be present");
     let result = apr.forward_with_cache(2, &mut cache, 1);
     assert!(
         result.is_ok(),
         "Q4K fused second token: {}",
         result.unwrap_err()
     );
-    assert_eq!(result.unwrap().len(), 16);
+    assert_eq!(result.expect("test value should be present").len(), 16);
 }
 
 #[test]
@@ -217,15 +217,15 @@ fn test_fwc_q4k_fused_three_tokens() {
     let apr = build_apr_with_q4k_fused(32, 64, 4, 4, 16);
     let mut cache = AprKVCache::new(&apr.config);
 
-    let _ = apr.forward_with_cache(0, &mut cache, 0).unwrap();
-    let _ = apr.forward_with_cache(1, &mut cache, 1).unwrap();
+    let _ = apr.forward_with_cache(0, &mut cache, 0).expect("test value should be present");
+    let _ = apr.forward_with_cache(1, &mut cache, 1).expect("test value should be present");
     let result = apr.forward_with_cache(2, &mut cache, 2);
     assert!(
         result.is_ok(),
         "Q4K fused third token: {}",
         result.unwrap_err()
     );
-    assert_eq!(result.unwrap().len(), 16);
+    assert_eq!(result.expect("test value should be present").len(), 16);
 }
 
 #[test]
@@ -260,7 +260,7 @@ fn test_fwc_q6k_v_fallback() {
 
     let result = apr.forward_with_cache(1, &mut cache, 0);
     assert!(result.is_ok(), "Q6K V fallback: {}", result.unwrap_err());
-    assert_eq!(result.unwrap().len(), 16);
+    assert_eq!(result.expect("test value should be present").len(), 16);
 }
 
 #[test]
@@ -268,7 +268,7 @@ fn test_fwc_q6k_variants_multi_token() {
     let apr = build_apr_with_q6k_variants(32, 64, 16);
     let mut cache = AprKVCache::new(&apr.config);
 
-    let _ = apr.forward_with_cache(1, &mut cache, 0).unwrap();
+    let _ = apr.forward_with_cache(1, &mut cache, 0).expect("test value should be present");
     let result = apr.forward_with_cache(2, &mut cache, 1);
     assert!(
         result.is_ok(),
@@ -290,7 +290,7 @@ fn test_fwc_lm_head_q4k() {
 
     let result = apr.forward_with_cache(1, &mut cache, 0);
     assert!(result.is_ok(), "Q4K lm_head: {}", result.unwrap_err());
-    assert_eq!(result.unwrap().len(), 16);
+    assert_eq!(result.expect("test value should be present").len(), 16);
 }
 
 #[test]
@@ -302,7 +302,7 @@ fn test_fwc_lm_head_q6k() {
 
     let result = apr.forward_with_cache(1, &mut cache, 0);
     assert!(result.is_ok(), "Q6K lm_head: {}", result.unwrap_err());
-    assert_eq!(result.unwrap().len(), 16);
+    assert_eq!(result.expect("test value should be present").len(), 16);
 }
 
 // ============================================================================
@@ -314,7 +314,7 @@ fn test_forward_batch_q4k_fused_single_token() {
     let apr = build_apr_with_q4k_fused(32, 64, 4, 4, 16);
     let result = apr.forward(&[1]);
     assert!(result.is_ok(), "Q4K batch single: {}", result.unwrap_err());
-    assert_eq!(result.unwrap().len(), 16);
+    assert_eq!(result.expect("test value should be present").len(), 16);
 }
 
 #[test]
@@ -322,7 +322,7 @@ fn test_forward_batch_q4k_fused_multi_token() {
     let apr = build_apr_with_q4k_fused(32, 64, 4, 4, 16);
     let result = apr.forward(&[1, 2, 3]);
     assert!(result.is_ok(), "Q4K batch multi: {}", result.unwrap_err());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     // forward() returns vocab_size logits (last token position)
     assert_eq!(logits.len(), 16);
     assert!(logits.iter().all(|x| x.is_finite()));

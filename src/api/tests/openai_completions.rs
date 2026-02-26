@@ -16,11 +16,11 @@ async fn test_openai_completions_with_stop_tokens() {
                 .method("POST")
                 .uri("/v1/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let status = response.status();
     assert!(
@@ -46,11 +46,11 @@ async fn test_openai_completions_default_model() {
                 .method("POST")
                 .uri("/v1/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let status = response.status();
     assert!(
@@ -76,11 +76,11 @@ async fn test_openai_completions_empty_model() {
                 .method("POST")
                 .uri("/v1/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // Empty model should use default
     let status = response.status();
@@ -103,10 +103,10 @@ async fn test_openai_completions_invalid_json() {
                 .uri("/v1/completions")
                 .header("content-type", "application/json")
                 .body(Body::from("{invalid json"))
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::BAD_REQUEST
@@ -131,11 +131,11 @@ async fn test_openai_completions_missing_prompt() {
                 .method("POST")
                 .uri("/v1/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // Missing required field
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -156,11 +156,11 @@ async fn test_openai_embeddings_endpoint_basic() {
                 .method("POST")
                 .uri("/v1/embeddings")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let status = response.status();
     assert!(
@@ -183,11 +183,11 @@ async fn test_openai_embeddings_without_model() {
                 .method("POST")
                 .uri("/v1/embeddings")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let status = response.status();
     assert!(
@@ -211,11 +211,11 @@ async fn test_openai_embeddings_long_text() {
                 .method("POST")
                 .uri("/v1/embeddings")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let status = response.status();
     assert!(

@@ -9,7 +9,7 @@ fn test_decode_byte_tokens() {
         .add_string("tokenizer.ggml.model", "llama")
         .add_string_array("tokenizer.ggml.tokens", &["<0x48>", "<0x69>", "!"])
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     let text = model.decode(&[0, 1, 2]);
     // <0x48> = 'H', <0x69> = 'i'
@@ -28,7 +28,7 @@ fn test_decode_unknown_token_id() {
         .add_string("tokenizer.ggml.model", "llama")
         .add_string_array("tokenizer.ggml.tokens", &["hello"])
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     // Token ID 999 is out of vocabulary bounds
     let text = model.decode(&[999]);
@@ -45,7 +45,7 @@ fn test_decode_empty_tokens() {
         .add_string("tokenizer.ggml.model", "llama")
         .add_string_array("tokenizer.ggml.tokens", &["hello"])
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     let text = model.decode(&[]);
     assert!(text.is_empty());
@@ -65,7 +65,7 @@ fn test_encode_sentencepiece_basic() {
         .add_string("tokenizer.ggml.model", "llama")
         .add_string_array("tokenizer.ggml.tokens", &["▁Hello", "▁world", "!"])
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     let tokens = model.encode("Hello world!");
     assert!(tokens.is_some());
@@ -79,7 +79,7 @@ fn test_encode_no_vocabulary_returns_none() {
         .num_layers("llama", 1)
         .num_heads("llama", 1)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert!(model.encode("test").is_none());
 }
 
@@ -93,7 +93,7 @@ fn test_encode_empty_text() {
         .add_string("tokenizer.ggml.model", "llama")
         .add_string_array("tokenizer.ggml.tokens", &["hello"])
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     let tokens = model.encode("");
     assert!(tokens.is_some());
@@ -176,7 +176,7 @@ fn test_rope_type_scaling_none() {
         .num_heads("llama", 4)
         .add_string("llama.rope.scaling.type", "none")
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.rope_type(), Some(0)); // NORM
 }
 
@@ -189,7 +189,7 @@ fn test_rope_type_scaling_linear() {
         .num_heads("llama", 4)
         .add_string("llama.rope.scaling.type", "linear")
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.rope_type(), Some(0)); // NORM
 }
 
@@ -202,7 +202,7 @@ fn test_rope_type_scaling_yarn() {
         .num_heads("llama", 4)
         .add_string("llama.rope.scaling.type", "yarn")
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.rope_type(), Some(2)); // NEOX
 }
 
@@ -215,7 +215,7 @@ fn test_rope_type_scaling_neox() {
         .num_heads("llama", 4)
         .add_string("llama.rope.scaling.type", "neox")
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.rope_type(), Some(2)); // NEOX
 }
 
@@ -232,10 +232,10 @@ fn test_vocabulary_returns_some_with_tokens() {
         .num_heads("llama", 1)
         .add_string_array("tokenizer.ggml.tokens", &["a", "b", "c"])
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let vocab = model.vocabulary();
     assert!(vocab.is_some());
-    assert_eq!(vocab.unwrap().len(), 3);
+    assert_eq!(vocab.expect("test value should be present").len(), 3);
 }
 
 #[test]
@@ -246,7 +246,7 @@ fn test_vocabulary_returns_none_without_tokens() {
         .num_layers("llama", 1)
         .num_heads("llama", 1)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert!(model.vocabulary().is_none());
 }
 
@@ -277,7 +277,7 @@ fn test_get_tensor_f32_unsupported_qtype() {
     // Tensor data (some bytes)
     data.extend_from_slice(&[0u8; 64]);
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let result = model.get_tensor_f32("bad.weight", &data);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
@@ -308,7 +308,7 @@ fn test_model_with_all_quant_types() {
         .add_q5_1_tensor("q5_1.weight", &[32], &create_q5_1_data(32))
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.tensors.len(), 11);
 
     // Verify each tensor can be dequantized

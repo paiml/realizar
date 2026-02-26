@@ -369,7 +369,7 @@ fn test_parity007f_realizar_benchmark() {
 
     for _ in 0..num_runs {
         let start = Instant::now();
-        let result = model.generate_with_cache(&prompt, &gen_config).unwrap();
+        let result = model.generate_with_cache(&prompt, &gen_config).expect("test value should be present");
         let elapsed = start.elapsed();
 
         let new_tokens = result.len() - prompt.len();

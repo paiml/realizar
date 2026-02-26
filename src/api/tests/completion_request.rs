@@ -26,7 +26,7 @@ fn test_completion_request_with_stop_sequences() {
     let json = serde_json::to_string(&req).expect("serialize");
     assert!(json.contains("</s>"));
     let parsed: CompletionRequest = serde_json::from_str(&json).expect("deserialize");
-    assert_eq!(parsed.stop.as_ref().unwrap().len(), 2);
+    assert_eq!(parsed.stop.as_ref().expect("test value should be present").len(), 2);
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn test_completion_choice_variants() {
         finish_reason: "stop".to_string(),
     };
     assert!(serde_json::to_string(&choice_with)
-        .unwrap()
+        .expect("test value should be present")
         .contains("logprobs"));
 
     let choice_without = CompletionChoice {

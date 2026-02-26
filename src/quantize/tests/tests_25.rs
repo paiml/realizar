@@ -155,7 +155,7 @@ fn test_f203_simd_faster_than_scalar_q4_0() {
     let simd_start = Instant::now();
     for _ in 0..iterations {
         let result =
-            fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim).unwrap();
+            fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim).expect("test value should be present");
         std::hint::black_box(result);
     }
     let simd_time = simd_start.elapsed();
@@ -222,7 +222,7 @@ fn test_f204_simd_performance_q8_0() {
     let simd_start = Instant::now();
     for _ in 0..iterations {
         let result =
-            fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim).unwrap();
+            fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim).expect("test value should be present");
         std::hint::black_box(result);
     }
     let simd_time = simd_start.elapsed();
@@ -260,14 +260,14 @@ fn test_f205_interleaved_q4k_simd_path() {
         data[offset + 1] = 0x3C;
     }
 
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     let activations = vec![1.0f32; interleaved.num_values()];
 
     let iterations = 1000;
 
     let start = Instant::now();
     for _ in 0..iterations {
-        let result = interleaved.dot(&activations).unwrap();
+        let result = interleaved.dot(&activations).expect("test value should be present");
         std::hint::black_box(result);
     }
     let elapsed = start.elapsed();
@@ -332,7 +332,7 @@ fn test_f206_simd_scalar_numerical_parity_q4_0() {
 
     // Compute SIMD result (via single-row matvec)
     let simd_results =
-        fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, 1).unwrap();
+        fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, 1).expect("test value should be present");
     let simd_result = simd_results[0];
 
     println!("F206: Q4_0 SIMD/Scalar Numerical Parity");
@@ -379,7 +379,7 @@ fn test_f207_simd_scalar_numerical_parity_q8_0() {
     let scalar_result = fused_q8_0_q8_0_dot_scalar(&weight_data, &q8_scales, &q8_quants, in_dim);
 
     let simd_results =
-        fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, 1).unwrap();
+        fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, 1).expect("test value should be present");
     let simd_result = simd_results[0];
 
     let diff = (scalar_result - simd_result).abs();
@@ -413,7 +413,7 @@ fn test_f208_very_large_matrix() {
     let elapsed = start.elapsed();
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 
     // All outputs should be finite
@@ -436,7 +436,7 @@ fn test_f209_minimal_dimensions() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 1);
+    assert_eq!(result.expect("test value should be present").len(), 1);
 }
 
 /// F210: Non-power-of-two dimensions
@@ -452,5 +452,5 @@ fn test_f210_non_power_of_two() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), out_dim);
+    assert_eq!(result.expect("test value should be present").len(), out_dim);
 }

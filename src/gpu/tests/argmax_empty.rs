@@ -288,7 +288,7 @@ fn test_simplified_attention_single_token() {
     let result = simplified_attention(&config, &qkv, seq_len);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), hidden_dim);
 
     // For single token: softmax of single element = 1.0, so output = v
@@ -348,7 +348,7 @@ fn test_simplified_attention_two_tokens() {
     let result = simplified_attention(&config, &qkv, seq_len);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), seq_len * hidden_dim);
 
     // Position 0: can only attend to itself (causal), output = v0
@@ -423,7 +423,7 @@ fn test_simplified_attention_causal_mask() {
     let result = simplified_attention(&config, &qkv, seq_len);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), seq_len * hidden_dim);
 
     // Position 0: only attends to itself -> v0

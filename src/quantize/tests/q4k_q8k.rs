@@ -186,9 +186,9 @@ fn test_q4k_parallel_matvec_deterministic_pk14() {
     let activations = vec![0.5f32; in_dim];
 
     // Run multiple times and check determinism
-    let result1 = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim).unwrap();
-    let result2 = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim).unwrap();
-    let result3 = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim).unwrap();
+    let result1 = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim).expect("test value should be present");
+    let result2 = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim).expect("test value should be present");
+    let result3 = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim).expect("test value should be present");
 
     for i in 0..out_dim {
         assert_eq!(
@@ -212,9 +212,9 @@ fn test_q4k_parallel_vs_tiled_consistency_pk14() {
     let activations = vec![1.0f32; in_dim];
 
     let tiled_result =
-        fused_q4k_tiled_matvec(&weights, &activations, in_dim, out_dim, None).unwrap();
+        fused_q4k_tiled_matvec(&weights, &activations, in_dim, out_dim, None).expect("test value should be present");
     let parallel_result =
-        fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim).unwrap();
+        fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim).expect("test value should be present");
 
     // Both should produce the same output
     for i in 0..out_dim {
@@ -237,11 +237,11 @@ fn test_q4k_matvec_vs_matvec_into_consistency_pk14() {
     let weights = generate_q4k_weights(out_dim, in_dim);
     let activations = vec![1.0f32; in_dim];
 
-    let alloc_result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim).unwrap();
+    let alloc_result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim).expect("test value should be present");
 
     let mut into_result = vec![0.0f32; out_dim];
     fused_q4k_parallel_matvec_into(&weights, &activations, in_dim, out_dim, &mut into_result)
-        .unwrap();
+        .expect("test value should be present");
 
     for i in 0..out_dim {
         let diff = (alloc_result[i] - into_result[i]).abs();
@@ -270,7 +270,7 @@ fn test_q4k_multiple_superblocks_per_row_pk14() {
     let result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -322,7 +322,7 @@ fn test_q4k_large_parallel_execution_pk14() {
     let result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 
     // All outputs should be finite

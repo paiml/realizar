@@ -223,7 +223,7 @@ fn test_q4k_layer_weights_with_values() {
     };
 
     assert!(weights.attn_q_weight.is_some());
-    assert_eq!(weights.attn_q_weight.unwrap()[0], 1);
+    assert_eq!(weights.attn_q_weight.expect("test value should be present")[0], 1);
     assert!(weights.ffn_down_weight.is_some());
 }
 

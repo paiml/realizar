@@ -32,8 +32,8 @@ fn test_gpu_batch_request_serde() {
         top_k: 40,
         stop: vec!["<|endoftext|>".to_string()],
     };
-    let json = serde_json::to_string(&req).unwrap();
-    let deserialized: GpuBatchRequest = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
+    let deserialized: GpuBatchRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.prompts.len(), 2);
     assert_eq!(deserialized.max_tokens, 50);
     assert!((deserialized.temperature - 0.7).abs() < 1e-6);
@@ -60,8 +60,8 @@ fn test_gpu_batch_response_serde() {
             throughput_tps: 285.7,
         },
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let deserialized: GpuBatchResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let deserialized: GpuBatchResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.results.len(), 1);
     assert_eq!(deserialized.results[0].index, 0);
     assert_eq!(deserialized.results[0].num_generated, 3);
@@ -80,8 +80,8 @@ fn test_gpu_batch_stats_serde() {
         processing_time_ms: 50.0,
         throughput_tps: 32000.0,
     };
-    let json = serde_json::to_string(&stats).unwrap();
-    let deserialized: GpuBatchStats = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&stats).expect("JSON serialization failed");
+    let deserialized: GpuBatchStats = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.batch_size, 32);
     assert!(deserialized.gpu_used);
     assert_eq!(deserialized.total_tokens, 1600);
@@ -97,8 +97,8 @@ fn test_gpu_warmup_response_serde() {
         num_layers: 32,
         message: "GPU cache warmed up".to_string(),
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let deserialized: GpuWarmupResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let deserialized: GpuWarmupResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert!(deserialized.success);
     assert_eq!(deserialized.memory_bytes, 6_000_000_000);
     assert_eq!(deserialized.num_layers, 32);
@@ -114,8 +114,8 @@ fn test_gpu_status_response_serde() {
         batch_threshold: 32,
         recommended_min_batch: 32,
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let deserialized: GpuStatusResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let deserialized: GpuStatusResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert!(!deserialized.cache_ready);
     assert_eq!(deserialized.batch_threshold, 32);
 }
@@ -130,8 +130,8 @@ fn test_gpu_batch_result_serde() {
         text: "test output".to_string(),
         num_generated: 4,
     };
-    let json = serde_json::to_string(&result).unwrap();
-    let deserialized: GpuBatchResult = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&result).expect("JSON serialization failed");
+    let deserialized: GpuBatchResult = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.index, 5);
     assert_eq!(deserialized.token_ids, vec![100, 200, 300, 400]);
     assert_eq!(deserialized.text, "test output");
@@ -143,7 +143,7 @@ fn test_gpu_batch_request_defaults() {
     use crate::api::gpu_handlers::GpuBatchRequest;
 
     let json = r#"{"prompts":["hello"]}"#;
-    let req: GpuBatchRequest = serde_json::from_str(json).unwrap();
+    let req: GpuBatchRequest = serde_json::from_str(json).expect("JSON deserialization failed");
     assert_eq!(req.prompts, vec!["hello"]);
     // max_tokens should use default_max_tokens()
     assert!(req.max_tokens > 0);
@@ -165,9 +165,9 @@ async fn test_tokenize_endpoint() {
         .uri("/v1/tokenize")
         .header("content-type", "application/json")
         .body(Body::from(r#"{"text":"Hello world"}"#))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Mock state may return NOT_FOUND or 200
     assert!(
         response.status() == StatusCode::OK
@@ -186,9 +186,9 @@ async fn test_generate_endpoint() {
         .body(Body::from(
             r#"{"prompt":"Hello","max_tokens":5,"temperature":0.0,"strategy":"greedy","top_k":1,"top_p":1.0}"#,
         ))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -205,9 +205,9 @@ async fn test_batch_tokenize_endpoint() {
         .uri("/v1/batch/tokenize")
         .header("content-type", "application/json")
         .body(Body::from(r#"{"texts":["Hello","World"]}"#))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -225,9 +225,9 @@ async fn test_batch_generate_endpoint() {
         .body(Body::from(
             r#"{"prompts":["Hello"],"max_tokens":5,"temperature":0.0,"strategy":"greedy","top_k":1,"top_p":1.0}"#,
         ))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -246,9 +246,9 @@ async fn test_gpu_batch_completions_endpoint() {
         .body(Body::from(
             r#"{"prompts":["Hello world"],"max_tokens":10,"temperature":0.0}"#,
         ))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // GPU batch endpoint returns SERVICE_UNAVAILABLE without GPU feature
     assert!(
         response.status() == StatusCode::OK
@@ -266,9 +266,9 @@ async fn test_gpu_batch_completions_empty_prompts() {
         .uri("/v1/batch/completions")
         .header("content-type", "application/json")
         .body(Body::from(r#"{"prompts":[],"max_tokens":10}"#))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::BAD_REQUEST
             || response.status() == StatusCode::SERVICE_UNAVAILABLE
@@ -283,9 +283,9 @@ async fn test_models_endpoint() {
         .method("GET")
         .uri("/v1/models")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND,);
 }
 
@@ -297,9 +297,9 @@ async fn test_generate_invalid_json() {
         .uri("/v1/generate")
         .header("content-type", "application/json")
         .body(Body::from("not json"))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Invalid JSON: server should not return 200 OK
     let status = response.status().as_u16();
     assert!(
@@ -316,9 +316,9 @@ async fn test_tokenize_invalid_json() {
         .uri("/v1/tokenize")
         .header("content-type", "application/json")
         .body(Body::from("{invalid"))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Invalid JSON: server should not return 200 OK
     let status = response.status().as_u16();
     assert!(

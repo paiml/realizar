@@ -253,7 +253,7 @@ fn test_gpu_model_new_basic() {
     let model = GpuModel::new(config.clone());
     assert!(model.is_ok());
 
-    let model = model.unwrap();
+    let model = model.expect("test value should be present");
     assert_eq!(model.config.hidden_dim, 64);
     assert_eq!(model.config.num_layers, 2);
     assert!(!model.has_test_executor());
@@ -265,7 +265,7 @@ fn test_gpu_model_new_gqa() {
     let model = GpuModel::new(config);
     assert!(model.is_ok());
 
-    let model = model.unwrap();
+    let model = model.expect("test value should be present");
     assert!(model.config.is_gqa());
 }
 
@@ -275,14 +275,14 @@ fn test_gpu_model_from_gguf_config() {
     let model = GpuModel::from_gguf_config(config.clone());
     assert!(model.is_ok());
 
-    let model = model.unwrap();
+    let model = model.expect("test value should be present");
     assert_eq!(model.config.vocab_size, config.vocab_size);
 }
 
 #[test]
 fn test_gpu_model_config_getter() {
     let config = create_test_config();
-    let model = GpuModel::new(config).unwrap();
+    let model = GpuModel::new(config).expect("test value should be present");
 
     let retrieved_config = model.config();
     assert_eq!(retrieved_config.hidden_dim, 64);
@@ -296,7 +296,7 @@ fn test_gpu_model_config_getter() {
 #[test]
 fn test_gpu_model_with_test_executor() {
     let config = create_minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("test value should be present");
 
     assert!(!model.has_test_executor());
 
@@ -309,7 +309,7 @@ fn test_gpu_model_with_test_executor() {
 #[test]
 fn test_gpu_model_clear_test_executor() {
     let config = create_minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("test value should be present");
 
     let mock = MockExecutor::new("test_executor");
     model.with_test_executor(Box::new(mock));
@@ -322,7 +322,7 @@ fn test_gpu_model_clear_test_executor() {
 #[test]
 fn test_gpu_model_has_gpu() {
     let config = create_minimal_config();
-    let model = GpuModel::new(config).unwrap();
+    let model = GpuModel::new(config).expect("test value should be present");
     // has_gpu() delegates to scheduler, should not panic
     let _ = model.has_gpu();
 }
@@ -337,14 +337,14 @@ fn test_gpu_model_with_attention_buffers() {
     let model = GpuModel::with_attention_buffers(config, 512);
     assert!(model.is_ok());
 
-    let model = model.unwrap();
+    let model = model.expect("test value should be present");
     assert!(model.has_attention_buffers());
 }
 
 #[test]
 fn test_gpu_model_has_attention_buffers_false() {
     let config = create_test_config();
-    let model = GpuModel::new(config).unwrap();
+    let model = GpuModel::new(config).expect("test value should be present");
     assert!(!model.has_attention_buffers());
 }
 
@@ -355,7 +355,7 @@ fn test_gpu_model_has_attention_buffers_false() {
 #[test]
 fn test_gpu_model_has_fused_qkv() {
     let config = create_test_config();
-    let model = GpuModel::new(config).unwrap();
+    let model = GpuModel::new(config).expect("test value should be present");
 
     // Test checks if QKV weights have expected dimensions
     let has_fused = model.has_fused_qkv();
@@ -366,7 +366,7 @@ fn test_gpu_model_has_fused_qkv() {
 #[test]
 fn test_gpu_model_has_fused_attn_proj() {
     let config = create_test_config();
-    let model = GpuModel::new(config).unwrap();
+    let model = GpuModel::new(config).expect("test value should be present");
 
     // Test checks if attention projection weights have expected dimensions
     let has_fused = model.has_fused_attn_proj();
@@ -376,13 +376,13 @@ fn test_gpu_model_has_fused_attn_proj() {
 #[test]
 fn test_gpu_model_has_fused_output_residual() {
     let config = create_test_config();
-    let model = GpuModel::new(config).unwrap();
+    let model = GpuModel::new(config).expect("test value should be present");
 
     // Requires attention_buffers to be present
     assert!(!model.has_fused_output_residual());
 
     // With attention buffers
-    let model_with_buffers = GpuModel::with_attention_buffers(create_test_config(), 128).unwrap();
+    let model_with_buffers = GpuModel::with_attention_buffers(create_test_config(), 128).expect("test value should be present");
     assert!(model_with_buffers.has_fused_output_residual());
 }
 
@@ -393,7 +393,7 @@ fn test_gpu_model_has_fused_output_residual() {
 #[test]
 fn test_gpu_model_do_matmul_with_mock() {
     let config = create_minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("test value should be present");
 
     let mock = MockExecutor::new("matmul_test").with_matmul_result(vec![1.0, 2.0, 3.0, 4.0]);
     model.with_test_executor(Box::new(mock));
@@ -403,14 +403,14 @@ fn test_gpu_model_do_matmul_with_mock() {
     let result = model.do_matmul(&a, &b, 2, 2, 2);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output, vec![1.0, 2.0, 3.0, 4.0]);
 }
 
 #[test]
 fn test_gpu_model_do_matmul_failure() {
     let config = create_minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("test value should be present");
 
     let mock = MockExecutor::new("failing_matmul").with_matmul_failure();
     model.with_test_executor(Box::new(mock));
@@ -425,7 +425,7 @@ fn test_gpu_model_do_matmul_failure() {
 #[test]
 fn test_gpu_model_do_matmul_transpose_b_with_mock() {
     let config = create_minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("test value should be present");
 
     // For transpose_b: a = m*k, b = n*k (b is transposed so n rows, k cols)
     // With m=1, k=2, n=2: a = 1*2 = 2, b = 2*2 = 4, output = m*n = 2
@@ -437,7 +437,7 @@ fn test_gpu_model_do_matmul_transpose_b_with_mock() {
     let result = model.do_matmul_transpose_b(&a, &b, 1, 2, 2);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output, vec![10.0, 20.0]);
 }
 
@@ -448,7 +448,7 @@ fn test_gpu_model_do_matmul_transpose_b_with_mock() {
 #[test]
 fn test_gpu_model_matmul_split_qkv() {
     let config = create_minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("split_qkv").with_matmul_result(vec![0.0f32; config.qkv_dim()]);
     model.with_test_executor(Box::new(mock));
@@ -457,7 +457,7 @@ fn test_gpu_model_matmul_split_qkv() {
     let result = model.matmul_split(&input, 0, WeightType::Qkv);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), config.qkv_dim());
 }
 

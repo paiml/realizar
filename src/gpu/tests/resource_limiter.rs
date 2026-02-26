@@ -224,7 +224,7 @@ fn test_load_gguf_to_gpu() {
 
     assert!(result.is_ok());
 
-    let state = result.unwrap();
+    let state = result.expect("test value should be present");
     assert!(state.is_loaded());
     assert!(state.is_ready());
     assert_eq!(state.vocab_size(), 1000);
@@ -233,16 +233,16 @@ fn test_load_gguf_to_gpu() {
 
 #[test]
 fn test_load_gguf_to_gpu_model_name() {
-    let state = load_gguf_to_gpu(500, 128, 2).unwrap();
+    let state = load_gguf_to_gpu(500, 128, 2).expect("test value should be present");
 
-    let name = state.model_name().unwrap();
+    let name = state.model_name().expect("test value should be present");
     assert!(name.contains("500")); // vocab_size in name
     assert!(name.contains("128")); // hidden_dim in name
 }
 
 #[test]
 fn test_gguf_model_state_model_mut() {
-    let mut state = load_gguf_to_gpu(100, 64, 1).unwrap();
+    let mut state = load_gguf_to_gpu(100, 64, 1).expect("test value should be present");
 
     let model_ref = state.model_mut();
     assert!(model_ref.is_some());
@@ -254,7 +254,7 @@ fn test_gguf_model_state_small_config() {
     let result = load_gguf_to_gpu(50, 64, 1);
     assert!(result.is_ok());
 
-    let state = result.unwrap();
+    let state = result.expect("test value should be present");
     assert!(state.is_ready());
 }
 
@@ -264,7 +264,7 @@ fn test_gguf_model_state_large_config() {
     let result = load_gguf_to_gpu(32000, 4096, 32);
     assert!(result.is_ok());
 
-    let state = result.unwrap();
+    let state = result.expect("test value should be present");
     assert!(state.is_ready());
     assert_eq!(state.vocab_size(), 32000);
 }

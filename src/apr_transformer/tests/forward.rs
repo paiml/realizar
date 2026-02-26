@@ -100,7 +100,7 @@ fn test_generate_with_cache_single_prompt_token() {
 
     let result = transformer.generate_with_cache(&[0], &gen_config);
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     assert!(!tokens.is_empty()); // At least prompt
 }
 
@@ -117,7 +117,7 @@ fn test_generate_with_cache_max_tokens_zero() {
 
     let result = transformer.generate_with_cache(&[0, 1, 2], &gen_config);
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     assert_eq!(tokens.len(), 3); // Just the prompt
 }
 
@@ -247,7 +247,7 @@ fn test_generate_stops_early_on_eos_2() {
 
     let result = transformer.generate(&[0, 1], 10);
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     // Should stop at EOS
     assert!(tokens.contains(&2) || tokens.len() <= 3);
 }
@@ -259,7 +259,7 @@ fn test_generate_with_zero_max_tokens() {
 
     let result = transformer.generate(&[0, 1], 0);
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     assert_eq!(tokens.len(), 2); // Just the prompt
 }
 
@@ -288,7 +288,7 @@ fn test_from_apr_bytes_with_metadata_fields() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok());
 
-    let transformer = result.unwrap();
+    let transformer = result.expect("test value should be present");
     assert_eq!(transformer.config.hidden_dim, 128);
     assert_eq!(transformer.config.num_layers, 2);
     assert_eq!(transformer.config.num_heads, 8);
@@ -318,7 +318,7 @@ fn test_from_apr_bytes_with_alternate_field_names() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok());
 
-    let transformer = result.unwrap();
+    let transformer = result.expect("test value should be present");
     assert_eq!(transformer.config.hidden_dim, 256);
     assert_eq!(transformer.config.num_layers, 4);
 }
@@ -437,7 +437,7 @@ fn test_predict_next_single_token() {
 
     let result = transformer.predict_next(&[0]);
     assert!(result.is_ok());
-    let token = result.unwrap();
+    let token = result.expect("test value should be present");
     assert!(token < vocab_size as u32);
 }
 
@@ -450,6 +450,6 @@ fn test_predict_next_long_sequence() {
     let tokens: Vec<u32> = (0..15).collect();
     let result = transformer.predict_next(&tokens);
     assert!(result.is_ok());
-    let token = result.unwrap();
+    let token = result.expect("test value should be present");
     assert!(token < vocab_size as u32);
 }

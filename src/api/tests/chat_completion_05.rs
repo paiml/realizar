@@ -63,9 +63,9 @@ fn test_chat_completion_response_with_traces() {
         step_trace: None,
         layer_trace: None,
     };
-    let json = serde_json::to_string(&resp).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
     assert!(json.contains("brick"));
-    let parsed: ChatCompletionResponse = serde_json::from_str(&json).unwrap();
+    let parsed: ChatCompletionResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert!(parsed.brick_trace.is_some());
 }
 
@@ -78,8 +78,8 @@ fn test_error_response_serde_roundtrip() {
     let err = ErrorResponse {
         error: "Something failed".to_string(),
     };
-    let json = serde_json::to_string(&err).unwrap();
+    let json = serde_json::to_string(&err).expect("JSON serialization failed");
     assert!(json.contains("Something failed"));
-    let parsed: ErrorResponse = serde_json::from_str(&json).unwrap();
+    let parsed: ErrorResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.error, "Something failed");
 }

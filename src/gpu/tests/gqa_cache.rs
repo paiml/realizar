@@ -39,7 +39,7 @@ fn test_gqa_cache_size_smaller() {
 #[test]
 fn test_gqa_forward_with_cache_full_sequence() {
     let config = create_kv_gqa_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("gqa_full_seq");
     model.with_test_executor(Box::new(mock));
@@ -66,7 +66,7 @@ fn test_gqa_forward_with_cache_full_sequence() {
 #[test]
 fn test_forward_with_cache_boundary_token() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("boundary_token");
     model.with_test_executor(Box::new(mock));
@@ -88,7 +88,7 @@ fn test_forward_with_cache_boundary_token() {
 #[test]
 fn test_incremental_with_empty_cache() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("empty_cache");
     model.with_test_executor(Box::new(mock));
@@ -115,7 +115,7 @@ fn test_incremental_with_empty_cache() {
 #[test]
 fn test_full_inference_workflow() {
     let config = create_kv_test_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("full_workflow");
     model.with_test_executor(Box::new(mock));
@@ -147,7 +147,7 @@ fn test_full_inference_workflow() {
 #[test]
 fn test_repeated_generations_with_cache_clear() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("repeated_gen");
     model.with_test_executor(Box::new(mock));
@@ -187,7 +187,7 @@ fn test_kv_cache_with_different_configs() {
     ];
 
     for (i, config) in configs.into_iter().enumerate() {
-        let mut model = GpuModel::new(config.clone()).unwrap();
+        let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
         let mock = MockExecutor::new(&format!("config_{}", i));
         model.with_test_executor(Box::new(mock));

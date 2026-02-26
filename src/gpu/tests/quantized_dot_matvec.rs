@@ -275,7 +275,7 @@ fn test_inference_pipeline_stage_breakdown() {
     assert!(breakdown.contains_key(&GpuPipelineStage::Embed));
     assert!(breakdown.contains_key(&GpuPipelineStage::Attention));
 
-    let embed_time = breakdown.get(&GpuPipelineStage::Embed).unwrap();
+    let embed_time = breakdown.get(&GpuPipelineStage::Embed).expect("test value should be present");
     assert!((*embed_time - 1.5).abs() < 1e-6);
 }
 

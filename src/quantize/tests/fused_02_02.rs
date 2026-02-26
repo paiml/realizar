@@ -97,7 +97,7 @@ fn test_fused_q4_0_q8_0_parallel_matvec_mod_exact_threshold() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -120,7 +120,7 @@ fn test_fused_q4_0_q8_0_parallel_matvec_mod_small_success() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 
     // All outputs should be finite
@@ -150,7 +150,7 @@ fn test_fused_q8_0_q8_0_parallel_matvec_mod_success() {
 
     let result = fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -267,10 +267,10 @@ fn test_interleaved_q4k_dot_large_scales() {
         data[i] = 0x77; // q_low=7, q_high=7
     }
 
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     let activations = vec![0.01f32; 256]; // small activations to prevent overflow
 
-    let result = interleaved.dot(&activations).unwrap();
+    let result = interleaved.dot(&activations).expect("test value should be present");
     assert!(result.is_finite(), "Large scale result should be finite");
 }
 
@@ -279,11 +279,11 @@ fn test_interleaved_q4k_dot_small_activations() {
     let mut data = vec![0u8; 144];
     data[0..2].copy_from_slice(&0x3C00u16.to_le_bytes()); // d = 1.0
 
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
 
     // Very small activations
     let activations = vec![1e-6f32; 256];
-    let result = interleaved.dot(&activations).unwrap();
+    let result = interleaved.dot(&activations).expect("test value should be present");
     assert!(result.is_finite());
     assert!(
         result.abs() < 0.01,
@@ -375,7 +375,7 @@ fn test_quantize_to_q8_blocks_mod_empty() {
     let values: Vec<f32> = vec![];
     let result = quantize_to_q8_blocks(&values);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
+    assert!(result.expect("test value should be present").is_empty());
 }
 
 #[test]
