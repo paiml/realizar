@@ -32,9 +32,9 @@ fn test_from_apr_bytes_fused_qkv_bias() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok(), "Fused QKV bias: {}", result.unwrap_err());
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     assert!(apr.layers[0].qkv_bias.is_some());
-    assert_eq!(apr.layers[0].qkv_bias.as_ref().unwrap().len(), qkv_out);
+    assert_eq!(apr.layers[0].qkv_bias.as_ref().expect("test value should be present").len(), qkv_out);
 }
 
 // ============================================================================
@@ -86,8 +86,8 @@ fn test_from_apr_bytes_separate_qkv_biases() {
         result.unwrap_err()
     );
 
-    let apr = result.unwrap();
-    let bias = apr.layers[0].qkv_bias.as_ref().unwrap();
+    let apr = result.expect("test value should be present");
+    let bias = apr.layers[0].qkv_bias.as_ref().expect("test value should be present");
     assert_eq!(bias.len(), hidden + kv_dim + kv_dim);
     // Q bias = 0.1
     assert!((bias[0] - 0.1).abs() < 1e-6);
@@ -136,7 +136,7 @@ fn test_from_apr_bytes_fused_qkv_weight() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok(), "Fused QKV: {}", result.unwrap_err());
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     assert_eq!(apr.layers[0].qkv_weight.len(), qkv_out * hidden);
 }
 
@@ -230,9 +230,9 @@ fn test_from_apr_bytes_gguf_q4k_weights() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok(), "GGUF Q4K: {}", result.unwrap_err());
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     assert!(apr.q4k_layers.is_some());
-    let q4k = apr.q4k_layers.as_ref().unwrap();
+    let q4k = apr.q4k_layers.as_ref().expect("test value should be present");
     assert!(q4k[0].attn_q_weight.is_some());
     assert!(q4k[0].attn_k_weight.is_some());
     assert!(q4k[0].attn_output_weight.is_some());
@@ -332,7 +332,7 @@ fn test_from_apr_bytes_multi_layer() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok(), "Multi-layer: {}", result.unwrap_err());
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     assert_eq!(apr.layers.len(), num_layers);
     assert_eq!(apr.config.num_layers, num_layers);
 }
@@ -366,7 +366,7 @@ fn test_from_apr_bytes_gqa_model() {
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_ok(), "GQA: {}", result.unwrap_err());
 
-    let apr = result.unwrap();
+    let apr = result.expect("test value should be present");
     assert_eq!(apr.config.num_kv_heads, kv_heads);
     // QKV weight should be hidden + 2*kv_dim = 16 + 2*8 = 32 rows * hidden=16 cols = 512
     assert_eq!(
@@ -427,7 +427,7 @@ fn test_forward_with_cache_f32_first_token() {
         "F32 cache first token: {}",
         result.unwrap_err()
     );
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), 16); // vocab_size
     assert!(logits.iter().all(|x| x.is_finite()));
 }

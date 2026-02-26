@@ -22,7 +22,7 @@ fn test_q4_0_q8_0_matvec_valid_small() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -70,7 +70,7 @@ fn test_q4_0_q8_0_matvec_large_parallel() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -86,7 +86,7 @@ fn test_q4_0_q8_0_matvec_multi_block() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), out_dim);
+    assert_eq!(result.expect("test value should be present").len(), out_dim);
 }
 
 // ============================================================================
@@ -148,7 +148,7 @@ fn test_q8_0_q8_0_matvec_valid_small() {
 
     let result = fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -192,7 +192,7 @@ fn test_q8_0_q8_0_matvec_multi_block() {
 
     let result = fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), out_dim);
+    assert_eq!(result.expect("test value should be present").len(), out_dim);
 }
 
 // ============================================================================
@@ -411,7 +411,7 @@ fn test_q4_0_matvec_sequential_threshold() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), out_dim);
+    assert_eq!(result.expect("test value should be present").len(), out_dim);
 }
 
 #[test]
@@ -425,7 +425,7 @@ fn test_q4_0_matvec_at_threshold() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), out_dim);
+    assert_eq!(result.expect("test value should be present").len(), out_dim);
 }
 
 #[test]

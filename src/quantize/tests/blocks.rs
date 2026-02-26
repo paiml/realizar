@@ -17,7 +17,7 @@ fn test_q8_blocks_single_block() {
     let values = vec![1.0f32; 32];
     let result = quantize_to_q8_blocks(&values);
     assert!(result.is_ok());
-    let blocks = result.unwrap();
+    let blocks = result.expect("test value should be present");
     assert_eq!(blocks.len(), 1);
 }
 
@@ -26,14 +26,14 @@ fn test_q8_blocks_multiple_blocks() {
     let values = vec![0.5f32; 96]; // 3 blocks
     let result = quantize_to_q8_blocks(&values);
     assert!(result.is_ok());
-    let blocks = result.unwrap();
+    let blocks = result.expect("test value should be present");
     assert_eq!(blocks.len(), 3);
 }
 
 #[test]
 fn test_q8_blocks_roundtrip() {
     let values: Vec<f32> = (0..64).map(|i| (i as f32 - 32.0) / 32.0).collect();
-    let blocks = quantize_to_q8_blocks(&values).unwrap();
+    let blocks = quantize_to_q8_blocks(&values).expect("test value should be present");
     let dequantized = dequantize_q8_blocks(&blocks);
 
     assert_eq!(dequantized.len(), values.len());
@@ -46,7 +46,7 @@ fn test_q8_blocks_roundtrip() {
 #[test]
 fn test_q8_blocks_zero_values() {
     let values = vec![0.0f32; 32];
-    let blocks = quantize_to_q8_blocks(&values).unwrap();
+    let blocks = quantize_to_q8_blocks(&values).expect("test value should be present");
     let dequantized = dequantize_q8_blocks(&blocks);
 
     for v in &dequantized {
@@ -57,7 +57,7 @@ fn test_q8_blocks_zero_values() {
 #[test]
 fn test_q8_blocks_positive_values() {
     let values = vec![1.0f32; 32];
-    let blocks = quantize_to_q8_blocks(&values).unwrap();
+    let blocks = quantize_to_q8_blocks(&values).expect("test value should be present");
     let dequantized = dequantize_q8_blocks(&blocks);
 
     for v in &dequantized {
@@ -68,7 +68,7 @@ fn test_q8_blocks_positive_values() {
 #[test]
 fn test_q8_blocks_negative_values() {
     let values = vec![-1.0f32; 32];
-    let blocks = quantize_to_q8_blocks(&values).unwrap();
+    let blocks = quantize_to_q8_blocks(&values).expect("test value should be present");
     let dequantized = dequantize_q8_blocks(&blocks);
 
     for v in &dequantized {
@@ -82,7 +82,7 @@ fn test_q8_blocks_mixed_values() {
     for i in 0..32 {
         values[i] = if i % 2 == 0 { 1.0 } else { -1.0 };
     }
-    let blocks = quantize_to_q8_blocks(&values).unwrap();
+    let blocks = quantize_to_q8_blocks(&values).expect("test value should be present");
     let dequantized = dequantize_q8_blocks(&blocks);
 
     for (i, v) in dequantized.iter().enumerate() {
@@ -118,7 +118,7 @@ fn test_dequant_q4_0_varied_scales() {
 
     let result = dequantize_q4_0(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 64);
+    assert_eq!(result.expect("test value should be present").len(), 64);
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn test_dequant_q4_0_max_quant_values() {
     }
     let result = dequantize_q4_0(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     // All values should be non-zero with max quants
     assert!(values.iter().any(|&v| v != 0.0));
 }
@@ -146,7 +146,7 @@ fn test_dequant_q4_0_zero_scale() {
     }
     let result = dequantize_q4_0(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     for v in values {
         assert!((v - 0.0).abs() < f32::EPSILON);
     }
@@ -168,7 +168,7 @@ fn test_dequant_q8_0_varied_quants() {
 
     let result = dequantize_q8_0(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
 
     // Check alternating signs
     for (i, v) in values.iter().enumerate() {
@@ -190,7 +190,7 @@ fn test_dequant_q8_0_large_scale() {
 
     let result = dequantize_q8_0(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     // First value should be approximately 100.0
     assert!(values[0] > 50.0);
 }
@@ -210,7 +210,7 @@ fn test_dequant_q4_1_with_min() {
 
     let result = dequantize_q4_1(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     assert_eq!(values.len(), 32);
 }
 
@@ -242,7 +242,7 @@ fn test_dequant_q5_0_with_high_bits() {
 
     let result = dequantize_q5_0(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     assert_eq!(values.len(), 32);
 }
 
@@ -276,7 +276,7 @@ fn test_dequant_q5_1_full_range() {
 
     let result = dequantize_q5_1(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     assert_eq!(values.len(), 32);
 }
 
@@ -394,7 +394,7 @@ fn test_dequant_q4_0_at_block_boundary() {
     let data = vec![0u8; 54];
     let result = dequantize_q4_0(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 96);
+    assert_eq!(result.expect("test value should be present").len(), 96);
 }
 
 #[test]
@@ -403,7 +403,7 @@ fn test_dequant_q8_0_at_block_boundary() {
     let data = vec![0u8; 102];
     let result = dequantize_q8_0(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 96);
+    assert_eq!(result.expect("test value should be present").len(), 96);
 }
 
 #[test]
@@ -412,7 +412,7 @@ fn test_dequant_q4_1_at_block_boundary() {
     let data = vec![0u8; 60];
     let result = dequantize_q4_1(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 96);
+    assert_eq!(result.expect("test value should be present").len(), 96);
 }
 
 #[test]
@@ -421,7 +421,7 @@ fn test_dequant_q5_0_at_block_boundary() {
     let data = vec![0u8; 66];
     let result = dequantize_q5_0(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 96);
+    assert_eq!(result.expect("test value should be present").len(), 96);
 }
 
 #[test]
@@ -430,5 +430,5 @@ fn test_dequant_q5_1_at_block_boundary() {
     let data = vec![0u8; 72];
     let result = dequantize_q5_1(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 96);
+    assert_eq!(result.expect("test value should be present").len(), 96);
 }

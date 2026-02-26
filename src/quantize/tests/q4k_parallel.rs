@@ -37,7 +37,7 @@ fn test_q5k_parallel_matvec_basic_pk14() {
     let result = fused_q5k_parallel_matvec(&weights, &activations, in_dim, out_dim);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
     for val in &output {
         assert!(val.is_finite());
@@ -54,7 +54,7 @@ fn test_q5k_parallel_matvec_large_pk14() {
     let result = fused_q5k_parallel_matvec(&weights, &activations, in_dim, out_dim);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -67,7 +67,7 @@ fn test_q5k_parallel_matvec_single_row_pk14() {
 
     let result = fused_q5k_parallel_matvec(&weights, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 1);
+    assert_eq!(result.expect("test value should be present").len(), 1);
 }
 
 #[test]
@@ -154,7 +154,7 @@ fn test_q6k_parallel_matvec_basic_pk14() {
     let result = fused_q6k_parallel_matvec(&weights, &activations, in_dim, out_dim);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
     for val in &output {
         assert!(val.is_finite());
@@ -171,7 +171,7 @@ fn test_q6k_parallel_matvec_large_pk14() {
     let result = fused_q6k_parallel_matvec(&weights, &activations, in_dim, out_dim);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -184,7 +184,7 @@ fn test_q6k_parallel_matvec_single_row_pk14() {
 
     let result = fused_q6k_parallel_matvec(&weights, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 1);
+    assert_eq!(result.expect("test value should be present").len(), 1);
 }
 
 #[test]

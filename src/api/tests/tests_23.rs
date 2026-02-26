@@ -417,11 +417,11 @@ async fn test_realize_embed_endpoint() {
                 .method("POST")
                 .uri("/v1/embed")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -433,10 +433,10 @@ async fn test_realize_model_endpoint() {
             Request::builder()
                 .uri("/v1/model")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 

@@ -170,7 +170,7 @@ fn test_from_apr_bytes_separate_q4k_tensors_populates_q4k_layers() {
 
     // Verify q4k_layers is populated
     assert!(apr.q4k_layers.is_some(), "q4k_layers should be Some");
-    let q4k = &apr.q4k_layers.as_ref().unwrap()[0];
+    let q4k = &apr.q4k_layers.as_ref().expect("test value should be present")[0];
     assert!(
         q4k.attn_q_weight.is_some(),
         "attn_q_weight should be populated"
@@ -359,7 +359,7 @@ fn test_from_apr_bytes_mixed_q4k_q6k_tensors() {
         .expect("Mixed Q4K/Q6K parse failed");
 
     assert!(apr.q4k_layers.is_some());
-    let q4k = &apr.q4k_layers.as_ref().unwrap()[0];
+    let q4k = &apr.q4k_layers.as_ref().expect("test value should be present")[0];
     assert!(q4k.attn_q_weight.is_some());
     assert!(q4k.attn_v_weight.is_none(), "V should NOT be Q4K");
     assert!(q4k.attn_v_weight_q6k.is_some(), "V should be Q6K");
@@ -378,7 +378,7 @@ fn test_generate_q4k_fused() {
     let apr = build_apr_with_q4k_fused(32, 64, 4, 4, 16);
     let result = apr.generate(&[1, 2], 3);
     assert!(result.is_ok(), "Q4K generate: {}", result.unwrap_err());
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     assert!(tokens.len() >= 2, "Should have at least input tokens");
 }
 

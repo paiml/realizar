@@ -38,10 +38,10 @@ async fn test_chat_completions_stream_true() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // With no model loaded, should return error
     assert!(
         response.status() == StatusCode::OK
@@ -65,10 +65,10 @@ async fn test_chat_completions_stream_false() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -97,10 +97,10 @@ async fn test_chat_completions_temperature_zero_greedy() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Temperature 0.0 should trigger top_k=1 branch
     assert!(
         response.status() == StatusCode::OK
@@ -126,10 +126,10 @@ async fn test_chat_completions_temperature_creative() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -157,10 +157,10 @@ async fn test_chat_completions_max_tokens_zero() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // max_tokens=0 might produce empty response or error
     assert!(
         response.status() == StatusCode::OK
@@ -187,10 +187,10 @@ async fn test_chat_completions_max_tokens_large() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -213,9 +213,9 @@ async fn test_chat_completions_invalid_json_syntax() {
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
         .body(Body::from("{invalid json here"))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // 400 BAD_REQUEST for parse errors, 422 for structural errors
     assert_eq!(
         response.status(),
@@ -239,10 +239,10 @@ async fn test_chat_completions_invalid_json_types() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert_eq!(
         response.status(),
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -263,10 +263,10 @@ async fn test_chat_completions_missing_messages() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert_eq!(
         response.status(),
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -287,10 +287,10 @@ async fn test_chat_completions_missing_model() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert_eq!(
         response.status(),
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -316,10 +316,10 @@ async fn test_chat_completions_empty_messages() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Empty messages should trigger prompt_ids.is_empty() branch
     assert!(
         response.status() == StatusCode::OK
@@ -348,10 +348,10 @@ async fn test_chat_completions_nonexistent_model() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Non-existent model should fall through model branches
     assert!(
         response.status() == StatusCode::OK
@@ -376,10 +376,10 @@ async fn test_chat_completions_empty_model_string() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Empty model string triggers request.model.is_empty() branch
     assert!(
         response.status() == StatusCode::OK
@@ -412,10 +412,10 @@ async fn test_chat_completions_multi_turn() {
         .method("POST")
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-        .unwrap();
+        .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND

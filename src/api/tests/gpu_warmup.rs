@@ -23,9 +23,9 @@ async fn test_gpu_warmup_endpoint() {
         .uri("/v1/gpu/warmup")
         .header("content-type", "application/json")
         .body(Body::from("{}"))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Either success or graceful error (no GPU in test mode)
     assert!(
         response.status() == StatusCode::OK || response.status() == StatusCode::SERVICE_UNAVAILABLE,
@@ -40,9 +40,9 @@ async fn test_gpu_status_endpoint() {
         .method("GET")
         .uri("/v1/gpu/status")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK || response.status() == StatusCode::SERVICE_UNAVAILABLE,
         "GPU status should return OK or SERVICE_UNAVAILABLE"
@@ -61,9 +61,9 @@ async fn test_gpu_batch_completions_endpoint() {
         .uri("/v1/batch/completions")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Accept OK or SERVICE_UNAVAILABLE (no GPU in test)
     assert!(
         response.status() == StatusCode::OK || response.status() == StatusCode::SERVICE_UNAVAILABLE,
@@ -83,9 +83,9 @@ async fn test_openai_models_endpoint() {
         .method("GET")
         .uri("/v1/models")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -108,9 +108,9 @@ async fn test_openai_completions_endpoint() {
         .uri("/v1/completions")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -133,9 +133,9 @@ async fn test_openai_chat_completions_endpoint() {
         .uri("/v1/chat/completions")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -157,9 +157,9 @@ async fn test_openai_embeddings_endpoint() {
         .uri("/v1/embeddings")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Embeddings may not be supported in demo mode
     if response.status() != StatusCode::OK && response.status() != StatusCode::NOT_IMPLEMENTED {
         return; // Mock state guard
@@ -182,9 +182,9 @@ async fn test_apr_predict_endpoint() {
         .uri("/v1/predict")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Accept various status codes - handler is exercised either way
     let status = response.status();
     if status != StatusCode::OK
@@ -208,9 +208,9 @@ async fn test_apr_explain_endpoint() {
         .uri("/v1/explain")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Accept various status codes - handler is exercised either way
     let status = response.status();
     assert!(
@@ -230,9 +230,9 @@ async fn test_apr_audit_endpoint() {
         .method("GET")
         .uri("/v1/audit:test-request-123")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Audit may return NOT_FOUND if request doesn't exist
     assert!(
         response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND,
@@ -256,9 +256,9 @@ async fn test_realize_embed_endpoint() {
         .uri("/realize/embed")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Embedding may not be supported - accept any valid HTTP response
     let status = response.status();
     assert!(
@@ -274,9 +274,9 @@ async fn test_realize_model_endpoint() {
         .method("GET")
         .uri("/realize/model")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -295,9 +295,9 @@ async fn test_realize_reload_endpoint() {
         .uri("/realize/reload")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Reload may not be supported in demo mode
     assert!(
         response.status() == StatusCode::OK
@@ -320,9 +320,9 @@ async fn test_gpu_warmup_invalid_json() {
         .uri("/v1/gpu/warmup")
         .header("content-type", "application/json")
         .body(Body::from("not valid json"))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Invalid JSON should return client error (4xx) or server error if GPU unavailable
     let status = response.status();
     assert!(
@@ -344,9 +344,9 @@ async fn test_openai_completions_missing_prompt() {
         .uri("/v1/completions")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Missing prompt should be handled - handler code is exercised
     let status = response.status();
     assert!(
@@ -368,9 +368,9 @@ async fn test_apr_predict_empty_features() {
         .uri("/v1/predict")
         .header("content-type", "application/json")
         .body(Body::from(body.to_string()))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Empty features should be handled
     assert!(
         response.status() == StatusCode::OK || response.status() == StatusCode::BAD_REQUEST,

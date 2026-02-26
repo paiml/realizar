@@ -68,7 +68,7 @@ fn test_simplified_attention_multiple_heads() {
     let result = simplified_attention(&config, &qkv, seq_len);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), seq_len * config.hidden_dim);
 }
 
@@ -304,7 +304,7 @@ fn test_matmul_split_qkv() {
     let result = model.matmul_split(&input, 0, WeightType::Qkv);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), config.qkv_dim());
 }
 
@@ -317,7 +317,7 @@ fn test_matmul_split_output() {
     let result = model.matmul_split(&input, 0, WeightType::Output);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), config.hidden_dim);
 }
 
@@ -330,7 +330,7 @@ fn test_matmul_split_ffn_fc1() {
     let result = model.matmul_split(&input, 0, WeightType::FfnFc1);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), config.intermediate_dim);
 }
 
@@ -343,7 +343,7 @@ fn test_matmul_split_ffn_fc2() {
     let result = model.matmul_split(&input, 0, WeightType::FfnFc2);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), config.hidden_dim);
 }
 
@@ -356,7 +356,7 @@ fn test_matmul_split_lm_head() {
     let result = model.matmul_split(&input, 0, WeightType::LmHead);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), config.vocab_size);
 }
 
@@ -387,7 +387,7 @@ fn test_do_matmul_basic() {
 
     let result = model.do_matmul(&a, &b, 1, 64, 128);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 128);
+    assert_eq!(result.expect("test value should be present").len(), 128);
 }
 
 #[test]
@@ -416,7 +416,7 @@ fn test_do_matmul_transpose_b() {
 
     let result = model.do_matmul_transpose_b(&a, &b, 1, 32, 64);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 64);
+    assert_eq!(result.expect("test value should be present").len(), 64);
 }
 
 #[test]

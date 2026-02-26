@@ -38,7 +38,7 @@ fn test_phase33_forward_basic() {
     let result = model.forward(&[42]);
 
     assert!(result.is_ok(), "forward() should succeed");
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), config.vocab_size);
     assert!(
         logits.iter().all(|x| x.is_finite()),
@@ -71,7 +71,7 @@ fn test_phase33_forward_multi_token() {
     let result = model.forward(&[1, 2, 3, 4, 5]);
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), config.vocab_size);
+    assert_eq!(result.expect("test value should be present").len(), config.vocab_size);
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn test_phase33_forward_cached_single() {
 
     let result = model.forward_cached(42, &mut cache, 0);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), config.vocab_size);
+    assert_eq!(result.expect("test value should be present").len(), config.vocab_size);
 }
 
 #[test]

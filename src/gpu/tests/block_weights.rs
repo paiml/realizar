@@ -23,7 +23,7 @@ fn test_block_weights_with_gate() {
 
     assert!(block.ffn_gate_weight.is_some());
     assert_eq!(
-        block.ffn_gate_weight.as_ref().unwrap().len(),
+        block.ffn_gate_weight.as_ref().expect("test value should be present").len(),
         hidden_dim * intermediate_dim
     );
 }
@@ -74,7 +74,7 @@ fn test_weight_type_clone() {
 fn test_gpu_model_layer_norm_via_forward() {
     // layer_norm_static is tested indirectly via forward_block_idx
     let config = create_minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("layer_norm_test");
     model.with_test_executor(Box::new(mock));
@@ -93,7 +93,7 @@ fn test_gpu_model_layer_norm_via_forward() {
 #[test]
 fn test_gpu_model_forward_single_token_only() {
     let config = create_minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("single_token");
     model.with_test_executor(Box::new(mock));
@@ -102,14 +102,14 @@ fn test_gpu_model_forward_single_token_only() {
     let result = model.forward_gpu(&token_ids);
 
     assert!(result.is_ok());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), config.vocab_size);
 }
 
 #[test]
 fn test_gpu_model_generate_max_tokens_zero() {
     let config = create_minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("test value should be present");
 
     let mock = MockExecutor::new("zero_max_tokens");
     model.with_test_executor(Box::new(mock));
@@ -120,14 +120,14 @@ fn test_gpu_model_generate_max_tokens_zero() {
 
     assert!(result.is_ok());
     // Should return at least the prompt
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     assert!(!tokens.is_empty());
 }
 
 #[test]
 fn test_gpu_model_forward_block_incremental_optimized() {
     let config = create_minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("block_incremental");
     model.with_test_executor(Box::new(mock));
@@ -143,7 +143,7 @@ fn test_gpu_model_forward_block_incremental_optimized() {
     let result = model.forward_block_incremental_optimized(&input, 0, &mut kv_cache);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), config.hidden_dim);
 }
 
@@ -154,7 +154,7 @@ fn test_gpu_model_forward_block_incremental_optimized() {
 #[test]
 fn test_gpu_model_gqa_forward() {
     let config = create_gqa_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("gqa_forward");
     model.with_test_executor(Box::new(mock));
@@ -168,7 +168,7 @@ fn test_gpu_model_gqa_forward() {
 #[test]
 fn test_gpu_model_gqa_incremental() {
     let config = create_gqa_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("gqa_incremental");
     model.with_test_executor(Box::new(mock));
@@ -187,7 +187,7 @@ fn test_gpu_model_gqa_incremental() {
 #[test]
 fn test_gpu_model_gqa_generate() {
     let config = create_gqa_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("test value should be present");
 
     let mock = MockExecutor::new("gqa_generate");
     model.with_test_executor(Box::new(mock));

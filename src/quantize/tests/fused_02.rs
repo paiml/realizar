@@ -115,7 +115,7 @@ fn test_fused_q4_0_q8_0_parallel_matvec_mod_sequential_path() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -137,7 +137,7 @@ fn test_fused_q4_0_q8_0_parallel_matvec_mod_parallel_path() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -323,7 +323,7 @@ fn test_interleaved_q4k_from_q4k_empty() {
     let result = InterleavedQ4K::from_q4k(&data);
     // Empty is technically valid (0 super-blocks)
     assert!(result.is_ok());
-    let interleaved = result.unwrap();
+    let interleaved = result.expect("test value should be present");
     assert_eq!(interleaved.num_super_blocks, 0);
     assert_eq!(interleaved.num_values(), 0);
 }
@@ -332,12 +332,12 @@ fn test_interleaved_q4k_from_q4k_empty() {
 fn test_interleaved_q4k_num_values() {
     // 1 super-block = 256 values
     let data = vec![0u8; 144];
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     assert_eq!(interleaved.num_values(), 256);
 
     // 3 super-blocks = 768 values
     let data = vec![0u8; 144 * 3];
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     assert_eq!(interleaved.num_values(), 768);
 }
 
@@ -354,7 +354,7 @@ fn test_interleaved_q4k_from_q4k_multiple_superblocks() {
         data[sb_start..sb_start + 2].copy_from_slice(&d_bits.to_le_bytes());
     }
 
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     assert_eq!(interleaved.num_super_blocks, 4);
     assert_eq!(interleaved.d.len(), 4);
 

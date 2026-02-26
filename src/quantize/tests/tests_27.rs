@@ -30,7 +30,7 @@ const Q8K_BLOCK_SIZE: usize = 256;
 fn test_fused_q4k_dot_empty_data() {
     let result = fused_q4k_dot(&[], &[]);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn test_fused_q4k_dot_zero_scales() {
     let result = fused_q4k_dot(&q4k_data, &activations);
     assert!(result.is_ok());
     // With zero scales, result should be zero regardless of activations
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn test_fused_q4k_dot_three_super_blocks() {
 fn test_fused_q4k_q8k_dot_empty() {
     let result = fused_q4k_q8k_dot(&[], &[], &[]);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 #[test]
@@ -189,7 +189,7 @@ fn test_fused_q4k_q8k_dot_zero_scales() {
     let result = fused_q4k_q8k_dot(&q4k_data, &scales, &quants);
     assert!(result.is_ok());
     // Zero scale should produce zero result
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 #[test]
@@ -252,7 +252,7 @@ fn test_fused_q4k_dot_single_block_boundary() {
 
     let result = fused_q4k_dot(&q4k_data, &activations);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 #[test]
@@ -332,7 +332,7 @@ fn test_fused_q4k_q8k_dot_all_zeros() {
 
     let result = fused_q4k_q8k_dot(&q4k_data, &scales, &quants);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 #[test]
@@ -344,7 +344,7 @@ fn test_fused_q4k_q8k_dot_nan_scale() {
     let result = fused_q4k_q8k_dot(&q4k_data, &scales, &quants);
     assert!(result.is_ok());
     // Result should be NaN
-    assert!(result.unwrap().is_nan());
+    assert!(result.expect("test value should be present").is_nan());
 }
 
 #[test]
@@ -398,8 +398,8 @@ fn test_fused_q4k_dot_deterministic() {
     let q4k_data = vec![0u8; Q4K_SUPER_BLOCK_BYTES];
     let activations = vec![1.0f32; QK_K];
 
-    let result1 = fused_q4k_dot(&q4k_data, &activations).unwrap();
-    let result2 = fused_q4k_dot(&q4k_data, &activations).unwrap();
+    let result1 = fused_q4k_dot(&q4k_data, &activations).expect("test value should be present");
+    let result2 = fused_q4k_dot(&q4k_data, &activations).expect("test value should be present");
 
     assert_eq!(result1, result2);
 }
@@ -410,8 +410,8 @@ fn test_fused_q4k_q8k_dot_deterministic() {
     let scales = vec![1.0f32; 1];
     let quants = vec![42i8; QK_K];
 
-    let result1 = fused_q4k_q8k_dot(&q4k_data, &scales, &quants).unwrap();
-    let result2 = fused_q4k_q8k_dot(&q4k_data, &scales, &quants).unwrap();
+    let result1 = fused_q4k_q8k_dot(&q4k_data, &scales, &quants).expect("test value should be present");
+    let result2 = fused_q4k_q8k_dot(&q4k_data, &scales, &quants).expect("test value should be present");
 
     assert_eq!(result1, result2);
 }

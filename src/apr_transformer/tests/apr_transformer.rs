@@ -186,7 +186,7 @@ fn test_forward_single_token() {
     let result = transformer.forward(&[0]);
     assert!(result.is_ok());
 
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), config.vocab_size);
 }
 
@@ -198,7 +198,7 @@ fn test_forward_multiple_tokens() {
     let result = transformer.forward(&[0, 1, 2, 3]);
     assert!(result.is_ok());
 
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), config.vocab_size);
 }
 
@@ -297,7 +297,7 @@ fn test_forward_with_cache_single_token() {
     let result = transformer.forward_with_cache(0, &mut cache, 0);
     assert!(result.is_ok());
 
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), config.vocab_size);
     assert_eq!(cache.len(), 1);
 }
@@ -373,7 +373,7 @@ fn test_predict_next_basic() {
     let result = transformer.predict_next(&[0, 1, 2]);
     assert!(result.is_ok());
 
-    let token = result.unwrap();
+    let token = result.expect("test value should be present");
     assert!(token < vocab_size as u32);
 }
 
@@ -398,7 +398,7 @@ fn test_generate_basic() {
     let result = transformer.generate(&[0, 1], 3);
     assert!(result.is_ok());
 
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     // Should have prompt + generated tokens
     assert!(tokens.len() >= 2);
     assert!(tokens.len() <= 5); // 2 prompt + up to 3 generated
@@ -433,7 +433,7 @@ fn test_generate_with_cache_basic() {
     let result = transformer.generate_with_cache(&[0, 1], &gen_config);
     assert!(result.is_ok());
 
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     assert!(tokens.len() >= 2);
 }
 

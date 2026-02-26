@@ -124,11 +124,11 @@ fn test_parity008e_benchmark_reproducibility() {
 
     // Run twice with same seed/config
     let start1 = Instant::now();
-    let result1 = model.generate_with_cache(&prompt, &gen_config).unwrap();
+    let result1 = model.generate_with_cache(&prompt, &gen_config).expect("test value should be present");
     let _time1 = start1.elapsed();
 
     let start2 = Instant::now();
-    let result2 = model.generate_with_cache(&prompt, &gen_config).unwrap();
+    let result2 = model.generate_with_cache(&prompt, &gen_config).expect("test value should be present");
     let _time2 = start2.elapsed();
 
     // Outputs should be identical (deterministic sampling)

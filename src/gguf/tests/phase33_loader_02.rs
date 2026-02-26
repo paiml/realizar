@@ -45,7 +45,7 @@ fn test_phase33_loader_get_tensor_q2_k() {
         "Q2_K extraction should work: {:?}",
         result.err()
     );
-    let tensor = result.unwrap();
+    let tensor = result.expect("test value should be present");
     assert_eq!(tensor.len(), 256);
 }
 
@@ -72,7 +72,7 @@ fn test_phase33_loader_get_tensor_q4_k() {
         "Q4_K extraction should work: {:?}",
         result.err()
     );
-    let tensor = result.unwrap();
+    let tensor = result.expect("test value should be present");
     assert_eq!(tensor.len(), 256);
 }
 
@@ -99,7 +99,7 @@ fn test_phase33_loader_get_tensor_q5_k() {
         "Q5_K extraction should work: {:?}",
         result.err()
     );
-    let tensor = result.unwrap();
+    let tensor = result.expect("test value should be present");
     assert_eq!(tensor.len(), 256);
 }
 
@@ -126,7 +126,7 @@ fn test_phase33_loader_get_tensor_q6_k() {
         "Q6_K extraction should work: {:?}",
         result.err()
     );
-    let tensor = result.unwrap();
+    let tensor = result.expect("test value should be present");
     assert_eq!(tensor.len(), 256);
 }
 

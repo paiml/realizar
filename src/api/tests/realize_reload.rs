@@ -9,11 +9,11 @@ async fn test_realize_reload_endpoint() {
                 .method("POST")
                 .uri("/v1/reload")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -27,11 +27,11 @@ async fn test_openai_completions_endpoint() {
                 .method("POST")
                 .uri("/v1/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -45,11 +45,11 @@ async fn test_openai_embeddings_endpoint() {
                 .method("POST")
                 .uri("/v1/embeddings")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -62,10 +62,10 @@ async fn test_gpu_warmup_endpoint() {
                 .method("POST")
                 .uri("/v1/gpu/warmup")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -77,10 +77,10 @@ async fn test_gpu_status_endpoint() {
             Request::builder()
                 .uri("/v1/gpu/status")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -94,11 +94,11 @@ async fn test_batch_completions_endpoint() {
                 .method("POST")
                 .uri("/v1/batch/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -112,11 +112,11 @@ async fn test_tokenize_endpoint() {
                 .method("POST")
                 .uri("/v1/tokenize")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -130,11 +130,11 @@ async fn test_generate_endpoint() {
                 .method("POST")
                 .uri("/v1/generate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -148,11 +148,11 @@ async fn test_batch_tokenize_endpoint() {
                 .method("POST")
                 .uri("/v1/batch/tokenize")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -166,11 +166,11 @@ async fn test_batch_generate_endpoint() {
                 .method("POST")
                 .uri("/v1/batch/generate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -182,10 +182,10 @@ async fn test_openai_models_endpoint() {
             Request::builder()
                 .uri("/v1/models")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -199,11 +199,11 @@ async fn test_openai_chat_completions_empty_messages() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -217,11 +217,11 @@ async fn test_openai_chat_completions_with_stream_false() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -235,11 +235,11 @@ async fn test_openai_chat_completions_with_temperature() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }
 
@@ -253,10 +253,10 @@ async fn test_openai_chat_completions_with_max_tokens() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(is_acceptable_status(response.status()));
 }

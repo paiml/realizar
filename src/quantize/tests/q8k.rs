@@ -99,14 +99,14 @@ fn test_q8k_into_empty_input() {
 #[test]
 fn test_q8_blocks_valid_32_elements() {
     let values: Vec<f32> = (0..32).map(|i| (i as f32) * 0.1).collect();
-    let blocks = quantize_to_q8_blocks(&values).unwrap();
+    let blocks = quantize_to_q8_blocks(&values).expect("test value should be present");
     assert_eq!(blocks.len(), 1);
 }
 
 #[test]
 fn test_q8_blocks_valid_64_elements() {
     let values: Vec<f32> = (0..64).map(|i| (i as f32) * 0.5 - 16.0).collect();
-    let blocks = quantize_to_q8_blocks(&values).unwrap();
+    let blocks = quantize_to_q8_blocks(&values).expect("test value should be present");
     assert_eq!(blocks.len(), 2);
 }
 
@@ -122,7 +122,7 @@ fn test_q8_blocks_not_multiple_of_32() {
 #[test]
 fn test_q8_blocks_empty() {
     let values: Vec<f32> = vec![];
-    let blocks = quantize_to_q8_blocks(&values).unwrap();
+    let blocks = quantize_to_q8_blocks(&values).expect("test value should be present");
     assert!(blocks.is_empty());
 }
 
@@ -133,7 +133,7 @@ fn test_q8_blocks_empty() {
 #[test]
 fn test_q8_blocks_roundtrip() {
     let original: Vec<f32> = (0..32).map(|i| (i as f32) * 0.1 - 1.6).collect();
-    let blocks = quantize_to_q8_blocks(&original).unwrap();
+    let blocks = quantize_to_q8_blocks(&original).expect("test value should be present");
     let dequantized = dequantize_q8_blocks(&blocks);
     assert_eq!(dequantized.len(), 32);
     // Quantization error should be small
@@ -149,7 +149,7 @@ fn test_q8_blocks_roundtrip() {
 #[test]
 fn test_q8_blocks_roundtrip_multi_block() {
     let original: Vec<f32> = (0..96).map(|i| (i as f32) * 0.05 - 2.4).collect();
-    let blocks = quantize_to_q8_blocks(&original).unwrap();
+    let blocks = quantize_to_q8_blocks(&original).expect("test value should be present");
     assert_eq!(blocks.len(), 3);
     let dequantized = dequantize_q8_blocks(&blocks);
     assert_eq!(dequantized.len(), 96);
@@ -185,7 +185,7 @@ fn test_interleaved_q4k_invalid_length() {
 #[test]
 fn test_interleaved_q4k_empty_data() {
     let data: Vec<u8> = vec![];
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     assert_eq!(interleaved.num_super_blocks, 0);
     assert_eq!(interleaved.num_values(), 0);
 }
@@ -209,7 +209,7 @@ fn test_interleaved_q4k_single_superblock() {
         data[i] = 0x12; // some nibble values
     }
 
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     assert_eq!(interleaved.num_super_blocks, 1);
     assert_eq!(interleaved.num_values(), 256); // QK_K = 256
     assert_eq!(interleaved.d.len(), 1);
@@ -221,7 +221,7 @@ fn test_interleaved_q4k_single_superblock() {
 #[test]
 fn test_interleaved_q4k_two_superblocks() {
     let data = vec![0u8; 288]; // 2 * 144
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     assert_eq!(interleaved.num_super_blocks, 2);
     assert_eq!(interleaved.num_values(), 512);
 }
@@ -229,7 +229,7 @@ fn test_interleaved_q4k_two_superblocks() {
 #[test]
 fn test_interleaved_q4k_dot_length_mismatch() {
     let data = vec![0u8; 144];
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     // Activation length doesn't match (need 256, provide 100)
     let activations = vec![1.0f32; 100];
     let result = interleaved.dot(&activations);
@@ -253,12 +253,12 @@ fn test_interleaved_q4k_dot_valid() {
     data[3] = 0x00;
     // All other bytes zero
 
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     let activations = vec![1.0f32; 256];
     let result = interleaved.dot(&activations);
     assert!(result.is_ok());
     // With all zeros in qs and dmin=0, result should be 0
-    let dot_val = result.unwrap();
+    let dot_val = result.expect("test value should be present");
     assert!(
         dot_val.abs() < 1e-6,
         "expected ~0 for zero weights, got {dot_val}"
@@ -310,7 +310,7 @@ fn test_f16_lut_two() {
 #[test]
 fn test_interleaved_q4k_debug() {
     let data = vec![0u8; 144];
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     let debug = format!("{:?}", interleaved);
     assert!(debug.contains("InterleavedQ4K"));
     assert!(debug.contains("num_super_blocks: 1"));
@@ -319,7 +319,7 @@ fn test_interleaved_q4k_debug() {
 #[test]
 fn test_interleaved_q4k_clone() {
     let data = vec![0u8; 144];
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     let cloned = interleaved.clone();
     assert_eq!(cloned.num_super_blocks, interleaved.num_super_blocks);
     assert_eq!(cloned.d.len(), interleaved.d.len());

@@ -18,15 +18,15 @@ async fn test_usage_prompt_tokens_positive() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
+        .expect("test value should be present");
     let result: ChatCompletionResponse = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(_) => return, // Mock state: error response, skip body assertions
@@ -51,15 +51,15 @@ async fn test_usage_total_equals_sum() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
+        .expect("test value should be present");
     let result: ChatCompletionResponse = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(_) => return, // Mock state: error response, skip body assertions
@@ -87,10 +87,10 @@ async fn test_chat_completions_wrong_content_type() {
                 .uri("/v1/chat/completions")
                 .header("content-type", "text/plain")
                 .body(Body::from("model=default&messages=hi"))
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // Wrong content type should be rejected
     assert!(
@@ -114,11 +114,11 @@ async fn test_chat_completions_no_content_type() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 // Note: no content-type header
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // axum may accept this or reject it depending on configuration
     assert!(
@@ -152,11 +152,11 @@ async fn test_chat_completions_long_message() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -193,11 +193,11 @@ async fn test_chat_completions_many_messages() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK

@@ -16,11 +16,11 @@ async fn test_batch_generate_handler_via_http() {
                 .method("POST")
                 .uri("/batch/generate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -40,11 +40,11 @@ async fn test_apr_predict_handler_via_http() {
                 .method("POST")
                 .uri("/v1/predict")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -65,11 +65,11 @@ async fn test_apr_explain_handler_via_http() {
                 .method("POST")
                 .uri("/v1/explain")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -86,10 +86,10 @@ async fn test_health_endpoint() {
             Request::builder()
                 .uri("/health")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -101,10 +101,10 @@ async fn test_metrics_endpoint() {
             Request::builder()
                 .uri("/metrics")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -116,10 +116,10 @@ async fn test_dispatch_metrics_endpoint() {
             Request::builder()
                 .uri("/metrics/dispatch")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -140,8 +140,8 @@ fn test_openai_model_serde() {
         created: 1234567890,
         owned_by: "realizar".to_string(),
     };
-    let json = serde_json::to_string(&model).unwrap();
-    let parsed: OpenAIModel = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&model).expect("JSON serialization failed");
+    let parsed: OpenAIModel = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.id, "gpt-4");
 }
 
@@ -156,8 +156,8 @@ fn test_openai_models_response_serde() {
             owned_by: "test".to_string(),
         }],
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let parsed: OpenAIModelsResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let parsed: OpenAIModelsResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.data.len(), 1);
 }
 
@@ -178,8 +178,8 @@ fn test_chat_completion_request_serde() {
         stop: None,
         user: None,
     };
-    let json = serde_json::to_string(&req).unwrap();
-    let parsed: ChatCompletionRequest = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
+    let parsed: ChatCompletionRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.messages.len(), 1);
     assert!(!parsed.stream);
 }
@@ -209,8 +209,8 @@ fn test_chat_completion_response_serde() {
         step_trace: None,
         layer_trace: None,
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let parsed: ChatCompletionResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let parsed: ChatCompletionResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.choices[0].message.content, "Hello!");
 }
 
@@ -221,8 +221,8 @@ fn test_usage_serde() {
         completion_tokens: 20,
         total_tokens: 30,
     };
-    let json = serde_json::to_string(&usage).unwrap();
-    let parsed: Usage = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&usage).expect("JSON serialization failed");
+    let parsed: Usage = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.total_tokens, 30);
 }
 
@@ -231,8 +231,8 @@ fn test_error_response_serde() {
     let err = ErrorResponse {
         error: "Something went wrong".to_string(),
     };
-    let json = serde_json::to_string(&err).unwrap();
-    let parsed: ErrorResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&err).expect("JSON serialization failed");
+    let parsed: ErrorResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert!(parsed.error.contains("wrong"));
 }
 
@@ -256,11 +256,11 @@ async fn test_chat_completions_with_trace_header() {
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
                 .header("X-Trace-Level", "detailed")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // Just verify the endpoint accepts the trace header without error
     assert!(
         response.status() == StatusCode::OK
@@ -283,10 +283,10 @@ async fn test_generate_invalid_json() {
                 .uri("/generate")
                 .header("content-type", "application/json")
                 .body(Body::from("not valid json"))
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(
         response.status() == StatusCode::BAD_REQUEST
             || response.status() == StatusCode::UNPROCESSABLE_ENTITY
@@ -303,10 +303,10 @@ async fn test_chat_completions_invalid_json() {
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
                 .body(Body::from("{invalid}"))
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(
         response.status() == StatusCode::BAD_REQUEST
             || response.status() == StatusCode::UNPROCESSABLE_ENTITY
@@ -323,10 +323,10 @@ async fn test_tokenize_invalid_json() {
                 .uri("/tokenize")
                 .header("content-type", "application/json")
                 .body(Body::from("bad json"))
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(
         response.status() == StatusCode::BAD_REQUEST
             || response.status() == StatusCode::UNPROCESSABLE_ENTITY
@@ -354,11 +354,11 @@ async fn test_stream_generate_handler_via_http() {
                 .method("POST")
                 .uri("/stream/generate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND

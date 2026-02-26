@@ -175,8 +175,8 @@ fn test_chat_completion_chunk_serde() {
             finish_reason: None,
         }],
     };
-    let json = serde_json::to_string(&chunk).unwrap();
-    let deserialized: crate::api::ChatCompletionChunk = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&chunk).expect("JSON serialization failed");
+    let deserialized: crate::api::ChatCompletionChunk = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.id, "chatcmpl-123");
     assert_eq!(deserialized.object, "chat.completion.chunk");
     assert_eq!(deserialized.choices.len(), 1);
@@ -194,10 +194,10 @@ fn test_chat_delta_with_content() {
         role: None,
         content: Some("Hello ".to_string()),
     };
-    let json = serde_json::to_string(&delta).unwrap();
+    let json = serde_json::to_string(&delta).expect("JSON serialization failed");
     // role is None → should be skipped in serialization
     assert!(!json.contains("role"));
-    let deserialized: crate::api::ChatDelta = serde_json::from_str(&json).unwrap();
+    let deserialized: crate::api::ChatDelta = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert!(deserialized.role.is_none());
     assert_eq!(deserialized.content, Some("Hello ".to_string()));
 }
@@ -212,8 +212,8 @@ fn test_chat_chunk_choice_with_finish_reason() {
         },
         finish_reason: Some("stop".to_string()),
     };
-    let json = serde_json::to_string(&choice).unwrap();
-    let deserialized: crate::api::ChatChunkChoice = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&choice).expect("JSON serialization failed");
+    let deserialized: crate::api::ChatChunkChoice = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.finish_reason, Some("stop".to_string()));
 }
 
@@ -232,8 +232,8 @@ fn test_chat_choice_serde() {
         },
         finish_reason: "stop".to_string(),
     };
-    let json = serde_json::to_string(&choice).unwrap();
-    let deserialized: crate::api::ChatChoice = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&choice).expect("JSON serialization failed");
+    let deserialized: crate::api::ChatChoice = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.index, 0);
     assert_eq!(deserialized.message.role, "assistant");
     assert_eq!(deserialized.finish_reason, "stop");
@@ -250,8 +250,8 @@ fn test_openai_models_response_serde() {
             owned_by: "realizar".to_string(),
         }],
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let deserialized: crate::api::OpenAIModelsResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let deserialized: crate::api::OpenAIModelsResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.object, "list");
     assert_eq!(deserialized.data.len(), 1);
     assert_eq!(deserialized.data[0].id, "test-model");
@@ -266,8 +266,8 @@ fn test_openai_model_serde() {
         created: 1700000000,
         owned_by: "realizar".to_string(),
     };
-    let json = serde_json::to_string(&model).unwrap();
-    let deserialized: crate::api::OpenAIModel = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&model).expect("JSON serialization failed");
+    let deserialized: crate::api::OpenAIModel = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.id, "tinyllama-1.1b");
 }
 
@@ -294,8 +294,8 @@ fn test_trace_data_serde() {
             },
         ],
     };
-    let json = serde_json::to_string(&trace).unwrap();
-    let deserialized: crate::api::TraceData = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&trace).expect("JSON serialization failed");
+    let deserialized: crate::api::TraceData = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.level, "brick");
     assert_eq!(deserialized.operations, 10);
     assert_eq!(deserialized.breakdown.len(), 2);
@@ -308,8 +308,8 @@ fn test_trace_operation_serde() {
         time_us: 100,
         details: None,
     };
-    let json = serde_json::to_string(&op).unwrap();
-    let deserialized: crate::api::TraceOperation = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&op).expect("JSON serialization failed");
+    let deserialized: crate::api::TraceOperation = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.name, "softmax");
     assert!(deserialized.details.is_none());
 }
@@ -321,7 +321,7 @@ fn test_trace_operation_serde() {
 #[test]
 fn test_build_trace_data_brick_breakdown_fields() {
     let (brick, _, _) = crate::api::build_trace_data(Some("brick"), 1000, 20, 10, 4);
-    let b = brick.unwrap();
+    let b = brick.expect("test value should be present");
     assert_eq!(b.operations, 10); // completion_tokens
     assert_eq!(b.total_time_us, 1000);
     assert_eq!(b.breakdown.len(), 3);
@@ -335,7 +335,7 @@ fn test_build_trace_data_brick_breakdown_fields() {
 #[test]
 fn test_build_trace_data_step_breakdown_fields() {
     let (_, step, _) = crate::api::build_trace_data(Some("step"), 2000, 15, 8, 6);
-    let s = step.unwrap();
+    let s = step.expect("test value should be present");
     assert_eq!(s.operations, 8); // completion_tokens
     assert_eq!(s.total_time_us, 2000);
     assert_eq!(s.breakdown.len(), 3);
@@ -349,7 +349,7 @@ fn test_build_trace_data_step_breakdown_fields() {
 #[test]
 fn test_build_trace_data_layer_breakdown_fields() {
     let (_, _, layer) = crate::api::build_trace_data(Some("layer"), 4000, 10, 5, 4);
-    let l = layer.unwrap();
+    let l = layer.expect("test value should be present");
     assert_eq!(l.operations, 4); // num_layers
     assert_eq!(l.total_time_us, 4000);
     assert_eq!(l.breakdown.len(), 4);
@@ -379,9 +379,9 @@ async fn test_metrics_endpoint() {
         .method("GET")
         .uri("/metrics")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND,);
 }
 
@@ -392,9 +392,9 @@ async fn test_native_models_endpoint() {
         .method("GET")
         .uri("/models")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND,);
 }
 
@@ -408,9 +408,9 @@ async fn test_realize_generate_endpoint() {
         .body(Body::from(
             r#"{"prompt":"Hello","max_tokens":5,"temperature":0.0}"#,
         ))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -429,9 +429,9 @@ async fn test_realize_batch_endpoint() {
         .body(Body::from(
             r#"{"prompts":["Hello","World"],"max_tokens":5}"#,
         ))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND

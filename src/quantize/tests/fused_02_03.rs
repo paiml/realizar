@@ -105,7 +105,7 @@ fn test_q8_0_dot_scalar_partial_block() {
 #[test]
 fn test_interleaved_q4k_three_superblocks() {
     let data = vec![0u8; 432]; // 3 super-blocks
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     assert_eq!(interleaved.num_super_blocks, 3);
     assert_eq!(interleaved.num_values(), 768);
 }

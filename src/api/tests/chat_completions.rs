@@ -23,11 +23,11 @@ async fn test_chat_completions_multi_turn_conversation() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -61,11 +61,11 @@ async fn test_chat_completions_long_conversation() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -95,11 +95,11 @@ async fn test_chat_completions_unicode_content() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -125,11 +125,11 @@ async fn test_chat_completions_special_chars() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -155,11 +155,11 @@ async fn test_chat_completions_empty_model_name() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // Empty model should use default
     assert!(
@@ -186,11 +186,11 @@ async fn test_chat_completions_whitespace_content() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -220,15 +220,15 @@ async fn test_chat_completions_response_has_usage() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
+        .expect("test value should be present");
     let result: ChatCompletionResponse = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(_) => return, // Mock state: error response, skip body assertions
@@ -256,15 +256,15 @@ async fn test_chat_completions_response_has_finish_reason() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
+        .expect("test value should be present");
     let result: ChatCompletionResponse = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(_) => return, // Mock state: error response, skip body assertions
@@ -288,7 +288,7 @@ async fn test_chat_completions_response_timestamps() {
 
     let before = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("test value should be present")
         .as_secs() as i64;
 
     let response = app
@@ -297,20 +297,20 @@ async fn test_chat_completions_response_timestamps() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let after = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("test value should be present")
         .as_secs() as i64;
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
+        .expect("test value should be present");
     let result: ChatCompletionResponse = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(_) => return, // Mock state: error response, skip body assertions
@@ -335,14 +335,14 @@ async fn test_models_endpoint_returns_list_object() {
                 .method("GET")
                 .uri("/v1/models")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
+        .expect("test value should be present");
     let result: OpenAIModelsResponse = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(_) => return, // Mock state: error response, skip body assertions
@@ -361,14 +361,14 @@ async fn test_models_endpoint_model_fields() {
                 .method("GET")
                 .uri("/v1/models")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
+        .expect("test value should be present");
     let result: OpenAIModelsResponse = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(_) => return, // Mock state: error response, skip body assertions

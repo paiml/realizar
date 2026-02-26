@@ -28,7 +28,7 @@ fn test_dequantize_q4_1_single_block() {
     // Each byte encodes two values: low nibble and high nibble
     let result = dequantize_q4_1(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     assert_eq!(values.len(), 32);
     // All values should be 0.0 (0 * 1.0 + 0.0)
     for v in &values {
@@ -44,7 +44,7 @@ fn test_dequantize_q4_1_with_min_offset() {
     data[0..2].copy_from_slice(&scale_f16.to_le_bytes());
     data[2..4].copy_from_slice(&min_f16.to_le_bytes());
     // All quants zero: each value = 0 * 1.0 + 2.0 = 2.0
-    let result = dequantize_q4_1(&data).unwrap();
+    let result = dequantize_q4_1(&data).expect("test value should be present");
     for v in &result {
         assert!((v - 2.0).abs() < 0.1, "Expected ~2.0, got {}", v);
     }
@@ -55,7 +55,7 @@ fn test_dequantize_q4_1_multiple_blocks() {
     let data = vec![0u8; 20 * 3]; // 3 blocks
     let result = dequantize_q4_1(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 32 * 3);
+    assert_eq!(result.expect("test value should be present").len(), 32 * 3);
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn test_dequantize_q4_1_empty() {
     let data: Vec<u8> = vec![];
     let result = dequantize_q4_1(&data);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
+    assert!(result.expect("test value should be present").is_empty());
 }
 
 // ============================================================================
@@ -93,7 +93,7 @@ fn test_dequantize_q5_0_single_block() {
     // qh (4 bytes) = 0, qs (16 bytes) = 0
     let result = dequantize_q5_0(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     assert_eq!(values.len(), 32);
     // Q5_0 is centered (value - 16), so all zeros become -16 * scale
     for v in &values {
@@ -106,7 +106,7 @@ fn test_dequantize_q5_0_multiple_blocks() {
     let data = vec![0u8; 22 * 2];
     let result = dequantize_q5_0(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 32 * 2);
+    assert_eq!(result.expect("test value should be present").len(), 32 * 2);
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn test_dequantize_q5_0_invalid_size_23() {
 fn test_dequantize_q5_0_empty() {
     let result = dequantize_q5_0(&[]);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
+    assert!(result.expect("test value should be present").is_empty());
 }
 
 // ============================================================================
@@ -145,7 +145,7 @@ fn test_dequantize_q5_1_single_block() {
     // All quants zero: value = 0 * 1.0 + 2.0 = 2.0
     let result = dequantize_q5_1(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     assert_eq!(values.len(), 32);
     for v in &values {
         assert!((v - 2.0).abs() < 0.5, "Expected ~2.0, got {}", v);
@@ -157,7 +157,7 @@ fn test_dequantize_q5_1_multiple_blocks() {
     let data = vec![0u8; 24 * 4];
     let result = dequantize_q5_1(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 32 * 4);
+    assert_eq!(result.expect("test value should be present").len(), 32 * 4);
 }
 
 #[test]
@@ -178,7 +178,7 @@ fn test_dequantize_q5_1_invalid_size_25() {
 fn test_dequantize_q5_1_empty() {
     let result = dequantize_q5_1(&[]);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
+    assert!(result.expect("test value should be present").is_empty());
 }
 
 // ============================================================================
@@ -197,7 +197,7 @@ fn test_dequantize_q2_k_single_block() {
     data[82..84].copy_from_slice(&0u16.to_le_bytes()); // min = 0
     let result = dequantize_q2_k(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     assert_eq!(values.len(), 256); // QK_K = 256
 }
 
@@ -206,7 +206,7 @@ fn test_dequantize_q2_k_multiple_blocks() {
     let data = vec![0u8; 84 * 2];
     let result = dequantize_q2_k(&data);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 256 * 2);
+    assert_eq!(result.expect("test value should be present").len(), 256 * 2);
 }
 
 #[test]
@@ -227,7 +227,7 @@ fn test_dequantize_q2_k_invalid_size_85() {
 fn test_dequantize_q2_k_empty() {
     let result = dequantize_q2_k(&[]);
     assert!(result.is_ok());
-    assert!(result.unwrap().is_empty());
+    assert!(result.expect("test value should be present").is_empty());
 }
 
 #[test]
@@ -244,7 +244,7 @@ fn test_dequantize_q2_k_with_nonzero_scales() {
     data[82..84].copy_from_slice(&dmin_f16.to_le_bytes());
     let result = dequantize_q2_k(&data);
     assert!(result.is_ok());
-    let values = result.unwrap();
+    let values = result.expect("test value should be present");
     assert_eq!(values.len(), 256);
     // Values should be non-zero due to scale
     let has_nonzero = values.iter().any(|&v| v.abs() > 1e-6);
@@ -266,7 +266,7 @@ fn test_dequantize_q4_1_nibble_pattern() {
     data[2..4].copy_from_slice(&0u16.to_le_bytes()); // min = 0
                                                      // Set first quant byte to 0xAB (low=B=11, high=A=10)
     data[4] = 0xAB;
-    let result = dequantize_q4_1(&data).unwrap();
+    let result = dequantize_q4_1(&data).expect("test value should be present");
     // Position 0 (low nibble): 11 * 1.0 + 0.0 = 11.0
     assert!((result[0] - 11.0).abs() < 0.5, "Got {}", result[0]);
     // Position 16 (high nibble): 10 * 1.0 + 0.0 = 10.0
@@ -285,7 +285,7 @@ fn test_dequantize_q5_0_with_high_bits() {
     // Set high bits: qh = 0x00000001 (bit 0 set)
     data[2..6].copy_from_slice(&1u32.to_le_bytes());
     // First quant = 0x00 (both nibbles 0)
-    let result = dequantize_q5_0(&data).unwrap();
+    let result = dequantize_q5_0(&data).expect("test value should be present");
     // Position 0: q_low = 0 | (1 << 4) = 16, value = (16 - 16) * 1.0 = 0
     assert!(result[0].abs() < 0.5, "Got {}", result[0]);
 }
@@ -296,10 +296,10 @@ fn test_dequantize_q5_0_with_high_bits() {
 
 #[test]
 fn test_all_dequant_empty_input_empty_output() {
-    assert!(dequantize_q4_1(&[]).unwrap().is_empty());
-    assert!(dequantize_q5_0(&[]).unwrap().is_empty());
-    assert!(dequantize_q5_1(&[]).unwrap().is_empty());
-    assert!(dequantize_q2_k(&[]).unwrap().is_empty());
+    assert!(dequantize_q4_1(&[]).expect("test value should be present").is_empty());
+    assert!(dequantize_q5_0(&[]).expect("test value should be present").is_empty());
+    assert!(dequantize_q5_1(&[]).expect("test value should be present").is_empty());
+    assert!(dequantize_q2_k(&[]).expect("test value should be present").is_empty());
 }
 
 // ============================================================================

@@ -9,9 +9,9 @@ async fn test_stream_generate_endpoint() {
         .body(Body::from(
             r#"{"prompt":"Hello","max_tokens":5,"temperature":0.0,"strategy":"greedy","top_k":1,"top_p":1.0}"#,
         ))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -28,9 +28,9 @@ async fn test_gpu_warmup_endpoint() {
         .uri("/v1/gpu/warmup")
         .header("content-type", "application/json")
         .body(Body::from("{}"))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -46,9 +46,9 @@ async fn test_gpu_status_endpoint() {
         .method("GET")
         .uri("/v1/gpu/status")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -64,9 +64,9 @@ async fn test_v1_predict_endpoint() {
         .uri("/v1/predict")
         .header("content-type", "application/json")
         .body(Body::from(r#"{"input":[1.0, 2.0, 3.0]}"#))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -83,9 +83,9 @@ async fn test_v1_explain_endpoint() {
         .uri("/v1/explain")
         .header("content-type", "application/json")
         .body(Body::from(r#"{"input":[1.0, 2.0, 3.0]}"#))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -101,9 +101,9 @@ async fn test_v1_metrics_endpoint() {
         .method("GET")
         .uri("/v1/metrics")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND,);
 }
 
@@ -114,9 +114,9 @@ async fn test_metrics_dispatch_endpoint() {
         .method("GET")
         .uri("/metrics/dispatch")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Dispatch metrics endpoint may return SERVICE_UNAVAILABLE without GPU
     let status = response.status().as_u16();
     assert!(
@@ -133,9 +133,9 @@ async fn test_metrics_dispatch_reset_endpoint() {
         .method("POST")
         .uri("/metrics/dispatch/reset")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     // Reset endpoint may return SERVICE_UNAVAILABLE without GPU
     let status = response.status().as_u16();
     assert!(
@@ -340,16 +340,16 @@ fn test_appstate_with_cache() {
 #[test]
 fn test_batch_tokenize_request_serde() {
     let json = r#"{"texts":["hello","world"]}"#;
-    let req: crate::api::BatchTokenizeRequest = serde_json::from_str(json).unwrap();
+    let req: crate::api::BatchTokenizeRequest = serde_json::from_str(json).expect("JSON deserialization failed");
     assert_eq!(req.texts.len(), 2);
-    let json_out = serde_json::to_string(&req).unwrap();
+    let json_out = serde_json::to_string(&req).expect("JSON serialization failed");
     assert!(json_out.contains("hello"));
 }
 
 #[test]
 fn test_batch_generate_request_serde() {
     let json = r#"{"prompts":["hello"],"max_tokens":10,"temperature":0.5,"strategy":"greedy","top_k":1,"top_p":1.0}"#;
-    let req: crate::api::BatchGenerateRequest = serde_json::from_str(json).unwrap();
+    let req: crate::api::BatchGenerateRequest = serde_json::from_str(json).expect("JSON deserialization failed");
     assert_eq!(req.prompts.len(), 1);
     assert_eq!(req.max_tokens, 10);
     assert!((req.temperature - 0.5).abs() < 1e-6);
@@ -363,8 +363,8 @@ fn test_batch_tokenize_response_serde() {
             num_tokens: 2,
         }],
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let deserialized: crate::api::BatchTokenizeResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let deserialized: crate::api::BatchTokenizeResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.results.len(), 1);
 }
 
@@ -377,8 +377,8 @@ fn test_batch_generate_response_serde() {
             num_generated: 3,
         }],
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let deserialized: crate::api::BatchGenerateResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let deserialized: crate::api::BatchGenerateResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.results.len(), 1);
     assert_eq!(deserialized.results[0].num_generated, 3);
 }

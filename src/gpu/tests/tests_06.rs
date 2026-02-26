@@ -125,7 +125,7 @@ fn test_forward_single_token_basic() {
     let result = forward_single_token(&mut model, &tokens);
 
     assert!(result.is_ok(), "forward_single_token should succeed");
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), model.config.vocab_size);
 }
 
@@ -197,7 +197,7 @@ fn test_forward_single_token_greedy_basic() {
     let result = forward_single_token_greedy(&mut model, &tokens);
 
     assert!(result.is_ok());
-    let next_token = result.unwrap();
+    let next_token = result.expect("test value should be present");
     assert!(next_token < model.config.vocab_size);
 }
 
@@ -233,7 +233,7 @@ fn test_forward_single_token_greedy_large_vocab() {
     let result = forward_single_token_greedy(&mut model, &tokens);
 
     assert!(result.is_ok());
-    let next_token = result.unwrap();
+    let next_token = result.expect("test value should be present");
     assert!(next_token < model.config.vocab_size);
 }
 
@@ -250,7 +250,7 @@ fn test_forward_block_single_basic() {
     let result = forward_block_single(&mut model, &input, 0);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), model.config.hidden_dim);
 }
 
@@ -264,7 +264,7 @@ fn test_forward_block_single_all_layers() {
     for block_idx in 0..config.num_layers {
         let result = forward_block_single(&mut model, &hidden, block_idx);
         assert!(result.is_ok(), "block {} should succeed", block_idx);
-        hidden = result.unwrap();
+        hidden = result.expect("test value should be present");
         assert_eq!(hidden.len(), config.hidden_dim);
     }
 }
@@ -279,7 +279,7 @@ fn test_forward_block_single_gqa() {
     let result = forward_block_single(&mut model, &input, 0);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), model.config.hidden_dim);
 }
 
@@ -321,7 +321,7 @@ fn test_generate_gpu_basic() {
     let result = generate_gpu(&mut model, &prompt, 3);
 
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     // Should have prompt + max_tokens (minus initial prediction)
     assert!(tokens.len() >= prompt.len());
 }
@@ -388,7 +388,7 @@ fn test_optimized_gqa_attention_basic() {
     let result = optimized_gqa_attention(&mut model, &qkv, seq_len);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), seq_len * hidden_dim);
 }
 
@@ -430,7 +430,7 @@ fn test_optimized_gqa_attention_gqa_mode() {
     let result = optimized_gqa_attention(&mut model, &qkv, seq_len);
 
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), seq_len * hidden_dim);
 }
 

@@ -52,7 +52,7 @@ fn test_fused_q6k_dot_zero_data() {
     let result = fused_q6k_dot(&data, &activations);
     assert!(result.is_ok());
     // d=0 means all dequantized values are 0, so dot product is 0
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn test_fused_q6k_dot_empty() {
     let activations: Vec<f32> = vec![];
     let result = fused_q6k_dot(&data, &activations);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 #[test]
@@ -92,7 +92,7 @@ fn test_fused_q6k_dot_two_superblocks() {
     let activations = vec![1.0f32; 512]; // 256 * 2
     let result = fused_q6k_dot(&data, &activations);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0.0); // All zeros
+    assert_eq!(result.expect("test value should be present"), 0.0); // All zeros
 }
 
 // ============================================================================
@@ -111,8 +111,8 @@ fn test_fused_q6k_dot_simd_matches_scalar() {
     }
     let activations: Vec<f32> = (0..256).map(|i| (i as f32) / 256.0).collect();
 
-    let scalar_result = fused_q6k_dot(&data, &activations).unwrap();
-    let simd_result = fused_q6k_dot_simd(&data, &activations).unwrap();
+    let scalar_result = fused_q6k_dot(&data, &activations).expect("test value should be present");
+    let simd_result = fused_q6k_dot_simd(&data, &activations).expect("test value should be present");
 
     // SIMD and scalar should produce very close results
     assert!(
@@ -171,7 +171,7 @@ fn test_fused_q5k_dot_zero_data() {
     let result = fused_q5k_dot(&data, &activations);
     assert!(result.is_ok());
     // d=0 means dot product is 0
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 #[test]
@@ -180,7 +180,7 @@ fn test_fused_q5k_dot_empty() {
     let activations: Vec<f32> = vec![];
     let result = fused_q5k_dot(&data, &activations);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 #[test]
@@ -210,7 +210,7 @@ fn test_fused_q5k_dot_two_superblocks() {
     let activations = vec![1.0f32; 512];
     let result = fused_q5k_dot(&data, &activations);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 // ============================================================================
@@ -222,8 +222,8 @@ fn test_fused_q5k_dot_simd_delegates() {
     // q5k_dot_simd currently delegates to scalar, so results should match
     let data = vec![0u8; 176];
     let activations = vec![1.0f32; 256];
-    let scalar = fused_q5k_dot(&data, &activations).unwrap();
-    let simd = fused_q5k_dot_simd(&data, &activations).unwrap();
+    let scalar = fused_q5k_dot(&data, &activations).expect("test value should be present");
+    let simd = fused_q5k_dot_simd(&data, &activations).expect("test value should be present");
     assert_eq!(scalar, simd);
 }
 
@@ -279,7 +279,7 @@ fn test_fused_q4k_q8_dot_zeros() {
     ];
     let result = fused_q4k_q8_dot(&data, &q8_blocks);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 #[test]
@@ -288,7 +288,7 @@ fn test_fused_q4k_q8_dot_empty() {
     let q8_blocks: Vec<Q8_0Block> = vec![];
     let result = fused_q4k_q8_dot(&data, &q8_blocks);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }
 
 #[test]
@@ -329,5 +329,5 @@ fn test_fused_q4k_q8_dot_two_superblocks() {
     ];
     let result = fused_q4k_q8_dot(&data, &q8_blocks);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0.0);
+    assert_eq!(result.expect("test value should be present"), 0.0);
 }

@@ -16,10 +16,10 @@ use crate::gguf::test_factory::{build_minimal_llama_gguf, build_minimal_phi2_ggu
 #[test]
 fn test_apr_from_pygmy_llama() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
-    let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
+    let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("test value should be present");
 
-    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).unwrap();
+    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).expect("test value should be present");
     assert_eq!(loaded.config.architecture, "llama");
     assert_eq!(loaded.config.hidden_dim, 64);
     assert_eq!(loaded.config.num_layers, 1);
@@ -28,10 +28,10 @@ fn test_apr_from_pygmy_llama() {
 #[test]
 fn test_apr_from_pygmy_phi2() {
     let gguf_data = build_minimal_phi2_gguf(32, 64, 128, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
-    let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
+    let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("test value should be present");
 
-    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).unwrap();
+    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).expect("test value should be present");
     assert_eq!(loaded.config.architecture, "phi2");
 }
 
@@ -114,7 +114,7 @@ fn test_kv_cache_new() {
 #[test]
 fn test_kv_cache_from_pygmy_config() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
     let _cache = AprKVCache::new(&apr.config);
     // Cache creation should succeed with converted config
 }
@@ -280,7 +280,7 @@ fn test_generate_config_with_trace() {
 #[test]
 fn test_apr_transformer_token_embedding_size() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     // Embedding size should be vocab_size * hidden_dim
     // The actual size depends on how test_factory creates embeddings
@@ -290,7 +290,7 @@ fn test_apr_transformer_token_embedding_size() {
 #[test]
 fn test_apr_transformer_layer_count() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     // Should have 1 layer (from build_minimal_llama_gguf)
     assert_eq!(apr.layers.len(), 1);
@@ -300,7 +300,7 @@ fn test_apr_transformer_layer_count() {
 #[test]
 fn test_apr_transformer_output_norm() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     // Output norm should be hidden_dim
     assert_eq!(apr.output_norm_weight.len(), 64);
@@ -309,7 +309,7 @@ fn test_apr_transformer_output_norm() {
 #[test]
 fn test_apr_transformer_lm_head() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     // LM head should be hidden_dim * vocab_size (or tied to embedding)
     assert!(!apr.lm_head_weight.is_empty());
@@ -369,9 +369,9 @@ fn test_apr_from_bytes_valid_magic_apr_v2() {
 #[test]
 fn test_apr_config_from_pygmy_architecture() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
-    let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).unwrap();
-    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
+    let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("test value should be present");
+    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).expect("test value should be present");
 
     // Architecture should be preserved through round-trip
     assert_eq!(loaded.config.architecture, "llama");
@@ -380,9 +380,9 @@ fn test_apr_config_from_pygmy_architecture() {
 #[test]
 fn test_apr_config_from_pygmy_hidden_dim() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
-    let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).unwrap();
-    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
+    let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("test value should be present");
+    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).expect("test value should be present");
 
     assert_eq!(loaded.config.hidden_dim, 64);
 }
@@ -390,9 +390,9 @@ fn test_apr_config_from_pygmy_hidden_dim() {
 #[test]
 fn test_apr_config_from_pygmy_num_heads() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
-    let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).unwrap();
-    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
+    let apr_bytes = GgufToAprConverter::to_apr_bytes(&apr).expect("test value should be present");
+    let loaded = GgufToAprConverter::from_apr_bytes(&apr_bytes).expect("test value should be present");
 
     assert_eq!(loaded.config.num_heads, 4);
 }
@@ -400,7 +400,7 @@ fn test_apr_config_from_pygmy_num_heads() {
 #[test]
 fn test_apr_config_from_pygmy_vocab_size() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     // Vocab size should be 32 (from build_minimal_llama_gguf)
     assert_eq!(apr.config.vocab_size, 32);
@@ -409,7 +409,7 @@ fn test_apr_config_from_pygmy_vocab_size() {
 #[test]
 fn test_apr_config_from_pygmy_intermediate_dim() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     // Intermediate dim is extracted from tensor sizes, may differ from input
     assert!(apr.config.intermediate_dim > 0);
@@ -418,7 +418,7 @@ fn test_apr_config_from_pygmy_intermediate_dim() {
 #[test]
 fn test_apr_config_from_pygmy_context_length() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     // Context length is extracted from metadata, must be positive
     assert!(apr.config.context_length > 0);
@@ -427,7 +427,7 @@ fn test_apr_config_from_pygmy_context_length() {
 #[test]
 fn test_apr_config_from_pygmy_rope_theta() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     // build_minimal_llama_gguf sets rope_freq_base to 10000.0
     assert!((apr.config.rope_theta - 10000.0).abs() < 0.1);
@@ -436,7 +436,7 @@ fn test_apr_config_from_pygmy_rope_theta() {
 #[test]
 fn test_apr_config_from_pygmy_eps() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     // build_minimal_llama_gguf sets rms_epsilon to 1e-5
     assert!((apr.config.eps - 1e-5).abs() < 1e-7);
@@ -449,7 +449,7 @@ fn test_apr_config_from_pygmy_eps() {
 #[test]
 fn test_apr_transformer_q4k_layers_default_none() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     // q4k_layers should be None for standard conversion
     assert!(apr.q4k_layers.is_none());
@@ -458,7 +458,7 @@ fn test_apr_transformer_q4k_layers_default_none() {
 #[test]
 fn test_apr_transformer_lm_head_q6k_default_none() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     // lm_head_weight_q6k should be None for standard conversion
     assert!(apr.lm_head_weight_q6k.is_none());
@@ -467,7 +467,7 @@ fn test_apr_transformer_lm_head_q6k_default_none() {
 #[test]
 fn test_apr_transformer_lm_head_q4k_default_none() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     // lm_head_weight_q4k should be None for standard conversion
     assert!(apr.lm_head_weight_q4k.is_none());

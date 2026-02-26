@@ -74,7 +74,7 @@ fn test_block_weights_with_gate() {
     };
 
     assert!(weights.ffn_gate_weight.is_some());
-    assert_eq!(weights.ffn_gate_weight.as_ref().unwrap().len(), 32 * 128);
+    assert_eq!(weights.ffn_gate_weight.as_ref().expect("test value should be present").len(), 32 * 128);
 }
 
 // ============================================================================
@@ -104,7 +104,7 @@ fn test_forward_gpu_with_cache_basic() {
     let result = forward_gpu_with_cache(&mut model, &tokens, &mut kv_cache);
 
     assert!(result.is_ok());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), config.vocab_size);
 }
 
@@ -174,7 +174,7 @@ fn test_forward_gpu_incremental_basic() {
     let result = forward_gpu_incremental(&mut model, 3, &mut kv_cache);
 
     assert!(result.is_ok());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), config.vocab_size);
 }
 
@@ -237,7 +237,7 @@ fn test_generate_with_cache_basic() {
     let result = generate_with_cache(&mut model, &prompt, &gen_config);
 
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     assert!(tokens.len() >= prompt.len()); // At least prompt length
 }
 

@@ -139,7 +139,7 @@ fn test_q4k_tiled_matvec_single_row_pk14() {
     let result = fused_q4k_tiled_matvec(&weights, &activations, in_dim, out_dim, None);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
     // Should produce a finite value
     assert!(output[0].is_finite());
@@ -155,7 +155,7 @@ fn test_q4k_tiled_matvec_multiple_rows_pk14() {
     let result = fused_q4k_tiled_matvec(&weights, &activations, in_dim, out_dim, None);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
     for val in &output {
         assert!(val.is_finite());
@@ -173,7 +173,7 @@ fn test_q4k_tiled_matvec_custom_tile_size_pk14() {
     let result = fused_q4k_tiled_matvec(&weights, &activations, in_dim, out_dim, Some(16));
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -187,7 +187,7 @@ fn test_q4k_tiled_matvec_partial_last_tile_pk14() {
     let result = fused_q4k_tiled_matvec(&weights, &activations, in_dim, out_dim, None);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -201,7 +201,7 @@ fn test_q4k_tiled_matvec_many_tiles_pk14() {
     let result = fused_q4k_tiled_matvec(&weights, &activations, in_dim, out_dim, None);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -242,7 +242,7 @@ fn test_q4k_tiled_matvec_tile_size_1_pk14() {
     let result = fused_q4k_tiled_matvec(&weights, &activations, in_dim, out_dim, Some(1));
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -257,7 +257,7 @@ fn test_q4k_tiled_matvec_tile_larger_than_out_pk14() {
     let result = fused_q4k_tiled_matvec(&weights, &activations, in_dim, out_dim, Some(128));
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -275,7 +275,7 @@ fn test_q4k_parallel_matvec_sequential_path_pk14() {
     let result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
     for val in &output {
         assert!(val.is_finite());
@@ -292,7 +292,7 @@ fn test_q4k_parallel_matvec_at_threshold_pk14() {
     let result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -306,7 +306,7 @@ fn test_q4k_parallel_matvec_parallel_path_pk14() {
     let result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
 
@@ -320,7 +320,7 @@ fn test_q4k_parallel_matvec_single_row_pk14() {
     let result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim);
     assert!(result.is_ok());
 
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), 1);
 }
 

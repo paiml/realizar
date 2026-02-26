@@ -234,7 +234,7 @@ fn test_phase35_encode_sentencepiece_style() {
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let tokens = model.encode("hello world!");
     assert!(tokens.is_some());
-    let tokens = tokens.unwrap();
+    let tokens = tokens.expect("test value should be present");
     assert!(!tokens.is_empty());
 }
 

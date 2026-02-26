@@ -339,7 +339,7 @@ fn test_kv_cache_circular_buffer_wraparound() {
 #[test]
 fn test_forward_gpu_with_cache_single_token() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("forward_with_cache_single");
     model.with_test_executor(Box::new(mock));
@@ -355,7 +355,7 @@ fn test_forward_gpu_with_cache_single_token() {
     let result = model.forward_gpu_with_cache(&token_ids, &mut kv_cache);
 
     assert!(result.is_ok());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), config.vocab_size);
 
     // Cache should have 1 position after forward
@@ -365,7 +365,7 @@ fn test_forward_gpu_with_cache_single_token() {
 #[test]
 fn test_forward_gpu_with_cache_multiple_tokens() {
     let config = create_kv_test_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("forward_with_cache_multi");
     model.with_test_executor(Box::new(mock));
@@ -381,7 +381,7 @@ fn test_forward_gpu_with_cache_multiple_tokens() {
     let result = model.forward_gpu_with_cache(&token_ids, &mut kv_cache);
 
     assert!(result.is_ok());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     // Output is only for final position
     assert_eq!(logits.len(), config.vocab_size);
 
@@ -392,7 +392,7 @@ fn test_forward_gpu_with_cache_multiple_tokens() {
 #[test]
 fn test_forward_gpu_with_cache_empty_tokens_error() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mut kv_cache = StreamingKVCache::new(
         config.num_layers,
@@ -410,7 +410,7 @@ fn test_forward_gpu_with_cache_empty_tokens_error() {
 #[test]
 fn test_forward_gpu_with_cache_out_of_bounds_token_error() {
     let config = create_kv_single_layer_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mut kv_cache = StreamingKVCache::new(
         config.num_layers,
@@ -429,7 +429,7 @@ fn test_forward_gpu_with_cache_out_of_bounds_token_error() {
 #[test]
 fn test_forward_gpu_with_cache_gqa_model() {
     let config = create_kv_gqa_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("test value should be present");
 
     let mock = MockExecutor::new("forward_gqa_cache");
     model.with_test_executor(Box::new(mock));

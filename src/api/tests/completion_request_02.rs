@@ -66,7 +66,7 @@ fn test_model_metadata_response_with_lineage() {
 
     let parsed: ModelMetadataResponse = serde_json::from_str(&json).expect("deserialize");
     assert!(parsed.lineage.is_some());
-    assert_eq!(parsed.lineage.unwrap().uri, "pacha://test-model:v1.0");
+    assert_eq!(parsed.lineage.expect("test value should be present").uri, "pacha://test-model:v1.0");
 }
 
 #[test]
@@ -211,11 +211,11 @@ async fn test_realize_embed_empty_input() {
                 .method("POST")
                 .uri("/realize/embed")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // Empty input is handled by tokenizer - may return OK with empty embedding
     // or error depending on tokenizer implementation
@@ -242,11 +242,11 @@ async fn test_realize_embed_long_input() {
                 .method("POST")
                 .uri("/realize/embed")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // Should handle long input gracefully
     let status = response.status();
@@ -271,11 +271,11 @@ async fn test_realize_embed_unicode_input() {
                 .method("POST")
                 .uri("/realize/embed")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let status = response.status();
     assert!(
@@ -300,11 +300,11 @@ async fn test_realize_reload_without_registry() {
                 .method("POST")
                 .uri("/realize/reload")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // Should return NOT_IMPLEMENTED when registry not enabled
     assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
@@ -321,10 +321,10 @@ async fn test_realize_reload_invalid_json() {
                 .uri("/realize/reload")
                 .header("content-type", "application/json")
                 .body(Body::from("not valid json"))
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // Invalid JSON should return 400
     assert!(
@@ -351,11 +351,11 @@ async fn test_openai_completions_empty_prompt() {
                 .method("POST")
                 .uri("/v1/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // Empty prompt should be handled - may return BAD_REQUEST
     let status = response.status();
@@ -381,11 +381,11 @@ async fn test_openai_completions_with_temperature() {
                 .method("POST")
                 .uri("/v1/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let status = response.status();
     assert!(
@@ -413,11 +413,11 @@ async fn test_openai_completions_with_top_p() {
                 .method("POST")
                 .uri("/v1/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let status = response.status();
     assert!(

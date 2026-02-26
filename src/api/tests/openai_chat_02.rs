@@ -14,11 +14,11 @@ async fn test_openai_chat_completions_model_default() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -44,11 +44,11 @@ async fn test_openai_chat_completions_empty_model() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // Empty model should use default
     assert!(
@@ -75,11 +75,11 @@ async fn test_openai_chat_completions_invalid_model() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // Demo mode uses a default model, so this returns OK even with invalid model name
     // The handler falls back to the default model when registry lookup fails
@@ -113,11 +113,11 @@ async fn test_openai_chat_completions_multi_turn_conversation() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -139,10 +139,10 @@ async fn test_openai_chat_completions_invalid_json() {
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
                 .body(Body::from("not valid json"))
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // Invalid JSON returns 400 Bad Request (axum's Json extractor behavior)
     assert!(
@@ -168,11 +168,11 @@ async fn test_openai_chat_completions_missing_messages() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // Missing required field should return 422
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -194,11 +194,11 @@ async fn test_openai_chat_completions_with_trace_header_brick() {
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
                 .header("X-Trace-Level", "brick")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -213,7 +213,7 @@ async fn test_openai_chat_completions_with_trace_header_brick() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
-        .unwrap();
+        .expect("test value should be present");
     let _result: ChatCompletionResponse = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(_) => return, // Mock state: error response, skip body assertions
@@ -239,11 +239,11 @@ async fn test_openai_chat_completions_with_trace_header_step() {
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
                 .header("X-Trace-Level", "step")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK
@@ -270,11 +270,11 @@ async fn test_openai_chat_completions_with_trace_header_layer() {
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
                 .header("X-Trace-Level", "layer")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     assert!(
         response.status() == StatusCode::OK

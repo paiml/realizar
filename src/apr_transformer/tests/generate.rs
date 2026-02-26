@@ -226,7 +226,7 @@ fn test_predict_next_returns_valid_token() {
     for tokens in [vec![0], vec![0, 1], vec![0, 1, 2, 3, 4]] {
         let result = transformer.predict_next(&tokens);
         assert!(result.is_ok());
-        assert!((result.unwrap() as usize) < vocab_size);
+        assert!((result.expect("test value should be present") as usize) < vocab_size);
     }
 }
 
@@ -236,8 +236,8 @@ fn test_predict_next_deterministic() {
     let transformer = AprTransformer::new(config);
 
     // Same input should produce same output (no randomness in predict_next)
-    let r1 = transformer.predict_next(&[0, 1, 2]).unwrap();
-    let r2 = transformer.predict_next(&[0, 1, 2]).unwrap();
+    let r1 = transformer.predict_next(&[0, 1, 2]).expect("test value should be present");
+    let r2 = transformer.predict_next(&[0, 1, 2]).expect("test value should be present");
     assert_eq!(r1, r2);
 }
 

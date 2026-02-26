@@ -93,10 +93,10 @@ fn test_transformer_config_serialization() {
     let config = create_test_apr_config();
 
     // Serialize to JSON
-    let json = serde_json::to_string(&config).unwrap();
+    let json = serde_json::to_string(&config).expect("JSON serialization failed");
 
     // Deserialize
-    let recovered: AprTransformerConfig = serde_json::from_str(&json).unwrap();
+    let recovered: AprTransformerConfig = serde_json::from_str(&json).expect("JSON deserialization failed");
 
     assert_eq!(config, recovered);
 }
@@ -196,10 +196,10 @@ fn test_layer_serialization() {
     let layer = AprTransformerLayer::empty(32, 64);
 
     // Serialize to JSON
-    let json = serde_json::to_string(&layer).unwrap();
+    let json = serde_json::to_string(&layer).expect("JSON serialization failed");
 
     // Deserialize
-    let recovered: AprTransformerLayer = serde_json::from_str(&json).unwrap();
+    let recovered: AprTransformerLayer = serde_json::from_str(&json).expect("JSON deserialization failed");
 
     assert_eq!(
         layer.attn_norm_weight.len(),
@@ -246,9 +246,9 @@ fn test_q4k_layer_weights_with_data() {
     };
 
     assert!(weights.qkv_weight.is_some());
-    assert_eq!(weights.qkv_weight.as_ref().unwrap().len(), 144);
+    assert_eq!(weights.qkv_weight.as_ref().expect("test value should be present").len(), 144);
     assert!(weights.attn_v_weight_q6k.is_some());
-    assert_eq!(weights.attn_v_weight_q6k.as_ref().unwrap().len(), 210);
+    assert_eq!(weights.attn_v_weight_q6k.as_ref().expect("test value should be present").len(), 210);
 }
 
 #[test]
@@ -258,8 +258,8 @@ fn test_q4k_layer_weights_serialization() {
         ..Default::default()
     };
 
-    let json = serde_json::to_string(&weights).unwrap();
-    let recovered: Q4KLayerWeights = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&weights).expect("JSON serialization failed");
+    let recovered: Q4KLayerWeights = serde_json::from_str(&json).expect("JSON deserialization failed");
 
     assert_eq!(weights.attn_q_weight, recovered.attn_q_weight);
 }

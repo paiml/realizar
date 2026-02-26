@@ -6,7 +6,7 @@
 #[test]
 fn test_apr_layer_has_attn_weights() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     assert!(!apr.layers.is_empty());
     let layer = &apr.layers[0];
@@ -20,7 +20,7 @@ fn test_apr_layer_has_attn_weights() {
 #[test]
 fn test_apr_layer_has_ffn_weights() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     assert!(!apr.layers.is_empty());
     let layer = &apr.layers[0];
@@ -40,7 +40,7 @@ fn test_apr_layer_has_ffn_weights() {
 #[test]
 fn test_apr_layer_llama_has_gate() {
     let gguf_data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     assert!(!apr.layers.is_empty());
     let layer = &apr.layers[0];
@@ -56,7 +56,7 @@ fn test_apr_layer_llama_has_gate() {
 #[test]
 fn test_apr_phi2_architecture() {
     let gguf_data = build_minimal_phi2_gguf(32, 64, 128, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     assert_eq!(apr.config.architecture, "phi2");
 }
@@ -64,7 +64,7 @@ fn test_apr_phi2_architecture() {
 #[test]
 fn test_apr_phi2_has_layers() {
     let gguf_data = build_minimal_phi2_gguf(32, 64, 128, 4);
-    let apr = GgufToAprConverter::convert(&gguf_data).unwrap();
+    let apr = GgufToAprConverter::convert(&gguf_data).expect("test value should be present");
 
     assert!(!apr.layers.is_empty());
 }

@@ -71,10 +71,10 @@ mod potemkin_village {
                     .method("POST")
                     .uri("/v1/gpu/warmup")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test value should be present"),
             )
             .await
-            .unwrap();
+            .expect("test value should be present");
 
         // Should execute the warmup logic (may succeed or fail, but code runs)
         let status = response.status();
@@ -99,10 +99,10 @@ mod potemkin_village {
                     .method("GET")
                     .uri("/v1/gpu/status")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test value should be present"),
             )
             .await
-            .unwrap();
+            .expect("test value should be present");
 
         // Should return status (code path executed)
         let status = response.status();
@@ -115,8 +115,8 @@ mod potemkin_village {
         if status == StatusCode::OK {
             let body = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
-                .unwrap();
-            let gpu_status: GpuStatusResponse = serde_json::from_slice(&body).unwrap();
+                .expect("test value should be present");
+            let gpu_status: GpuStatusResponse = serde_json::from_slice(&body).expect("JSON from_slice failed");
             // Verify response structure
             assert!(gpu_status.batch_threshold > 0);
         }
@@ -144,11 +144,11 @@ mod potemkin_village {
                     .method("POST")
                     .uri("/v1/batch/completions")
                     .header("Content-Type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("JSON serialization failed")))
+                    .expect("test value should be present"),
             )
             .await
-            .unwrap();
+            .expect("test value should be present");
 
         // Handler should execute (may fail on actual GPU ops, but dispatch logic runs)
         let status = response.status();
@@ -179,11 +179,11 @@ mod potemkin_village {
                     .method("POST")
                     .uri("/v1/batch/completions")
                     .header("Content-Type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("JSON serialization failed")))
+                    .expect("test value should be present"),
             )
             .await
-            .unwrap();
+            .expect("test value should be present");
 
         let _status = response.status();
         // Code path exercised regardless of outcome
@@ -207,11 +207,11 @@ mod potemkin_village {
                     .method("POST")
                     .uri("/v1/batch/completions")
                     .header("Content-Type", "application/json")
-                    .body(Body::from(serde_json::to_string(&request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&request).expect("JSON serialization failed")))
+                    .expect("test value should be present"),
             )
             .await
-            .unwrap();
+            .expect("test value should be present");
 
         // Should handle empty prompts gracefully
         let _status = response.status();
@@ -278,8 +278,8 @@ mod potemkin_village {
             message: "Warmed up".to_string(),
         };
 
-        let json = serde_json::to_string(&response).unwrap();
-        let parsed: GpuWarmupResponse = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&response).expect("JSON serialization failed");
+        let parsed: GpuWarmupResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
 
         assert!(parsed.success);
         assert_eq!(parsed.memory_bytes, 1024 * 1024);
@@ -295,8 +295,8 @@ mod potemkin_village {
             recommended_min_batch: 8,
         };
 
-        let json = serde_json::to_string(&response).unwrap();
-        let parsed: GpuStatusResponse = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&response).expect("JSON serialization failed");
+        let parsed: GpuStatusResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
 
         assert!(parsed.cache_ready);
         assert_eq!(parsed.batch_threshold, 32);
@@ -312,8 +312,8 @@ mod potemkin_village {
             stop: vec!["</s>".to_string()],
         };
 
-        let json = serde_json::to_string(&request).unwrap();
-        let parsed: GpuBatchRequest = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&request).expect("JSON serialization failed");
+        let parsed: GpuBatchRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
 
         assert_eq!(parsed.prompts.len(), 2);
         assert_eq!(parsed.max_tokens, 100);
@@ -340,8 +340,8 @@ mod potemkin_village {
             },
         };
 
-        let json = serde_json::to_string(&response).unwrap();
-        let parsed: GpuBatchResponse = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&response).expect("JSON serialization failed");
+        let parsed: GpuBatchResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
 
         assert_eq!(parsed.results.len(), 1);
         assert!(parsed.stats.gpu_used);
@@ -365,10 +365,10 @@ mod potemkin_village {
                     .uri("/v1/generate")
                     .header("Content-Type", "application/json")
                     .body(Body::from(request_json))
-                    .unwrap(),
+                    .expect("test value should be present"),
             )
             .await
-            .unwrap();
+            .expect("test value should be present");
 
         // Handler executes dispatch logic
         let _status = response.status();
@@ -388,10 +388,10 @@ mod potemkin_village {
                     .uri("/v1/tokenize")
                     .header("Content-Type", "application/json")
                     .body(Body::from(request_json))
-                    .unwrap(),
+                    .expect("test value should be present"),
             )
             .await
-            .unwrap();
+            .expect("test value should be present");
 
         let status = response.status();
         assert!(
@@ -419,10 +419,10 @@ mod potemkin_village {
                     .uri("/v1/batch/tokenize")
                     .header("Content-Type", "application/json")
                     .body(Body::from(request_json))
-                    .unwrap(),
+                    .expect("test value should be present"),
             )
             .await
-            .unwrap();
+            .expect("test value should be present");
 
         let _status = response.status();
     }
@@ -441,10 +441,10 @@ mod potemkin_village {
                     .uri("/v1/batch/generate")
                     .header("Content-Type", "application/json")
                     .body(Body::from(request_json))
-                    .unwrap(),
+                    .expect("test value should be present"),
             )
             .await
-            .unwrap();
+            .expect("test value should be present");
 
         let _status = response.status();
     }
@@ -463,10 +463,10 @@ mod potemkin_village {
                     .method("GET")
                     .uri("/v1/models")
                     .body(Body::empty())
-                    .unwrap(),
+                    .expect("test value should be present"),
             )
             .await
-            .unwrap();
+            .expect("test value should be present");
 
         let status = response.status();
         assert!(status == StatusCode::OK || status == StatusCode::NOT_FOUND);

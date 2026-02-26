@@ -100,9 +100,9 @@ async fn test_realize_embed_endpoint() {
         .uri("/v1/embed")
         .header("content-type", "application/json")
         .body(Body::from(r#"{"input":"Hello world"}"#))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -117,9 +117,9 @@ async fn test_realize_model_endpoint() {
         .method("GET")
         .uri("/v1/model")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND,);
 }
 
@@ -131,9 +131,9 @@ async fn test_realize_reload_endpoint() {
         .uri("/v1/reload")
         .header("content-type", "application/json")
         .body(Body::from(r#"{"model":"test"}"#))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -151,9 +151,9 @@ async fn test_openai_completions_endpoint() {
         .body(Body::from(
             r#"{"model":"test","prompt":"Hello","max_tokens":5}"#,
         ))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -170,9 +170,9 @@ async fn test_openai_embeddings_endpoint() {
         .uri("/v1/embeddings")
         .header("content-type", "application/json")
         .body(Body::from(r#"{"input":"Hello"}"#))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -191,9 +191,9 @@ async fn test_openai_models_endpoint() {
         .method("GET")
         .uri("/v1/models")
         .body(Body::empty())
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND,);
 }
 
@@ -207,9 +207,9 @@ async fn test_openai_chat_completions_endpoint() {
         .body(Body::from(
             r#"{"model":"test","messages":[{"role":"user","content":"Hello"}]}"#,
         ))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -228,9 +228,9 @@ async fn test_openai_chat_completions_with_temperature() {
         .body(Body::from(
             r#"{"model":"test","messages":[{"role":"user","content":"Hi"}],"temperature":0.5,"max_tokens":10}"#,
         ))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -249,9 +249,9 @@ async fn test_openai_chat_completions_streaming() {
         .body(Body::from(
             r#"{"model":"test","messages":[{"role":"user","content":"Hi"}],"stream":true}"#,
         ))
-        .unwrap();
+        .expect("test value should be present");
 
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.expect("test value should be present");
     assert!(
         response.status() == StatusCode::OK
             || response.status() == StatusCode::NOT_FOUND
@@ -266,7 +266,7 @@ async fn test_openai_chat_completions_streaming() {
 
 #[test]
 fn test_appstate_has_quantized_model_demo() {
-    let state = AppState::demo_mock().unwrap();
+    let state = AppState::demo_mock().expect("test value should be present");
     // Demo mock state typically has no quantized model
     let _ = state.has_quantized_model();
     let _ = state.quantized_model();
@@ -274,14 +274,14 @@ fn test_appstate_has_quantized_model_demo() {
 
 #[test]
 fn test_appstate_has_apr_transformer_demo() {
-    let state = AppState::demo_mock().unwrap();
+    let state = AppState::demo_mock().expect("test value should be present");
     let _ = state.has_apr_transformer();
     let _ = state.apr_transformer();
 }
 
 #[test]
 fn test_appstate_verbose() {
-    let state = AppState::demo_mock().unwrap();
+    let state = AppState::demo_mock().expect("test value should be present");
     assert!(!state.is_verbose());
     let state_verbose = state.with_verbose(true);
     assert!(state_verbose.is_verbose());
@@ -317,7 +317,7 @@ fn test_build_trace_data_brick() {
     assert!(brick.is_some());
     assert!(step.is_none());
     assert!(layer.is_none());
-    let b = brick.unwrap();
+    let b = brick.expect("test value should be present");
     assert_eq!(b.level, "brick");
 }
 
@@ -327,7 +327,7 @@ fn test_build_trace_data_step() {
     assert!(brick.is_none());
     assert!(step.is_some());
     assert!(layer.is_none());
-    let s = step.unwrap();
+    let s = step.expect("test value should be present");
     assert_eq!(s.level, "step");
 }
 
@@ -337,7 +337,7 @@ fn test_build_trace_data_layer() {
     assert!(brick.is_none());
     assert!(step.is_none());
     assert!(layer.is_some());
-    let l = layer.unwrap();
+    let l = layer.expect("test value should be present");
     assert_eq!(l.level, "layer");
 }
 
@@ -352,8 +352,8 @@ fn test_chat_message_serde() {
         content: "Hello".to_string(),
         name: Some("alice".to_string()),
     };
-    let json = serde_json::to_string(&msg).unwrap();
-    let deserialized: crate::api::ChatMessage = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&msg).expect("JSON serialization failed");
+    let deserialized: crate::api::ChatMessage = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.role, "user");
     assert_eq!(deserialized.content, "Hello");
     assert_eq!(deserialized.name, Some("alice".to_string()));
@@ -362,7 +362,7 @@ fn test_chat_message_serde() {
 #[test]
 fn test_chat_message_without_name() {
     let json = r#"{"role":"assistant","content":"Hi!"}"#;
-    let msg: crate::api::ChatMessage = serde_json::from_str(json).unwrap();
+    let msg: crate::api::ChatMessage = serde_json::from_str(json).expect("JSON deserialization failed");
     assert_eq!(msg.role, "assistant");
     assert!(msg.name.is_none());
 }
@@ -372,8 +372,8 @@ fn test_error_response_serde() {
     let err = crate::api::ErrorResponse {
         error: "something went wrong".to_string(),
     };
-    let json = serde_json::to_string(&err).unwrap();
-    let deserialized: crate::api::ErrorResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&err).expect("JSON serialization failed");
+    let deserialized: crate::api::ErrorResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.error, "something went wrong");
 }
 
@@ -384,8 +384,8 @@ fn test_health_response_serde() {
         version: "0.3.5".to_string(),
         compute_mode: "cpu".to_string(),
     };
-    let json = serde_json::to_string(&health).unwrap();
-    let deserialized: crate::api::HealthResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&health).expect("JSON serialization failed");
+    let deserialized: crate::api::HealthResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.status, "ok");
 }
 
@@ -401,8 +401,8 @@ fn test_generate_request_serde() {
         seed: Some(42),
         model_id: None,
     };
-    let json = serde_json::to_string(&req).unwrap();
-    let deserialized: crate::api::GenerateRequest = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
+    let deserialized: crate::api::GenerateRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.prompt, "Hello");
     assert_eq!(deserialized.seed, Some(42));
 }
@@ -414,8 +414,8 @@ fn test_generate_response_serde() {
         text: "hello".to_string(),
         num_generated: 3,
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let deserialized: crate::api::GenerateResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let deserialized: crate::api::GenerateResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.num_generated, 3);
 }
 
@@ -425,8 +425,8 @@ fn test_tokenize_request_serde() {
         text: "Hello world".to_string(),
         model_id: None,
     };
-    let json = serde_json::to_string(&req).unwrap();
-    let deserialized: crate::api::TokenizeRequest = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
+    let deserialized: crate::api::TokenizeRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.text, "Hello world");
 }
 
@@ -436,7 +436,7 @@ fn test_tokenize_response_serde() {
         token_ids: vec![1, 2, 3, 4],
         num_tokens: 4,
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let deserialized: crate::api::TokenizeResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let deserialized: crate::api::TokenizeResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(deserialized.num_tokens, 4);
 }

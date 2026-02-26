@@ -18,7 +18,7 @@ fn test_from_bytes_minimal_empty() {
     let data = GGUFBuilder::new().build();
     let model = GGUFModel::from_bytes(&data);
     assert!(model.is_ok());
-    let model = model.unwrap();
+    let model = model.expect("test value should be present");
     assert_eq!(model.tensors.len(), 0);
     assert_eq!(model.metadata.len(), 0);
 }
@@ -32,21 +32,21 @@ fn test_from_bytes_with_metadata_only() {
         .add_string("test.string", "hello")
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert!(model.metadata.len() >= 4);
 }
 
 #[test]
 fn test_from_bytes_llama_arch() {
     let data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.architecture(), Some("llama"));
 }
 
 #[test]
 fn test_from_bytes_phi2_arch() {
     let data = build_minimal_phi2_gguf(32, 64, 128, 4);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.architecture(), Some("phi2"));
 }
 
@@ -58,7 +58,7 @@ fn test_from_bytes_with_q4_0_tensors() {
         .add_q4_0_tensor("test.weight", &[32, 32], &q4_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.tensors.len(), 1);
     assert_eq!(model.tensors[0].qtype, 2); // Q4_0
 }
@@ -71,7 +71,7 @@ fn test_from_bytes_with_q8_0_tensors() {
         .add_q8_0_tensor("test.weight", &[32, 32], &q8_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.tensors.len(), 1);
     assert_eq!(model.tensors[0].qtype, 8); // Q8_0
 }
@@ -84,7 +84,7 @@ fn test_from_bytes_with_q4_k_tensors() {
         .add_q4_k_tensor("test.weight", &[16, 16], &q4k_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.tensors.len(), 1);
     assert_eq!(model.tensors[0].qtype, 12); // Q4_K
 }
@@ -97,7 +97,7 @@ fn test_from_bytes_with_q5_k_tensors() {
         .add_q5_k_tensor("test.weight", &[16, 16], &q5k_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.tensors.len(), 1);
     assert_eq!(model.tensors[0].qtype, 13); // Q5_K
 }
@@ -110,7 +110,7 @@ fn test_from_bytes_with_q6_k_tensors() {
         .add_q6_k_tensor("test.weight", &[16, 16], &q6k_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.tensors.len(), 1);
     assert_eq!(model.tensors[0].qtype, 14); // Q6_K
 }
@@ -123,7 +123,7 @@ fn test_from_bytes_with_f32_tensors() {
         .add_f32_tensor("test.weight", &[32, 32], &f32_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.tensors.len(), 1);
     assert_eq!(model.tensors[0].qtype, 0); // F32
 }
@@ -135,7 +135,7 @@ fn test_from_bytes_with_f32_tensors() {
 #[test]
 fn test_metadata_accessors_llama() {
     let data = build_minimal_llama_gguf(100, 128, 256, 8, 4);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     assert_eq!(model.architecture(), Some("llama"));
     assert_eq!(model.embedding_dim(), Some(128));
@@ -148,7 +148,7 @@ fn test_metadata_accessors_llama() {
 #[test]
 fn test_metadata_accessors_phi2() {
     let data = build_minimal_phi2_gguf(100, 128, 256, 8);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     assert_eq!(model.architecture(), Some("phi2"));
     assert_eq!(model.embedding_dim(), Some(128));
@@ -162,10 +162,10 @@ fn test_rope_freq_base_accessor() {
         .rope_freq_base("llama", 10000.0)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let rope_base = model.rope_freq_base();
     assert!(rope_base.is_some());
-    assert!((rope_base.unwrap() - 10000.0).abs() < 0.01);
+    assert!((rope_base.expect("test value should be present") - 10000.0).abs() < 0.01);
 }
 
 #[test]
@@ -175,10 +175,10 @@ fn test_rms_epsilon_accessor() {
         .rms_epsilon("llama", 1e-5)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let eps = model.rms_epsilon();
     assert!(eps.is_some());
-    assert!((eps.unwrap() - 1e-5).abs() < 1e-10);
+    assert!((eps.expect("test value should be present") - 1e-5).abs() < 1e-10);
 }
 
 #[test]
@@ -188,7 +188,7 @@ fn test_ffn_hidden_dim_accessor() {
         .ffn_hidden_dim("llama", 512)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     // FFN hidden dim is accessed via metadata
     let val = model.metadata.get("llama.feed_forward_length");
     assert!(val.is_some());
@@ -201,7 +201,7 @@ fn test_ffn_hidden_dim_accessor() {
 #[test]
 fn test_transformer_from_llama_pygmy() {
     let data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     let transformer = GGUFTransformer::from_gguf(&model, &data);
     assert!(
@@ -210,7 +210,7 @@ fn test_transformer_from_llama_pygmy() {
         transformer.err()
     );
 
-    let transformer = transformer.unwrap();
+    let transformer = transformer.expect("test value should be present");
     assert_eq!(transformer.config.num_layers, 1);
     assert_eq!(transformer.config.hidden_dim, 64);
 }
@@ -218,7 +218,7 @@ fn test_transformer_from_llama_pygmy() {
 #[test]
 fn test_transformer_from_phi2_pygmy() {
     let data = build_minimal_phi2_gguf(32, 64, 128, 4);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     let transformer = GGUFTransformer::from_gguf(&model, &data);
     // May fail if Phi2 QKV fusion isn't handled - that's OK, we exercise the path
@@ -230,9 +230,9 @@ fn test_transformer_token_embedding_size() {
     let vocab = 64;
     let hidden = 32;
     let data = build_minimal_llama_gguf(vocab, hidden, 64, 2, 2);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
-    let transformer = GGUFTransformer::from_gguf(&model, &data).unwrap();
+    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("test value should be present");
     // Token embedding should be vocab_size * hidden_dim
     assert_eq!(transformer.token_embedding.len(), vocab * hidden);
 }
@@ -248,10 +248,10 @@ fn test_get_tensor_f32_from_f32() {
         .add_f32_tensor("test.weight", &[8, 8], &f32_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let tensor = model.get_tensor_f32("test.weight", &data);
     assert!(tensor.is_ok());
-    let tensor = tensor.unwrap();
+    let tensor = tensor.expect("test value should be present");
     assert_eq!(tensor.len(), 64);
 }
 
@@ -262,11 +262,11 @@ fn test_get_tensor_f32_from_q4_0() {
         .add_q4_0_tensor("test.weight", &[32, 32], &q4_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let tensor = model.get_tensor_f32("test.weight", &data);
     // Dequantization should work
     assert!(tensor.is_ok());
-    let tensor = tensor.unwrap();
+    let tensor = tensor.expect("test value should be present");
     assert_eq!(tensor.len(), 1024);
 }
 
@@ -277,7 +277,7 @@ fn test_get_tensor_f32_from_q8_0() {
         .add_q8_0_tensor("test.weight", &[32, 32], &q8_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let tensor = model.get_tensor_f32("test.weight", &data);
     assert!(tensor.is_ok());
 }
@@ -289,7 +289,7 @@ fn test_get_tensor_f32_from_q4_k() {
         .add_q4_k_tensor("test.weight", &[16, 16], &q4k_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let tensor = model.get_tensor_f32("test.weight", &data);
     assert!(tensor.is_ok());
 }
@@ -298,7 +298,7 @@ fn test_get_tensor_f32_from_q4_k() {
 fn test_get_tensor_f32_nonexistent() {
     let data = GGUFBuilder::new().architecture("llama").build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let tensor = model.get_tensor_f32("nonexistent.tensor", &data);
     assert!(tensor.is_err());
 }
@@ -310,7 +310,7 @@ fn test_get_tensor_f32_nonexistent() {
 #[test]
 fn test_decode_empty_tokens() {
     let data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     let decoded = model.decode(&[]);
     assert_eq!(decoded, "");
@@ -319,7 +319,7 @@ fn test_decode_empty_tokens() {
 #[test]
 fn test_decode_single_token() {
     let data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     // Token 0 - may decode to something or empty depending on vocab
     let decoded = model.decode(&[0]);
@@ -330,7 +330,7 @@ fn test_decode_single_token() {
 #[test]
 fn test_decode_multiple_tokens() {
     let data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     let decoded = model.decode(&[0, 1, 2, 3, 4]);
     let _ = decoded;
@@ -339,7 +339,7 @@ fn test_decode_multiple_tokens() {
 #[test]
 fn test_decode_out_of_range_token() {
     let data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     // Token 99999 is out of range for vocab_size=32
     let decoded = model.decode(&[99999]);
@@ -350,7 +350,7 @@ fn test_decode_out_of_range_token() {
 #[test]
 fn test_encode_empty_text() {
     let data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     let encoded = model.encode("");
     // May return None or Some([]) depending on impl
@@ -360,7 +360,7 @@ fn test_encode_empty_text() {
 #[test]
 fn test_encode_simple_text() {
     let data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     let encoded = model.encode("hello");
     // May return None if no vocab, or Some(tokens)
@@ -374,7 +374,7 @@ fn test_encode_simple_text() {
 #[test]
 fn test_bos_token_id() {
     let data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     let bos = model.bos_token_id();
     // May or may not be set depending on metadata
@@ -384,7 +384,7 @@ fn test_bos_token_id() {
 #[test]
 fn test_eos_token_id() {
     let data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     let eos = model.eos_token_id();
     let _ = eos;
@@ -436,7 +436,7 @@ fn test_model_with_mixed_tensor_types() {
         .add_q4_k_tensor("q4_k_tensor", &[16, 16], &q4k_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.tensors.len(), 3);
 
     // Verify we can dequant each

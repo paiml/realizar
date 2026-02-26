@@ -60,11 +60,11 @@ fn test_chat_completion_request_deserialization_full() {
     assert_eq!(req.model, "phi-2");
     assert_eq!(req.messages.len(), 2);
     assert_eq!(req.max_tokens, Some(100));
-    assert!((req.temperature.unwrap() - 0.7).abs() < 0.01);
-    assert!((req.top_p.unwrap() - 0.9).abs() < 0.01);
+    assert!((req.temperature.expect("test value should be present") - 0.7).abs() < 0.01);
+    assert!((req.top_p.expect("test value should be present") - 0.9).abs() < 0.01);
     assert_eq!(req.n, 1);
     assert!(req.stream);
-    assert_eq!(req.stop.as_ref().unwrap().len(), 2);
+    assert_eq!(req.stop.as_ref().expect("test value should be present").len(), 2);
     assert_eq!(req.user, Some("test-user".to_string()));
 }
 

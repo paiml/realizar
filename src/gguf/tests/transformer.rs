@@ -80,14 +80,14 @@ fn test_transformer_from_gguf_tied_embeddings() {
         // No output.weight — tied embeddings
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let transformer = GGUFTransformer::from_gguf(&model, &data);
     assert!(
         transformer.is_ok(),
         "Tied embeddings failed: {:?}",
         transformer.err()
     );
-    let t = transformer.unwrap();
+    let t = transformer.expect("test value should be present");
     // lm_head_weight should equal token_embedding (tied)
     assert_eq!(t.lm_head_weight.len(), t.token_embedding.len());
 }
@@ -184,14 +184,14 @@ fn test_transformer_from_gguf_two_layers() {
         )
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let transformer = GGUFTransformer::from_gguf(&model, &data);
     assert!(
         transformer.is_ok(),
         "2-layer failed: {:?}",
         transformer.err()
     );
-    let t = transformer.unwrap();
+    let t = transformer.expect("test value should be present");
     assert_eq!(t.layers.len(), 2);
     assert_eq!(t.config.num_layers, 2);
 }
@@ -210,7 +210,7 @@ fn test_bos_eos_token_ids() {
         .add_u32("tokenizer.ggml.bos_token_id", 1)
         .add_u32("tokenizer.ggml.eos_token_id", 2)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.bos_token_id(), Some(1));
     assert_eq!(model.eos_token_id(), Some(2));
 }
@@ -223,7 +223,7 @@ fn test_bos_eos_missing() {
         .num_layers("llama", 1)
         .num_heads("llama", 4)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     // When not set, should return None (not panic)
     let _ = model.bos_token_id();
     let _ = model.eos_token_id();
@@ -242,7 +242,7 @@ fn test_metadata_ffn_hidden_dim() {
         .num_heads("llama", 4)
         .ffn_hidden_dim("llama", 256)
         .build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     // FFN hidden dim is accessed through config when building transformer
     // Just verify the metadata parses correctly
     assert_eq!(model.header.version, 3);
@@ -267,25 +267,25 @@ fn test_model_with_mixed_quantization() {
         .add_q6_k_tensor("layer.q6_k", &[256], &create_q6_k_data(256))
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     assert_eq!(model.tensors.len(), 6);
 
     // Verify each tensor can be dequantized
-    let norm = model.get_tensor_f32("norm.weight", &data).unwrap();
+    let norm = model.get_tensor_f32("norm.weight", &data).expect("test value should be present");
     assert_eq!(norm.len(), 32);
 
-    let q4_0 = model.get_tensor_f32("layer.q4_0", &data).unwrap();
+    let q4_0 = model.get_tensor_f32("layer.q4_0", &data).expect("test value should be present");
     assert_eq!(q4_0.len(), 32);
 
-    let q8_0 = model.get_tensor_f32("layer.q8_0", &data).unwrap();
+    let q8_0 = model.get_tensor_f32("layer.q8_0", &data).expect("test value should be present");
     assert_eq!(q8_0.len(), 32);
 
-    let q4_k = model.get_tensor_f32("layer.q4_k", &data).unwrap();
+    let q4_k = model.get_tensor_f32("layer.q4_k", &data).expect("test value should be present");
     assert_eq!(q4_k.len(), 256);
 
-    let q5_k = model.get_tensor_f32("layer.q5_k", &data).unwrap();
+    let q5_k = model.get_tensor_f32("layer.q5_k", &data).expect("test value should be present");
     assert_eq!(q5_k.len(), 256);
 
-    let q6_k = model.get_tensor_f32("layer.q6_k", &data).unwrap();
+    let q6_k = model.get_tensor_f32("layer.q6_k", &data).expect("test value should be present");
     assert_eq!(q6_k.len(), 256);
 }

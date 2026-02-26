@@ -6,7 +6,7 @@
 #[test]
 fn test_vocabulary_accessor() {
     let data = build_minimal_llama_gguf(32, 64, 128, 4, 4);
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
     let vocab = model.vocabulary();
     // May or may not have vocabulary depending on metadata
@@ -24,7 +24,7 @@ fn test_rope_type_accessor() {
         .add_u32("llama.rope.scaling.type", 0)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let rope_type = model.rope_type();
     // Should have some value
     let _ = rope_type;
@@ -41,10 +41,10 @@ fn test_get_tensor_f32_from_q2_k() {
         .add_q2_k_tensor("test.weight", &[16, 16], &q2k_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let tensor = model.get_tensor_f32("test.weight", &data);
     assert!(tensor.is_ok(), "Q2_K dequant failed: {:?}", tensor.err());
-    assert_eq!(tensor.unwrap().len(), 256);
+    assert_eq!(tensor.expect("test value should be present").len(), 256);
 }
 
 #[test]
@@ -54,10 +54,10 @@ fn test_get_tensor_f32_from_q5_k() {
         .add_q5_k_tensor("test.weight", &[16, 16], &q5k_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let tensor = model.get_tensor_f32("test.weight", &data);
     assert!(tensor.is_ok(), "Q5_K dequant failed: {:?}", tensor.err());
-    assert_eq!(tensor.unwrap().len(), 256);
+    assert_eq!(tensor.expect("test value should be present").len(), 256);
 }
 
 #[test]
@@ -67,10 +67,10 @@ fn test_get_tensor_f32_from_q6_k() {
         .add_q6_k_tensor("test.weight", &[16, 16], &q6k_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let tensor = model.get_tensor_f32("test.weight", &data);
     assert!(tensor.is_ok(), "Q6_K dequant failed: {:?}", tensor.err());
-    assert_eq!(tensor.unwrap().len(), 256);
+    assert_eq!(tensor.expect("test value should be present").len(), 256);
 }
 
 #[test]
@@ -80,10 +80,10 @@ fn test_get_tensor_f32_from_f16() {
         .add_f16_tensor("test.weight", &[8, 8], &f16_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let tensor = model.get_tensor_f32("test.weight", &data);
     assert!(tensor.is_ok(), "F16 dequant failed: {:?}", tensor.err());
-    let values = tensor.unwrap();
+    let values = tensor.expect("test value should be present");
     assert_eq!(values.len(), 64);
     // F16 data from create_f16_data: val[i] = i * 0.01
     assert!((values[0] - 0.0).abs() < 0.01);
@@ -97,10 +97,10 @@ fn test_get_tensor_f32_from_q4_1() {
         .add_q4_1_tensor("test.weight", &[32, 32], &q4_1_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let tensor = model.get_tensor_f32("test.weight", &data);
     assert!(tensor.is_ok(), "Q4_1 dequant failed: {:?}", tensor.err());
-    assert_eq!(tensor.unwrap().len(), 1024);
+    assert_eq!(tensor.expect("test value should be present").len(), 1024);
 }
 
 #[test]
@@ -110,10 +110,10 @@ fn test_get_tensor_f32_from_q5_0() {
         .add_q5_0_tensor("test.weight", &[32, 32], &q5_0_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let tensor = model.get_tensor_f32("test.weight", &data);
     assert!(tensor.is_ok(), "Q5_0 dequant failed: {:?}", tensor.err());
-    assert_eq!(tensor.unwrap().len(), 1024);
+    assert_eq!(tensor.expect("test value should be present").len(), 1024);
 }
 
 #[test]
@@ -123,10 +123,10 @@ fn test_get_tensor_f32_from_q5_1() {
         .add_q5_1_tensor("test.weight", &[32, 32], &q5_1_data)
         .build();
 
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let tensor = model.get_tensor_f32("test.weight", &data);
     assert!(tensor.is_ok(), "Q5_1 dequant failed: {:?}", tensor.err());
-    assert_eq!(tensor.unwrap().len(), 1024);
+    assert_eq!(tensor.expect("test value should be present").len(), 1024);
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn test_get_tensor_f32_unsupported_qtype() {
     // Since GGUFBuilder doesn't support arbitrary qtypes, use a simple test:
     // just verify the error path with a nonexistent tensor
     let data = GGUFBuilder::new().architecture("llama").build();
-    let model = GGUFModel::from_bytes(&data).unwrap();
+    let model = GGUFModel::from_bytes(&data).expect("test value should be present");
     let result = model.get_tensor_f32("nonexistent", &data);
     assert!(result.is_err());
     let err_msg = format!("{:?}", result.unwrap_err());

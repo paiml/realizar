@@ -93,7 +93,7 @@ fn test_interleaved_q4k_dot_scalar_via_small_input() {
         data[i] = 0x21; // q_low=1, q_high=2
     }
 
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     let activations = vec![1.0f32; 256];
 
     let result = interleaved.dot(&activations).expect("dot works");

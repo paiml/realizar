@@ -32,7 +32,7 @@ fn test_phase34_fused_matmul_q4_1() {
         "Q4_1 fused_matmul failed: {:?}",
         result.err()
     );
-    assert_eq!(result.unwrap().len(), out_dim);
+    assert_eq!(result.expect("test value should be present").len(), out_dim);
 }
 
 #[test]
@@ -65,7 +65,7 @@ fn test_phase34_fused_matmul_q4_1_multi_seq() {
 
     let result = model.fused_matmul(&input, &weight);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), out_dim * seq_len);
+    assert_eq!(result.expect("test value should be present").len(), out_dim * seq_len);
 }
 
 // =============================================================================
@@ -127,7 +127,7 @@ fn test_phase34_fused_matmul_q5_0() {
         "Q5_0 fused_matmul failed: {:?}",
         result.err()
     );
-    assert_eq!(result.unwrap().len(), out_dim);
+    assert_eq!(result.expect("test value should be present").len(), out_dim);
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn test_phase34_fused_matmul_q5_0_multi_seq() {
 
     let result = model.fused_matmul(&input, &weight);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), out_dim * seq_len);
+    assert_eq!(result.expect("test value should be present").len(), out_dim * seq_len);
 }
 
 // =============================================================================
@@ -242,7 +242,7 @@ fn test_phase34_fused_matmul_q4_k_single() {
         "Q4_K fused_matmul failed: {:?}",
         result.err()
     );
-    assert_eq!(result.unwrap().len(), out_dim);
+    assert_eq!(result.expect("test value should be present").len(), out_dim);
 }
 
 #[test]
@@ -275,7 +275,7 @@ fn test_phase34_fused_matmul_q4_k_multi() {
 
     let result = model.fused_matmul(&input, &weight);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), out_dim * seq_len);
+    assert_eq!(result.expect("test value should be present").len(), out_dim * seq_len);
 }
 
 #[test]
@@ -343,7 +343,7 @@ fn test_phase34_fused_matmul_q5_k_multi() {
 
     let result = model.fused_matmul(&input, &weight);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), out_dim * seq_len);
+    assert_eq!(result.expect("test value should be present").len(), out_dim * seq_len);
 }
 
 #[test]

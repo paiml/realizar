@@ -26,7 +26,7 @@ mod chaotic_citizens {
     fn test_gpu_batch_request_serde_defaults() {
         // Test that default values work with serde
         let json = r#"{"prompts": ["Hello"]}"#;
-        let request: GpuBatchRequest = serde_json::from_str(json).unwrap();
+        let request: GpuBatchRequest = serde_json::from_str(json).expect("JSON deserialization failed");
 
         assert_eq!(request.prompts.len(), 1);
         // max_tokens should have default

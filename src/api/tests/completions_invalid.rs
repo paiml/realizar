@@ -214,7 +214,7 @@ async fn test_chat_completions_streaming() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
                 .expect("build"),
         )
         .await
@@ -251,7 +251,7 @@ async fn test_chat_completions_non_streaming() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
                 .expect("build"),
         )
         .await
@@ -308,7 +308,7 @@ async fn test_completions_with_params() {
                 .method("POST")
                 .uri("/v1/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
                 .expect("build"),
         )
         .await
@@ -337,7 +337,7 @@ async fn test_realize_embed() {
                 .method("POST")
                 .uri("/realize/embed")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
                 .expect("build"),
         )
         .await

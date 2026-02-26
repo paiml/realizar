@@ -5,7 +5,7 @@ fn test_forward_with_cache_f32_multi_token() {
     let mut cache = AprKVCache::new(&apr.config);
 
     // First token (cache_len == 0)
-    let _ = apr.forward_with_cache(1, &mut cache, 0).unwrap();
+    let _ = apr.forward_with_cache(1, &mut cache, 0).expect("test value should be present");
 
     // Second token — exercises cache_len > 0 path (full attention with cache)
     let result = apr.forward_with_cache(2, &mut cache, 1);
@@ -14,7 +14,7 @@ fn test_forward_with_cache_f32_multi_token() {
         "F32 cache second token: {}",
         result.unwrap_err()
     );
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), 16);
     assert!(logits.iter().all(|x| x.is_finite()));
 }
@@ -47,7 +47,7 @@ fn test_forward_with_cache_q4k_first_token() {
         "Q4K cache first token: {}",
         result.unwrap_err()
     );
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), 4);
 }
 
@@ -57,7 +57,7 @@ fn test_forward_with_cache_q4k_multi_token() {
     let mut cache = AprKVCache::new(&apr.config);
 
     // Exercise both cache_len == 0 and cache_len > 0 paths with Q4K
-    let _ = apr.forward_with_cache(1, &mut cache, 0).unwrap();
+    let _ = apr.forward_with_cache(1, &mut cache, 0).expect("test value should be present");
     let result = apr.forward_with_cache(2, &mut cache, 1);
     assert!(
         result.is_ok(),
@@ -147,7 +147,7 @@ fn test_forward_f32_single_token() {
     let apr = build_f32_apr(8, 32, 16);
     let result = apr.forward(&[1]);
     assert!(result.is_ok(), "Forward single: {}", result.unwrap_err());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), 16);
 }
 
@@ -156,7 +156,7 @@ fn test_forward_f32_multi_token() {
     let apr = build_f32_apr(8, 32, 16);
     let result = apr.forward(&[1, 2, 3]);
     assert!(result.is_ok(), "Forward multi: {}", result.unwrap_err());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), 16);
 }
 
@@ -165,7 +165,7 @@ fn test_forward_q4k_single_token() {
     let apr = build_q4k_apr(256, 256, 4);
     let result = apr.forward(&[1]);
     assert!(result.is_ok(), "Q4K forward: {}", result.unwrap_err());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), 4);
 }
 
@@ -178,7 +178,7 @@ fn test_generate_f32_greedy() {
     let apr = build_f32_apr(8, 32, 16);
     let result = apr.generate(&[1], 3);
     assert!(result.is_ok(), "Generate: {}", result.unwrap_err());
-    let tokens = result.unwrap();
+    let tokens = result.expect("test value should be present");
     assert!(tokens.len() >= 2); // at least prompt + 1 generated
     assert!(tokens.len() <= 4); // prompt + max 3 tokens
     assert_eq!(tokens[0], 1); // prompt preserved
@@ -237,7 +237,7 @@ fn test_forward_gelu_model_single_token() {
     assert!(apr.layers[0].ffn_gate_weight.is_none());
     let result = apr.forward(&[1]);
     assert!(result.is_ok(), "GELU forward: {}", result.unwrap_err());
-    let logits = result.unwrap();
+    let logits = result.expect("test value should be present");
     assert_eq!(logits.len(), 16);
 }
 

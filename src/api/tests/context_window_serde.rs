@@ -363,8 +363,8 @@ fn test_embedding_request_serde() {
         input: "test".to_string(),
         model: Some("default".to_string()),
     };
-    let json = serde_json::to_string(&req).unwrap();
-    let parsed: EmbeddingRequest = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
+    let parsed: EmbeddingRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.input, "test");
     assert_eq!(parsed.model.as_deref(), Some("default"));
 }
@@ -372,7 +372,7 @@ fn test_embedding_request_serde() {
 #[test]
 fn test_embedding_request_no_model() {
     let json = r#"{"input":"hello"}"#;
-    let req: EmbeddingRequest = serde_json::from_str(json).unwrap();
+    let req: EmbeddingRequest = serde_json::from_str(json).expect("JSON deserialization failed");
     assert_eq!(req.input, "hello");
     assert!(req.model.is_none());
 }
@@ -392,8 +392,8 @@ fn test_embedding_response_serde() {
             total_tokens: 5,
         },
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let parsed: EmbeddingResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let parsed: EmbeddingResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.data.len(), 1);
     assert_eq!(parsed.data[0].embedding.len(), 3);
 }
@@ -410,8 +410,8 @@ fn test_model_metadata_response_serde() {
         lineage: None,
         loaded: true,
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let parsed: ModelMetadataResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let parsed: ModelMetadataResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.id, "m1");
     assert!(parsed.loaded);
 }
@@ -425,8 +425,8 @@ fn test_model_lineage_serde() {
         parent: Some("base-model".to_string()),
         content_hash: "abc123".to_string(),
     };
-    let json = serde_json::to_string(&lineage).unwrap();
-    let parsed: ModelLineage = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&lineage).expect("JSON serialization failed");
+    let parsed: ModelLineage = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.uri, "pacha://model:v1");
     assert_eq!(parsed.recipe.as_deref(), Some("finetune"));
 }
@@ -437,8 +437,8 @@ fn test_reload_request_serde() {
         model: Some("test".to_string()),
         path: Some("/path/to/model".to_string()),
     };
-    let json = serde_json::to_string(&req).unwrap();
-    let parsed: ReloadRequest = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
+    let parsed: ReloadRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.model.as_deref(), Some("test"));
 }
 

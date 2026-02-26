@@ -62,16 +62,16 @@ fn test_tokenize_request_serde() {
         text: "Hello world".to_string(),
         model_id: Some("default".to_string()),
     };
-    let json = serde_json::to_string(&req).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
     assert!(json.contains("Hello world"));
-    let parsed: TokenizeRequest = serde_json::from_str(&json).unwrap();
+    let parsed: TokenizeRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.model_id.as_deref(), Some("default"));
 }
 
 #[test]
 fn test_tokenize_request_no_model() {
     let json = r#"{"text": "test"}"#;
-    let req: TokenizeRequest = serde_json::from_str(json).unwrap();
+    let req: TokenizeRequest = serde_json::from_str(json).expect("JSON deserialization failed");
     assert!(req.model_id.is_none());
 }
 
@@ -81,8 +81,8 @@ fn test_tokenize_response_serde() {
         token_ids: vec![1, 2, 3],
         num_tokens: 3,
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let parsed: TokenizeResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let parsed: TokenizeResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.num_tokens, 3);
 }
 
@@ -98,16 +98,16 @@ fn test_generate_request_serde() {
         seed: Some(42),
         model_id: None,
     };
-    let json = serde_json::to_string(&req).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
     assert!(json.contains("top_k"));
-    let parsed: GenerateRequest = serde_json::from_str(&json).unwrap();
+    let parsed: GenerateRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.seed, Some(42));
 }
 
 #[test]
 fn test_generate_request_minimal() {
     let json = r#"{"prompt": "test"}"#;
-    let req: GenerateRequest = serde_json::from_str(json).unwrap();
+    let req: GenerateRequest = serde_json::from_str(json).expect("JSON deserialization failed");
     assert_eq!(req.prompt, "test");
     // Check defaults - default_max_tokens() returns 50, default_temperature() returns 1.0
     assert_eq!(req.max_tokens, 50);
@@ -121,8 +121,8 @@ fn test_generate_response_serde() {
         text: "hello".to_string(),
         num_generated: 1,
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let parsed: GenerateResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let parsed: GenerateResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.text, "hello");
 }
 
@@ -131,8 +131,8 @@ fn test_batch_tokenize_request_serde() {
     let req = BatchTokenizeRequest {
         texts: vec!["Hello".to_string(), "World".to_string()],
     };
-    let json = serde_json::to_string(&req).unwrap();
-    let parsed: BatchTokenizeRequest = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
+    let parsed: BatchTokenizeRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.texts.len(), 2);
 }
 
@@ -150,8 +150,8 @@ fn test_batch_tokenize_response_serde() {
             },
         ],
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let parsed: BatchTokenizeResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let parsed: BatchTokenizeResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.results.len(), 2);
 }
 
@@ -166,8 +166,8 @@ fn test_batch_generate_request_serde() {
         top_p: 1.0,
         seed: None,
     };
-    let json = serde_json::to_string(&req).unwrap();
-    let parsed: BatchGenerateRequest = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
+    let parsed: BatchGenerateRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.prompts.len(), 2);
 }
 
@@ -180,8 +180,8 @@ fn test_batch_generate_response_serde() {
             num_generated: 1,
         }],
     };
-    let json = serde_json::to_string(&resp).unwrap();
-    let parsed: BatchGenerateResponse = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&resp).expect("JSON serialization failed");
+    let parsed: BatchGenerateResponse = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.results.len(), 1);
 }
 
@@ -191,16 +191,16 @@ fn test_stream_token_event_serde() {
         token_id: 42,
         text: "hello".to_string(),
     };
-    let json = serde_json::to_string(&event).unwrap();
-    let parsed: StreamTokenEvent = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&event).expect("JSON serialization failed");
+    let parsed: StreamTokenEvent = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.token_id, 42);
 }
 
 #[test]
 fn test_stream_done_event_serde() {
     let event = StreamDoneEvent { num_generated: 10 };
-    let json = serde_json::to_string(&event).unwrap();
-    let parsed: StreamDoneEvent = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&event).expect("JSON serialization failed");
+    let parsed: StreamDoneEvent = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.num_generated, 10);
 }
 
@@ -221,11 +221,11 @@ async fn test_empty_prompts_batch_completions() {
                 .method("POST")
                 .uri("/v1/batch/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // Should return BAD_REQUEST for empty prompts
     assert!(
         response.status() == StatusCode::BAD_REQUEST
@@ -246,11 +246,11 @@ async fn test_empty_texts_batch_tokenize() {
                 .method("POST")
                 .uri("/batch/tokenize")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // Should return BAD_REQUEST for empty texts
     assert!(
         response.status() == StatusCode::BAD_REQUEST
@@ -272,11 +272,11 @@ async fn test_empty_prompts_batch_generate() {
                 .method("POST")
                 .uri("/batch/generate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // Should return BAD_REQUEST for empty prompts
     assert!(
         response.status() == StatusCode::BAD_REQUEST
@@ -299,11 +299,11 @@ async fn test_invalid_strategy_generate() {
                 .method("POST")
                 .uri("/generate")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // Should return BAD_REQUEST for invalid strategy
     assert!(
         response.status() == StatusCode::BAD_REQUEST
@@ -320,10 +320,10 @@ async fn test_models_endpoint_returns_list() {
             Request::builder()
                 .uri("/models")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     assert!(response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND);
 }
 
@@ -335,10 +335,10 @@ async fn test_realize_model_handler() {
             Request::builder()
                 .uri("/v1/model")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // May return OK or error depending on model state
     assert!(
         response.status() == StatusCode::OK
@@ -357,11 +357,11 @@ async fn test_realize_reload_handler() {
                 .method("POST")
                 .uri("/v1/reload")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // May return OK or error depending on model state
     assert!(
         response.status() == StatusCode::OK
@@ -386,11 +386,11 @@ async fn test_chat_completions_streaming_flag() {
                 .method("POST")
                 .uri("/v1/chat/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
     // Accept streaming response or error
     assert!(
         response.status() == StatusCode::OK
@@ -420,9 +420,9 @@ fn test_chat_completion_request_serde() {
         stop: Some(vec!["END".to_string()]),
         user: Some("test-user".to_string()),
     };
-    let json = serde_json::to_string(&req).unwrap();
+    let json = serde_json::to_string(&req).expect("JSON serialization failed");
     assert!(json.contains("gpt-4"));
-    let parsed: ChatCompletionRequest = serde_json::from_str(&json).unwrap();
+    let parsed: ChatCompletionRequest = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.model, "gpt-4");
     assert_eq!(parsed.user.as_deref(), Some("test-user"));
 }
@@ -430,7 +430,7 @@ fn test_chat_completion_request_serde() {
 #[test]
 fn test_chat_completion_request_minimal() {
     let json = r#"{"model": "test", "messages": []}"#;
-    let req: ChatCompletionRequest = serde_json::from_str(json).unwrap();
+    let req: ChatCompletionRequest = serde_json::from_str(json).expect("JSON deserialization failed");
     assert_eq!(req.model, "test");
     assert!(!req.stream);
     assert!(req.max_tokens.is_none());

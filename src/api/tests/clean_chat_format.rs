@@ -121,11 +121,11 @@ async fn test_realize_embed_endpoint() {
                 .method("POST")
                 .uri("/realize/embed")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     // May return 404 if model not found in demo mode, but exercises the handler
     let status = response.status();
@@ -146,10 +146,10 @@ async fn test_realize_model_endpoint() {
                 .method("GET")
                 .uri("/realize/model")
                 .body(Body::empty())
-                .unwrap(),
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let status = response.status();
     assert!(
@@ -173,11 +173,11 @@ async fn test_realize_reload_endpoint() {
                 .method("POST")
                 .uri("/realize/reload")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let status = response.status();
     // Reload may fail without actual model or be unimplemented, but exercises the handler
@@ -207,11 +207,11 @@ async fn test_openai_completions_endpoint() {
                 .method("POST")
                 .uri("/v1/completions")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let status = response.status();
     assert!(
@@ -238,11 +238,11 @@ async fn test_openai_embeddings_endpoint() {
                 .method("POST")
                 .uri("/v1/embeddings")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&req_body).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&req_body).expect("JSON serialization failed")))
+                .expect("test value should be present"),
         )
         .await
-        .unwrap();
+        .expect("test value should be present");
 
     let status = response.status();
     assert!(

@@ -20,7 +20,7 @@ fn test_build_trace_data_brick_level() {
     assert!(step.is_none());
     assert!(layer.is_none());
 
-    let trace = brick.unwrap();
+    let trace = brick.expect("test value should be present");
     assert_eq!(trace.level, "brick");
     assert_eq!(trace.operations, 5);
     assert_eq!(trace.total_time_us, 1000);
@@ -40,7 +40,7 @@ fn test_build_trace_data_step_level() {
     assert!(step.is_some());
     assert!(layer.is_none());
 
-    let trace = step.unwrap();
+    let trace = step.expect("test value should be present");
     assert_eq!(trace.level, "step");
     assert_eq!(trace.operations, 10);
     assert_eq!(trace.total_time_us, 5000);
@@ -52,8 +52,8 @@ fn test_build_trace_data_step_level() {
         .breakdown
         .iter()
         .find(|op| op.name == "tokenize")
-        .unwrap();
-    assert!(tokenize.details.as_ref().unwrap().contains("20"));
+        .expect("test value should be present");
+    assert!(tokenize.details.as_ref().expect("test value should be present").contains("20"));
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn test_build_trace_data_layer_level() {
     assert!(step.is_none());
     assert!(layer.is_some());
 
-    let trace = layer.unwrap();
+    let trace = layer.expect("test value should be present");
     assert_eq!(trace.level, "layer");
     assert_eq!(trace.operations, 12);
     assert_eq!(trace.total_time_us, 8000);
@@ -73,7 +73,7 @@ fn test_build_trace_data_layer_level() {
     assert!(trace.breakdown[0]
         .details
         .as_ref()
-        .unwrap()
+        .expect("test value should be present")
         .contains("attention+mlp"));
 }
 
@@ -114,7 +114,7 @@ fn test_build_trace_data_detailed_level() {
 fn test_build_trace_data_zero_values() {
     let (brick, _step, _layer) = build_trace_data(Some("brick"), 0, 0, 0, 0);
     assert!(brick.is_some());
-    let trace = brick.unwrap();
+    let trace = brick.expect("test value should be present");
     assert_eq!(trace.total_time_us, 0);
     assert_eq!(trace.operations, 0);
 }
@@ -123,7 +123,7 @@ fn test_build_trace_data_zero_values() {
 fn test_build_trace_data_large_values() {
     let (_brick, _step, layer) = build_trace_data(Some("layer"), u64::MAX / 2, 100000, 50000, 1000);
     assert!(layer.is_some());
-    let trace = layer.unwrap();
+    let trace = layer.expect("test value should be present");
     assert_eq!(trace.breakdown.len(), 1000);
 }
 
@@ -173,10 +173,10 @@ fn test_trace_data_serde() {
             details: None,
         }],
     };
-    let json = serde_json::to_string(&trace).unwrap();
+    let json = serde_json::to_string(&trace).expect("JSON serialization failed");
     assert!(json.contains("brick"));
     assert!(json.contains("matmul"));
-    let parsed: TraceData = serde_json::from_str(&json).unwrap();
+    let parsed: TraceData = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.level, "brick");
 }
 
@@ -211,9 +211,9 @@ fn test_trace_operation_serde() {
         time_us: 250,
         details: Some("batch=32".to_string()),
     };
-    let json = serde_json::to_string(&op).unwrap();
+    let json = serde_json::to_string(&op).expect("JSON serialization failed");
     assert!(json.contains("softmax"));
-    let parsed: TraceOperation = serde_json::from_str(&json).unwrap();
+    let parsed: TraceOperation = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.name, "softmax");
     assert_eq!(parsed.details.as_deref(), Some("batch=32"));
 }
@@ -238,10 +238,10 @@ fn test_chat_completion_chunk_serde() {
             finish_reason: None,
         }],
     };
-    let json = serde_json::to_string(&chunk).unwrap();
+    let json = serde_json::to_string(&chunk).expect("JSON serialization failed");
     assert!(json.contains("chatcmpl-123"));
     assert!(json.contains("chat.completion.chunk"));
-    let parsed: ChatCompletionChunk = serde_json::from_str(&json).unwrap();
+    let parsed: ChatCompletionChunk = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.id, "chatcmpl-123");
 }
 
@@ -282,10 +282,10 @@ fn test_chat_chunk_choice_serde() {
         },
         finish_reason: Some("stop".to_string()),
     };
-    let json = serde_json::to_string(&choice).unwrap();
+    let json = serde_json::to_string(&choice).expect("JSON serialization failed");
     assert!(json.contains("world"));
     assert!(json.contains("stop"));
-    let parsed: ChatChunkChoice = serde_json::from_str(&json).unwrap();
+    let parsed: ChatChunkChoice = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.finish_reason.as_deref(), Some("stop"));
 }
 
@@ -310,10 +310,10 @@ fn test_chat_delta_serde() {
         role: Some("assistant".to_string()),
         content: Some("response".to_string()),
     };
-    let json = serde_json::to_string(&delta).unwrap();
+    let json = serde_json::to_string(&delta).expect("JSON serialization failed");
     assert!(json.contains("assistant"));
     assert!(json.contains("response"));
-    let parsed: ChatDelta = serde_json::from_str(&json).unwrap();
+    let parsed: ChatDelta = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.role.as_deref(), Some("assistant"));
 }
 
@@ -349,9 +349,9 @@ fn test_chat_message_with_name() {
         content: "Hello".to_string(),
         name: Some("Alice".to_string()),
     };
-    let json = serde_json::to_string(&msg).unwrap();
+    let json = serde_json::to_string(&msg).expect("JSON serialization failed");
     assert!(json.contains("Alice"));
-    let parsed: ChatMessage = serde_json::from_str(&json).unwrap();
+    let parsed: ChatMessage = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.name.as_deref(), Some("Alice"));
 }
 
@@ -393,9 +393,9 @@ fn test_chat_choice_serde() {
         },
         finish_reason: "stop".to_string(),
     };
-    let json = serde_json::to_string(&choice).unwrap();
+    let json = serde_json::to_string(&choice).expect("JSON serialization failed");
     assert!(json.contains("Response"));
-    let parsed: ChatChoice = serde_json::from_str(&json).unwrap();
+    let parsed: ChatChoice = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.finish_reason, "stop");
 }
 

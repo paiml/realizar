@@ -383,7 +383,7 @@ fn test_completion_request_with_stop_tokens() {
     assert!(json.contains("<|endoftext|>"));
 
     let parsed: CompletionRequest = serde_json::from_str(&json).expect("deserialize");
-    assert_eq!(parsed.stop.as_ref().unwrap().len(), 2);
+    assert_eq!(parsed.stop.as_ref().expect("test value should be present").len(), 2);
 }
 
 #[test]
@@ -428,7 +428,7 @@ fn test_completion_request_top_p_values() {
 
     let json = serde_json::to_string(&req).expect("serialize");
     let parsed: CompletionRequest = serde_json::from_str(&json).expect("deserialize");
-    assert!((parsed.top_p.unwrap() - 0.95).abs() < 0.01);
+    assert!((parsed.top_p.expect("test value should be present") - 0.95).abs() < 0.01);
 }
 
 include!("completion_request_02.rs");

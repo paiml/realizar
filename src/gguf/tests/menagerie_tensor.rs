@@ -167,14 +167,14 @@ fn test_menagerie_large_dimension_pygmy() {
     let model = GGUFModel::from_bytes(&data);
     assert!(model.is_ok(), "Large dimension Pygmy should parse");
 
-    let model = model.unwrap();
+    let model = model.expect("test value should be present");
 
     // Verify dimensions
     let embed_tensor = model
         .tensors
         .iter()
         .find(|t| t.name.contains("token_embd"))
-        .unwrap();
+        .expect("test value should be present");
     // Check dimensions exist
     assert!(embed_tensor.dims[0] > 0 && embed_tensor.dims[1] > 0);
 }

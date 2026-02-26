@@ -107,7 +107,7 @@ fn test_interleaved_q4k_scales_and_dmin_extraction() {
         data[i] = (i - 4) as u8;
     }
 
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
 
     assert!((interleaved.d[0] - 0.5).abs() < 1e-3);
     assert!((interleaved.dmin[0] - 0.25).abs() < 1e-3);
@@ -128,7 +128,7 @@ fn test_interleaved_q4k_qs_copy() {
         data[i] = ((i - 16) % 256) as u8;
     }
 
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
 
     // Check qs were copied correctly
     for (i, &q) in interleaved.qs.iter().enumerate() {
@@ -152,7 +152,7 @@ fn test_interleaved_q4k_dot_with_all_max_nibbles() {
         data[i] = 0xFF;
     }
 
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     let activations = vec![1.0f32; 256];
 
     let result = interleaved.dot(&activations).expect("dot should work");
@@ -167,7 +167,7 @@ fn test_interleaved_q4k_dot_with_zero_d() {
     data[0..2].copy_from_slice(&0x0000u16.to_le_bytes());
     data[2..4].copy_from_slice(&0x0000u16.to_le_bytes());
 
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     let activations = vec![1.0f32; 256];
 
     let result = interleaved.dot(&activations).expect("dot should work");
@@ -187,7 +187,7 @@ fn test_interleaved_q4k_dot_three_superblocks() {
     // Super-block 2: d = 0.5
     data[288..290].copy_from_slice(&0x3800u16.to_le_bytes());
 
-    let interleaved = InterleavedQ4K::from_q4k(&data).unwrap();
+    let interleaved = InterleavedQ4K::from_q4k(&data).expect("test value should be present");
     assert_eq!(interleaved.num_super_blocks, 3);
     assert_eq!(interleaved.num_values(), 768);
 
@@ -409,7 +409,7 @@ fn test_fused_q4_0_q8_0_parallel_matvec_above_threshold() {
 
     let result = fused_q4_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 
     // All outputs should be finite
@@ -435,6 +435,6 @@ fn test_fused_q8_0_q8_0_parallel_matvec_large() {
 
     let result = fused_q8_0_q8_0_parallel_matvec(&weight_data, &activations, in_dim, out_dim);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("test value should be present");
     assert_eq!(output.len(), out_dim);
 }
