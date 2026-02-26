@@ -830,10 +830,11 @@ Simple unit tests would NOT have caught this - only sequential TUI simulation re
 ---
 
 **Last Updated:** 2026-01-21
-**Realizar Version:** 0.3.5 (KV Cache for context-aware generation)
+**Realizar Version:** 0.8.0
 **GPU Spec Version:** v5.2.0 (CUDA Monolith Shattered + Lint Zero)
-**Trueno Version:** 0.4.2
-**Aprender Version:** 0.1.0
+**Trueno Version:** 0.16.0
+**Aprender Version:** 0.27.0
+**Entrenar Version:** 0.7.2
 **paiml-mcp-agent-toolkit Version:** v2.200.0 (with Known Defects Scorer, SATD Detector, Defect Analyzer)
 **TDG Score:** 93.9/100 (A)
 **Rust Project Score:** 137.9/134 (103%, Grade A+)
