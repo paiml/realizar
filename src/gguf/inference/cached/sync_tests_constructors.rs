@@ -67,7 +67,7 @@
         let model = create_test_model();
         let result = model.warmup_gpu_cache();
         assert!(result.is_ok());
-        let (memory_bytes, cached_count) = result.unwrap();
+        let (memory_bytes, cached_count) = result.expect("expected value");
         assert!(memory_bytes > 0);
         assert_eq!(cached_count, 1); // 1 layer
         assert!(model.is_gpu_cache_warm());
@@ -86,7 +86,7 @@
         let _ = model.warmup_gpu_cache();
         let weights = model.get_dequantized_ffn_weights(0);
         assert!(weights.is_some());
-        let w = weights.unwrap();
+        let w = weights.expect("w");
         // Check dimensions match config
         let config = test_config();
         assert_eq!(w.up.len(), config.hidden_dim * config.intermediate_dim);
@@ -152,7 +152,7 @@
 
         let result = model.adaptive_fused_attention(&q, &k, &v, seq_len, head_dim, scale);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert_eq!(output.len(), seq_len * head_dim);
     }
 
@@ -170,7 +170,7 @@
 
         let result = model.adaptive_fused_attention(&q, &k, &v, seq_len, head_dim, scale);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert_eq!(output.len(), seq_len * head_dim);
     }
 
@@ -191,7 +191,7 @@
 
         let result = model.adaptive_multihead_attention(&q, &k, &v, seq_len);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert_eq!(output.len(), seq_len * hidden_dim);
     }
 
@@ -206,7 +206,7 @@
 
         let result = model.forward_batch_gpu_cached(&token_ids);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         let config = test_config();
         assert_eq!(output.len(), token_ids.len() * config.vocab_size);
     }
@@ -218,7 +218,7 @@
 
         let result = model.forward_batch_gpu_cached(&token_ids);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert_eq!(output.len(), 0);
     }
 
@@ -254,7 +254,7 @@
 
         let result = model.batch_ffn_gpu(&hidden_states, 0);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert_eq!(output.len(), batch_size * config.hidden_dim);
     }
 
@@ -305,7 +305,7 @@
 
         let result = model.batch_generate_gpu(&prompts, &config);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("expected value").is_empty());
     }
 
     // ========================================================================
@@ -321,7 +321,7 @@
 
         let result = model.forward_batch_with_gpu_ffn(&token_ids, &mut caches, &positions);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("expected value").is_empty());
     }
 
     #[test]
@@ -362,7 +362,7 @@
 
         let result = model.forward_batch_with_gpu_ffn(&token_ids, &mut caches, &positions);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("logits");
         assert_eq!(logits.len(), 3);
         assert_eq!(logits[0].len(), config.vocab_size);
     }
@@ -379,7 +379,7 @@
 
         let result = model.generate_with_cache(&prompt, &config);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         // Output includes prompt + generated tokens
         assert!(output.len() >= prompt.len());
     }
@@ -413,7 +413,7 @@
         }
 
         for handle in handles {
-            handle.join().unwrap();
+            handle.join().expect("thread join failed");
         }
     }
 

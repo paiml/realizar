@@ -45,7 +45,7 @@ mod tests {
 
     #[test]
     fn test_runtime_type_serialize() {
-        let json = serde_json::to_string(&RuntimeType::LlamaCpp).unwrap();
+        let json = serde_json::to_string(&RuntimeType::LlamaCpp).expect("json");
         assert!(json.contains("LlamaCpp"));
     }
 
@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn test_inference_request_serialize() {
         let req = InferenceRequest::new("prompt");
-        let json = serde_json::to_string(&req).unwrap();
+        let json = serde_json::to_string(&req).expect("json");
         assert!(json.contains("prompt"));
         assert!(json.contains("100")); // max_tokens
     }
@@ -139,7 +139,7 @@ mod tests {
             total_time_ms: 100.0,
             itl_ms: vec![2.0, 3.0],
         };
-        let json = serde_json::to_string(&resp).unwrap();
+        let json = serde_json::to_string(&resp).expect("json");
         assert!(json.contains("Generated text"));
         assert!(json.contains("42"));
     }
@@ -156,7 +156,7 @@ mod tests {
             supports_streaming: true,
             loaded_model: Some("llama-7b".to_string()),
         };
-        let json = serde_json::to_string(&info).unwrap();
+        let json = serde_json::to_string(&info).expect("json");
         assert!(json.contains("1.0.0"));
         assert!(json.contains("llama-7b"));
     }
@@ -197,7 +197,7 @@ mod tests {
     fn test_mock_backend_inference() {
         let backend = MockBackend::new(20.0, 50.0);
         let request = InferenceRequest::new("Hello").with_max_tokens(25);
-        let response = backend.inference(&request).unwrap();
+        let response = backend.inference(&request).expect("response");
 
         assert_eq!(response.text, "Mock response");
         assert_eq!(response.tokens_generated, 25);
@@ -212,7 +212,7 @@ mod tests {
     fn test_mock_backend_inference_max_100() {
         let backend = MockBackend::new(10.0, 100.0);
         let request = InferenceRequest::new("Hello").with_max_tokens(200);
-        let response = backend.inference(&request).unwrap();
+        let response = backend.inference(&request).expect("response");
         // Should be capped at 100
         assert_eq!(response.tokens_generated, 100);
     }
@@ -242,7 +242,7 @@ mod tests {
         let retrieved = registry.get(RuntimeType::Realizar);
         assert!(retrieved.is_some());
         assert_eq!(
-            retrieved.unwrap().info().runtime_type,
+            retrieved.expect("retrieved").info().runtime_type,
             RuntimeType::Realizar
         );
     }
@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn test_llamacpp_config_serialize() {
         let config = LlamaCppConfig::new("llama-cli").with_model("model.gguf");
-        let json = serde_json::to_string(&config).unwrap();
+        let json = serde_json::to_string(&config).expect("json");
         assert!(json.contains("llama-cli"));
         assert!(json.contains("model.gguf"));
     }
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn test_vllm_config_serialize() {
         let config = VllmConfig::new("http://test").with_model("phi-2");
-        let json = serde_json::to_string(&config).unwrap();
+        let json = serde_json::to_string(&config).expect("json");
         assert!(json.contains("http://test"));
         assert!(json.contains("phi-2"));
     }
@@ -409,17 +409,17 @@ llama_perf_context_print: total time =     135.79 ms /   110 runs
         ";
 
         let (prompt_time, prompt_tokens) =
-            LlamaCppBackend::parse_timing_line(output, "prompt eval time").unwrap();
+            LlamaCppBackend::parse_timing_line(output, "prompt eval time").expect("expected value");
         assert!((prompt_time - 12.34).abs() < 0.01);
         assert_eq!(prompt_tokens, 10);
 
         let (eval_time, eval_tokens) =
-            LlamaCppBackend::parse_timing_line(output, "eval time").unwrap();
+            LlamaCppBackend::parse_timing_line(output, "eval time").expect("expected value");
         assert!((eval_time - 123.45).abs() < 0.01);
         assert_eq!(eval_tokens, 100);
 
         let (total_time, total_runs) =
-            LlamaCppBackend::parse_timing_line(output, "total time").unwrap();
+            LlamaCppBackend::parse_timing_line(output, "total time").expect("expected value");
         assert!((total_time - 135.79).abs() < 0.01);
         assert_eq!(total_runs, 110);
     }
@@ -455,7 +455,7 @@ llama_perf_context_print: prompt eval time =      50.00 ms /     5 tokens
 llama_perf_context_print: eval time =     200.00 ms /    20 tokens
 llama_perf_context_print: total time =     250.00 ms /    25 runs";
 
-        let response = LlamaCppBackend::parse_cli_output(output).unwrap();
+        let response = LlamaCppBackend::parse_cli_output(output).expect("response");
         assert_eq!(response.text, "Generated response text");
         assert!((response.ttft_ms - 50.0).abs() < 0.01);
         assert_eq!(response.tokens_generated, 20);
@@ -467,7 +467,7 @@ llama_perf_context_print: total time =     250.00 ms /    25 runs";
     #[test]
     fn test_llamacpp_backend_parse_cli_output_minimal() {
         let output = "Just text, no timing";
-        let response = LlamaCppBackend::parse_cli_output(output).unwrap();
+        let response = LlamaCppBackend::parse_cli_output(output).expect("response");
         assert_eq!(response.text, "Just text, no timing");
         assert_eq!(response.ttft_ms, 0.0);
         assert_eq!(response.tokens_generated, 0);

@@ -23,7 +23,7 @@ fn test_q4k_weight_new_minimal_valid() {
     let weight = Q4KWeight::new(data, in_dim, out_dim);
     assert!(weight.is_ok());
 
-    let w = weight.unwrap();
+    let w = weight.expect("w");
     assert_eq!(w.in_dim, 256);
     assert_eq!(w.out_dim, 1);
 }
@@ -38,7 +38,7 @@ fn test_q4k_weight_new_multiple_rows() {
     let weight = Q4KWeight::new(data, in_dim, out_dim);
     assert!(weight.is_ok());
 
-    let w = weight.unwrap();
+    let w = weight.expect("w");
     assert_eq!(w.out_dim, 8);
     assert_eq!(w.data.len(), 8 * 144);
 }
@@ -54,7 +54,7 @@ fn test_q4k_weight_new_multiple_blocks_per_row() {
     let weight = Q4KWeight::new(data, in_dim, out_dim);
     assert!(weight.is_ok());
 
-    let w = weight.unwrap();
+    let w = weight.expect("w");
     assert_eq!(w.in_dim, 512);
     assert_eq!(w.memory_bytes(), 2 * 288);
 }
@@ -116,7 +116,7 @@ fn test_q4k_weight_new_zero_output_dim() {
     let result = Q4KWeight::new(data, 256, 0);
     assert!(result.is_ok());
 
-    let w = result.unwrap();
+    let w = result.expect("w");
     assert_eq!(w.out_dim, 0);
     assert_eq!(w.memory_bytes(), 0);
 }
@@ -135,18 +135,18 @@ fn test_q4k_weight_new_data_slightly_off() {
 #[test]
 fn test_q4k_weight_memory_bytes() {
     let data = vec![0u8; 144];
-    let weight = Q4KWeight::new(data, 256, 1).unwrap();
+    let weight = Q4KWeight::new(data, 256, 1).expect("weight");
     assert_eq!(weight.memory_bytes(), 144);
 
     let data = vec![0u8; 10 * 144];
-    let weight = Q4KWeight::new(data, 256, 10).unwrap();
+    let weight = Q4KWeight::new(data, 256, 10).expect("weight");
     assert_eq!(weight.memory_bytes(), 10 * 144);
 }
 
 #[test]
 fn test_q4k_weight_f32_equivalent_bytes() {
     let data = vec![0u8; 4 * 144];
-    let weight = Q4KWeight::new(data, 256, 4).unwrap();
+    let weight = Q4KWeight::new(data, 256, 4).expect("weight");
     assert_eq!(weight.f32_equivalent_bytes(), 256 * 4 * 4);
 }
 
@@ -158,14 +158,14 @@ fn test_q4k_weight_f32_equivalent_large() {
     let bytes_per_row = blocks_per_row * 144;
     let data = vec![0u8; out_dim * bytes_per_row];
 
-    let weight = Q4KWeight::new(data, in_dim, out_dim).unwrap();
+    let weight = Q4KWeight::new(data, in_dim, out_dim).expect("weight");
     assert_eq!(weight.f32_equivalent_bytes(), 4096 * 4096 * 4);
 }
 
 #[test]
 fn test_q4k_weight_compression_ratio() {
     let data = vec![0u8; 144];
-    let weight = Q4KWeight::new(data, 256, 1).unwrap();
+    let weight = Q4KWeight::new(data, 256, 1).expect("weight");
 
     // F32 bytes: 256 * 1 * 4 = 1024, Q4_K bytes: 144, Ratio: ~7.11
     let ratio = weight.compression_ratio();
@@ -182,7 +182,7 @@ fn test_q4k_weight_compression_ratio_consistency() {
         let bytes_per_row = blocks_per_row * 144;
         let data = vec![0u8; out_dim * bytes_per_row];
 
-        let weight = Q4KWeight::new(data, in_dim, out_dim).unwrap();
+        let weight = Q4KWeight::new(data, in_dim, out_dim).expect("weight");
         let ratio = weight.compression_ratio();
 
         assert!(
@@ -202,7 +202,7 @@ fn test_q4k_weight_compression_ratio_consistency() {
 #[test]
 fn test_q4k_weight_matvec_wrong_input_length() {
     let data = vec![0u8; 144];
-    let weight = Q4KWeight::new(data, 256, 1).unwrap();
+    let weight = Q4KWeight::new(data, 256, 1).expect("weight");
 
     // Too short
     let result = weight.matvec(&vec![1.0f32; 128]);
@@ -222,7 +222,7 @@ fn test_q4k_weight_matvec_wrong_input_length() {
 #[test]
 fn test_q4k_weight_matvec_empty_input() {
     let data = vec![0u8; 144];
-    let weight = Q4KWeight::new(data, 256, 1).unwrap();
+    let weight = Q4KWeight::new(data, 256, 1).expect("weight");
     let result = weight.matvec(&[]);
     assert!(result.is_err());
 }
@@ -230,7 +230,7 @@ fn test_q4k_weight_matvec_empty_input() {
 #[test]
 fn test_q4k_weight_matvec_off_by_one() {
     let data = vec![0u8; 144];
-    let weight = Q4KWeight::new(data, 256, 1).unwrap();
+    let weight = Q4KWeight::new(data, 256, 1).expect("weight");
 
     assert!(weight.matvec(&vec![1.0f32; 255]).is_err());
     assert!(weight.matvec(&vec![1.0f32; 257]).is_err());
@@ -246,7 +246,7 @@ fn test_q4k_weight_clone_preserves_data() {
     let out_dim = 2;
     let data: Vec<u8> = (0..out_dim * 144).map(|i| (i % 256) as u8).collect();
 
-    let weight = Q4KWeight::new(data.clone(), in_dim, out_dim).unwrap();
+    let weight = Q4KWeight::new(data.clone(), in_dim, out_dim).expect("weight");
     let cloned = weight.clone();
 
     assert_eq!(weight.in_dim, cloned.in_dim);
@@ -263,7 +263,7 @@ fn test_q4k_weight_public_fields() {
     let bytes_per_row = blocks_per_row * 144;
     let data = vec![0u8; out_dim * bytes_per_row];
 
-    let weight = Q4KWeight::new(data, in_dim, out_dim).unwrap();
+    let weight = Q4KWeight::new(data, in_dim, out_dim).expect("weight");
 
     assert_eq!(weight.in_dim, 512);
     assert_eq!(weight.out_dim, 4);
@@ -273,7 +273,7 @@ fn test_q4k_weight_public_fields() {
 #[test]
 fn test_q4k_weight_data_content() {
     let data: Vec<u8> = (0..144).map(|i| i as u8).collect();
-    let weight = Q4KWeight::new(data.clone(), 256, 1).unwrap();
+    let weight = Q4KWeight::new(data.clone(), 256, 1).expect("weight");
     assert_eq!(weight.data, data);
 }
 
@@ -300,7 +300,7 @@ fn test_q4k_weight_error_message_includes_dimensions() {
 #[test]
 fn test_q4k_weight_matvec_error_message_quality() {
     let data = vec![0u8; 144];
-    let weight = Q4KWeight::new(data, 256, 1).unwrap();
+    let weight = Q4KWeight::new(data, 256, 1).expect("weight");
 
     let result = weight.matvec(&vec![1.0f32; 128]);
     assert!(result.is_err());
@@ -325,7 +325,7 @@ fn test_q4k_weight_multiple_of_256() {
 
         let weight = Q4KWeight::new(data, in_dim, 1);
         assert!(weight.is_ok(), "Failed for in_dim={}", in_dim);
-        assert_eq!(weight.unwrap().in_dim, in_dim);
+        assert_eq!(weight.expect("expected value").in_dim, in_dim);
     }
 }
 
@@ -349,7 +349,7 @@ fn test_q4k_weight_ceil_division_boundary() {
 #[test]
 fn test_q4k_weight_large_output_dimension() {
     let data = vec![0u8; 1000 * 144];
-    let weight = Q4KWeight::new(data, 256, 1000).unwrap();
+    let weight = Q4KWeight::new(data, 256, 1000).expect("weight");
 
     assert_eq!(weight.out_dim, 1000);
     assert_eq!(weight.memory_bytes(), 1000 * 144);
@@ -364,7 +364,7 @@ fn test_q4k_weight_statistics_consistency() {
     let bytes_per_row = blocks_per_row * 144;
     let data = vec![0u8; out_dim * bytes_per_row];
 
-    let weight = Q4KWeight::new(data, in_dim, out_dim).unwrap();
+    let weight = Q4KWeight::new(data, in_dim, out_dim).expect("weight");
 
     let memory = weight.memory_bytes();
     let f32_equiv = weight.f32_equivalent_bytes();

@@ -12,7 +12,7 @@ fn test_generate_streaming_callback_receives_tokens() {
             received_tokens.push(token);
             true
         })
-        .unwrap();
+        .expect("expected value");
 
     // Callback should receive each generated token
     if result.len() > prompt.len() {
@@ -43,7 +43,7 @@ fn test_generate_streaming_callback_can_stop() {
             count += 1;
             count < 2 // Stop after 2 tokens
         })
-        .unwrap();
+        .expect("expected value");
 
     assert!(
         count <= 2,
@@ -64,7 +64,7 @@ fn test_predict_next_basic() {
     let result = model.predict_next(&[1, 2, 3]);
     assert!(result.is_ok(), "predict_next should succeed");
 
-    let token = result.unwrap();
+    let token = result.expect("token");
     assert!(
         token < cfg.vocab_size as u32,
         "Token should be in vocab range"
@@ -76,8 +76,8 @@ fn test_predict_next_deterministic() {
     let cfg = make_test_config();
     let model = create_test_model_with_config(&cfg);
 
-    let result1 = model.predict_next(&[1, 2]).unwrap();
-    let result2 = model.predict_next(&[1, 2]).unwrap();
+    let result1 = model.predict_next(&[1, 2]).expect("result1");
+    let result2 = model.predict_next(&[1, 2]).expect("result2");
 
     assert_eq!(result1, result2, "predict_next should be deterministic");
 }

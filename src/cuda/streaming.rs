@@ -330,7 +330,7 @@ mod tests {
 
         let result = check_vram_sufficient(free_vram, total_vram, &config);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), StreamingMode::FullCache);
+        assert_eq!(result.expect("result"), StreamingMode::FullCache);
     }
 
     #[test]
@@ -341,7 +341,7 @@ mod tests {
 
         let result = check_vram_sufficient(free_vram, total_vram, &config);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), StreamingMode::LayerStreaming);
+        assert_eq!(result.expect("result"), StreamingMode::LayerStreaming);
     }
 
     #[test]

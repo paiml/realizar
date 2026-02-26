@@ -9,7 +9,7 @@ mod tests {
     fn test_dequantize_q4_k_parallel_empty() {
         let result = dequantize_q4_k_parallel(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("result").is_empty());
     }
 
     #[test]
@@ -33,7 +33,7 @@ mod tests {
 
         let result = dequantize_q4_k_parallel(&data);
         assert!(result.is_ok());
-        let dequant = result.unwrap();
+        let dequant = result.expect("dequant");
         assert_eq!(dequant.len(), 256); // QK_K = 256
     }
 
@@ -47,7 +47,7 @@ mod tests {
 
         let result = dequantize_q4_k_parallel(&data);
         assert!(result.is_ok());
-        let dequant = result.unwrap();
+        let dequant = result.expect("dequant");
         assert_eq!(dequant.len(), 512); // 2 * QK_K = 512
     }
 
@@ -86,7 +86,7 @@ mod tests {
     fn test_dequantize_q4_k_simd_empty() {
         let result = dequantize_q4_k_simd(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("result").is_empty());
     }
 
     #[test]
@@ -106,8 +106,8 @@ mod tests {
             data[i] = (i % 256) as u8;
         }
 
-        let simd_result = dequantize_q4_k_simd(&data).unwrap();
-        let parallel_result = dequantize_q4_k_parallel(&data).unwrap();
+        let simd_result = dequantize_q4_k_simd(&data).expect("simd_result");
+        let parallel_result = dequantize_q4_k_parallel(&data).expect("parallel_result");
 
         assert_eq!(simd_result.len(), parallel_result.len());
         for (s, p) in simd_result.iter().zip(parallel_result.iter()) {
@@ -121,7 +121,7 @@ mod tests {
     fn test_dequantize_q8_0_parallel_empty() {
         let result = dequantize_q8_0_parallel(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("result").is_empty());
     }
 
     #[test]
@@ -143,7 +143,7 @@ mod tests {
             data[i] = 10; // Each i8 = 10
         }
 
-        let result = dequantize_q8_0_parallel(&data).unwrap();
+        let result = dequantize_q8_0_parallel(&data).expect("result");
         assert_eq!(result.len(), 32);
         for val in &result {
             assert!((val - 10.0).abs() < 0.01, "expected 10.0, got {}", val);
@@ -159,7 +159,7 @@ mod tests {
             data[i] = (-5i8) as u8;
         }
 
-        let result = dequantize_q8_0_parallel(&data).unwrap();
+        let result = dequantize_q8_0_parallel(&data).expect("result");
         for val in &result {
             assert!((val - (-5.0)).abs() < 0.01, "expected -5.0, got {}", val);
         }
@@ -186,7 +186,7 @@ mod tests {
     fn test_dequantize_q8_0_simd_empty() {
         let result = dequantize_q8_0_simd(&[]);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("result").is_empty());
     }
 
     #[test]
@@ -204,8 +204,8 @@ mod tests {
             data[i] = ((i - 2) as i8 * 3) as u8;
         }
 
-        let simd_result = dequantize_q8_0_simd(&data).unwrap();
-        let parallel_result = dequantize_q8_0_parallel(&data).unwrap();
+        let simd_result = dequantize_q8_0_simd(&data).expect("simd_result");
+        let parallel_result = dequantize_q8_0_parallel(&data).expect("parallel_result");
 
         assert_eq!(simd_result.len(), parallel_result.len());
         for (s, p) in simd_result.iter().zip(parallel_result.iter()) {
@@ -225,7 +225,7 @@ mod tests {
             }
         }
 
-        let result = dequantize_q8_0_simd(&data).unwrap();
+        let result = dequantize_q8_0_simd(&data).expect("result");
         assert_eq!(result.len(), 96); // 3 * 32
     }
 

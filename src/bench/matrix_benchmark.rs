@@ -43,12 +43,12 @@ mod tests {
 
         // Overall fastest should be llama-cpp (10ms)
         assert!(summary.overall_fastest.is_some());
-        assert_eq!(summary.overall_fastest.as_ref().unwrap().0, "llamacpp");
+        assert_eq!(summary.overall_fastest.as_ref().expect("as_ref").0, "llamacpp");
 
         // Overall highest throughput should be llama-cpp (150 tok/s)
         assert!(summary.overall_highest_throughput.is_some());
         assert_eq!(
-            summary.overall_highest_throughput.as_ref().unwrap().0,
+            summary.overall_highest_throughput.as_ref().expect("as_ref").0,
             "llamacpp"
         );
     }
@@ -62,7 +62,7 @@ mod tests {
             overall_fastest: Some(("realizar".to_string(), "cuda".to_string())),
             overall_highest_throughput: None,
         };
-        let json = serde_json::to_string(&summary).unwrap();
+        let json = serde_json::to_string(&summary).expect("json");
         assert!(json.contains("total_entries"));
         assert!(json.contains("realizar"));
     }

@@ -299,8 +299,8 @@ fn test_avx2_q4k_q8k_dot_parity_with_scalar() {
     let q8k_scales = vec![1.0f32];
     let q8k_quants = vec![1i8; 256];
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
-    let avx2 = unsafe { fused_q4k_q8k_dot_avx2(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("scalar");
+    let avx2 = unsafe { fused_q4k_q8k_dot_avx2(&q4k_data, &q8k_scales, &q8k_quants) }.expect("avx2");
 
     let diff = (scalar - avx2).abs();
     assert!(
@@ -321,7 +321,7 @@ fn test_avx2_q4k_q8k_dot_zero_quants() {
     let q8k_scales = vec![1.0f32];
     let q8k_quants = vec![0i8; 256];
 
-    let result = unsafe { fused_q4k_q8k_dot_avx2(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
+    let result = unsafe { fused_q4k_q8k_dot_avx2(&q4k_data, &q8k_scales, &q8k_quants) }.expect("result");
     assert!(
         result.abs() < 1e-6,
         "zero × zero should produce ~0, got {result}"
@@ -344,8 +344,8 @@ fn test_avx2_q4k_q8k_dot_multi_superblock() {
     let q8k_scales = vec![1.0f32; 4];
     let q8k_quants = vec![2i8; 256 * 4];
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
-    let avx2 = unsafe { fused_q4k_q8k_dot_avx2(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("scalar");
+    let avx2 = unsafe { fused_q4k_q8k_dot_avx2(&q4k_data, &q8k_scales, &q8k_quants) }.expect("avx2");
 
     let diff = (scalar - avx2).abs();
     // Allow larger tolerance for multi-block accumulation
@@ -368,8 +368,8 @@ fn test_avx2_q4k_q8k_dot_negative_quants() {
     let q8k_scales = vec![1.0f32];
     let q8k_quants = vec![-3i8; 256];
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
-    let avx2 = unsafe { fused_q4k_q8k_dot_avx2(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("scalar");
+    let avx2 = unsafe { fused_q4k_q8k_dot_avx2(&q4k_data, &q8k_scales, &q8k_quants) }.expect("avx2");
 
     let diff = (scalar - avx2).abs();
     let rel_tolerance = scalar.abs().max(1.0) * 0.01;
@@ -392,8 +392,8 @@ fn test_avx2_q4k_q8k_dot_with_dmin() {
     let q8k_scales = vec![2.0f32];
     let q8k_quants = vec![5i8; 256];
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
-    let avx2 = unsafe { fused_q4k_q8k_dot_avx2(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("scalar");
+    let avx2 = unsafe { fused_q4k_q8k_dot_avx2(&q4k_data, &q8k_scales, &q8k_quants) }.expect("avx2");
 
     let diff = (scalar - avx2).abs();
     let rel_tolerance = scalar.abs().max(1.0) * 0.05;

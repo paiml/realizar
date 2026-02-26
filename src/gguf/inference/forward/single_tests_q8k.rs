@@ -91,7 +91,7 @@ fn test_forward_single_with_cache_q8k_path() {
 
     let r1 = model.forward_single_with_cache(5, &mut cache, 0);
     assert!(r1.is_ok(), "Q8K cache: {}", r1.unwrap_err());
-    assert_eq!(r1.unwrap().len(), config.vocab_size);
+    assert_eq!(r1.expect("r1").len(), config.vocab_size);
 
     let r2 = model.forward_single_with_cache(10, &mut cache, 1);
     assert!(r2.is_ok(), "Q8K cache 2nd: {}", r2.unwrap_err());

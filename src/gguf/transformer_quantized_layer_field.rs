@@ -137,7 +137,7 @@ mod tests {
             "Failed to load transformer: {:?}",
             transformer.err()
         );
-        let transformer = transformer.unwrap();
+        let transformer = transformer.expect("transformer");
 
         assert_eq!(transformer.config.hidden_dim, 64);
         assert_eq!(transformer.config.num_layers, 1); // test_factory builds 1 layer
@@ -157,7 +157,7 @@ mod tests {
             "Failed to load transformer: {:?}",
             transformer.err()
         );
-        let transformer = transformer.unwrap();
+        let transformer = transformer.expect("transformer");
 
         assert_eq!(transformer.config.hidden_dim, 64);
         assert_eq!(transformer.layers.len(), 1);
@@ -167,7 +167,7 @@ mod tests {
     fn test_quantized_transformer_config() {
         let gguf_data = build_minimal_llama_gguf(200, 128, 512, 8, 4);
         let model = GGUFModel::from_bytes(&gguf_data).expect("Failed to parse GGUF");
-        let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data).unwrap();
+        let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data).expect("transformer");
 
         assert_eq!(transformer.config.hidden_dim, 128);
         // intermediate_dim is inferred from ffn_up tensor, may differ from input
@@ -181,7 +181,7 @@ mod tests {
     fn test_quantized_transformer_output_norm() {
         let gguf_data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
         let model = GGUFModel::from_bytes(&gguf_data).expect("Failed to parse GGUF");
-        let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data).unwrap();
+        let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data).expect("transformer");
 
         // Output norm weight should be hidden_dim size
         assert_eq!(transformer.output_norm_weight.len(), 64);
@@ -191,7 +191,7 @@ mod tests {
     fn test_quantized_transformer_lm_head() {
         let gguf_data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
         let model = GGUFModel::from_bytes(&gguf_data).expect("Failed to parse GGUF");
-        let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data).unwrap();
+        let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data).expect("transformer");
 
         // LM head should have elements (may use tied embeddings with F32 type 0)
         assert!(transformer.lm_head_weight.num_elements > 0);
@@ -203,7 +203,7 @@ mod tests {
     fn test_quantized_transformer_layer_attn_norm() {
         let gguf_data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
         let model = GGUFModel::from_bytes(&gguf_data).expect("Failed to parse GGUF");
-        let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data).unwrap();
+        let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data).expect("transformer");
 
         let layer = &transformer.layers[0];
         assert_eq!(layer.attn_norm_weight.len(), 64);
@@ -213,7 +213,7 @@ mod tests {
     fn test_quantized_transformer_layer_qkv() {
         let gguf_data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
         let model = GGUFModel::from_bytes(&gguf_data).expect("Failed to parse GGUF");
-        let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data).unwrap();
+        let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data).expect("transformer");
 
         let layer = &transformer.layers[0];
         // QKV should be either fused or separate
@@ -233,7 +233,7 @@ mod tests {
     fn test_quantized_transformer_layer_ffn() {
         let gguf_data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
         let model = GGUFModel::from_bytes(&gguf_data).expect("Failed to parse GGUF");
-        let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data).unwrap();
+        let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data).expect("transformer");
 
         let layer = &transformer.layers[0];
         assert!(layer.ffn_up_weight.num_elements > 0);
@@ -244,7 +244,7 @@ mod tests {
     fn test_quantized_transformer_has_data_ref() {
         let gguf_data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
         let model = GGUFModel::from_bytes(&gguf_data).expect("Failed to parse GGUF");
-        let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data).unwrap();
+        let transformer = QuantizedGGUFTransformer::from_gguf(&model, &gguf_data).expect("transformer");
 
         // The data reference should point to the original data
         assert!(!transformer.data.is_empty());

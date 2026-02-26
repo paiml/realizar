@@ -399,7 +399,7 @@
             loaded: false,
         };
         assert!(response.lineage.is_some());
-        let lineage = response.lineage.unwrap();
+        let lineage = response.lineage.expect("lineage");
         assert_eq!(lineage.version, "1.0.0");
     }
 

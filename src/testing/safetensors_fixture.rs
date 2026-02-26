@@ -131,7 +131,7 @@ mod tests {
     #[test]
     fn test_gguf_to_apr_conversion() {
         let gguf = GgufFixture::tiny_gqa();
-        let apr = gguf.convert_to(ModelFormat::APR).unwrap();
+        let apr = gguf.convert_to(ModelFormat::APR).expect("apr");
 
         assert_eq!(apr.format(), ModelFormat::APR);
         assert_eq!(apr.config().num_heads, gguf.config().num_heads);
@@ -141,8 +141,8 @@ mod tests {
     #[test]
     fn test_gguf_round_trip() {
         let original = GgufFixture::tiny_gqa();
-        let apr = original.convert_to(ModelFormat::APR).unwrap();
-        let back = apr.convert_to(ModelFormat::GGUF).unwrap();
+        let apr = original.convert_to(ModelFormat::APR).expect("apr");
+        let back = apr.convert_to(ModelFormat::GGUF).expect("back");
 
         assert_eq!(back.config().num_heads, original.config().num_heads);
         assert_eq!(back.config().num_kv_heads, original.config().num_kv_heads);
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn test_fixture_serialization() {
         let gguf = GgufFixture::tiny_gqa();
-        let bytes = gguf.to_bytes().unwrap();
+        let bytes = gguf.to_bytes().expect("bytes");
 
         // Should start with GGUF magic
         assert_eq!(&bytes[0..4], b"GGUF");
@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn test_apr_serialization() {
         let apr = AprFixture::tiny_gqa();
-        let bytes = apr.to_bytes().unwrap();
+        let bytes = apr.to_bytes().expect("bytes");
 
         // Should start with APR magic
         assert_eq!(&bytes[0..4], b"APR\x02");
@@ -178,7 +178,7 @@ mod tests {
     fn test_forward_output_size() {
         let fixture = GgufFixture::tiny_gqa();
         let tokens = vec![1, 2, 3];
-        let output = fixture.forward(Device::Cpu, &tokens).unwrap();
+        let output = fixture.forward(Device::Cpu, &tokens).expect("output");
 
         assert_eq!(output.len(), fixture.config().vocab_size);
     }
@@ -186,7 +186,7 @@ mod tests {
     #[test]
     fn test_embed_output_size() {
         let fixture = GgufFixture::tiny_gqa();
-        let embedding = fixture.embed(Device::Cpu, 42).unwrap();
+        let embedding = fixture.embed(Device::Cpu, 42).expect("embedding");
 
         assert_eq!(embedding.len(), fixture.config().hidden_dim);
     }
@@ -195,10 +195,10 @@ mod tests {
     fn test_create_fixture_dispatch() {
         let input = ConstructorInput::new(ModelConfig::tiny());
 
-        let gguf = create_fixture(ModelFormat::GGUF, &input).unwrap();
+        let gguf = create_fixture(ModelFormat::GGUF, &input).expect("gguf");
         assert_eq!(gguf.format(), ModelFormat::GGUF);
 
-        let apr = create_fixture(ModelFormat::APR, &input).unwrap();
+        let apr = create_fixture(ModelFormat::APR, &input).expect("apr");
         assert_eq!(apr.format(), ModelFormat::APR);
     }
 
@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn test_gguf_to_safetensors_conversion() {
         let gguf = GgufFixture::tiny_gqa();
-        let st = gguf.convert_to(ModelFormat::Safetensors).unwrap();
+        let st = gguf.convert_to(ModelFormat::Safetensors).expect("st");
         assert_eq!(st.format(), ModelFormat::Safetensors);
     }
 
@@ -250,24 +250,24 @@ mod tests {
     #[test]
     fn test_clone_conversions() {
         let gguf = GgufFixture::tiny_gqa();
-        let gguf2 = gguf.convert_to(ModelFormat::GGUF).unwrap();
+        let gguf2 = gguf.convert_to(ModelFormat::GGUF).expect("gguf2");
         assert_eq!(gguf2.format(), ModelFormat::GGUF);
 
         let apr = AprFixture::tiny_gqa();
-        let apr2 = apr.convert_to(ModelFormat::APR).unwrap();
+        let apr2 = apr.convert_to(ModelFormat::APR).expect("apr2");
         assert_eq!(apr2.format(), ModelFormat::APR);
 
         let st = SafetensorsFixture::tiny();
-        let st2 = st.convert_to(ModelFormat::Safetensors).unwrap();
+        let st2 = st.convert_to(ModelFormat::Safetensors).expect("st2");
         assert_eq!(st2.format(), ModelFormat::Safetensors);
     }
 
     #[test]
     fn test_safetensors_serialization() {
         let st = SafetensorsFixture::tiny();
-        let bytes = st.to_bytes().unwrap();
+        let bytes = st.to_bytes().expect("bytes");
         assert!(bytes.len() > 8);
-        let header_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
+        let header_len = u64::from_le_bytes(bytes[0..8].try_into().expect("header_len"));
         assert!(header_len > 0);
     }
 
@@ -280,7 +280,7 @@ mod tests {
     #[test]
     fn test_apr_to_safetensors_conversion() {
         let apr = AprFixture::tiny_gqa();
-        let st = apr.convert_to(ModelFormat::Safetensors).unwrap();
+        let st = apr.convert_to(ModelFormat::Safetensors).expect("st");
         assert_eq!(st.format(), ModelFormat::Safetensors);
     }
 }

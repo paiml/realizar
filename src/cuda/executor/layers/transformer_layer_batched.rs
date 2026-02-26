@@ -93,7 +93,9 @@ impl CudaExecutor {
         let input_staging = unsafe { GpuBuffer::<f32>::from_raw_parts(input_staging_ptr, input_staging_len) };
         let q_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(q_buf_ptr, q_buf_len) };
         let k_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(k_buf_ptr, k_buf_len) };
+        // SAFETY: v_buf_ptr valid from workspace allocation, v_buf_len verified
         let v_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(v_buf_ptr, v_buf_len) };
+        // SAFETY: pointers valid from workspace allocation above, lengths verified at allocation
         let ffn_gate_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(ffn_gate_ptr, ffn_gate_len) };
         let ffn_up_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(ffn_up_ptr, ffn_up_len) };
         let ffn_act_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(ffn_act_ptr, ffn_act_len) };

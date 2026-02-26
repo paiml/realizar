@@ -42,13 +42,13 @@ mod tests {
 
     #[test]
     fn test_cli_parse_info_command() {
-        let cli = Cli::try_parse_from(["realizar", "info"]).unwrap();
+        let cli = Cli::try_parse_from(["realizar", "info"]).expect("cli");
         assert!(matches!(cli.command, Commands::Info));
     }
 
     #[test]
     fn test_cli_parse_run_command() {
-        let cli = Cli::try_parse_from(["realizar", "run", "model.gguf", "hello"]).unwrap();
+        let cli = Cli::try_parse_from(["realizar", "run", "model.gguf", "hello"]).expect("cli");
         match cli.command {
             Commands::Run { model, prompt, .. } => {
                 assert_eq!(model, "model.gguf");
@@ -60,7 +60,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_serve_demo() {
-        let cli = Cli::try_parse_from(["realizar", "serve", "--demo"]).unwrap();
+        let cli = Cli::try_parse_from(["realizar", "serve", "--demo"]).expect("cli");
         match cli.command {
             Commands::Serve { demo, .. } => {
                 assert!(demo);
@@ -72,7 +72,7 @@ mod tests {
     #[test]
     fn test_cli_parse_serve_with_model() {
         let cli =
-            Cli::try_parse_from(["realizar", "serve", "--model", "test.gguf", "--gpu"]).unwrap();
+            Cli::try_parse_from(["realizar", "serve", "--model", "test.gguf", "--gpu"]).expect("expected value");
         match cli.command {
             Commands::Serve { model, gpu, .. } => {
                 assert_eq!(model, Some("test.gguf".to_string()));
@@ -84,7 +84,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_list_json() {
-        let cli = Cli::try_parse_from(["realizar", "list", "--format", "json"]).unwrap();
+        let cli = Cli::try_parse_from(["realizar", "list", "--format", "json"]).expect("cli");
         match cli.command {
             Commands::List { format, .. } => {
                 assert_eq!(format, "json");
@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_bench_list() {
-        let cli = Cli::try_parse_from(["realizar", "bench", "--list"]).unwrap();
+        let cli = Cli::try_parse_from(["realizar", "bench", "--list"]).expect("cli");
         match cli.command {
             Commands::Bench { list, .. } => {
                 assert!(list);
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn test_cli_parse_viz() {
-        let cli = Cli::try_parse_from(["realizar", "viz", "--color", "--samples", "50"]).unwrap();
+        let cli = Cli::try_parse_from(["realizar", "viz", "--color", "--samples", "50"]).expect("cli");
         match cli.command {
             Commands::Viz { color, samples } => {
                 assert!(color);
@@ -159,7 +159,7 @@ mod tests {
     fn test_parse_trace_config_enabled() {
         let result = parse_trace_config(Some(None));
         assert!(result.is_some());
-        let config = result.unwrap();
+        let config = result.expect("config");
         assert!(config.verbose);
     }
 
@@ -167,7 +167,7 @@ mod tests {
     fn test_parse_trace_config_with_steps() {
         let result = parse_trace_config(Some(Some("attention,ffn".to_string())));
         assert!(result.is_some());
-        let config = result.unwrap();
+        let config = result.expect("config");
         assert!(config.verbose);
     }
 

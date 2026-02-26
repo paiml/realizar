@@ -20,14 +20,14 @@ mod tests {
 
         // Test GELU with hidden_dim sized tensor
         let input = vec![0.5f32; config.hidden_dim];
-        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).expect("input_buf");
         let output_buf = exec
             .gelu_async(&input_buf, config.hidden_dim as u32)
-            .unwrap();
+            .expect("expected value");
 
-        exec.stream.synchronize().unwrap();
+        exec.stream.synchronize().expect("synchronize");
         let mut output = vec![0.0f32; config.hidden_dim];
-        output_buf.copy_to_host(&mut output).unwrap();
+        output_buf.copy_to_host(&mut output).expect("copy_to_host");
 
         // GELU(0.5) ≈ 0.345
         assert!(
@@ -51,8 +51,8 @@ mod tests {
         let total_dim = config.num_heads * config.head_dim;
         let input = vec![1.0f32; total_dim];
 
-        let buf_input = GpuBuffer::from_host(&exec.context, &input).unwrap();
-        let buf_output = GpuBuffer::new(&exec.context, total_dim).unwrap();
+        let buf_input = GpuBuffer::from_host(&exec.context, &input).expect("buf_input");
+        let buf_output = GpuBuffer::new(&exec.context, total_dim).expect("buf_output");
 
         // Apply RoPE at position 0
         let result = exec.rope_into(
@@ -81,15 +81,15 @@ mod tests {
         let gate = vec![1.0f32; config.intermediate_dim];
         let up = vec![2.0f32; config.intermediate_dim];
 
-        let buf_gate = GpuBuffer::from_host(&exec.context, &gate).unwrap();
-        let buf_up = GpuBuffer::from_host(&exec.context, &up).unwrap();
+        let buf_gate = GpuBuffer::from_host(&exec.context, &gate).expect("buf_gate");
+        let buf_up = GpuBuffer::from_host(&exec.context, &up).expect("buf_up");
         let output_buf = exec
             .fused_swiglu_gpu(&buf_gate, &buf_up, config.intermediate_dim as u32)
-            .unwrap();
+            .expect("expected value");
 
-        exec.stream.synchronize().unwrap();
+        exec.stream.synchronize().expect("synchronize");
         let mut output = vec![0.0f32; config.intermediate_dim];
-        output_buf.copy_to_host(&mut output).unwrap();
+        output_buf.copy_to_host(&mut output).expect("copy_to_host");
 
         // SwiGLU = SiLU(gate) * up ≈ 0.731 * 2 = 1.462
         assert!((output[0] - 1.462).abs() < 0.05);
@@ -109,15 +109,15 @@ mod tests {
         let output_data = vec![1.0f32; config.hidden_dim];
         let input_data = vec![10.0f32; config.hidden_dim];
 
-        let buf_output = GpuBuffer::from_host(&exec.context, &output_data).unwrap();
-        let buf_input = GpuBuffer::from_host(&exec.context, &input_data).unwrap();
+        let buf_output = GpuBuffer::from_host(&exec.context, &output_data).expect("buf_output");
+        let buf_input = GpuBuffer::from_host(&exec.context, &input_data).expect("buf_input");
 
         exec.add_residual_gpu(&buf_output, &buf_input, config.hidden_dim as u32)
-            .unwrap();
+            .expect("expected value");
 
-        exec.stream.synchronize().unwrap();
+        exec.stream.synchronize().expect("synchronize");
         let mut result = vec![0.0f32; config.hidden_dim];
-        buf_output.copy_to_host(&mut result).unwrap();
+        buf_output.copy_to_host(&mut result).expect("copy_to_host");
 
         // Expected: 1.0 + 10.0 = 11.0
         assert!((result[0] - 11.0).abs() < 1e-5);
@@ -139,12 +139,12 @@ mod tests {
         let input: Vec<f32> = (0..config.hidden_dim)
             .map(|i| (i as f32 - 2048.0) / 1000.0)
             .collect();
-        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
-        let output_buf = exec.silu_gpu(&input_buf, config.hidden_dim as u32).unwrap();
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).expect("input_buf");
+        let output_buf = exec.silu_gpu(&input_buf, config.hidden_dim as u32).expect("output_buf");
 
-        exec.stream.synchronize().unwrap();
+        exec.stream.synchronize().expect("synchronize");
         let mut output = vec![0.0f32; config.hidden_dim];
-        output_buf.copy_to_host(&mut output).unwrap();
+        output_buf.copy_to_host(&mut output).expect("copy_to_host");
 
         // Verify all values are finite
         for (i, &v) in output.iter().enumerate() {
@@ -166,15 +166,15 @@ mod tests {
         let a = vec![2.0f32; config.hidden_dim];
         let b = vec![3.0f32; config.hidden_dim];
 
-        let buf_a = GpuBuffer::from_host(&exec.context, &a).unwrap();
-        let buf_b = GpuBuffer::from_host(&exec.context, &b).unwrap();
+        let buf_a = GpuBuffer::from_host(&exec.context, &a).expect("buf_a");
+        let buf_b = GpuBuffer::from_host(&exec.context, &b).expect("buf_b");
         let output_buf = exec
             .elementwise_mul_gpu(&buf_a, &buf_b, config.hidden_dim as u32)
-            .unwrap();
+            .expect("expected value");
 
-        exec.stream.synchronize().unwrap();
+        exec.stream.synchronize().expect("synchronize");
         let mut output = vec![0.0f32; config.hidden_dim];
-        output_buf.copy_to_host(&mut output).unwrap();
+        output_buf.copy_to_host(&mut output).expect("copy_to_host");
 
         // 2.0 * 3.0 = 6.0
         assert!((output[0] - 6.0).abs() < 1e-5);
@@ -239,11 +239,11 @@ mod tests {
         let w_up_data = vec![0u8; weight_bytes];
 
         // Upload to GPU
-        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
-        let gamma_buf = GpuBuffer::from_host(&exec.context, &gamma).unwrap();
-        let w_gate_buf = GpuBuffer::from_host(&exec.context, &w_gate_data).unwrap();
-        let w_up_buf = GpuBuffer::from_host(&exec.context, &w_up_data).unwrap();
-        let output_buf = GpuBuffer::<f32>::new(&exec.context, intermediate_size as usize).unwrap();
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).expect("input_buf");
+        let gamma_buf = GpuBuffer::from_host(&exec.context, &gamma).expect("gamma_buf");
+        let w_gate_buf = GpuBuffer::from_host(&exec.context, &w_gate_data).expect("w_gate_buf");
+        let w_up_buf = GpuBuffer::from_host(&exec.context, &w_up_data).expect("w_up_buf");
+        let output_buf = GpuBuffer::<f32>::new(&exec.context, intermediate_size as usize).expect("output_buf");
 
         // Execute fused kernel
         let result = exec.fused_ffn_rmsnorm_swiglu_q4k_into(
@@ -259,10 +259,10 @@ mod tests {
 
         assert!(result.is_ok(), "Kernel launch should succeed");
 
-        exec.stream.synchronize().unwrap();
+        exec.stream.synchronize().expect("synchronize");
 
         let mut output = vec![0.0f32; intermediate_size as usize];
-        output_buf.copy_to_host(&mut output).unwrap();
+        output_buf.copy_to_host(&mut output).expect("copy_to_host");
 
         // With zero weights, output should be near zero (SwiGLU of zeros)
         // Note: Results may vary based on kernel implementation

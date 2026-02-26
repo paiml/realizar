@@ -19,7 +19,7 @@ mod tests {
         assert!(data.len() >= 10);
 
         // First 8 bytes are header length
-        let header_len = u64::from_le_bytes(data[0..8].try_into().unwrap());
+        let header_len = u64::from_le_bytes(data[0..8].try_into().expect("header_len"));
         assert_eq!(header_len, 2); // "{}"
 
         // Empty SafeTensors is technically valid but format detection
@@ -38,7 +38,7 @@ mod tests {
         assert_eq!(FormatType::from_magic(&data), FormatType::SafeTensors);
 
         // Verify JSON header contains tensor metadata
-        let header_len = u64::from_le_bytes(data[0..8].try_into().unwrap()) as usize;
+        let header_len = u64::from_le_bytes(data[0..8].try_into().expect("header_len")) as usize;
         let json_str = std::str::from_utf8(&data[8..8 + header_len]).expect("valid UTF-8");
         assert!(json_str.contains("test.weight"));
         assert!(json_str.contains("F32"));
@@ -50,7 +50,7 @@ mod tests {
 
         assert_eq!(FormatType::from_magic(&data), FormatType::SafeTensors);
 
-        let header_len = u64::from_le_bytes(data[0..8].try_into().unwrap()) as usize;
+        let header_len = u64::from_le_bytes(data[0..8].try_into().expect("header_len")) as usize;
         let json_str = std::str::from_utf8(&data[8..8 + header_len]).expect("valid UTF-8");
         assert!(json_str.contains("model.embed_tokens.weight"));
         assert!(json_str.contains("model.norm.weight"));
@@ -99,7 +99,7 @@ mod tests {
         assert_eq!(FormatType::from_magic(&data), FormatType::Apr);
 
         // Verify tensor count in header
-        let tensor_count = u32::from_le_bytes(data[8..12].try_into().unwrap());
+        let tensor_count = u32::from_le_bytes(data[8..12].try_into().expect("tensor_count"));
         assert_eq!(tensor_count, 1);
     }
 
@@ -110,7 +110,7 @@ mod tests {
         assert_eq!(FormatType::from_magic(&data), FormatType::Apr);
 
         // Verify tensor count
-        let tensor_count = u32::from_le_bytes(data[8..12].try_into().unwrap());
+        let tensor_count = u32::from_le_bytes(data[8..12].try_into().expect("tensor_count"));
         assert_eq!(tensor_count, 2); // embed + norm
     }
 

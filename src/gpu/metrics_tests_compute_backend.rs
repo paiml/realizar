@@ -75,7 +75,7 @@ fn test_async_gpu_result_set_result_overwrites() {
     let mut result = AsyncGpuResult::ready(vec![1.0, 2.0]);
     result.set_result(vec![3.0, 4.0, 5.0]);
     assert!(result.is_ready());
-    assert_eq!(result.try_get().unwrap(), &vec![3.0, 4.0, 5.0]);
+    assert_eq!(result.try_get().expect("try_get"), &vec![3.0, 4.0, 5.0]);
 }
 
 // =============================================================================

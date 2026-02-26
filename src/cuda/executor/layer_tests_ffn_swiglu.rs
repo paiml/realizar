@@ -17,7 +17,7 @@ mod tests {
         let Some(mut exec) = create_executor() else {
             return;
         };
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).expect("input");
         let result = exec.fused_ffn_swiglu_gpu(
             &input,
             "nonexistent_gate",
@@ -34,7 +34,7 @@ mod tests {
         let Some(mut exec) = create_executor() else {
             return;
         };
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).expect("input");
         let result = exec.fused_ffn_swiglu_gpu_true_dp4a(
             &input,
             "nonexistent_gate",
@@ -51,7 +51,7 @@ mod tests {
         let Some(mut exec) = create_executor() else {
             return;
         };
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).expect("input");
         // Using zero pointers will fail kernel but tests function interface
         let result = exec.fused_ffn_swiglu_indexed_gpu(&input, 0, 0, 0, 256, 512);
         let _ = result;
@@ -85,7 +85,7 @@ mod tests {
         let Some(mut exec) = create_executor() else {
             return;
         };
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).expect("input");
         // Using zero pointers will fail kernel but tests function interface
         let result = exec.fused_ffn_swiglu_indexed_gpu(&input, 0, 0, 0, 256, 512);
         let _ = result;
@@ -307,7 +307,7 @@ mod tests {
             return;
         }
 
-        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).expect("input");
         // Now we have weights loaded - use indexed pointers from layer 0
         let layer_weights = &exec.indexed_layer_weights[0];
         let result = exec.fused_ffn_swiglu_indexed_gpu(

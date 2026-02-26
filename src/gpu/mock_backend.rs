@@ -11,7 +11,7 @@
 //! use realizar::gpu::backend::ComputeBackend;
 //!
 //! // Create mock backend (always succeeds)
-//! let mut backend = MockBackend::new(0).unwrap();
+//! let mut backend = MockBackend::new(0).expect("backend");
 //!
 //! // Load weights (stored in CPU memory)
 //! backend.load_weights("layer0.weight", &weights)?;

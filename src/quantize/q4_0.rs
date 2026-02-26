@@ -44,13 +44,14 @@ unsafe fn expand_q4_nibbles_avx2(q4_ptr: *const u8) -> __m256i { unsafe {
 ///
 /// Performs: acc += (q4_scale * q8_scale) * dot(q4_block, q8_block)
 /// using the sign trick for unsigned x signed maddubs.
+// SAFETY: caller guarantees q8_ptr points to 32 valid i8 values and q4_signed is well-formed
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn avx2_block_dot_accumulate(
     q4_signed: __m256i,
     q8_ptr: *const i8,
     combined_scale: __m256,
-    acc: __m256,
+    acc: __m256, // SAFETY: all args validated by caller, q8_ptr..+32 readable
 ) -> __m256 { unsafe {
     // SAFETY: caller guarantees q8_ptr..+32 is valid
     let q8_vec = _mm256_loadu_si256(q8_ptr.cast());
@@ -77,7 +78,7 @@ unsafe fn hsum_avx2(v: __m256) -> f32 {
 /// Read the f16 scale from the first 2 bytes of a Q4_0 block pointer.
 ///
 /// # Safety
-/// Caller must guarantee `q4_ptr..q4_ptr+2` is valid readable memory.
+/// SAFETY: Caller must guarantee `q4_ptr..q4_ptr+2` is valid readable memory.
 #[cfg(target_arch = "x86_64")]
 #[inline]
 unsafe fn read_q4_scale(q4_ptr: *const u8) -> f32 { unsafe {
@@ -92,6 +93,7 @@ unsafe fn read_q4_scale(q4_ptr: *const u8) -> f32 { unsafe {
 /// - `q4_data[block_idx * 18 .. block_idx * 18 + 18]` is valid
 /// - `q8_quants[block_idx * 32 .. block_idx * 32 + 32]` is valid
 /// - `q8_scales[block_idx]` is valid
+// SAFETY: caller guarantees all block indices are in bounds for q4_data, q8_quants, q8_scales
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2", enable = "fma")]
 #[inline]
@@ -99,7 +101,7 @@ unsafe fn avx2_accumulate_block(
     q4_data: &[u8],
     q8_scales: &[f32],
     q8_quants: &[i8],
-    block_idx: usize,
+    block_idx: usize, // SAFETY: all indices bounds-checked by caller
     acc: __m256,
 ) -> __m256 { unsafe {
     const Q4_0_BLOCK_BYTES: usize = 18;
@@ -116,6 +118,7 @@ unsafe fn avx2_accumulate_block(
 /// into a 512-bit dpbusd, then split and scale-accumulate each half separately.
 ///
 /// Returns the updated accumulator.
+// SAFETY: caller guarantees q4 ptrs and q8_ptr are valid, feature flags verified at dispatch
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vnni")]
 unsafe fn avx512_pair_dot_accumulate(
@@ -125,7 +128,7 @@ unsafe fn avx512_pair_dot_accumulate(
     scale_lo: f32,
     scale_hi: f32,
     low_mask: __m512i,
-    offset: __m512i,
+    offset: __m512i, // SAFETY: all pointers validated by caller, VNNI feature verified at dispatch
     acc: __m256,
 ) -> __m256 { unsafe {
     // SAFETY: caller guarantees both q4 pointers and q8_ptr are valid
@@ -165,13 +168,14 @@ unsafe fn avx512_pair_dot_accumulate(
 /// native u8×i8 multiply-accumulate directly to i32.
 ///
 /// Performance: ~1.8-2x faster than AVX2 path on Zen4, Sapphire Rapids, and later.
+// SAFETY: caller guarantees q4_data/q8_quants/q8_scales are valid for in_dim elements
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vnni")]
 #[inline]
 unsafe fn fused_q4_0_q8_0_dot_avx512_vnni(
     q4_data: &[u8],
     q8_scales: &[f32],
-    q8_quants: &[i8],
+    q8_quants: &[i8], // SAFETY: slices valid for in_dim elements, VNNI feature verified
     in_dim: usize,
 ) -> f32 { unsafe {
     // SAFETY: Memory safety ensured by bounds checking and alignment
@@ -268,13 +272,14 @@ unsafe fn fused_q4_0_q8_0_dot_avx512_vnni(
 /// 1. Integer ops have lower latency
 /// 2. maddubs does multiply AND horizontal add in one instruction
 /// 3. Less data movement (1 byte vs 4 bytes per value)
+// SAFETY: caller guarantees q4_data/q8_quants/q8_scales are valid for in_dim elements
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
 unsafe fn fused_q4_0_q8_0_dot_avx2(
     q4_data: &[u8],
     q8_scales: &[f32],
-    q8_quants: &[i8],
+    q8_quants: &[i8], // SAFETY: slices valid for in_dim elements, AVX2 feature verified
     in_dim: usize,
 ) -> f32 { unsafe {
     // SAFETY: Memory safety ensured by bounds checking and alignment

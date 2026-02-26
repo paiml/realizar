@@ -242,6 +242,7 @@ impl CudaExecutor {
                     "[GQA-DEBUG-L0] K BEFORE bias: first 5 = {:?}",
                     &k_pre[..5.min(k_pre.len())]
                 );
+                // SAFETY: bias ptr/len from validated layer_weights, GPU memory pre-allocated
                 let k_bias_buf_check = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         layer_weights.attn_k_bias_ptr,

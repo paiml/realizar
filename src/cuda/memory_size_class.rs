@@ -12,19 +12,19 @@
 
     #[test]
     fn test_size_class_for_size_exact_match() {
-        let class = SizeClass::for_size(4096).unwrap();
+        let class = SizeClass::for_size(4096).expect("class");
         assert_eq!(class.bytes(), 4096);
     }
 
     #[test]
     fn test_size_class_for_size_rounds_up() {
-        let class = SizeClass::for_size(5000).unwrap();
+        let class = SizeClass::for_size(5000).expect("class");
         assert_eq!(class.bytes(), 16384); // 16 KB
     }
 
     #[test]
     fn test_size_class_for_size_smallest() {
-        let class = SizeClass::for_size(1).unwrap();
+        let class = SizeClass::for_size(1).expect("class");
         assert_eq!(class.bytes(), 4096); // 4 KB minimum
     }
 
@@ -36,7 +36,7 @@
 
     #[test]
     fn test_size_class_for_size_zero() {
-        let class = SizeClass::for_size(0).unwrap();
+        let class = SizeClass::for_size(0).expect("class");
         assert_eq!(class.bytes(), 4096); // 4 KB minimum
     }
 
@@ -140,7 +140,7 @@
 
         let result = pool.try_get(4096);
         assert!(result.is_some());
-        let retrieved = result.unwrap();
+        let retrieved = result.expect("retrieved");
         assert_eq!(retrieved.size, 4096);
         assert!(retrieved.in_use);
         assert_eq!(pool.stats().pool_hits, 1);

@@ -5,14 +5,14 @@ mod tests {
 
     #[test]
     fn test_alibi_get_bias_shape() {
-        let alibi = ALiBi::new(4).unwrap();
-        let bias = alibi.get_bias(8).unwrap();
+        let alibi = ALiBi::new(4).expect("alibi");
+        let bias = alibi.get_bias(8).expect("bias");
         assert_eq!(bias.shape(), &[8, 8, 4]);
     }
 
     #[test]
     fn test_alibi_get_bias_zero_seq_error() {
-        let alibi = ALiBi::new(4).unwrap();
+        let alibi = ALiBi::new(4).expect("alibi");
         let result = alibi.get_bias(0);
         assert!(result.is_err());
         assert!(result
@@ -23,8 +23,8 @@ mod tests {
 
     #[test]
     fn test_alibi_get_bias_diagonal_is_zero() {
-        let alibi = ALiBi::new(2).unwrap();
-        let bias = alibi.get_bias(3).unwrap();
+        let alibi = ALiBi::new(2).expect("alibi");
+        let bias = alibi.get_bias(3).expect("bias");
         let data = bias.data();
         // At (i, i), distance = 0, so bias = 0
         // Bias is [seq_len, seq_len, num_heads], linearized as [i][j][h]
@@ -38,8 +38,8 @@ mod tests {
 
     #[test]
     fn test_alibi_get_bias_values() {
-        let alibi = ALiBi::new(1).unwrap();
-        let bias = alibi.get_bias(3).unwrap();
+        let alibi = ALiBi::new(1).expect("alibi");
+        let bias = alibi.get_bias(3).expect("bias");
         let data = bias.data();
         let slope = alibi.slopes()[0];
         // With 1 head: bias[i,j,0] = -slope * |i-j|
@@ -56,8 +56,8 @@ mod tests {
 
     #[test]
     fn test_alibi_bias_symmetry() {
-        let alibi = ALiBi::new(2).unwrap();
-        let bias = alibi.get_bias(4).unwrap();
+        let alibi = ALiBi::new(2).expect("alibi");
+        let bias = alibi.get_bias(4).expect("bias");
         let data = bias.data();
         // bias[i,j,h] should have |bias[i,j,h]| == |bias[j,i,h]|
         // Since we use |i-j|, bias[i,j,h] == bias[j,i,h] (both negative)
@@ -74,7 +74,7 @@ mod tests {
 
     #[test]
     fn test_alibi_clone() {
-        let alibi = ALiBi::new(4).unwrap();
+        let alibi = ALiBi::new(4).expect("alibi");
         let cloned = alibi.clone();
         assert_eq!(alibi.num_heads(), cloned.num_heads());
         assert_eq!(alibi.slopes(), cloned.slopes());
@@ -82,8 +82,8 @@ mod tests {
 
     #[test]
     fn test_alibi_large_seq_len() {
-        let alibi = ALiBi::new(8).unwrap();
-        let bias = alibi.get_bias(256).unwrap();
+        let alibi = ALiBi::new(8).expect("alibi");
+        let bias = alibi.get_bias(256).expect("bias");
         assert_eq!(bias.shape(), &[256, 256, 8]);
         // Check a corner case: (0, 255) should be -slope * 255
         let data = bias.data();
@@ -97,7 +97,7 @@ mod tests {
         // For 6 heads: closest power of 2 is 4
         // First 4 slopes: 2^(-8h/4) = 2^(-2h) for h=0..4
         // Extra 2 slopes: 2^(-(2h+1)*4/4) = 2^(-2h-1) for h=0..2
-        let alibi = ALiBi::new(6).unwrap();
+        let alibi = ALiBi::new(6).expect("alibi");
         let slopes = alibi.slopes();
         assert_eq!(slopes.len(), 6);
         // First 4: [1.0, 0.25, 0.0625, 0.015625]

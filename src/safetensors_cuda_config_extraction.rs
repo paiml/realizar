@@ -27,7 +27,7 @@ mod tests {
             tie_word_embeddings: Some(true), // F-GT-002: Qwen2 uses tied embeddings
         };
 
-        let config = SafeTensorsCudaModel::extract_config(&json).unwrap();
+        let config = SafeTensorsCudaModel::extract_config(&json).expect("config");
         assert_eq!(config.hidden_dim, 1536);
         assert_eq!(config.num_layers, 28);
         assert_eq!(config.num_heads, 12);
@@ -59,7 +59,7 @@ mod tests {
             tie_word_embeddings: None, // Will default to false
         };
 
-        let config = SafeTensorsCudaModel::extract_config(&json).unwrap();
+        let config = SafeTensorsCudaModel::extract_config(&json).expect("config");
         assert_eq!(config.hidden_dim, 768);
         assert_eq!(config.intermediate_dim, 768 * 4); // Default
         assert_eq!(config.context_length, 2048); // Default

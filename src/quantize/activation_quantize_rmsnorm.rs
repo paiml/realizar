@@ -157,7 +157,7 @@
             fused_rmsnorm_q4_0_matmul(&input, &norm_weight, 1e-5, &weight_data, in_dim, out_dim);
 
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert_eq!(output.len(), out_dim);
     }
 
@@ -226,7 +226,7 @@
         );
 
         assert!(result.is_ok());
-        let (up, gate) = result.unwrap();
+        let (up, gate) = result.expect("expected value");
         assert_eq!(up.len(), out_dim);
         assert_eq!(gate.len(), out_dim);
     }
@@ -473,8 +473,8 @@
         let input_argmax = original
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("expected value"))
+            .expect("expected value")
             .0;
 
         let mut x = original;
@@ -482,8 +482,8 @@
         let output_argmax = x
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("expected value"))
+            .expect("expected value")
             .0;
 
         assert_eq!(
@@ -718,11 +718,11 @@
                 }
 
                 let input_argmax = logits.iter().enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0;
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("expected value")).expect("expected value").0;
                 let mut x = logits;
                 softmax_simd(&mut x);
                 let output_argmax = x.iter().enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0;
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("expected value")).expect("expected value").0;
                 prop_assert_eq!(
                     input_argmax, output_argmax,
                     "FALSIFIED SM-003-prop: argmax {} -> {}", input_argmax, output_argmax

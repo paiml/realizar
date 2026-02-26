@@ -62,7 +62,7 @@ mod tests {
 
     #[test]
     fn test_dequantize_q4_0_empty() {
-        let result = dequantize_q4_0(&[]).unwrap();
+        let result = dequantize_q4_0(&[]).expect("result");
         assert!(result.is_empty());
     }
 
@@ -76,7 +76,7 @@ mod tests {
     fn test_dequantize_q4_0_zeros() {
         // One block: 2 (scale) + 16 (quants) = 18 bytes
         let data = vec![0u8; 18];
-        let result = dequantize_q4_0(&data).unwrap();
+        let result = dequantize_q4_0(&data).expect("result");
         assert_eq!(result.len(), 32);
         // With scale=0, all values should be 0 (or close due to -8 offset)
     }
@@ -87,7 +87,7 @@ mod tests {
         let mut data = vec![0u8; 18];
         data[0] = 0x00;
         data[1] = 0x3C; // f16 for 1.0
-        let result = dequantize_q4_0(&data).unwrap();
+        let result = dequantize_q4_0(&data).expect("result");
         assert_eq!(result.len(), 32);
     }
 
@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn test_dequantize_q8_0_empty() {
-        let result = dequantize_q8_0(&[]).unwrap();
+        let result = dequantize_q8_0(&[]).expect("result");
         assert!(result.is_empty());
     }
 
@@ -111,7 +111,7 @@ mod tests {
     fn test_dequantize_q8_0_zeros() {
         // One block: 2 (scale) + 32 (quants) = 34 bytes
         let data = vec![0u8; 34];
-        let result = dequantize_q8_0(&data).unwrap();
+        let result = dequantize_q8_0(&data).expect("result");
         assert_eq!(result.len(), 32);
         assert!(result.iter().all(|&x| x == 0.0));
     }
@@ -124,7 +124,7 @@ mod tests {
         data[1] = 0x3C; // f16 for 1.0
                         // quants[0] = 1 (as i8)
         data[2] = 1;
-        let result = dequantize_q8_0(&data).unwrap();
+        let result = dequantize_q8_0(&data).expect("result");
         assert_eq!(result.len(), 32);
         assert!((result[0] - 1.0).abs() < 0.01);
     }
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn test_dequantize_f16_empty() {
-        let result = dequantize_f16(&[]).unwrap();
+        let result = dequantize_f16(&[]).expect("result");
         assert!(result.is_empty());
     }
 
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn test_dequantize_f16_zeros() {
         let data = vec![0u8; 4]; // 2 values
-        let result = dequantize_f16(&data).unwrap();
+        let result = dequantize_f16(&data).expect("result");
         assert_eq!(result.len(), 2);
         assert!(result.iter().all(|&x| x == 0.0));
     }
@@ -157,7 +157,7 @@ mod tests {
     fn test_dequantize_f16_one() {
         // f16 for 1.0 = 0x3C00
         let data = vec![0x00, 0x3C];
-        let result = dequantize_f16(&data).unwrap();
+        let result = dequantize_f16(&data).expect("result");
         assert_eq!(result.len(), 1);
         assert!((result[0] - 1.0).abs() < 0.0001);
     }
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_dequantize_q4_1_empty() {
-        let result = dequantize_q4_1(&[]).unwrap();
+        let result = dequantize_q4_1(&[]).expect("result");
         assert!(result.is_empty());
     }
 
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn test_dequantize_q4_1_zeros() {
         let data = vec![0u8; 20];
-        let result = dequantize_q4_1(&data).unwrap();
+        let result = dequantize_q4_1(&data).expect("result");
         assert_eq!(result.len(), 32);
     }
 
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn test_dequantize_q5_0_empty() {
-        let result = dequantize_q5_0(&[]).unwrap();
+        let result = dequantize_q5_0(&[]).expect("result");
         assert!(result.is_empty());
     }
 
@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn test_dequantize_q5_0_zeros() {
         let data = vec![0u8; 22];
-        let result = dequantize_q5_0(&data).unwrap();
+        let result = dequantize_q5_0(&data).expect("result");
         assert_eq!(result.len(), 32);
     }
 
@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn test_dequantize_q5_1_empty() {
-        let result = dequantize_q5_1(&[]).unwrap();
+        let result = dequantize_q5_1(&[]).expect("result");
         assert!(result.is_empty());
     }
 
@@ -227,7 +227,7 @@ mod tests {
     #[test]
     fn test_dequantize_q5_1_zeros() {
         let data = vec![0u8; 24];
-        let result = dequantize_q5_1(&data).unwrap();
+        let result = dequantize_q5_1(&data).expect("result");
         assert_eq!(result.len(), 32);
     }
 
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_dequantize_q4_k_empty() {
-        let result = dequantize_q4_k(&[]).unwrap();
+        let result = dequantize_q4_k(&[]).expect("result");
         assert!(result.is_empty());
     }
 
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn test_dequantize_q4_k_zeros() {
         let data = vec![0u8; 144]; // One super-block
-        let result = dequantize_q4_k(&data).unwrap();
+        let result = dequantize_q4_k(&data).expect("result");
         assert_eq!(result.len(), QK_K);
     }
 
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn test_dequantize_q5_k_empty() {
-        let result = dequantize_q5_k(&[]).unwrap();
+        let result = dequantize_q5_k(&[]).expect("result");
         assert!(result.is_empty());
     }
 
@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn test_dequantize_q5_k_zeros() {
         let data = vec![0u8; 176]; // One super-block
-        let result = dequantize_q5_k(&data).unwrap();
+        let result = dequantize_q5_k(&data).expect("result");
         assert_eq!(result.len(), QK_K);
     }
 
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn test_dequantize_q6_k_empty() {
-        let result = dequantize_q6_k(&[]).unwrap();
+        let result = dequantize_q6_k(&[]).expect("result");
         assert!(result.is_empty());
     }
 
@@ -296,7 +296,7 @@ mod tests {
     #[test]
     fn test_dequantize_q6_k_zeros() {
         let data = vec![0u8; 210]; // One super-block
-        let result = dequantize_q6_k(&data).unwrap();
+        let result = dequantize_q6_k(&data).expect("result");
         assert_eq!(result.len(), QK_K);
     }
 
@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn test_dequantize_q2_k_empty() {
-        let result = dequantize_q2_k(&[]).unwrap();
+        let result = dequantize_q2_k(&[]).expect("result");
         assert!(result.is_empty());
     }
 
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn test_dequantize_q2_k_zeros() {
         let data = vec![0u8; 84]; // One super-block
-        let result = dequantize_q2_k(&data).unwrap();
+        let result = dequantize_q2_k(&data).expect("result");
         assert_eq!(result.len(), QK_K);
     }
 

@@ -59,6 +59,7 @@ pub(crate) fn simd_dot_f32(a: &[f32], b: &[f32]) -> f32 {
     #[cfg(target_arch = "x86_64")]
     {
         if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") && a.len() >= 8 {
+            // SAFETY: AVX2+FMA verified by is_x86_feature_detected!, len >= 8 checked above
             return unsafe { simd_dot_f32_avx2(a, b) };
         }
     }

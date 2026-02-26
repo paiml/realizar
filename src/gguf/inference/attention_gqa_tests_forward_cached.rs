@@ -26,7 +26,7 @@ fn test_forward_cached_gqa_no_panic() {
             pos
         );
 
-        let logits = result.unwrap();
+        let logits = result.expect("logits");
         assert_eq!(logits.len(), 100, "Should have vocab_size logits");
         assert!(
             logits.iter().all(|x| x.is_finite()),

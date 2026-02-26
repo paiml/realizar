@@ -16,7 +16,7 @@
 //!     let fixture = ModelFixture::gguf("tiny_llama", ModelConfig::tiny());
 //!
 //!     // Use the fixture
-//!     let model = GGUFModel::from_file(fixture.path()).unwrap();
+//!     let model = GGUFModel::from_file(fixture.path()).expect("model");
 //!     assert_eq!(model.architecture(), Some("llama"));
 //!
 //!     // Teardown: automatic on Drop

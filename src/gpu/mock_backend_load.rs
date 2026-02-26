@@ -20,7 +20,7 @@ mod tests {
         let mut backend = MockBackend::new_mock();
         let weights = vec![1.0, 2.0, 3.0, 4.0];
 
-        let handle = backend.load_weights("test", &weights).unwrap();
+        let handle = backend.load_weights("test", &weights).expect("handle");
 
         assert_eq!(handle, 4);
         assert!(backend.has_weights("test"));
@@ -34,7 +34,7 @@ mod tests {
         let mut backend = MockBackend::new_mock();
         let data = vec![0u8, 1, 2, 3, 4, 5, 6, 7];
 
-        let handle = backend.load_quantized_weights("q4_test", &data, 2).unwrap();
+        let handle = backend.load_quantized_weights("q4_test", &data, 2).expect("handle");
 
         assert_eq!(handle, 8);
         assert!(backend.has_weights("q4_test"));
@@ -45,10 +45,10 @@ mod tests {
     #[test]
     fn test_clear_weights() {
         let mut backend = MockBackend::new_mock();
-        backend.load_weights("test", &[1.0, 2.0]).unwrap();
+        backend.load_weights("test", &[1.0, 2.0]).expect("load_weights");
         backend
             .load_quantized_weights("q_test", &[0u8; 18], 2)
-            .unwrap();
+            .expect("expected value");
 
         assert_eq!(backend.cached_weight_count(), 2);
 
@@ -67,7 +67,7 @@ mod tests {
         let identity = vec![1.0, 0.0, 0.0, 1.0];
         let matrix = vec![1.0, 2.0, 3.0, 4.0];
 
-        let result = backend.matmul(&identity, &matrix, 2, 2, 2).unwrap();
+        let result = backend.matmul(&identity, &matrix, 2, 2, 2).expect("result");
 
         assert_eq!(result, matrix);
     }
@@ -80,7 +80,7 @@ mod tests {
         let a = vec![1.0, 2.0];
         let b = vec![1.0, 2.0];
 
-        let result = backend.matmul(&a, &b, 1, 2, 1).unwrap();
+        let result = backend.matmul(&a, &b, 1, 2, 1).expect("result");
 
         assert_eq!(result.len(), 1);
         assert!((result[0] - 5.0).abs() < 1e-6);
@@ -96,7 +96,7 @@ mod tests {
         let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let b = vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
 
-        let result = backend.matmul(&a, &b, 2, 3, 2).unwrap();
+        let result = backend.matmul(&a, &b, 2, 3, 2).expect("result");
 
         assert_eq!(result.len(), 4);
         assert!((result[0] - 58.0).abs() < 1e-5);
@@ -115,7 +115,7 @@ mod tests {
         let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
         let identity = vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
 
-        let result = backend.matmul(&a, &identity, 3, 3, 3).unwrap();
+        let result = backend.matmul(&a, &identity, 3, 3, 3).expect("result");
 
         for (i, (&expected, &actual)) in a.iter().zip(result.iter()).enumerate() {
             assert!(
@@ -159,13 +159,13 @@ mod tests {
         // Weight: 3x2 matrix stored as [k=3, n=2]
         // [[1, 2], [3, 4], [5, 6]]
         let weight = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        backend.load_weights("w", &weight).unwrap();
+        backend.load_weights("w", &weight).expect("load_weights");
 
         // Input: 1x3 vector (m=1, k=3)
         let x = vec![1.0, 1.0, 1.0];
 
         // y = x @ W = [1*1+1*3+1*5, 1*2+1*4+1*6] = [9, 12]
-        let result = backend.matmul_cached("w", &x, 1, 3, 2).unwrap();
+        let result = backend.matmul_cached("w", &x, 1, 3, 2).expect("result");
 
         assert_eq!(result.len(), 2);
         assert!((result[0] - 9.0).abs() < 1e-6);
@@ -190,12 +190,12 @@ mod tests {
         let q_data = vec![0u8; 256]; // Dummy quantized data
         backend
             .load_quantized_weights("q_weight", &q_data, 3)
-            .unwrap(); // 3 = Q4_K
+            .expect("expected value"); // 3 = Q4_K
 
         let input = vec![1.0f32; 768];
         let result = backend
             .q4k_gemv_cached("q_weight", &input, 3072, 768)
-            .unwrap();
+            .expect("expected value");
 
         assert_eq!(result.len(), 3072);
         // Result should be finite (no NaN/Inf)
@@ -217,13 +217,13 @@ mod tests {
         let backend = MockBackend::new_mock();
 
         // Should always succeed for mock backend
-        backend.synchronize().unwrap();
+        backend.synchronize().expect("synchronize");
     }
 
     #[test]
     fn test_debug_impl() {
         let mut backend = MockBackend::new_mock();
-        backend.load_weights("test", &[1.0, 2.0]).unwrap();
+        backend.load_weights("test", &[1.0, 2.0]).expect("load_weights");
 
         let debug_str = format!("{:?}", backend);
 
@@ -236,9 +236,9 @@ mod tests {
     fn test_multiple_weights() {
         let mut backend = MockBackend::new_mock();
 
-        backend.load_weights("w1", &[1.0, 2.0]).unwrap();
-        backend.load_weights("w2", &[3.0, 4.0]).unwrap();
-        backend.load_quantized_weights("q1", &[0u8; 18], 2).unwrap();
+        backend.load_weights("w1", &[1.0, 2.0]).expect("load_weights");
+        backend.load_weights("w2", &[3.0, 4.0]).expect("load_weights");
+        backend.load_quantized_weights("q1", &[0u8; 18], 2).expect("load_quantized_weights");
 
         assert_eq!(backend.cached_weight_count(), 3);
         assert!(backend.has_weights("w1"));
@@ -250,11 +250,11 @@ mod tests {
     fn test_overwrite_weight() {
         let mut backend = MockBackend::new_mock();
 
-        backend.load_weights("test", &[1.0, 2.0]).unwrap();
+        backend.load_weights("test", &[1.0, 2.0]).expect("load_weights");
         assert_eq!(backend.get_weights("test"), Some(&vec![1.0, 2.0]));
 
         // Overwrite with different values
-        backend.load_weights("test", &[3.0, 4.0, 5.0]).unwrap();
+        backend.load_weights("test", &[3.0, 4.0, 5.0]).expect("load_weights");
         assert_eq!(backend.get_weights("test"), Some(&vec![3.0, 4.0, 5.0]));
 
         // Count should still be 1 (not 2)

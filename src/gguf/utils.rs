@@ -216,7 +216,7 @@ mod tests {
         // Offsets 0..=32 map to bytes 0x00..=0x20
         for offset in 0u32..=32 {
             let cp = 0x0100 + offset;
-            let c = char::from_u32(cp).unwrap();
+            let c = char::from_u32(cp).expect("c");
             assert_eq!(
                 gpt2_unicode_to_byte(c),
                 Some(offset as u8),
@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn test_gpt2_unicode_to_byte_offset_33_is_del() {
         // Offset 33 maps to 0x7F (DEL)
-        let c = char::from_u32(0x0100 + 33).unwrap();
+        let c = char::from_u32(0x0100 + 33).expect("c");
         assert_eq!(gpt2_unicode_to_byte(c), Some(0x7F));
     }
 
@@ -239,7 +239,7 @@ mod tests {
         // Offsets 34..=66 map to 0x80..=0xA0
         for offset in 34u32..=66 {
             let cp = 0x0100 + offset;
-            let c = char::from_u32(cp).unwrap();
+            let c = char::from_u32(cp).expect("c");
             let expected = (0x80 + (offset - 34)) as u8;
             assert_eq!(
                 gpt2_unicode_to_byte(c),
@@ -254,28 +254,28 @@ mod tests {
     #[test]
     fn test_gpt2_unicode_to_byte_offset_67_is_soft_hyphen() {
         // Offset 67 (U+0143) maps to 0xAD (soft hyphen)
-        let c = char::from_u32(0x0100 + 67).unwrap();
+        let c = char::from_u32(0x0100 + 67).expect("c");
         assert_eq!(gpt2_unicode_to_byte(c), Some(0xAD));
     }
 
     #[test]
     fn test_gpt2_unicode_to_byte_boundary_at_0x20() {
         // 0x20 = space = offset 32 (last in the 0..=32 range)
-        let c = char::from_u32(0x0120).unwrap();
+        let c = char::from_u32(0x0120).expect("c");
         assert_eq!(gpt2_unicode_to_byte(c), Some(0x20));
     }
 
     #[test]
     fn test_gpt2_unicode_to_byte_boundary_at_0x80() {
         // 0x80 = offset 34 (first in the 34..=66 range)
-        let c = char::from_u32(0x0122).unwrap();
+        let c = char::from_u32(0x0122).expect("c");
         assert_eq!(gpt2_unicode_to_byte(c), Some(0x80));
     }
 
     #[test]
     fn test_gpt2_unicode_to_byte_boundary_at_0xa0() {
         // 0xA0 = offset 66 (last in the 34..=66 range)
-        let c = char::from_u32(0x0142).unwrap();
+        let c = char::from_u32(0x0142).expect("c");
         assert_eq!(gpt2_unicode_to_byte(c), Some(0xA0));
     }
 

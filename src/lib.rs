@@ -434,7 +434,7 @@ mod tests {
     #[test]
     fn test_tensor_reexport() {
         // Test that Tensor is properly re-exported
-        let t = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+        let t = Tensor::from_vec(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]).expect("t");
         assert_eq!(t.shape(), &[2, 2]);
         assert_eq!(t.ndim(), 2);
         assert_eq!(t.size(), 4);
@@ -455,7 +455,7 @@ mod tests {
         fn test_fn() -> Result<i32> {
             Ok(42)
         }
-        assert_eq!(test_fn().unwrap(), 42);
+        assert_eq!(test_fn().expect("expected value"), 42);
     }
 
     #[test]

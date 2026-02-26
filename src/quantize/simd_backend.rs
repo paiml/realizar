@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn test_interleaved_q4k_empty() {
         let data = vec![];
-        let result = InterleavedQ4K::from_q4k(&data).unwrap();
+        let result = InterleavedQ4K::from_q4k(&data).expect("result");
         assert_eq!(result.num_super_blocks, 0);
         assert_eq!(result.num_values(), 0);
     }
@@ -258,7 +258,7 @@ mod tests {
         // Set dmin = 0.5 (f16 = 0x3800)
         data[2..4].copy_from_slice(&0x3800u16.to_le_bytes());
 
-        let result = InterleavedQ4K::from_q4k(&data).unwrap();
+        let result = InterleavedQ4K::from_q4k(&data).expect("result");
 
         assert_eq!(result.num_super_blocks, 1);
         assert_eq!(result.num_values(), 256);
@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn test_interleaved_q4k_multiple_blocks() {
         let data = vec![0u8; 288]; // 2 super-blocks
-        let result = InterleavedQ4K::from_q4k(&data).unwrap();
+        let result = InterleavedQ4K::from_q4k(&data).expect("result");
 
         assert_eq!(result.num_super_blocks, 2);
         assert_eq!(result.num_values(), 512);

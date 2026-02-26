@@ -259,7 +259,7 @@ mod tests {
     #[test]
     fn test_test_result_l2_norm() {
         let result = TestResult::success("test", vec![3.0, 4.0], 100);
-        let norm = result.output_l2_norm().unwrap();
+        let norm = result.output_l2_norm().expect("norm");
         assert!((norm - 5.0).abs() < 1e-6);
     }
 
@@ -329,7 +329,7 @@ mod tests {
         let result = TestResult::failure("fail test", "error message", 50);
         assert!(!result.passed);
         assert_eq!(result.test_case, "fail test");
-        assert_eq!(result.error.unwrap(), "error message");
+        assert_eq!(result.error.expect("error"), "error message");
         assert!(result.output.is_none());
     }
 

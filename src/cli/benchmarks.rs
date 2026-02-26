@@ -48,18 +48,18 @@
 
     #[test]
     fn test_run_convoy_test_with_output() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("dir");
         let output_path = dir.path().join("convoy_results.json");
         let result = run_convoy_test(None, None, Some(output_path.to_string_lossy().to_string()));
         assert!(result.is_ok());
         assert!(output_path.exists());
-        let contents = std::fs::read_to_string(&output_path).unwrap();
+        let contents = std::fs::read_to_string(&output_path).expect("contents");
         assert!(contents.contains("baseline_short_p99_ms"));
     }
 
     #[test]
     fn test_run_convoy_test_all_args() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("dir");
         let output_path = dir.path().join("convoy_all.json");
         let result = run_convoy_test(
             Some("realizar".to_string()),
@@ -93,13 +93,13 @@
 
     #[test]
     fn test_run_saturation_test_with_output() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("dir");
         let output_path = dir.path().join("saturation_results.json");
         let result =
             run_saturation_test(None, None, Some(output_path.to_string_lossy().to_string()));
         assert!(result.is_ok());
         assert!(output_path.exists());
-        let contents = std::fs::read_to_string(&output_path).unwrap();
+        let contents = std::fs::read_to_string(&output_path).expect("contents");
         assert!(contents.contains("baseline_throughput"));
     }
 
@@ -255,7 +255,7 @@
                 perplexity_wikitext2: Some(5.89),
             },
         };
-        serde_json::to_string_pretty(&result).unwrap()
+        serde_json::to_string_pretty(&result).expect("serialization")
     }
 
     // =========================================================================
@@ -264,13 +264,13 @@
 
     #[test]
     fn test_run_bench_compare_valid_files() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("dir");
         let file1 = dir.path().join("baseline.json");
         let file2 = dir.path().join("current.json");
 
         let json = create_test_benchmark_json("realizar");
-        std::fs::write(&file1, &json).unwrap();
-        std::fs::write(&file2, &json).unwrap();
+        std::fs::write(&file1, &json).expect("expected value");
+        std::fs::write(&file2, &json).expect("expected value");
 
         let result = run_bench_compare(&file1.to_string_lossy(), &file2.to_string_lossy(), 5.0);
         assert!(result.is_ok());
@@ -284,11 +284,11 @@
 
     #[test]
     fn test_run_bench_compare_invalid_json() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("dir");
         let file1 = dir.path().join("bad1.json");
         let file2 = dir.path().join("bad2.json");
-        std::fs::write(&file1, "not valid json").unwrap();
-        std::fs::write(&file2, "also bad").unwrap();
+        std::fs::write(&file1, "not valid json").expect("expected value");
+        std::fs::write(&file2, "also bad").expect("expected value");
 
         let result = run_bench_compare(&file1.to_string_lossy(), &file2.to_string_lossy(), 5.0);
         assert!(result.is_err());
@@ -296,13 +296,13 @@
 
     #[test]
     fn test_run_bench_compare_file1_valid_file2_invalid() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("dir");
         let file1 = dir.path().join("good.json");
         let file2 = dir.path().join("bad.json");
 
         let json = create_test_benchmark_json("realizar");
-        std::fs::write(&file1, &json).unwrap();
-        std::fs::write(&file2, "not json").unwrap();
+        std::fs::write(&file1, &json).expect("expected value");
+        std::fs::write(&file2, "not json").expect("expected value");
 
         let result = run_bench_compare(&file1.to_string_lossy(), &file2.to_string_lossy(), 5.0);
         assert!(result.is_err());
@@ -310,13 +310,13 @@
 
     #[test]
     fn test_run_bench_compare_zero_threshold() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("dir");
         let file1 = dir.path().join("base.json");
         let file2 = dir.path().join("curr.json");
 
         let json = create_test_benchmark_json("realizar");
-        std::fs::write(&file1, &json).unwrap();
-        std::fs::write(&file2, &json).unwrap();
+        std::fs::write(&file1, &json).expect("expected value");
+        std::fs::write(&file2, &json).expect("expected value");
 
         let result = run_bench_compare(&file1.to_string_lossy(), &file2.to_string_lossy(), 0.0);
         assert!(result.is_ok());
@@ -328,13 +328,13 @@
 
     #[test]
     fn test_run_bench_regression_no_regression() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("dir");
         let baseline = dir.path().join("baseline.json");
         let current = dir.path().join("current.json");
 
         let json = create_test_benchmark_json("realizar");
-        std::fs::write(&baseline, &json).unwrap();
-        std::fs::write(&current, &json).unwrap();
+        std::fs::write(&baseline, &json).expect("expected value");
+        std::fs::write(&current, &json).expect("expected value");
 
         let result = run_bench_regression(
             &baseline.to_string_lossy(),
@@ -346,13 +346,13 @@
 
     #[test]
     fn test_run_bench_regression_strict_mode() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("dir");
         let baseline = dir.path().join("baseline.json");
         let current = dir.path().join("current.json");
 
         let json = create_test_benchmark_json("realizar");
-        std::fs::write(&baseline, &json).unwrap();
-        std::fs::write(&current, &json).unwrap();
+        std::fs::write(&baseline, &json).expect("expected value");
+        std::fs::write(&current, &json).expect("expected value");
 
         // Strict mode with identical data
         let result = run_bench_regression(
@@ -376,11 +376,11 @@
 
     #[test]
     fn test_run_bench_regression_invalid_json() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("dir");
         let baseline = dir.path().join("baseline.json");
         let current = dir.path().join("current.json");
-        std::fs::write(&baseline, "bad json").unwrap();
-        std::fs::write(&current, "also bad").unwrap();
+        std::fs::write(&baseline, "bad json").expect("expected value");
+        std::fs::write(&current, "also bad").expect("expected value");
 
         let result = run_bench_regression(
             &baseline.to_string_lossy(),

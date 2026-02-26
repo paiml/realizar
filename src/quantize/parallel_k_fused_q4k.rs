@@ -104,7 +104,7 @@ mod tests {
 
         let result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), out_dim);
+        assert_eq!(result.expect("result").len(), out_dim);
     }
 
     #[test]
@@ -118,7 +118,7 @@ mod tests {
 
         let result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), out_dim);
+        assert_eq!(result.expect("result").len(), out_dim);
     }
 
     #[test]
@@ -132,7 +132,7 @@ mod tests {
 
         let result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), out_dim);
+        assert_eq!(result.expect("result").len(), out_dim);
     }
 
     #[test]
@@ -146,7 +146,7 @@ mod tests {
 
         let result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), out_dim);
+        assert_eq!(result.expect("result").len(), out_dim);
     }
 include!("parallel_k_test_helpers.rs");
 }

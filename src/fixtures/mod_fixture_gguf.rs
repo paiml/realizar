@@ -61,7 +61,7 @@ mod tests {
         let bytes = fixture.read_bytes().expect("read");
         assert!(!bytes.is_empty());
         // SafeTensors starts with JSON header length (u64 LE)
-        let header_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
+        let header_len = u64::from_le_bytes(bytes[0..8].try_into().expect("header_len"));
         assert!(header_len > 0 && header_len < 1_000_000);
     }
 

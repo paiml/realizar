@@ -9,7 +9,7 @@
         let model = GGUFModel::from_bytes(&data);
         assert!(model.is_ok(), "Failed to parse GGUF: {:?}", model.err());
 
-        let model = model.unwrap();
+        let model = model.expect("model");
         assert_eq!(model.header.magic, GGUF_MAGIC);
         assert_eq!(model.header.version, GGUF_VERSION_V3);
     }
@@ -24,7 +24,7 @@
     #[test]
     fn test_gguf_model_tensors_parsed() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         // Should have multiple tensors (embedding, layer weights, etc.)
         assert!(!model.tensors.is_empty());
@@ -33,7 +33,7 @@
     #[test]
     fn test_gguf_model_metadata_parsed() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         // Should have metadata (architecture, hidden_dim, etc.)
         assert!(!model.metadata.is_empty());
@@ -42,7 +42,7 @@
     #[test]
     fn test_gguf_model_tensor_data_start() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         // tensor_data_start should be 32-byte aligned
         assert!(model.tensor_data_start.is_multiple_of(GGUF_ALIGNMENT));
@@ -64,7 +64,7 @@
     #[test]
     fn test_gguf_model_architecture() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         let arch = model.architecture();
         assert!(arch.is_some());
@@ -73,17 +73,17 @@
     #[test]
     fn test_gguf_model_embedding_dim() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         let dim = model.embedding_dim();
         assert!(dim.is_some());
-        assert_eq!(dim.unwrap(), 64);
+        assert_eq!(dim.expect("dim"), 64);
     }
 
     #[test]
     fn test_gguf_model_num_layers() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         let layers = model.num_layers();
         assert!(layers.is_some());
@@ -92,17 +92,17 @@
     #[test]
     fn test_gguf_model_num_heads() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         let heads = model.num_heads();
         assert!(heads.is_some());
-        assert_eq!(heads.unwrap(), 4);
+        assert_eq!(heads.expect("heads"), 4);
     }
 
     #[test]
     fn test_gguf_model_num_kv_heads() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 2); // num_kv_heads=2
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         let kv_heads = model.num_kv_heads();
         assert!(kv_heads.is_some());
@@ -111,17 +111,17 @@
     #[test]
     fn test_gguf_model_context_length() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         let ctx = model.context_length();
         // May or may not be present depending on test factory
-        assert!(ctx.is_none() || ctx.unwrap() > 0);
+        assert!(ctx.is_none() || ctx.expect("ctx") > 0);
     }
 
     #[test]
     fn test_gguf_model_rope_freq_base() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         // May have rope_freq_base metadata
         let _theta = model.rope_freq_base();
@@ -130,19 +130,19 @@
     #[test]
     fn test_gguf_model_get_tensor_f32() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         // Try to get token embedding (should be F32)
         let emb = model.get_tensor_f32("token_embd.weight", &data);
         assert!(emb.is_ok());
-        let emb = emb.unwrap();
+        let emb = emb.expect("emb");
         assert!(!emb.is_empty());
     }
 
     #[test]
     fn test_gguf_model_get_tensor_f32_not_found() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         let result = model.get_tensor_f32("nonexistent_tensor", &data);
         assert!(result.is_err());
@@ -155,7 +155,7 @@
     #[test]
     fn test_gguf_transformer_from_mapped() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         let transformer = GGUFTransformer::from_gguf(&model, &data);
 
         assert!(transformer.is_ok(), "Failed: {:?}", transformer.err());
@@ -164,8 +164,8 @@
     #[test]
     fn test_gguf_transformer_config() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
-        let transformer = GGUFTransformer::from_gguf(&model, &data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
+        let transformer = GGUFTransformer::from_gguf(&model, &data).expect("transformer");
 
         assert_eq!(transformer.config.hidden_dim, 64);
         assert_eq!(transformer.config.num_heads, 4);
@@ -174,8 +174,8 @@
     #[test]
     fn test_gguf_transformer_layers() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
-        let transformer = GGUFTransformer::from_gguf(&model, &data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
+        let transformer = GGUFTransformer::from_gguf(&model, &data).expect("transformer");
 
         // Should have at least 1 layer
         assert!(!transformer.layers.is_empty());
@@ -184,8 +184,8 @@
     #[test]
     fn test_gguf_transformer_token_embedding() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
-        let transformer = GGUFTransformer::from_gguf(&model, &data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
+        let transformer = GGUFTransformer::from_gguf(&model, &data).expect("transformer");
 
         // token_embedding should be vocab_size * hidden_dim
         assert_eq!(transformer.token_embedding.len(), 100 * 64);
@@ -194,8 +194,8 @@
     #[test]
     fn test_gguf_transformer_output_norm() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
-        let transformer = GGUFTransformer::from_gguf(&model, &data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
+        let transformer = GGUFTransformer::from_gguf(&model, &data).expect("transformer");
 
         // output_norm_weight should be hidden_dim
         assert_eq!(transformer.output_norm_weight.len(), 64);
@@ -204,8 +204,8 @@
     #[test]
     fn test_gguf_transformer_lm_head() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
-        let transformer = GGUFTransformer::from_gguf(&model, &data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
+        let transformer = GGUFTransformer::from_gguf(&model, &data).expect("transformer");
 
         // lm_head should be vocab_size * hidden_dim
         assert!(!transformer.lm_head_weight.is_empty());
@@ -214,8 +214,8 @@
     #[test]
     fn test_gguf_transformer_layer_attn_norm() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
-        let transformer = GGUFTransformer::from_gguf(&model, &data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
+        let transformer = GGUFTransformer::from_gguf(&model, &data).expect("transformer");
 
         let layer = &transformer.layers[0];
         assert_eq!(layer.attn_norm_weight.len(), 64);
@@ -323,7 +323,7 @@
             .add_f32_tensor("token_embd.weight", &[100, 64], &vec![0.0f32; 6400])
             .build();
 
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         // Manually find the token_embd tensor and check it works with F32
         let emb = model.get_tensor_f32("token_embd.weight", &data);
@@ -339,7 +339,7 @@
             .architecture("qwen2")
             .hidden_dim("qwen2", 64)
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         let rope_type = model.rope_type();
         assert_eq!(rope_type, Some(2)); // NEOX
 
@@ -348,7 +348,7 @@
             .architecture("llama")
             .hidden_dim("llama", 64)
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         let rope_type = model.rope_type();
         assert_eq!(rope_type, Some(0)); // NORM
     }
@@ -360,7 +360,7 @@
             .architecture("phi2")
             .hidden_dim("phi2", 64)
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         let rope_type = model.rope_type();
         assert_eq!(rope_type, Some(2)); // phi2 -> NEOX
     }
@@ -372,7 +372,7 @@
             .architecture("gemma")
             .hidden_dim("gemma", 64)
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         let rope_type = model.rope_type();
         assert_eq!(rope_type, Some(2)); // gemma -> NEOX
     }
@@ -380,10 +380,10 @@
     #[test]
     fn test_gguf_model_rms_epsilon() {
         let data = build_minimal_llama_gguf(100, 64, 256, 4, 4);
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         let eps = model.rms_epsilon();
         assert!(eps.is_some());
-        assert!((eps.unwrap() - 1e-5).abs() < 1e-8);
+        assert!((eps.expect("eps") - 1e-5).abs() < 1e-8);
     }
 
     #[test]
@@ -395,7 +395,7 @@
             .add_u32("tokenizer.ggml.bos_token_id", 1)
             .add_u32("tokenizer.ggml.eos_token_id", 2)
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         assert_eq!(model.bos_token_id(), Some(1));
         assert_eq!(model.eos_token_id(), Some(2));
     }
@@ -407,7 +407,7 @@
             .architecture("llama")
             .hidden_dim("llama", 64)
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         assert_eq!(model.bos_token_id(), None);
         assert_eq!(model.eos_token_id(), None);
     }
@@ -420,10 +420,10 @@
             .hidden_dim("llama", 64)
             .add_string_array("tokenizer.ggml.tokens", &["hello", "world", "test"])
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         let vocab = model.vocabulary();
         assert!(vocab.is_some());
-        let vocab = vocab.unwrap();
+        let vocab = vocab.expect("vocab");
         assert_eq!(vocab.len(), 3);
         assert_eq!(vocab[0], "hello");
         assert_eq!(vocab[1], "world");
@@ -437,7 +437,7 @@
             .architecture("llama")
             .hidden_dim("llama", 64)
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         let vocab = model.vocabulary();
         assert!(vocab.is_none());
     }
