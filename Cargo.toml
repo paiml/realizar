@@ -36,7 +36,7 @@ all-features = true
 rustdoc-args = ["--generate-link-to-definition"]
 
 [workspace.lints.rust]
-unsafe_code = "deny"
+unsafe_code = "warn"
 unsafe_op_in_unsafe_fn = "warn"
 unreachable_pub = "warn"
 # Allow coverage cfg for cargo-llvm-cov
