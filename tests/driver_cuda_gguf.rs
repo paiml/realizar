@@ -142,6 +142,8 @@ fn test_driver_cuda_model_creation() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let model = create_test_model(&config);
@@ -180,6 +182,8 @@ fn test_driver_cuda_model_with_max_seq_len() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let model = create_test_model(&config);
@@ -219,6 +223,8 @@ fn test_driver_cuda_forward_basic() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let model = create_test_model(&config);
@@ -261,6 +267,8 @@ fn test_driver_cuda_forward_multi_token() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let model = create_test_model(&config);
@@ -296,6 +304,8 @@ fn test_driver_cuda_generate() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let model = create_test_model(&config);
@@ -336,6 +346,8 @@ fn test_driver_cuda_generate_greedy() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let model = create_test_model(&config);
@@ -375,6 +387,8 @@ fn test_driver_cuda_generate_with_stop_token() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let model = create_test_model(&config);
@@ -417,6 +431,8 @@ fn test_driver_cuda_gqa_forward() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let model = create_test_model(&config);
@@ -470,6 +486,8 @@ fn test_driver_cuda_multi_layer() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let model = create_test_model(&config);

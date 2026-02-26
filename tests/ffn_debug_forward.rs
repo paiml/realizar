@@ -37,13 +37,13 @@ fn test_debug_forward_pass() {
     let token_id = 13048u32;
 
     eprintln!("\n=== Model Config ===");
-    eprintln!("hidden_dim: {}", model.config.hidden_dim);
-    eprintln!("intermediate_dim: {}", model.config.intermediate_dim);
-    eprintln!("num_layers: {}", model.config.num_layers);
-    eprintln!("num_heads: {}", model.config.num_heads);
-    eprintln!("num_kv_heads: {}", model.config.num_kv_heads);
-    eprintln!("vocab_size: {}", model.config.vocab_size);
-    eprintln!("eps: {}", model.config.eps);
+    eprintln!("hidden_dim: {}", model.config().hidden_dim);
+    eprintln!("intermediate_dim: {}", model.config().intermediate_dim);
+    eprintln!("num_layers: {}", model.config().num_layers);
+    eprintln!("num_heads: {}", model.config().num_heads);
+    eprintln!("num_kv_heads: {}", model.config().num_kv_heads);
+    eprintln!("vocab_size: {}", model.config().vocab_size);
+    eprintln!("eps: {}", model.config().eps);
 
     // Get embedding
     let embedding = model.embed(&[token_id]);
@@ -58,7 +58,7 @@ fn test_debug_forward_pass() {
     }
 
     // Check layer 0 weights
-    let layer0 = &model.layers[0];
+    let layer0 = &model.layers()[0];
     eprintln!("\n=== Layer 0 Weights ===");
     print_stats("attn_norm_weight", &layer0.attn_norm_weight);
 
@@ -89,7 +89,7 @@ fn test_debug_forward_pass() {
 
     // Run forward pass
     eprintln!("\n=== Running Forward Pass ===");
-    let mut cache = OwnedQuantizedKVCache::from_config(&model.config, 64);
+    let mut cache = OwnedQuantizedKVCache::from_config(&model.config(), 64);
     let logits = model
         .forward_single_with_cache(token_id, &mut cache, 0)
         .expect("Forward failed");
@@ -159,8 +159,8 @@ fn test_weight_sanity() {
     eprintln!("\n=== Weight Sanity Check ===");
 
     // Check embedding table
-    let vocab_size = model.config.vocab_size;
-    let hidden_dim = model.config.hidden_dim;
+    let vocab_size = model.config().vocab_size;
+    let hidden_dim = model.config().hidden_dim;
     let expected_embed_size = vocab_size * hidden_dim;
 
     eprintln!("Token embedding:");
@@ -168,17 +168,17 @@ fn test_weight_sanity() {
         "  Expected size: {} x {} = {}",
         vocab_size, hidden_dim, expected_embed_size
     );
-    eprintln!("  Actual size: {}", model.token_embedding.len());
+    eprintln!("  Actual size: {}", model.token_embedding().len());
     assert_eq!(
-        model.token_embedding.len(),
+        model.token_embedding().len(),
         expected_embed_size,
         "Embedding size mismatch"
     );
 
     // Check if embedding values are reasonable
-    let embed_sum: f32 = model.token_embedding.iter().sum();
-    let embed_sq_sum: f32 = model.token_embedding.iter().map(|x| x * x).sum();
-    let embed_rms = (embed_sq_sum / model.token_embedding.len() as f32).sqrt();
+    let embed_sum: f32 = model.token_embedding().iter().sum();
+    let embed_sq_sum: f32 = model.token_embedding().iter().map(|x| x * x).sum();
+    let embed_rms = (embed_sq_sum / model.token_embedding().len() as f32).sqrt();
 
     eprintln!("  Sum: {:.4}", embed_sum);
     eprintln!("  RMS: {:.4}", embed_rms);
@@ -192,23 +192,23 @@ fn test_weight_sanity() {
     for token_id in [0u32, 1, 100, 13048] {
         let start = token_id as usize * hidden_dim;
         let end = start + hidden_dim;
-        let embed = &model.token_embedding[start..end];
+        let embed = &model.token_embedding()[start..end];
         let norm: f32 = embed.iter().map(|x| x * x).sum::<f32>().sqrt();
         eprintln!("  Token {} embedding norm: {:.4}", token_id, norm);
     }
 
     // Check LM head
     eprintln!("\nLM Head:");
-    eprintln!("  in_dim: {}", model.lm_head_weight.in_dim);
-    eprintln!("  out_dim: {}", model.lm_head_weight.out_dim);
-    eprintln!("  qtype: {}", model.lm_head_weight.qtype);
+    eprintln!("  in_dim: {}", model.lm_head_weight().in_dim);
+    eprintln!("  out_dim: {}", model.lm_head_weight().out_dim);
+    eprintln!("  qtype: {}", model.lm_head_weight().qtype);
 
     assert_eq!(
-        model.lm_head_weight.in_dim, hidden_dim,
+        model.lm_head_weight().in_dim, hidden_dim,
         "LM head in_dim should match hidden_dim"
     );
     assert_eq!(
-        model.lm_head_weight.out_dim, vocab_size,
+        model.lm_head_weight().out_dim, vocab_size,
         "LM head out_dim should match vocab_size"
     );
 

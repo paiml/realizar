@@ -18,6 +18,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         };
 
         let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);
@@ -132,6 +133,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         };
 
         let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);
@@ -157,6 +159,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         };
 
         let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);
@@ -180,5 +183,81 @@ mod tests {
         let original_sum: f32 = data.iter().sum();
         let transposed_sum: f32 = transposed.iter().sum();
         assert!((original_sum - transposed_sum).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_config_to_gpu_hybrid_fields_passthrough() {
+        // GH-278: Verify hybrid attention fields propagate through config_to_gpu
+        let apr_config = AprTransformerConfig {
+            architecture: "qwen3_5".to_string(),
+            hidden_dim: 5120,
+            num_layers: 64,
+            num_heads: 40,
+            num_kv_heads: 8,
+            vocab_size: 248064,
+            intermediate_dim: 25600,
+            context_length: 131072,
+            rope_theta: 1_300_000.0,
+            eps: 1e-6,
+            eos_token_id: Some(248044),
+            explicit_head_dim: Some(256),
+            layer_types: Some(vec![
+                "full_attention".to_string(),
+                "linear_attention".to_string(),
+            ]),
+            linear_key_head_dim: Some(128),
+            linear_value_head_dim: Some(128),
+            linear_num_key_heads: Some(16),
+            linear_num_value_heads: Some(48),
+            linear_conv_kernel_dim: Some(4),
+        };
+
+        let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);
+
+        assert_eq!(gpu_config.explicit_head_dim, Some(256));
+        assert_eq!(gpu_config.head_dim(), 256);
+        assert_eq!(gpu_config.linear_key_head_dim, Some(128));
+        assert_eq!(gpu_config.linear_value_head_dim, Some(128));
+        assert_eq!(gpu_config.linear_num_key_heads, Some(16));
+        assert_eq!(gpu_config.linear_num_value_heads, Some(48));
+        assert_eq!(gpu_config.linear_conv_kernel_dim, Some(4));
+        // Verify layer_types propagated
+        let lt = gpu_config.layer_types.as_ref().expect("layer_types");
+        assert_eq!(lt.len(), 2);
+        assert!(!gpu_config.is_linear_layer(0)); // full_attention
+        assert!(gpu_config.is_linear_layer(1)); // linear_attention
+        // Verify derived dimensions
+        assert_eq!(gpu_config.linear_key_dim(), 16 * 128); // 2048
+        assert_eq!(gpu_config.linear_value_dim(), 48 * 128); // 6144
+        assert_eq!(gpu_config.linear_conv_dim(), 2 * 2048 + 6144); // 10240
+    }
+
+    #[test]
+    fn test_config_to_gpu_no_hybrid_fields() {
+        // Backwards compat: standard model has all hybrid fields as None
+        let apr_config = AprTransformerConfig {
+            architecture: "llama".to_string(),
+            hidden_dim: 4096,
+            num_layers: 32,
+            num_heads: 32,
+            num_kv_heads: 8,
+            vocab_size: 32000,
+            intermediate_dim: 11008,
+            context_length: 4096,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+            eos_token_id: None,
+            ..Default::default()
+        };
+
+        let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);
+
+        assert!(gpu_config.explicit_head_dim.is_none());
+        assert!(gpu_config.layer_types.is_none());
+        assert!(gpu_config.linear_key_head_dim.is_none());
+        assert!(!gpu_config.is_linear_layer(0));
+        assert_eq!(gpu_config.head_dim(), 128); // computed: 4096/32
+        assert_eq!(gpu_config.linear_key_dim(), 0);
+        assert_eq!(gpu_config.linear_value_dim(), 0);
     }
 }

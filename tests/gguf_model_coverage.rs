@@ -1878,6 +1878,8 @@ fn test_cov_gguf_config_struct_fields() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     assert_eq!(config.architecture, "llama");
@@ -1910,6 +1912,8 @@ fn test_cov_gguf_config_gqa_model() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     // Verify GQA ratio
@@ -1933,6 +1937,8 @@ fn test_cov_gguf_config_mha_model() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     // Verify MHA
@@ -1955,6 +1961,8 @@ fn test_cov_gguf_config_head_dim_calculation() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     // head_dim = hidden_dim / num_heads
@@ -1982,6 +1990,8 @@ fn test_cov_gguf_config_clone() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let cloned = config.clone();
@@ -2006,6 +2016,8 @@ fn test_cov_gguf_config_debug() {
         eps: 1e-5,
         rope_type: 2,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let debug_str = format!("{config:?}");
@@ -2080,6 +2092,8 @@ fn test_cov_kv_cache_from_config() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let cache = OwnedQuantizedKVCache::from_config(&config, 64);
@@ -2325,6 +2339,8 @@ fn test_cov_contiguous_cache_from_config() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let cache = ContiguousKVCache::from_config(&config, 32);
@@ -2775,6 +2791,8 @@ fn test_cov_scratch_buffer_from_config() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let scratch = OwnedInferenceScratchBuffer::from_config(&config);
@@ -2803,6 +2821,8 @@ fn test_cov_scratch_buffer_reset() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let mut scratch = OwnedInferenceScratchBuffer::from_config(&config);
@@ -2829,6 +2849,8 @@ fn test_cov_scratch_buffer_debug() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let scratch = OwnedInferenceScratchBuffer::from_config(&config);

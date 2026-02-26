@@ -22,8 +22,8 @@ use crate::apr_transformer::{
 };
 use crate::error::Result;
 use crate::gpu::scheduler::{
-    BlockWeights, GpuModel, GpuModelConfig, LmHeadWeight, LmHeadWeightTransposed,
-    ValidatedGpuWeights,
+    BlockWeights, GpuModel, GpuModelConfig, LinearAttnWeights, LmHeadWeight,
+    LmHeadWeightTransposed, ValidatedGpuWeights,
 };
 use crate::quantize::dequantize_q4_0;
 use thiserror::Error;
@@ -91,13 +91,15 @@ impl AprF32ToGpuAdapter {
 
         // Convert each layer
         let mut block_weights = Vec::with_capacity(apr.layers.len());
-        for layer in &apr.layers {
+        for (block_idx, layer) in apr.layers.iter().enumerate() {
             block_weights.push(Self::convert_layer(
                 layer,
                 hidden_dim,
                 intermediate_dim,
                 config.num_heads,
                 config.num_kv_heads,
+                &config,
+                block_idx,
             ));
         }
 
@@ -138,18 +140,31 @@ impl AprF32ToGpuAdapter {
         intermediate_dim: usize,
         num_heads: usize,
         num_kv_heads: usize,
+        config: &GpuModelConfig,
+        block_idx: usize,
     ) -> BlockWeights {
+        let is_linear = config.is_linear_layer(block_idx);
+
         // Phase 21 FIX: APR stores weights as [out_dim, in_dim] row-major,
         // but GPU gemm expects [in_dim, out_dim]. Transpose all projection weights.
-        let head_dim = hidden_dim / num_heads;
-        let kv_dim = num_kv_heads * head_dim;
-        let qkv_out_dim = hidden_dim + 2 * kv_dim;
+
+        // GH-278: Linear layers have different QKV dimensions
+        let (qkv_out_dim, out_rows, out_cols) = if is_linear {
+            let key_dim = config.linear_key_dim();
+            let value_dim = config.linear_value_dim();
+            // QKV = Q(key_dim) + K(key_dim) + V(value_dim)
+            (key_dim + key_dim + value_dim, hidden_dim, value_dim)
+        } else {
+            let head_dim = hidden_dim / num_heads;
+            let kv_dim = num_kv_heads * head_dim;
+            (hidden_dim + 2 * kv_dim, hidden_dim, hidden_dim)
+        };
 
         // Transpose QKV: [qkv_out_dim, hidden_dim] -> [hidden_dim, qkv_out_dim]
         let qkv_weight_t = transpose_matrix(&layer.qkv_weight, qkv_out_dim, hidden_dim);
 
-        // Transpose output projection: [hidden_dim, hidden_dim] -> [hidden_dim, hidden_dim]
-        let out_weight_t = transpose_matrix(&layer.attn_output_weight, hidden_dim, hidden_dim);
+        // Transpose output projection: [out_rows, out_cols] -> [out_cols, out_rows]
+        let out_weight_t = transpose_matrix(&layer.attn_output_weight, out_rows, out_cols);
 
         // Transpose FFN up (fc1): [intermediate_dim, hidden_dim] -> [hidden_dim, intermediate_dim]
         let fc1_weight_t = transpose_matrix(&layer.ffn_up_weight, intermediate_dim, hidden_dim);
@@ -162,6 +177,13 @@ impl AprF32ToGpuAdapter {
             .ffn_gate_weight
             .as_ref()
             .map(|w| transpose_matrix(w, intermediate_dim, hidden_dim));
+
+        // GH-278: Build LinearAttnWeights when layer has Gated Delta Net weights
+        let linear_attn = if is_linear {
+            Self::build_linear_attn_weights(layer, config)
+        } else {
+            None
+        };
 
         BlockWeights {
             attn_norm_weight: layer.attn_norm_weight.clone(),
@@ -197,9 +219,44 @@ impl AprF32ToGpuAdapter {
                 .unwrap_or_else(|| vec![0.0; hidden_dim]),
             // SwiGLU gate weight - critical for Qwen/LLaMA models
             ffn_gate_weight: gate_weight_t,
-            // GH-278: No linear attention in F32 APR adapter
-            linear_attn: None,
+            linear_attn,
         }
+    }
+
+    /// GH-278: Build LinearAttnWeights from AprTransformerLayer fields
+    ///
+    /// Transposes weight matrices from APR [out_dim, in_dim] to GPU [in_dim, out_dim].
+    fn build_linear_attn_weights(
+        layer: &AprTransformerLayer,
+        config: &GpuModelConfig,
+    ) -> Option<LinearAttnWeights> {
+        let z = layer.linear_attn_z_weight.as_ref()?;
+        let b = layer.linear_attn_b_weight.as_ref()?;
+        let a = layer.linear_attn_a_weight.as_ref()?;
+
+        let hidden_dim = config.hidden_dim;
+        let value_dim = config.linear_value_dim();
+        let num_v_heads = config.linear_num_value_heads.unwrap_or(0);
+
+        Some(LinearAttnWeights {
+            // z: [value_dim, hidden_dim] → transpose → [hidden_dim, value_dim]
+            z_weight: transpose_matrix(z, value_dim, hidden_dim),
+            // b: [num_v_heads, hidden_dim] → transpose → [hidden_dim, num_v_heads]
+            b_weight: transpose_matrix(b, num_v_heads, hidden_dim),
+            // a: [num_v_heads, hidden_dim] → transpose → [hidden_dim, num_v_heads]
+            a_weight: transpose_matrix(a, num_v_heads, hidden_dim),
+            // conv1d: [conv_dim, kernel_size] — no transpose needed (1D)
+            conv1d_weight: layer
+                .linear_attn_conv1d_weight
+                .clone()
+                .unwrap_or_default(),
+            // a_log: [num_v_heads] — scalar per head
+            a_log: layer.linear_attn_a_log.clone().unwrap_or_default(),
+            // dt_bias: [num_v_heads] — scalar per head
+            dt_bias: layer.linear_attn_dt_bias.clone().unwrap_or_default(),
+            // norm: [value_dim or head_v_dim]
+            norm_weight: layer.linear_attn_norm_weight.clone().unwrap_or_default(),
+        })
     }
 }
 
@@ -219,13 +276,14 @@ impl AprToGpuAdapter {
             intermediate_dim: apr_config.intermediate_dim,
             eps: apr_config.eps,
             rope_theta: apr_config.rope_theta,
-            explicit_head_dim: None,
-            layer_types: None,
-            linear_key_head_dim: None,
-            linear_value_head_dim: None,
-            linear_num_key_heads: None,
-            linear_num_value_heads: None,
-            linear_conv_kernel_dim: None,
+            // GH-278: Pass hybrid attention fields through
+            explicit_head_dim: apr_config.explicit_head_dim,
+            layer_types: apr_config.layer_types.clone(),
+            linear_key_head_dim: apr_config.linear_key_head_dim,
+            linear_value_head_dim: apr_config.linear_value_head_dim,
+            linear_num_key_heads: apr_config.linear_num_key_heads,
+            linear_num_value_heads: apr_config.linear_num_value_heads,
+            linear_conv_kernel_dim: apr_config.linear_conv_kernel_dim,
             constraints: None,
         }
     }
@@ -340,7 +398,7 @@ impl AprToGpuAdapter {
 
         // Convert each layer
         let mut block_weights = Vec::with_capacity(apr.layers.len());
-        for layer in &apr.layers {
+        for (block_idx, layer) in apr.layers.iter().enumerate() {
             let qkv = Self::extract_qkv_weights(
                 layer,
                 hidden_dim,
@@ -369,6 +427,10 @@ impl AprToGpuAdapter {
                 .as_ref()
                 .map(|w| transpose_matrix(w, intermediate_dim, hidden_dim));
 
+            // GH-278: Q4 models don't carry linear attention weights (F32-only path)
+            // Linear attention layers in GGUF/Q4 are not yet supported
+            let _ = block_idx; // Acknowledge block_idx for future GH-278 Q4 linear attn support
+
             block_weights.push(BlockWeights {
                 attn_norm_weight: layer.attn_norm_weight.clone(),
                 attn_norm_bias: vec![0.0; hidden_dim], // APR doesn't use bias
@@ -386,7 +448,7 @@ impl AprToGpuAdapter {
                 ffn_fc2_weight: fc2_weight_t,
                 ffn_fc2_bias: vec![0.0; hidden_dim],
                 ffn_gate_weight: gate_weight_t,
-                // GH-278: No linear attention in Q4 APR adapter
+                // GH-278: Q4 linear attention support deferred (SafeTensors F32 path only)
                 linear_attn: None,
             });
         }

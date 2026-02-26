@@ -452,6 +452,8 @@ fn test_gguf_config_llama() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
     assert_eq!(config.architecture, "llama");
     assert_eq!(config.hidden_dim / config.num_heads, 128); // head_dim
@@ -474,6 +476,8 @@ fn test_gguf_config_llama2() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
     assert_ne!(config.num_heads, config.num_kv_heads); // is GQA
 }
@@ -494,6 +498,8 @@ fn test_gguf_config_phi() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
     assert_eq!(config.architecture, "phi");
 }
@@ -514,6 +520,8 @@ fn test_gguf_config_mistral() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
     assert_eq!(config.architecture, "mistral");
     assert_eq!(config.context_length, 8192);
@@ -535,6 +543,8 @@ fn test_gguf_config_head_dim_calculation() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
     assert_eq!(config.hidden_dim / config.num_heads, 64); // head_dim
 }
@@ -555,6 +565,8 @@ fn test_gguf_config_gqa_ratio() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
     assert_ne!(config.num_heads, config.num_kv_heads); // is GQA
     assert_eq!(config.num_heads / config.num_kv_heads, 4);
@@ -576,6 +588,8 @@ fn test_gguf_config_clone() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
     let cloned = config.clone();
     assert_eq!(cloned.architecture, config.architecture);
@@ -598,6 +612,8 @@ fn test_gguf_config_debug() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
     let debug = format!("{config:?}");
     assert!(debug.contains("GGUFConfig"));
@@ -619,6 +635,8 @@ fn test_gguf_config_rope_theta_values() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
     assert_eq!(config_10k.rope_theta, 10000.0);
 
@@ -636,6 +654,8 @@ fn test_gguf_config_rope_theta_values() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
     assert_eq!(config_1m.rope_theta, 1000000.0);
 }
@@ -659,6 +679,8 @@ fn make_test_config(hidden_dim: usize, num_heads: usize) -> GGUFConfig {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     }
 }
 
@@ -823,6 +845,8 @@ fn test_gguf_config_very_small_model() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
     assert_eq!(config.hidden_dim / config.num_heads, 16); // head_dim
 }
@@ -843,6 +867,8 @@ fn test_gguf_config_very_large_model() {
         eps: 1e-6,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
     assert_eq!(config.hidden_dim / config.num_heads, 128); // head_dim
     assert_ne!(config.num_heads, config.num_kv_heads); // is GQA
@@ -900,6 +926,8 @@ fn test_gguf_config_different_eps_values() {
             eps,
             rope_type: 0,
             bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
         };
         assert!((config.eps - eps).abs() < 1e-10);
     }

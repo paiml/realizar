@@ -1,5 +1,6 @@
 # Build configuration for consistent, fast builds
 [build]
+incremental = true
 target-dir = "/mnt/nvme-raid0/coverage/realizar"
 
 # Fast linking with mold (improves incremental build time)

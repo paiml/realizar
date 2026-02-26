@@ -150,7 +150,9 @@ fn test_owned_qkv_weights_separate_q_dim() {
 #[test]
 fn test_owned_quantized_layer_from_borrowed_minimal() {
     // Test from_borrowed with minimal layer (no optional fields)
-    let config = test_config(64, 128);
+    // Use gpt2 arch: GeluMlp has no gate weight, so ffn_up is NOT fused gate+up
+    let mut config = test_config(64, 128);
+    config.constraints = crate::gguf::ArchConstraints::from_architecture("gpt2");
 
     let layer = QuantizedGGUFTransformerLayer {
         attn_norm_weight: vec![1.0; 64],

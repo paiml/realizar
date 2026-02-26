@@ -61,6 +61,7 @@ fn test_config_head_dim_calculation() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
     // head_dim = hidden_dim / num_heads = 256 / 8 = 32
     assert_eq!(config.hidden_dim / config.num_heads, 32);
@@ -80,6 +81,7 @@ fn test_config_gqa_ratio() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
     // GQA ratio = num_heads / num_kv_heads
     assert_eq!(config.num_heads / config.num_kv_heads, 4);
@@ -103,6 +105,7 @@ fn test_kv_cache_new() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
     let _cache = AprKVCache::new(&config);
     // Cache creation should succeed
@@ -139,6 +142,13 @@ fn test_layer_minimal() {
         ffn_norm_bias: None,
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     assert_eq!(layer.attn_norm_weight.len(), 64);
@@ -164,6 +174,13 @@ fn test_layer_without_gate() {
         ffn_norm_bias: None,
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     assert!(layer.ffn_gate_weight.is_none());
@@ -188,6 +205,13 @@ fn test_layer_with_biases() {
         ffn_norm_bias: Some(vec![0.0; 64]),
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     assert!(layer.attn_norm_bias.is_some());

@@ -198,6 +198,7 @@ impl MmapAprTransformer {
             rope_theta,
             eps,
             eos_token_id: None, // Parsed from APR metadata if available
+            ..Default::default()
         };
 
         Ok(Self {

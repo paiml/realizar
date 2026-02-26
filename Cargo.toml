@@ -1,3 +1,16 @@
+[workspace]
+resolver = "2"
+
+[workspace.package]
+version = "0.7.1"
+edition = "2021"
+authors = ["Pragmatic AI Labs <contact@paiml.com>"]
+license = "MIT"
+repository = "https://github.com/paiml/realizar"
+rust-version = "1.89"
+
+[workspace.dependencies]
+
 [package]
 name = "realizar"
 version = "0.7.1"
@@ -22,21 +35,31 @@ exclude = [
 all-features = true
 rustdoc-args = ["--generate-link-to-definition"]
 
-[lints.rust]
+[workspace.lints.rust]
+unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "warn"
-# unreachable_pub disabled - too noisy for test code in #[cfg(test)] modules
-# unreachable_pub = "warn"
+unreachable_pub = "warn"
 # Allow coverage cfg for cargo-llvm-cov
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
 
-[lints.clippy]
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "allow"
 checked_conversions = "warn"
 redundant_clone = "warn"
-# Note: unwrap_used is enforced via .clippy.toml disallowed-methods instead
 # Allow noisy lints in test code
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
 similar_names = "allow"
 unreadable_literal = "allow"
 useless_vec = "allow"
+
+[lints]
+workspace = true
 
 [dependencies]
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)

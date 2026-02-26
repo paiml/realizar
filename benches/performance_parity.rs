@@ -158,6 +158,8 @@ fn make_bench_config(
         rope_theta: 10000.0,
         rope_type: 0,
         bos_token_id: None,
+    eos_token_id: None,
+    explicit_head_dim: None,
     }
 }
 

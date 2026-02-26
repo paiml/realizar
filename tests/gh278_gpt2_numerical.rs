@@ -31,29 +31,29 @@ fn gh278_gpt2_gguf_forward_numerical() {
 
     // Print model config
     eprintln!("=== GPT-2 124M GGUF Model Config ===");
-    eprintln!("  architecture: {}", model.config.architecture);
-    eprintln!("  hidden_dim: {}", model.config.hidden_dim);
-    eprintln!("  num_layers: {}", model.config.num_layers);
-    eprintln!("  num_heads: {}", model.config.num_heads);
-    eprintln!("  num_kv_heads: {}", model.config.num_kv_heads);
-    eprintln!("  intermediate_dim: {}", model.config.intermediate_dim);
-    eprintln!("  vocab_size: {}", model.config.vocab_size);
-    eprintln!("  eps: {}", model.config.eps);
+    eprintln!("  architecture: {}", model.config().architecture);
+    eprintln!("  hidden_dim: {}", model.config().hidden_dim);
+    eprintln!("  num_layers: {}", model.config().num_layers);
+    eprintln!("  num_heads: {}", model.config().num_heads);
+    eprintln!("  num_kv_heads: {}", model.config().num_kv_heads);
+    eprintln!("  intermediate_dim: {}", model.config().intermediate_dim);
+    eprintln!("  vocab_size: {}", model.config().vocab_size);
+    eprintln!("  eps: {}", model.config().eps);
     eprintln!(
         "  has position_embedding: {}",
-        model.position_embedding.is_some()
+        model.position_embedding().is_some()
     );
 
     // Print first few embedding values for token 464 ("The")
-    let embed_start = 464 * model.config.hidden_dim;
+    let embed_start = 464 * model.config().hidden_dim;
     eprintln!("\n=== Token Embedding for 'The' (id=464) ===");
     eprintln!(
         "  first 5: {:?}",
-        &model.token_embedding[embed_start..embed_start + 5]
+        &model.token_embedding()[embed_start..embed_start + 5]
     );
 
     // Print position embedding values for position 0
-    if let Some(ref pos_emb) = model.position_embedding {
+    if let Some(ref pos_emb) = model.position_embedding() {
         eprintln!("\n=== Position Embedding (pos=0) ===");
         eprintln!("  first 5: {:?}", &pos_emb[..5]);
         eprintln!("  total len: {} (expected {})", pos_emb.len(), 1024 * 768);
@@ -62,7 +62,7 @@ fn gh278_gpt2_gguf_forward_numerical() {
     }
 
     // Print layer 0 weight diagnostics
-    let layer0 = &model.layers[0];
+    let layer0 = &model.layers()[0];
     eprintln!("\n=== Layer 0 Weight Diagnostics ===");
     eprintln!(
         "  attn_norm_weight[0..3]: {:?}",
@@ -140,7 +140,7 @@ fn gh278_gpt2_gguf_forward_numerical() {
     eprintln!(
         "  logits len: {} (expected vocab_size={})",
         logits.len(),
-        model.config.vocab_size
+        model.config().vocab_size
     );
 
     // Find top-5 tokens

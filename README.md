@@ -1,12 +1,28 @@
 <div align="center">
 
+<p align="center">
 <img src="assets/hero.svg" alt="realizar - Pure Rust ML Inference Engine" width="800"/>
+</p>
+
+<h1 align="center">realizar</h1>
 
 [![CI](https://github.com/paiml/realizar/actions/workflows/ci.yml/badge.svg)](https://github.com/paiml/realizar/actions/workflows/ci.yml)
 
 </div>
 
 ML inference from scratch in Rust. GGUF/SafeTensors parsing, quantization (Q4_K, Q8_0), transformer inference. SIMD/GPU via [Trueno](https://github.com/paiml/trueno).
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [Benchmarks](#benchmarks)
+- [Chat Templates](#chat-templates)
+- [Examples](#examples)
+- [Usage](#usage)
+- [Architecture](#architecture)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Quick Start
 

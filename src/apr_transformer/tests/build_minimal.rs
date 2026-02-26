@@ -218,6 +218,7 @@ fn test_forward_two_layer_model() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let make_layer = || AprTransformerLayer {
@@ -237,6 +238,13 @@ fn test_forward_two_layer_model() {
         ffn_norm_bias: None,
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     let mut token_embedding = vec![0.0f32; vocab_size * hidden_dim];

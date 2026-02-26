@@ -36,6 +36,7 @@ fn test_kv_cache_with_gqa_config() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let cache = AprKVCache::new(&config);
@@ -156,6 +157,7 @@ fn test_forward_single_layer_single_head() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let transformer = AprTransformer::new(config);
@@ -177,6 +179,7 @@ fn test_forward_many_layers() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let transformer = AprTransformer::new(config);
@@ -198,6 +201,7 @@ fn test_forward_with_cache_many_layers() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let transformer = AprTransformer::new(config.clone());
@@ -291,5 +295,6 @@ fn create_test_config() -> AprTransformerConfig {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     }
 }

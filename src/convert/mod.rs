@@ -118,6 +118,7 @@ impl GgufToAprConverter {
             rope_theta: gguf.config.rope_theta,
             eps: gguf.config.eps,
             eos_token_id: gguf.config.eos_token_id,
+        ..Default::default()
         };
 
         let layers = gguf
@@ -140,6 +141,13 @@ impl GgufToAprConverter {
                 ffn_norm_bias: l.ffn_norm_bias.clone(),
                 attn_q_norm_weight: l.attn_q_norm_weight.clone(),
                 attn_k_norm_weight: l.attn_k_norm_weight.clone(),
+                linear_attn_z_weight: None,
+                linear_attn_b_weight: None,
+                linear_attn_a_weight: None,
+                linear_attn_conv1d_weight: None,
+                linear_attn_a_log: None,
+                linear_attn_dt_bias: None,
+                linear_attn_norm_weight: None,
             })
             .collect();
 

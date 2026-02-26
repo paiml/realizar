@@ -30,6 +30,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         };
 
         let hidden = config.hidden_dim;
@@ -56,6 +57,13 @@ mod tests {
                 ffn_norm_bias: Some(vec![0.0; hidden]),
                 attn_q_norm_weight: None,
                 attn_k_norm_weight: None,
+                linear_attn_z_weight: None,
+                linear_attn_b_weight: None,
+                linear_attn_a_weight: None,
+                linear_attn_conv1d_weight: None,
+                linear_attn_a_log: None,
+                linear_attn_dt_bias: None,
+                linear_attn_norm_weight: None,
             }],
             output_norm_weight: vec![1.0; hidden],
             output_norm_bias: Some(vec![0.0; hidden]),

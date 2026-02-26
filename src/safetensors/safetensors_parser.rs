@@ -419,7 +419,57 @@ impl SafetensorsConfig {
     pub fn load_from_sibling(model_path: &std::path::Path) -> Option<Self> {
         let config_path = find_sibling_file(model_path, "config.json")?;
         let content = std::fs::read_to_string(&config_path).ok()?;
-        serde_json::from_str(&content).ok()
+        Self::parse_config_json(&content)
+    }
+
+    /// Parse config.json content with `text_config` nesting support (GH-278).
+    ///
+    /// Qwen3.5 `ConditionalGeneration` models nest model params under `text_config`
+    /// instead of top-level. This does a two-pass parse: direct first, then from
+    /// `text_config` sub-object if direct parse yields no `hidden_size`.
+    ///
+    /// Also handles `rope_theta` nested inside `rope_parameters.rope_theta`.
+    fn parse_config_json(content: &str) -> Option<Self> {
+        // Pass 1: Try direct parse (CausalLM models)
+        let mut config: Self = serde_json::from_str(content).ok()?;
+
+        // Pass 2: For ConditionalGeneration models, text params are nested
+        if config.hidden_size.is_none() {
+            let raw: serde_json::Value = serde_json::from_str(content).ok()?;
+            if let Some(text_cfg) = raw.get("text_config") {
+                if let Ok(text) = serde_json::from_value::<Self>(text_cfg.clone()) {
+                    // Preserve top-level architectures and model_type
+                    let architectures = config.architectures.take();
+                    let model_type = config.model_type.take();
+                    config = text;
+                    if config.architectures.is_none() {
+                        config.architectures = architectures;
+                    }
+                    if config.model_type.is_none() {
+                        config.model_type = model_type;
+                    }
+                }
+            }
+        }
+
+        // GH-278: Handle rope_theta nested inside rope_parameters
+        if config.rope_theta.is_none() {
+            if let Ok(raw) = serde_json::from_str::<serde_json::Value>(content) {
+                // Check text_config.rope_parameters first, then top-level rope_parameters
+                let rope_params = raw
+                    .get("text_config")
+                    .and_then(|tc| tc.get("rope_parameters"))
+                    .or_else(|| raw.get("rope_parameters"));
+                if let Some(rp) = rope_params {
+                    config.rope_theta = rp
+                        .get("rope_theta")
+                        .and_then(serde_json::Value::as_f64)
+                        .map(|v| v as f32);
+                }
+            }
+        }
+
+        Some(config)
     }
 
     /// Get number of key-value heads (defaults to num_attention_heads for MHA)
@@ -453,12 +503,190 @@ impl SafetensorsConfig {
     }
 
     /// GH-278: Check if model uses hybrid attention (has layer_types with both types)
+    ///
+    /// Accepts both HF naming (`full_attention`/`linear_attention`) and
+    /// short naming (`attention`/`linear`) for backwards compatibility.
     #[must_use]
     pub fn is_hybrid_attention(&self) -> bool {
         self.layer_types.as_ref().is_some_and(|types| {
-            let has_attn = types.iter().any(|t| t == "attention");
-            let has_linear = types.iter().any(|t| t == "linear");
+            let has_attn = types
+                .iter()
+                .any(|t| t == "attention" || t == "full_attention");
+            let has_linear = types
+                .iter()
+                .any(|t| t == "linear" || t == "linear_attention");
             has_attn && has_linear
         })
+    }
+}
+
+#[cfg(test)]
+mod config_tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_config_json_standard_causal_lm() {
+        let json = r#"{
+            "hidden_size": 4096,
+            "num_hidden_layers": 32,
+            "num_attention_heads": 32,
+            "num_key_value_heads": 8,
+            "vocab_size": 152064,
+            "intermediate_size": 11008,
+            "architectures": ["Qwen2ForCausalLM"],
+            "model_type": "qwen2",
+            "rope_theta": 1000000.0
+        }"#;
+        let config = SafetensorsConfig::parse_config_json(json).expect("parse failed");
+        assert_eq!(config.hidden_size, Some(4096));
+        assert_eq!(config.num_hidden_layers, Some(32));
+        assert_eq!(config.num_attention_heads, Some(32));
+        assert_eq!(config.num_key_value_heads, Some(8));
+        assert_eq!(config.rope_theta, Some(1_000_000.0));
+        assert_eq!(config.architecture(), "Qwen2ForCausalLM");
+    }
+
+    #[test]
+    fn test_parse_config_json_text_config_nesting() {
+        // Qwen3.5 ConditionalGeneration nests params under text_config
+        let json = r#"{
+            "architectures": ["Qwen3_5ForConditionalGeneration"],
+            "model_type": "qwen3_5",
+            "text_config": {
+                "hidden_size": 5120,
+                "num_hidden_layers": 64,
+                "num_attention_heads": 40,
+                "num_key_value_heads": 8,
+                "vocab_size": 248064,
+                "intermediate_size": 25600,
+                "head_dim": 256,
+                "layer_types": ["full_attention", "linear_attention", "full_attention"],
+                "linear_key_head_dim": 128,
+                "linear_value_head_dim": 128,
+                "linear_num_key_heads": 16,
+                "linear_num_value_heads": 48,
+                "linear_conv_kernel_dim": 4
+            }
+        }"#;
+        let config = SafetensorsConfig::parse_config_json(json).expect("parse failed");
+        assert_eq!(config.hidden_size, Some(5120));
+        assert_eq!(config.num_hidden_layers, Some(64));
+        assert_eq!(config.num_attention_heads, Some(40));
+        assert_eq!(config.head_dim, Some(256));
+        assert_eq!(config.linear_key_head_dim, Some(128));
+        assert_eq!(config.linear_num_value_heads, Some(48));
+        assert_eq!(config.linear_conv_kernel_dim, Some(4));
+        // Verify top-level architectures preserved
+        assert_eq!(config.architecture(), "Qwen3_5ForConditionalGeneration");
+        assert_eq!(config.model_type.as_deref(), Some("qwen3_5"));
+        // Verify layer_types
+        let lt = config.layer_types.as_ref().expect("layer_types");
+        assert_eq!(lt.len(), 3);
+        assert_eq!(lt[0], "full_attention");
+        assert_eq!(lt[1], "linear_attention");
+    }
+
+    #[test]
+    fn test_parse_config_json_rope_parameters_nesting() {
+        let json = r#"{
+            "hidden_size": 5120,
+            "num_hidden_layers": 64,
+            "num_attention_heads": 40,
+            "rope_parameters": {
+                "rope_theta": 1300000.0
+            }
+        }"#;
+        let config = SafetensorsConfig::parse_config_json(json).expect("parse failed");
+        assert_eq!(config.rope_theta, Some(1_300_000.0));
+    }
+
+    #[test]
+    fn test_parse_config_json_rope_in_text_config() {
+        let json = r#"{
+            "architectures": ["Qwen3_5ForConditionalGeneration"],
+            "text_config": {
+                "hidden_size": 5120,
+                "num_hidden_layers": 64,
+                "num_attention_heads": 40,
+                "rope_parameters": {
+                    "rope_theta": 1300000.0
+                }
+            }
+        }"#;
+        let config = SafetensorsConfig::parse_config_json(json).expect("parse failed");
+        assert_eq!(config.rope_theta, Some(1_300_000.0));
+        assert_eq!(config.hidden_size, Some(5120));
+    }
+
+    #[test]
+    fn test_is_hybrid_attention_hf_naming() {
+        let config = SafetensorsConfig {
+            layer_types: Some(vec![
+                "full_attention".to_string(),
+                "linear_attention".to_string(),
+            ]),
+            ..Default::default()
+        };
+        assert!(config.is_hybrid_attention());
+    }
+
+    #[test]
+    fn test_is_hybrid_attention_short_naming() {
+        let config = SafetensorsConfig {
+            layer_types: Some(vec![
+                "attention".to_string(),
+                "linear".to_string(),
+            ]),
+            ..Default::default()
+        };
+        assert!(config.is_hybrid_attention());
+    }
+
+    #[test]
+    fn test_is_hybrid_attention_mixed_naming() {
+        let config = SafetensorsConfig {
+            layer_types: Some(vec![
+                "full_attention".to_string(),
+                "linear".to_string(),
+            ]),
+            ..Default::default()
+        };
+        assert!(config.is_hybrid_attention());
+    }
+
+    #[test]
+    fn test_is_hybrid_attention_all_same() {
+        let config = SafetensorsConfig {
+            layer_types: Some(vec![
+                "full_attention".to_string(),
+                "full_attention".to_string(),
+            ]),
+            ..Default::default()
+        };
+        assert!(!config.is_hybrid_attention());
+    }
+
+    #[test]
+    fn test_is_hybrid_attention_none() {
+        let config = SafetensorsConfig::default();
+        assert!(!config.is_hybrid_attention());
+    }
+
+    #[test]
+    fn test_backwards_compat_no_hybrid_fields() {
+        let json = r#"{
+            "hidden_size": 4096,
+            "num_hidden_layers": 32,
+            "num_attention_heads": 32,
+            "num_key_value_heads": 8,
+            "vocab_size": 152064,
+            "intermediate_size": 11008
+        }"#;
+        let config = SafetensorsConfig::parse_config_json(json).expect("parse failed");
+        assert_eq!(config.hidden_size, Some(4096));
+        assert!(config.layer_types.is_none());
+        assert!(config.head_dim.is_none());
+        assert!(config.linear_key_head_dim.is_none());
+        assert!(!config.is_hybrid_attention());
     }
 }

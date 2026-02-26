@@ -39,12 +39,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(gguf_path)?;
     let _gguf_model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = apr_model.config.hidden_dim;
+    let hidden_dim = apr_model.config().hidden_dim;
 
     // Create test input
     let bos: u32 = 151643;
     let embed = apr_model.embed(&[bos]);
-    let eps = apr_model.config.eps;
+    let eps = apr_model.config().eps;
     let norm_weight = &apr_model.layers[0].attn_norm_weight;
     let sum_sq: f32 = embed.iter().map(|x| x * x).sum();
     let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();

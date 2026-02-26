@@ -185,6 +185,8 @@ fn test_driver_cpu_forward_llama_single_token() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
         constraints: ArchConstraints::from_architecture("llama"),
     };
 
@@ -222,6 +224,8 @@ fn test_driver_cpu_forward_llama_multi_token() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
         constraints: ArchConstraints::from_architecture("llama"),
     };
 
@@ -253,6 +257,8 @@ fn test_driver_cpu_forward_phi2_single_token() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
         constraints: ArchConstraints::from_architecture("phi"),
     };
 
@@ -286,6 +292,8 @@ fn test_driver_cpu_forward_gqa_attention() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
         constraints: ArchConstraints::from_architecture("llama"),
     };
 
@@ -321,6 +329,8 @@ fn test_driver_cpu_forward_cached_single() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
         constraints: ArchConstraints::from_architecture("llama"),
     };
 
@@ -350,6 +360,8 @@ fn test_driver_cpu_forward_cached_sequence() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
         constraints: ArchConstraints::from_architecture("llama"),
     };
 
@@ -393,6 +405,8 @@ fn test_driver_cpu_forward_cached_gqa() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
         constraints: ArchConstraints::from_architecture("llama"),
     };
 
@@ -508,6 +522,8 @@ fn test_driver_cpu_forward_max_context() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
         constraints: ArchConstraints::from_architecture("llama"),
     };
 
@@ -538,6 +554,8 @@ fn test_driver_cpu_forward_cached_long_generation() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
         constraints: ArchConstraints::from_architecture("llama"),
     };
 
@@ -567,6 +585,8 @@ fn test_driver_cpu_neox_rope() {
         eps: 1e-5,
         rope_type: 2, // NEOX style
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
         constraints: ArchConstraints::from_architecture("llama"),
     };
 

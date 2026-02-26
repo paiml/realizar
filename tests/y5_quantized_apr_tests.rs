@@ -379,6 +379,7 @@ fn y5_6b_quantized_roundtrip() {
         context_length: 128,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let original = QuantizedAprTransformer::new(config.clone(), AprQuantizationType::Q4_K);

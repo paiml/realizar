@@ -33,6 +33,7 @@ fn create_minimal_apr_config() -> AprTransformerConfig {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     }
 }
 
@@ -49,6 +50,7 @@ fn create_gqa_apr_config() -> AprTransformerConfig {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     }
 }
 
@@ -72,6 +74,13 @@ fn create_f32_layer(config: &AprTransformerConfig) -> AprTransformerLayer {
         ffn_norm_bias: None,
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
         ffn_up_weight: vec![0.01; hidden_dim * intermediate_dim],
         ffn_up_bias: None,
         ffn_down_weight: vec![0.01; intermediate_dim * hidden_dim],
@@ -250,6 +259,13 @@ fn test_apr_f32_to_gpu_with_optional_biases() {
             ffn_norm_bias: Some(vec![0.1; hidden_dim]),
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
             ffn_up_weight: vec![0.01; hidden_dim * 128],
             ffn_up_bias: Some(vec![0.01; 128]),
             ffn_down_weight: vec![0.01; 128 * hidden_dim],
@@ -292,6 +308,13 @@ fn test_apr_f32_to_gpu_without_optional_biases() {
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
             ffn_up_weight: vec![0.01; hidden_dim * 128],
             ffn_up_bias: None,
             ffn_down_weight: vec![0.01; 128 * hidden_dim],
@@ -342,6 +365,13 @@ fn test_apr_f32_to_gpu_without_swiglu_gate() {
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
             ffn_up_weight: vec![0.01; hidden_dim * 128],
             ffn_up_bias: None,
             ffn_down_weight: vec![0.01; 128 * hidden_dim],
@@ -400,6 +430,7 @@ fn test_apr_q4_config_conversion_all_fields() {
         rope_theta: 500000.0,
         eps: 1e-6,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);

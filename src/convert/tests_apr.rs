@@ -18,6 +18,7 @@ fn test_from_apr_bytes_preserves_layer_data() {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.5; 80],
         layers: vec![AprTransformerLayer {
@@ -37,6 +38,13 @@ fn test_from_apr_bytes_preserves_layer_data() {
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -84,6 +92,7 @@ fn test_from_apr_bytes_truncated_at_tensor_index() {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.0; 80],
         layers: vec![],

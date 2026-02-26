@@ -196,6 +196,7 @@ mod tests {
             rope_theta: 10000.0,
             eps: 1e-6,
             eos_token_id: None,
+        ..Default::default()
         };
 
         // Non-zero sin pattern data
@@ -223,6 +224,13 @@ mod tests {
                 ffn_norm_bias: None,
                 attn_q_norm_weight: None,
                 attn_k_norm_weight: None,
+                linear_attn_z_weight: None,
+                linear_attn_b_weight: None,
+                linear_attn_a_weight: None,
+                linear_attn_conv1d_weight: None,
+                linear_attn_a_log: None,
+                linear_attn_dt_bias: None,
+                linear_attn_norm_weight: None,
             })
             .collect();
 

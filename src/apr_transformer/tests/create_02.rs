@@ -28,6 +28,7 @@ fn create_test_transformer(
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let head_dim = hidden_dim / num_heads;
@@ -57,6 +58,13 @@ fn create_test_transformer(
                 ffn_norm_bias: None,
                 attn_q_norm_weight: None,
                 attn_k_norm_weight: None,
+                linear_attn_z_weight: None,
+                linear_attn_b_weight: None,
+                linear_attn_a_weight: None,
+                linear_attn_conv1d_weight: None,
+                linear_attn_a_log: None,
+                linear_attn_dt_bias: None,
+                linear_attn_norm_weight: None,
             })
             .collect(),
         output_norm_weight: vec![1.0; hidden_dim],
@@ -195,6 +203,7 @@ fn test_generate_zero_tokens_returns_prompt() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
     let transformer = AprTransformer::new(config);
     let result = transformer.generate(&[1], 0);
@@ -227,6 +236,13 @@ fn test_layer_num_parameters_minimal() {
         ffn_norm_bias: None,
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
     let params = layer.num_parameters();
     assert!(params > 0);
@@ -251,6 +267,13 @@ fn test_layer_num_parameters_with_all_biases() {
         ffn_norm_bias: Some(vec![0.0; 64]),
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
     let params = layer.num_parameters();
     // Should include all weights and biases
@@ -302,6 +325,7 @@ fn test_new_creates_empty_layers() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
     let transformer = AprTransformer::new(config);
     assert_eq!(transformer.layers.len(), 2);
@@ -326,6 +350,7 @@ fn test_new_zero_layers() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
     let transformer = AprTransformer::new(config);
     assert!(transformer.layers.is_empty());
