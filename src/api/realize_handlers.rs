@@ -2,6 +2,7 @@
 //!
 //! Extracted from api/mod.rs (PMAT-802) to reduce module size.
 //! Contains context window management and native Realize API endpoints.
+#![allow(unreachable_pub)] // Items re-exported as pub from api/mod.rs
 
 use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};

@@ -13,7 +13,7 @@
 
 mod attention;
 #[cfg(any(feature = "gpu", feature = "cuda"))]
-pub mod cached;
+pub(crate) mod cached;
 mod forward;
 mod generation;
 mod matmul;
