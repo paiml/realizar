@@ -375,6 +375,11 @@ realizar/
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and code quality requirements.
 
+
+## MSRV
+
+Minimum Supported Rust Version: **1.89**
+
 ## License
 
 MIT - [Pragmatic AI Labs](https://paiml.com)

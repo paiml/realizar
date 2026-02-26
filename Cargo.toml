@@ -685,6 +685,7 @@ inherits = "release"
 panic = "unwind"  # PAR-129: Required for criterion benchmarks
 
 [profile.dev]
+panic = "abort"
 opt-level = 0         # Fast compilation
 debug = true
 
@@ -702,3 +703,11 @@ codegen-units = 4      # Balance between speed and optimization
 incremental = true     # Enable incremental compilation
 
 # trueno dependencies now using crates.io versions (0.14.1, 0.4.11)
+
+[package.metadata.release]
+shared-version = true
+
+[[package.metadata.release.pre-release-replacements]]
+file = "CHANGELOG.md"
+search = "## \\[Unreleased\\]"
+replace = "## [{{version}}] - {{date}}"
