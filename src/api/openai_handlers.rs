@@ -2,6 +2,7 @@
 //!
 //! Extracted from api/mod.rs (PMAT-802) to reduce module size.
 //! Contains chat completion, streaming, and model list handlers.
+#![allow(unreachable_pub)] // Items re-exported as pub from api/mod.rs
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -87,6 +88,7 @@ fn tokenize_chat_prompt(
 /// GH-330: EOS resolution follows Design by Contract priority:
 /// 1. Model config (class invariant from GGUF/APR metadata)
 /// 2. Tokenizer vocabulary lookup (runtime fallback)
+///
 /// No hardcoded magic numbers.
 fn chat_gen_params(
     request: &ChatCompletionRequest,
@@ -151,6 +153,20 @@ fn build_chat_response(
     .into_response()
 }
 
+/// Serialize a value to an SSE event, returning `None` if serialization fails.
+fn sse_event(value: &impl serde::Serialize) -> Option<Result<Event, Infallible>> {
+    serde_json::to_string(value)
+        .ok()
+        .map(|data| Ok(Event::default().data(data)))
+}
+
+/// Decode a token and optionally clean the output, returning the text if non-empty.
+fn decode_token(tokenizer: &BPETokenizer, token_id: u32, clean: bool) -> Option<String> {
+    let text = tokenizer.decode(&[token_id]).ok()?;
+    let text = if clean { clean_chat_output(&text) } else { text };
+    if text.is_empty() { None } else { Some(text) }
+}
+
 /// Build a pre-generated SSE streaming response (all tokens already generated).
 fn pregenerated_sse_response(
     token_ids: Vec<u32>,
@@ -160,28 +176,23 @@ fn pregenerated_sse_response(
     clean: bool,
 ) -> Response {
     let stream = async_stream::stream! {
-        let initial = ChatCompletionChunk::initial(&request_id, &model_name);
-        if let Ok(data) = serde_json::to_string(&initial) {
-            yield Ok::<_, Infallible>(Event::default().data(data));
+        if let Some(evt) = sse_event(&ChatCompletionChunk::initial(&request_id, &model_name)) {
+            yield evt;
         }
 
         for &token_id in &token_ids {
-            if let Ok(text) = tokenizer.decode(&[token_id]) {
-                let text = if clean { clean_chat_output(&text) } else { text };
-                if !text.is_empty() {
-                    let chunk = ChatCompletionChunk::content(&request_id, &model_name, &text);
-                    if let Ok(data) = serde_json::to_string(&chunk) {
-                        yield Ok(Event::default().data(data));
-                    }
+            if let Some(text) = decode_token(&tokenizer, token_id, clean) {
+                let chunk = ChatCompletionChunk::content(&request_id, &model_name, &text);
+                if let Some(evt) = sse_event(&chunk) {
+                    yield evt;
                 }
             }
         }
 
-        let done = ChatCompletionChunk::done(&request_id, &model_name);
-        if let Ok(data) = serde_json::to_string(&done) {
-            yield Ok(Event::default().data(data));
+        if let Some(evt) = sse_event(&ChatCompletionChunk::done(&request_id, &model_name)) {
+            yield evt;
         }
-        yield Ok(Event::default().data("[DONE]".to_string()));
+        yield Ok::<_, Infallible>(Event::default().data("[DONE]".to_string()));
     };
     Sse::new(stream).into_response()
 }
@@ -205,9 +216,8 @@ fn true_streaming_sse_response(
     let mut completion_tokens = 0usize;
 
     let stream = async_stream::stream! {
-        let initial = ChatCompletionChunk::initial(&request_id, &model_name);
-        if let Ok(data) = serde_json::to_string(&initial) {
-            yield Ok::<_, Infallible>(Event::default().data(data));
+        if let Some(evt) = sse_event(&ChatCompletionChunk::initial(&request_id, &model_name)) {
+            yield evt;
         }
 
         tokio::pin!(token_stream);
@@ -215,33 +225,28 @@ fn true_streaming_sse_response(
             match result {
                 Ok(token_id) => {
                     completion_tokens += 1;
-                    if let Ok(text) = tokenizer.decode(&[token_id]) {
-                        let text = if clean { clean_chat_output(&text) } else { text };
-                        if !text.is_empty() {
-                            let chunk = ChatCompletionChunk::content(&request_id, &model_name, &text);
-                            if let Ok(data) = serde_json::to_string(&chunk) {
-                                yield Ok(Event::default().data(data));
-                            }
+                    if let Some(text) = decode_token(&tokenizer, token_id, clean) {
+                        let chunk = ChatCompletionChunk::content(&request_id, &model_name, &text);
+                        if let Some(evt) = sse_event(&chunk) {
+                            yield evt;
                         }
                     }
                 }
                 Err(e) => {
-                    let error_chunk = serde_json::json!({ "error": e });
-                    if let Ok(data) = serde_json::to_string(&error_chunk) {
-                        yield Ok(Event::default().data(data));
+                    if let Some(evt) = sse_event(&serde_json::json!({ "error": e })) {
+                        yield evt;
                     }
                     break;
                 }
             }
         }
 
-        let done = ChatCompletionChunk::done(&request_id, &model_name);
-        if let Ok(data) = serde_json::to_string(&done) {
-            yield Ok(Event::default().data(data));
+        if let Some(evt) = sse_event(&ChatCompletionChunk::done(&request_id, &model_name)) {
+            yield evt;
         }
 
         metrics.record_success(completion_tokens, start.elapsed());
-        yield Ok(Event::default().data("[DONE]"));
+        yield Ok::<_, Infallible>(Event::default().data("[DONE]"));
     };
 
     Sse::new(stream)
