@@ -61,3 +61,5 @@ benches/comparative/results/
 .pmat/deps-cache.json
 .pmat/workspace.db
 .pmat/context.db
+.pmat/bug-hunter-cache/
+.pmat/coverage-cache.json
