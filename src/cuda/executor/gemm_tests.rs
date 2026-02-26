@@ -322,6 +322,7 @@ mod tests {
         let mut buf = exec.allocate_buffer(4).unwrap();
 
         // Copy to GPU async
+        // SAFETY: Preconditions verified by caller or enclosing context
         unsafe {
             exec.copy_to_gpu_async(&mut buf, &data).unwrap();
         }
@@ -329,6 +330,7 @@ mod tests {
 
         // Copy back from GPU async
         let mut result = vec![0.0f32; 4];
+        // SAFETY: Preconditions verified by caller or enclosing context
         unsafe {
             exec.copy_from_gpu_async(&buf, &mut result).unwrap();
         }

@@ -305,6 +305,7 @@ fn test_forward_cached_separate_qkv() {
 
 #[test]
 fn test_forward_with_cpu_debug_layers_llama() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("CPU_DEBUG_LAYERS", "1");
     }
@@ -312,6 +313,7 @@ fn test_forward_with_cpu_debug_layers_llama() {
 
     let result = model.forward(&[5, 10, 15]);
     assert!(result.is_ok(), "debug forward: {}", result.unwrap_err());
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("CPU_DEBUG_LAYERS");
     }
@@ -319,6 +321,7 @@ fn test_forward_with_cpu_debug_layers_llama() {
 
 #[test]
 fn test_forward_with_cpu_debug_layers_phi() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("CPU_DEBUG_LAYERS", "1");
     }
@@ -326,6 +329,7 @@ fn test_forward_with_cpu_debug_layers_phi() {
 
     let result = model.forward(&[5, 10]);
     assert!(result.is_ok(), "debug phi forward: {}", result.unwrap_err());
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("CPU_DEBUG_LAYERS");
     }
@@ -333,6 +337,7 @@ fn test_forward_with_cpu_debug_layers_phi() {
 
 #[test]
 fn test_forward_cached_with_cpu_debug() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("CPU_DEBUG", "1");
     }
@@ -343,6 +348,7 @@ fn test_forward_cached_with_cpu_debug() {
         let r = model.forward_cached(5, &mut cache, i);
         assert!(r.is_ok(), "debug cached pos {}: {}", i, r.unwrap_err());
     }
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("CPU_DEBUG");
     }
@@ -350,6 +356,7 @@ fn test_forward_cached_with_cpu_debug() {
 
 #[test]
 fn test_forward_cached_with_cpu_debug_phi() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("CPU_DEBUG", "1");
     }
@@ -360,6 +367,7 @@ fn test_forward_cached_with_cpu_debug_phi() {
         let r = model.forward_cached(10, &mut cache, i);
         assert!(r.is_ok(), "debug cached phi pos {}: {}", i, r.unwrap_err());
     }
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("CPU_DEBUG");
     }

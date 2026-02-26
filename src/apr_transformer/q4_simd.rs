@@ -5,8 +5,6 @@
 
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::similar_names)]
-#![allow(dead_code)]
-
 use super::{AprKVCache, AprTransformerConfig};
 use crate::error::{RealizarError, Result};
 

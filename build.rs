@@ -13,9 +13,11 @@
 // These are consumed at compile time by the #[contract] proc macro to gate
 // code generation and emit compile_error! for missing implementations.
 
-use serde::Deserialize;
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::Path;
+
+use serde::Deserialize;
 
 /// Minimal subset of the binding.yaml schema — just enough to parse what we need.
 #[derive(Deserialize)]
@@ -38,7 +40,7 @@ struct Binding {
 
 /// Convert a contract filename + equation into a canonical env var name.
 ///
-/// "softmax-kernel-v1.yaml" + "softmax" → "CONTRACT_SOFTMAX_KERNEL_V1_SOFTMAX"
+/// `"softmax-kernel-v1.yaml"` + `"softmax"` → `"CONTRACT_SOFTMAX_KERNEL_V1_SOFTMAX"`
 fn env_var_name(contract: &str, equation: &str) -> String {
     let stem = contract
         .trim_end_matches(".yaml")
@@ -89,8 +91,8 @@ struct ConstraintCell {
 /// Convert YAML role name to Rust enum variant name.
 ///
 /// Special cases preserve backward compatibility with existing codebase:
-/// - gate_proj → FfnGate, up_proj → FfnUp, down_proj → FfnDown
-/// - Everything else: snake_case → PascalCase (e.g. attn_q_norm → AttnQNorm)
+/// - `gate_proj` → `FfnGate`, `up_proj` → `FfnUp`, `down_proj` → `FfnDown`
+/// - Everything else: `snake_case` → `PascalCase` (e.g. `attn_q_norm` → `AttnQNorm`)
 fn role_to_variant(s: &str) -> String {
     match s {
         "gate_proj" => "FfnGate".to_string(),
@@ -112,7 +114,7 @@ fn role_to_variant(s: &str) -> String {
     }
 }
 
-/// Generate the arch_requirements.rs content from YAML data.
+/// Generate the `arch_requirements.rs` content from YAML data.
 fn generate_arch_requirements(req: &ArchRequirements) -> String {
     let mut out = String::with_capacity(4096);
 
@@ -138,8 +140,8 @@ fn generate_arch_requirements(req: &ArchRequirements) -> String {
          pub enum WeightRole {\n",
     );
     for (name, def) in &req.weight_roles {
-        out.push_str(&format!("    /// {}\n", def.description));
-        out.push_str(&format!("    {},\n", role_to_variant(name)));
+        let _ = writeln!(out, "    /// {}", def.description);
+        let _ = writeln!(out, "    {},", role_to_variant(name));
     }
     out.push_str("}\n\n");
 
@@ -152,11 +154,12 @@ fn generate_arch_requirements(req: &ArchRequirements) -> String {
          \x20       match self {\n",
     );
     for (name, def) in &req.weight_roles {
-        out.push_str(&format!(
-            "            Self::{} => \"{}\",\n",
+        let _ = writeln!(
+            out,
+            "            Self::{} => \"{}\",",
             role_to_variant(name),
             def.field_name
-        ));
+        );
     }
     out.push_str("        }\n    }\n}\n\n");
 
@@ -168,21 +171,23 @@ fn generate_arch_requirements(req: &ArchRequirements) -> String {
     for (cell_name, cell) in &cells {
         let const_name = cell_const_name(cell_name);
         let roles = expand_role_sets(&cell.required_sets, &req.role_sets);
-        out.push_str(&format!(
-            "/// Roles for constraint cell: {} (has_qk_norm={}, has_bias={}).\n",
-            cell_name, cell.has_qk_norm, cell.has_bias
-        ));
-        out.push_str(&format!("const {const_name}: &[WeightRole] = &[\n"));
+        let _ = writeln!(
+            out,
+            "/// Roles for constraint cell: {cell_name} (has_qk_norm={}, has_bias={}).",
+            cell.has_qk_norm, cell.has_bias
+        );
+        let _ = writeln!(out, "const {const_name}: &[WeightRole] = &[");
         for role in &roles {
-            out.push_str(&format!("    WeightRole::{},\n", role_to_variant(role)));
+            let _ = writeln!(out, "    WeightRole::{},", role_to_variant(role));
         }
         out.push_str("];\n\n");
 
         // Compile-time assertion on count
-        out.push_str(&format!(
-            "const _: () = assert!({const_name}.len() == {}, \"YAML declares {} roles\");\n\n",
+        let _ = writeln!(
+            out,
+            "const _: () = assert!({const_name}.len() == {}, \"YAML declares {} roles\");\n",
             cell.total_required, cell.total_required
-        ));
+        );
     }
 
     // required_roles() function
@@ -198,10 +203,11 @@ fn generate_arch_requirements(req: &ArchRequirements) -> String {
     );
     for (cell_name, cell) in &cells {
         let const_name = cell_const_name(cell_name);
-        out.push_str(&format!(
-            "        ({}, {}) => {const_name},\n",
+        let _ = writeln!(
+            out,
+            "        ({}, {}) => {const_name},",
             cell.has_qk_norm, cell.has_bias
-        ));
+        );
     }
     out.push_str("    }\n}\n");
 
@@ -209,7 +215,8 @@ fn generate_arch_requirements(req: &ArchRequirements) -> String {
 }
 
 /// Convert YAML cell name to a Rust const name.
-/// "no_qk_norm_no_bias" → "ROLES_NO_QK_NORM_NO_BIAS"
+///
+/// `"no_qk_norm_no_bias"` → `"ROLES_NO_QK_NORM_NO_BIAS"`
 fn cell_const_name(cell_name: &str) -> String {
     format!("ROLES_{}", cell_name.to_uppercase())
 }
@@ -236,6 +243,11 @@ fn main() {
     generate_tensor_names_file();
 
     // Phase 2: Contract binding env vars
+    emit_contract_bindings();
+}
+
+/// Phase 2: Read binding.yaml and emit CONTRACT_* env vars for the proc macro.
+fn emit_contract_bindings() {
     // Re-run if binding.yaml changes
     let binding_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -284,76 +296,8 @@ fn main() {
         },
     };
 
-    // Counters for the summary
-    let mut implemented = 0u32;
-    let mut partial = 0u32;
-    let mut not_implemented = 0u32;
-
-    // De-duplicate: the binding.yaml has multiple entries for the same
-    // (contract, equation) pair across different crates. We take the "best"
-    // status (implemented > partial > not_implemented).
-    let mut seen = std::collections::HashMap::<String, String>::new();
-
-    for binding in &bindings.bindings {
-        let var_name = env_var_name(&binding.contract, &binding.equation);
-        let status = binding.status.as_str();
-
-        // Keep the best status seen so far for this (contract, equation) pair
-        let dominated = match (seen.get(&var_name).map(|s| s.as_str()), status) {
-            (None, _) => false,                        // first time
-            (Some("implemented"), _) => true,          // already best
-            (Some("partial"), "implemented") => false, // upgrade
-            (Some("partial"), _) => true,              // keep partial
-            (Some("not_implemented"), "not_implemented") => true,
-            (Some("not_implemented"), _) => false, // upgrade
-            _ => false,
-        };
-
-        if dominated {
-            continue;
-        }
-
-        seen.insert(var_name, status.to_string());
-    }
-
-    // Now emit env vars and warnings
-    let mut keys: Vec<_> = seen.keys().cloned().collect();
-    keys.sort();
-
-    for var_name in &keys {
-        let status = &seen[var_name];
-
-        println!("cargo:rustc-env={var_name}={status}");
-
-        match status.as_str() {
-            "implemented" => implemented += 1,
-            "partial" => {
-                partial += 1;
-                // Find the original binding for the note
-                let note = bindings
-                    .bindings
-                    .iter()
-                    .find(|b| &env_var_name(&b.contract, &b.equation) == var_name)
-                    .and_then(|b| b.notes.as_deref())
-                    .unwrap_or("");
-                println!("cargo:warning=[contract] PARTIAL: {var_name} — {note}");
-            },
-            "not_implemented" => {
-                not_implemented += 1;
-                // WarnOnGaps: warn but do NOT fail the build
-                let note = bindings
-                    .bindings
-                    .iter()
-                    .find(|b| &env_var_name(&b.contract, &b.equation) == var_name)
-                    .and_then(|b| b.notes.as_deref())
-                    .unwrap_or("");
-                println!("cargo:warning=[contract] GAP: {var_name} — {note}");
-            },
-            other => {
-                println!("cargo:warning=[contract] UNKNOWN STATUS '{other}': {var_name}");
-            },
-        }
-    }
+    let seen = dedup_bindings(&bindings);
+    let (implemented, partial, not_implemented) = emit_binding_env_vars(&seen, &bindings);
 
     let total = implemented + partial + not_implemented;
     println!(
@@ -373,7 +317,83 @@ fn main() {
     println!("cargo:rustc-env=CONTRACT_GAPS={not_implemented}");
 }
 
-/// PMAT-228: Read architecture-requirements-v1.yaml and generate arch_requirements.rs.
+/// Rank status values for deduplication: `implemented` > `partial` > `not_implemented`.
+fn status_rank(s: &str) -> u8 {
+    match s {
+        "implemented" => 2,
+        "partial" => 1,
+        _ => 0,
+    }
+}
+
+/// De-duplicate bindings, keeping the best status for each (contract, equation) pair.
+fn dedup_bindings(bindings: &BindingFile) -> std::collections::HashMap<String, String> {
+    let mut seen = std::collections::HashMap::<String, String>::new();
+
+    for binding in &bindings.bindings {
+        let var_name = env_var_name(&binding.contract, &binding.equation);
+        let new_rank = status_rank(&binding.status);
+
+        let dominated = seen
+            .get(&var_name)
+            .is_some_and(|existing| status_rank(existing) >= new_rank);
+
+        if !dominated {
+            seen.insert(var_name, binding.status.clone());
+        }
+    }
+
+    seen
+}
+
+/// Emit rustc-env and cargo:warning lines for each binding; returns (implemented, partial, gaps).
+fn emit_binding_env_vars(
+    seen: &std::collections::HashMap<String, String>,
+    bindings: &BindingFile,
+) -> (u32, u32, u32) {
+    let mut implemented = 0u32;
+    let mut partial = 0u32;
+    let mut not_implemented = 0u32;
+
+    let mut keys: Vec<_> = seen.keys().cloned().collect();
+    keys.sort();
+
+    for var_name in &keys {
+        let status = &seen[var_name];
+        println!("cargo:rustc-env={var_name}={status}");
+
+        match status.as_str() {
+            "implemented" => implemented += 1,
+            "partial" => {
+                partial += 1;
+                let note = find_binding_note(bindings, var_name);
+                println!("cargo:warning=[contract] PARTIAL: {var_name} — {note}");
+            },
+            "not_implemented" => {
+                not_implemented += 1;
+                let note = find_binding_note(bindings, var_name);
+                println!("cargo:warning=[contract] GAP: {var_name} — {note}");
+            },
+            other => {
+                println!("cargo:warning=[contract] UNKNOWN STATUS '{other}': {var_name}");
+            },
+        }
+    }
+
+    (implemented, partial, not_implemented)
+}
+
+/// Find the note for a binding by its var name.
+fn find_binding_note<'a>(bindings: &'a BindingFile, var_name: &str) -> &'a str {
+    bindings
+        .bindings
+        .iter()
+        .find(|b| env_var_name(&b.contract, &b.equation) == var_name)
+        .and_then(|b| b.notes.as_deref())
+        .unwrap_or("")
+}
+
+/// PMAT-228: Read architecture-requirements-v1.yaml and generate `arch_requirements.rs`.
 fn generate_arch_requirements_file() {
     let yaml_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -455,7 +475,7 @@ struct ArchEntry {
     default_eps: f64,
 }
 
-/// GH-323: Read arch-constraints-v1.yaml and generate arch_constraints_generated.rs.
+/// GH-323: Read arch-constraints-v1.yaml and generate `arch_constraints_generated.rs`.
 fn generate_arch_constraints_file() {
     let yaml_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -558,8 +578,11 @@ fn map_weight_layout(s: &str) -> &'static str {
 }
 
 /// Format an f64 epsilon as a Rust f32 literal.
+///
+/// Uses exact comparison since these are well-known constant values
+/// parsed from YAML, not computed results.
+#[allow(clippy::float_cmp)]
 fn format_eps(eps: f64) -> String {
-    // Use scientific notation for clarity
     if eps == 1e-12 {
         "1e-12".to_string()
     } else if eps == 1e-6 {
@@ -569,6 +592,34 @@ fn format_eps(eps: f64) -> String {
     } else {
         format!("{eps:e}")
     }
+}
+
+/// Emit a single architecture match arm into `out`.
+fn emit_arch_arm(out: &mut String, comment: &str, pattern: &str, entry: &ArchEntry) {
+    let _ = write!(
+        out,
+        "        // {comment}\n\
+         \x20       {pattern} => ArchConstraints {{\n\
+         \x20           norm_type: {},\n\
+         \x20           activation: {},\n\
+         \x20           positional_encoding: {},\n\
+         \x20           mlp_type: {},\n\
+         \x20           weight_layout: {},\n\
+         \x20           has_bias: {},\n\
+         \x20           tied_embeddings: {},\n\
+         \x20           has_qk_norm: {},\n\
+         \x20           default_eps: {},\n\
+         \x20       }},\n",
+        map_norm_type(&entry.norm_type),
+        map_activation(&entry.activation),
+        map_positional_encoding(&entry.positional_encoding),
+        map_mlp_type(&entry.mlp_type),
+        map_weight_layout(&entry.weight_layout),
+        entry.has_bias,
+        entry.tied_embeddings,
+        entry.has_qk_norm,
+        format_eps(entry.default_eps),
+    );
 }
 
 /// Generate the `from_architecture()` match body from YAML data.
@@ -600,62 +651,21 @@ fn generate_arch_constraints(contract: &ArchConstraintsContract) -> String {
     // Generate match arms for each architecture
     for (name, entry) in &contract.architectures {
         // Build pattern: "name" | "alias1" | "alias2"
-        let mut patterns = vec![format!("\"{}\"", name)];
+        let mut patterns = vec![format!("\"{name}\"")];
         for alias in &entry.aliases {
-            patterns.push(format!("\"{}\"", alias));
+            patterns.push(format!("\"{alias}\""));
         }
         let pattern = patterns.join(" | ");
-
-        out.push_str(&format!(
-            "        // {name}.yaml\n\
-             \x20       {pattern} => ArchConstraints {{\n\
-             \x20           norm_type: {},\n\
-             \x20           activation: {},\n\
-             \x20           positional_encoding: {},\n\
-             \x20           mlp_type: {},\n\
-             \x20           weight_layout: {},\n\
-             \x20           has_bias: {},\n\
-             \x20           tied_embeddings: {},\n\
-             \x20           has_qk_norm: {},\n\
-             \x20           default_eps: {},\n\
-             \x20       }},\n",
-            map_norm_type(&entry.norm_type),
-            map_activation(&entry.activation),
-            map_positional_encoding(&entry.positional_encoding),
-            map_mlp_type(&entry.mlp_type),
-            map_weight_layout(&entry.weight_layout),
-            entry.has_bias,
-            entry.tied_embeddings,
-            entry.has_qk_norm,
-            format_eps(entry.default_eps),
-        ));
+        emit_arch_arm(&mut out, &format!("{name}.yaml"), &pattern, entry);
     }
 
     // Default arm
-    let d = &contract.default;
-    out.push_str(&format!(
-        "        // Default: LLaMA-like (most common pattern in modern LLMs)\n\
-         \x20       _ => ArchConstraints {{\n\
-         \x20           norm_type: {},\n\
-         \x20           activation: {},\n\
-         \x20           positional_encoding: {},\n\
-         \x20           mlp_type: {},\n\
-         \x20           weight_layout: {},\n\
-         \x20           has_bias: {},\n\
-         \x20           tied_embeddings: {},\n\
-         \x20           has_qk_norm: {},\n\
-         \x20           default_eps: {},\n\
-         \x20       }},\n",
-        map_norm_type(&d.norm_type),
-        map_activation(&d.activation),
-        map_positional_encoding(&d.positional_encoding),
-        map_mlp_type(&d.mlp_type),
-        map_weight_layout(&d.weight_layout),
-        d.has_bias,
-        d.tied_embeddings,
-        d.has_qk_norm,
-        format_eps(d.default_eps),
-    ));
+    emit_arch_arm(
+        &mut out,
+        "Default: LLaMA-like (most common pattern in modern LLMs)",
+        "_",
+        &contract.default,
+    );
 
     out.push_str("    }\n}\n");
 
@@ -666,13 +676,13 @@ fn generate_arch_constraints(contract: &ArchConstraintsContract) -> String {
 // GH-311: Tensor names YAML → Rust codegen
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// GH-311: Write tensor_names_generated.rs (fallback for now, YAML codegen planned).
+/// GH-311: Write `tensor_names_generated.rs` (fallback for now, YAML codegen planned).
 fn generate_tensor_names_file() {
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
     let out_path = Path::new(&out_dir).join("tensor_names_generated.rs");
 
     // For now, always use the fallback file.
-    // TODO: Add YAML-to-codegen pipeline from tensor-names-v1.yaml.
+    // YAML-to-codegen pipeline from tensor-names-v1.yaml is planned (GH-311).
     let yaml_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("provable-contracts")

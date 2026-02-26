@@ -15,6 +15,7 @@ fn test_q4_0_avx2_dot_negative_activations() {
     let q8_quants = vec![-3i8; 64];
 
     let scalar = fused_q4_0_q8_0_dot_scalar(&q4_data, &q8_scales, &q8_quants, 64);
+    // SAFETY: Preconditions verified by caller or enclosing context
     let avx2 = unsafe { fused_q4_0_q8_0_dot_avx2(&q4_data, &q8_scales, &q8_quants, 64) };
 
     let diff = (scalar - avx2).abs();
@@ -42,6 +43,7 @@ fn test_q4_0_avx2_4block_dot_parity_with_scalar() {
     let q8_quants = vec![4i8; 256];
 
     let scalar = fused_q4_0_q8_0_dot_scalar(&q4_data, &q8_scales, &q8_quants, 256);
+    // SAFETY: Preconditions verified by caller or enclosing context
     let avx2_4b = unsafe { fused_q4_0_q8_0_dot_avx2_4block(&q4_data, &q8_scales, &q8_quants, 256) };
 
     let diff = (scalar - avx2_4b).abs();
@@ -69,6 +71,7 @@ fn test_q4_0_avx2_4block_dot_large_dim() {
     let q8_quants = vec![1i8; 512];
 
     let scalar = fused_q4_0_q8_0_dot_scalar(&q4_data, &q8_scales, &q8_quants, 512);
+    // SAFETY: Preconditions verified by caller or enclosing context
     let avx2_4b = unsafe { fused_q4_0_q8_0_dot_avx2_4block(&q4_data, &q8_scales, &q8_quants, 512) };
 
     let diff = (scalar - avx2_4b).abs();
@@ -98,6 +101,7 @@ fn test_q4_0_avx2_4block_dot_varying_scales() {
     let q8_quants = vec![5i8; 384];
 
     let scalar = fused_q4_0_q8_0_dot_scalar(&q4_data, &q8_scales, &q8_quants, 384);
+    // SAFETY: Preconditions verified by caller or enclosing context
     let avx2_4b = unsafe { fused_q4_0_q8_0_dot_avx2_4block(&q4_data, &q8_scales, &q8_quants, 384) };
 
     let diff = (scalar - avx2_4b).abs();

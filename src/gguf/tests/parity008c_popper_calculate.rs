@@ -6,7 +6,6 @@ fn test_parity008c_popper_score_calculation() {
     // Score = 1.0 - (|predicted - actual| / predicted)
 
     // Local struct for Popper score calculation testing
-    #[allow(dead_code)]
     struct PopperScore {
         prediction: String,
         predicted: f64,
@@ -369,25 +368,18 @@ fn test_parity009c_environment_metadata() {
         // System info
         os: String,
         arch: String,
-        #[allow(dead_code)]
         cpu_model: String,
         cpu_cores: usize,
-        #[allow(dead_code)]
         ram_gb: usize,
 
         // Runtime info
-        #[allow(dead_code)]
         rust_version: String,
         cargo_profile: String,
-        #[allow(dead_code)]
         target_triple: String,
 
         // Benchmark config
-        #[allow(dead_code)]
         timestamp: String,
-        #[allow(dead_code)]
         git_commit: String,
-        #[allow(dead_code)]
         benchmark_version: String,
     }
 

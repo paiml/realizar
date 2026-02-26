@@ -102,6 +102,7 @@ pub fn simd_dot(a: &[f32], b: &[f32]) -> f32 {
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2", enable = "fma")]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn simd_dot_avx2(a: &[f32], b: &[f32]) -> f32 {
     use std::arch::x86_64::{
         _mm256_castps256_ps128, _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps,

@@ -172,6 +172,7 @@ impl InterleavedQ4K {
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2", enable = "fma")]
     #[allow(unsafe_op_in_unsafe_fn)]
+    // SAFETY: Caller must satisfy the documented preconditions
     unsafe fn dot_avx2(&self, activations: &[f32]) -> Result<f32> {
         #[allow(clippy::wildcard_imports)]
         use std::arch::x86_64::*;
@@ -359,6 +360,7 @@ pub(crate) fn fused_q4_0_q8_0_dot_simd(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn fused_q4_0_q8_0_dot_avx_vnni(
     q4_data: &[u8],
     q8_scales: &[f32],

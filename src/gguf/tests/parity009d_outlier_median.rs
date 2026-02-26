@@ -71,7 +71,6 @@ fn test_parity009e_latency_percentiles() {
         p99: f64,
         min: f64,
         max: f64,
-        #[allow(dead_code)]
         mean: f64,
     }
 
@@ -195,9 +194,7 @@ fn test_parity009g_versioned_results() {
 
         // Results
         throughput_tps: f64,
-        #[allow(dead_code)]
         latency_p50_ms: f64,
-        #[allow(dead_code)]
         latency_p99_ms: f64,
         cv: f64,
         iterations: usize,
@@ -281,7 +278,6 @@ fn test_parity010a_preflight_server_checks() {
     struct ServerPreflightCheck {
         name: String,
         endpoint: String,
-        #[allow(dead_code)]
         timeout_ms: u64,
         required: bool,
     }

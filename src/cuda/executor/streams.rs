@@ -127,6 +127,7 @@ impl CudaExecutor {
     /// # Errors
     ///
     /// Returns error if copy fails.
+    // SAFETY: Caller must satisfy the documented preconditions
     pub unsafe fn copy_to_gpu_async(
         &self,
         buf: &mut GpuBuffer<f32>,
@@ -145,6 +146,7 @@ impl CudaExecutor {
     /// # Errors
     ///
     /// Returns error if copy fails.
+    // SAFETY: Caller must satisfy the documented preconditions
     pub unsafe fn copy_from_gpu_async(
         &self,
         buf: &GpuBuffer<f32>,

@@ -465,8 +465,8 @@ fn prepare_tokens_apr(config: &InferenceConfig, prompt: &str) -> Result<Prepared
 ///
 /// GH-317/318: Contract-driven — uses normalize_architecture() from
 /// tensor-names-v1.yaml. No contains() heuristics, no model_name fallback.
-fn safetensors_arch_to_template_hint(_architecture: &str, _model_name: &str) -> &'static str {
-    crate::tensor_names::normalize_architecture(_architecture)
+fn safetensors_arch_to_template_hint(architecture: &str, _model_name: &str) -> &'static str {
+    crate::tensor_names::normalize_architecture(architecture)
 }
 
 include!("inference_result.rs");

@@ -198,6 +198,7 @@ pub fn fused_q4k_dot_simd(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
 #[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vnni")]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[inline]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn avx512_quantize_dot(
     act_slice: &[f32],
     q_nibbles_256: std::arch::x86_64::__m256i,
@@ -245,6 +246,7 @@ unsafe fn avx512_quantize_dot(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vnni")]
 #[allow(unsafe_op_in_unsafe_fn)]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn fused_q4k_dot_avx512_vnni(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;

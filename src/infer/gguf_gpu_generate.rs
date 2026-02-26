@@ -107,8 +107,8 @@ fn run_apr_inference(
 ///
 /// Uses `normalize_architecture()` from tensor-names-v1.yaml — no fallback.
 /// Unknown architectures default to "llama" (safest default per contract).
-fn apr_arch_to_template_hint(_apr_arch: &str, _model_name: &str) -> &'static str {
-    crate::tensor_names::normalize_architecture(_apr_arch)
+fn apr_arch_to_template_hint(apr_arch: &str, _model_name: &str) -> &'static str {
+    crate::tensor_names::normalize_architecture(apr_arch)
 }
 
 /// Metadata captured from the model config before it is moved into CUDA.

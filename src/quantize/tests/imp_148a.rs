@@ -35,6 +35,7 @@ fn test_imp_148a_simd_vs_scalar_speedup() {
 
     // SIMD extraction benchmark
     #[target_feature(enable = "avx2")]
+    // SAFETY: Caller must satisfy the documented preconditions
     unsafe fn simd_extract_batch(bytes: &[u8], low: &mut [u8], high: &mut [u8]) {
         use std::arch::x86_64::*;
         let low_mask = _mm256_set1_epi8(0x0F);
@@ -160,6 +161,7 @@ fn test_imp_148c_simd_scaling() {
 
     // SIMD helper function (defined once outside loop)
     #[target_feature(enable = "avx2")]
+    // SAFETY: Caller must satisfy the documented preconditions
     unsafe fn simd_extract_148c(bytes: &[u8], low: &mut [u8], high: &mut [u8]) {
         use std::arch::x86_64::*;
         let mask = _mm256_set1_epi8(0x0F);

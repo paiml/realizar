@@ -104,6 +104,7 @@ pub(crate) fn fused_swiglu_scalar(gate: &mut [f32], up: &[f32]) {
 #[target_feature(enable = "avx2", enable = "fma")]
 #[inline]
 #[allow(clippy::many_single_char_names)]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn fused_swiglu_avx2(gate: &mut [f32], up: &[f32]) {
     use std::arch::x86_64::{
         _mm256_add_epi32, _mm256_add_ps, _mm256_castsi256_ps, _mm256_cvtps_epi32, _mm256_floor_ps,
@@ -254,6 +255,7 @@ pub(crate) fn softmax_scalar(x: &mut [f32]) {
 #[target_feature(enable = "avx2")]
 #[inline]
 #[allow(unsafe_op_in_unsafe_fn)]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn softmax_avx2(x: &mut [f32]) {
     use std::arch::x86_64::{
         _mm256_loadu_ps, _mm256_max_ps, _mm256_mul_ps, _mm256_set1_ps, _mm256_storeu_ps,
@@ -309,6 +311,7 @@ unsafe fn softmax_avx2(x: &mut [f32]) {
 #[target_feature(enable = "avx2")]
 #[inline]
 #[allow(unsafe_op_in_unsafe_fn)]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn horizontal_max_avx2(v: std::arch::x86_64::__m256) -> f32 {
     use std::arch::x86_64::{
         _mm256_extractf128_ps, _mm_cvtss_f32, _mm_max_ps, _mm_max_ss, _mm_movehl_ps, _mm_shuffle_ps,

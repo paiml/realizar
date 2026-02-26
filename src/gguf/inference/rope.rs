@@ -191,6 +191,7 @@ impl OwnedQuantizedModel {
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2", enable = "fma")]
     #[inline]
+    // SAFETY: Caller must satisfy the documented preconditions
     unsafe fn simd_dot_f32_avx2(a: &[f32], b: &[f32]) -> f32 {
         // SAFETY: Memory safety ensured by bounds checking and alignment
         unsafe {
@@ -268,6 +269,7 @@ impl OwnedQuantizedModel {
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2", enable = "fma")]
     #[inline]
+    // SAFETY: Caller must satisfy the documented preconditions
     unsafe fn simd_axpy_f32_avx2(out: &mut [f32], weight: f32, val: &[f32]) {
         use std::arch::x86_64::{
             _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_set1_ps, _mm256_storeu_ps,

@@ -13,7 +13,6 @@ pub enum ConnectionState {
 /// Connection handle
 #[derive(Debug)]
 pub struct Connection {
-    #[allow(dead_code)]
     id: u64,
     created_at: std::time::Instant,
 }

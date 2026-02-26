@@ -295,7 +295,7 @@ impl BeamSearchState {
 /// - is_final: Whether this is the last token
 ///
 /// Returns `true` to continue, `false` to stop generation
-pub type StreamCallback = Box<dyn FnMut(usize, Option<&str>, bool) -> bool + Send>;
+pub(crate) type StreamCallback = Box<dyn FnMut(usize, Option<&str>, bool) -> bool + Send>;
 
 /// Streaming generation state
 #[derive(Debug)]

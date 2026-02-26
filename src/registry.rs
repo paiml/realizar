@@ -79,7 +79,6 @@ pub struct ModelRegistry {
     /// Write lock to serialize modifications
     write_lock: Mutex<()>,
     /// Model cache for memory management (reserved for future use)
-    #[allow(dead_code)]
     cache: Arc<ModelCache>,
 }
 

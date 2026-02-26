@@ -23,6 +23,7 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(clippy::similar_names)]
 
+#[cfg(feature = "gpu")]
 use super::runtime::OwnedQuantizedKVCache;
 
 /// Statistics for batch generation configuration

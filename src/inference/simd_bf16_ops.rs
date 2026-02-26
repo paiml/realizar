@@ -57,7 +57,7 @@ pub fn simd_bf16_matmul(
 ///
 /// F32 output vector
 #[must_use]
-pub fn simd_bf16_matmul_streaming(
+pub(super) fn simd_bf16_matmul_streaming(
     input: &[f32],
     weight_bf16: &[u8],
     in_dim: usize,

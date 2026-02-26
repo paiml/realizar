@@ -374,7 +374,6 @@ pub struct Communicator {
     /// Current rank
     rank: usize,
     /// test buffers for testing
-    #[allow(dead_code)]
     buffers: Arc<std::sync::RwLock<HashMap<usize, Vec<f32>>>>,
 }
 

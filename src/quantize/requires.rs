@@ -6,6 +6,7 @@
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[allow(unsafe_op_in_unsafe_fn)]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn fused_q4k_q8k_dot_avx2(
     q4k_data: &[u8],
     q8k_scales: &[f32],
@@ -222,6 +223,7 @@ unsafe fn fused_q4k_q8k_dot_avx2(
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(clippy::similar_names)]
 #[allow(clippy::too_many_lines)]
+// SAFETY: Caller must satisfy the documented preconditions
 pub(crate) unsafe fn fused_q4k_q8k_dot_4rows_avx512vnni(
     row_ptrs: [*const u8; 4],
     bytes_per_row: usize,
@@ -368,6 +370,7 @@ pub(crate) unsafe fn fused_q4k_q8k_dot_4rows_avx512vnni(
 #[target_feature(enable = "avx2")]
 #[inline]
 #[allow(clippy::too_many_arguments)]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn compute_q8_sums_8blocks(
     c0_lo: std::arch::x86_64::__m256i,
     c0_hi: std::arch::x86_64::__m256i,
@@ -382,6 +385,7 @@ unsafe fn compute_q8_sums_8blocks(
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
 
+    // SAFETY: Caller must satisfy the documented preconditions
     // SAFETY: All calls are to unsafe intrinsics, within already-unsafe fn
     // Sum Q8 values for each of the 8 blocks (32 values each)
     unsafe {
@@ -412,6 +416,7 @@ unsafe fn compute_q8_sums_8blocks(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn sum_i8_to_i32(v: std::arch::x86_64::__m256i, ones: std::arch::x86_64::__m256i) -> i32 {
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;

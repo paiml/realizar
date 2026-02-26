@@ -4,6 +4,7 @@
 #[target_feature(enable = "avx2")]
 #[inline]
 #[allow(clippy::too_many_arguments)]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn compute_q4_q8_dots_8blocks(
     qs_ptr: *const u8,
     q8_c0_lo: std::arch::x86_64::__m256i,
@@ -20,6 +21,7 @@ unsafe fn compute_q4_q8_dots_8blocks(
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
 
+    // SAFETY: Caller must satisfy the documented preconditions
     // SAFETY: All intrinsics and pointer ops are unsafe, within already-unsafe fn
     unsafe {
         // Load Q4K data (128 bytes total for 256 values)
@@ -68,6 +70,7 @@ unsafe fn compute_q4_q8_dots_8blocks(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn q4_q8_chunk_dot(
     q4_packed: std::arch::x86_64::__m256i,
     q8_lo: std::arch::x86_64::__m256i,
@@ -78,6 +81,7 @@ unsafe fn q4_q8_chunk_dot(
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
 
+    // SAFETY: Caller must satisfy the documented preconditions
     // SAFETY: All intrinsics are unsafe, within already-unsafe fn
     unsafe {
         // Extract nibbles
@@ -106,6 +110,7 @@ unsafe fn q4_q8_chunk_dot(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn hsum_epi32(v: std::arch::x86_64::__m256i) -> i32 {
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;

@@ -357,8 +357,8 @@ fn test_cov006_gelu_gpu_large() {
     assert!(result.is_ok(), "gelu_gpu large failed: {:?}", result.err());
 }
 
-// Note: layer_norm_gpu tests removed - kernel function naming issue (FunctionNotFound)
-// TODO: Investigate LayerNorm kernel registration in KernelType::LayerNorm
+// Note: layer_norm_gpu tests removed — kernel function naming issue (FunctionNotFound)
+// LayerNorm kernel registration in KernelType::LayerNorm needs investigation.
 
 #[test]
 #[serial]

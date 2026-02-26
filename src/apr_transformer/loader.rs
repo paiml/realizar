@@ -3,7 +3,6 @@
 //! Memory-mapped and quantized APR transformer implementations.
 //! Extracted from mod.rs (PMAT-802).
 
-#![allow(dead_code)]
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::cast_precision_loss)]
 #![allow(clippy::cast_sign_loss)]

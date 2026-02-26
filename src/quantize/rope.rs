@@ -2,6 +2,7 @@
 /// AVX2 SIMD dequantization for a single Q8_0 block
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn dequantize_q8_0_block_avx2(block_data: &[u8]) -> Vec<f32> {
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
@@ -114,6 +115,7 @@ pub(crate) fn apply_rope_rotation_scalar(
 #[target_feature(enable = "avx2", enable = "fma")]
 #[inline]
 #[allow(unsafe_op_in_unsafe_fn)]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn apply_rope_rotation_avx2(
     x1: &mut [f32],
     x2: &mut [f32],
@@ -164,6 +166,7 @@ unsafe fn apply_rope_rotation_avx2(
 #[target_feature(enable = "avx512f")]
 #[inline]
 #[allow(unsafe_op_in_unsafe_fn)]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn apply_rope_rotation_avx512(
     x1: &mut [f32],
     x2: &mut [f32],

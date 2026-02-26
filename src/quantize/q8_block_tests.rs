@@ -409,6 +409,7 @@ fn test_q4_0_avx2_dot_parity_with_scalar() {
     let q8_quants = vec![2i8; 128];
 
     let scalar = fused_q4_0_q8_0_dot_scalar(&q4_data, &q8_scales, &q8_quants, 128);
+    // SAFETY: Preconditions verified by caller or enclosing context
     let avx2 = unsafe { fused_q4_0_q8_0_dot_avx2(&q4_data, &q8_scales, &q8_quants, 128) };
 
     let diff = (scalar - avx2).abs();
@@ -431,6 +432,7 @@ fn test_q4_0_avx2_dot_zero_quants() {
     let q8_scales = vec![1.0f32; 2];
     let q8_quants = vec![0i8; 64];
 
+    // SAFETY: Preconditions verified by caller or enclosing context
     let result = unsafe { fused_q4_0_q8_0_dot_avx2(&q4_data, &q8_scales, &q8_quants, 64) };
     assert!(
         result.abs() < 1e-3,

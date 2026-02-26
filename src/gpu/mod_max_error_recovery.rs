@@ -391,7 +391,6 @@ impl Default for FailureIsolator {
 }
 
 /// Isolated request handle (unused but kept for API completeness)
-#[allow(dead_code)]
 pub struct IsolatedRequest {
     id: u64,
 }

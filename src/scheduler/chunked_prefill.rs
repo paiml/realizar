@@ -3,7 +3,6 @@
 //! Implements chunked prefill per Sarathi-Serve/vLLM for reduced TTFT variance.
 //! Extracted from scheduler/mod.rs (PMAT-802).
 
-#![allow(dead_code)]
 #![allow(clippy::too_many_arguments)]
 
 use serde::{Deserialize, Serialize};

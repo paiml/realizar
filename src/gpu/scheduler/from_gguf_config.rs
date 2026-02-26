@@ -254,11 +254,8 @@ impl GpuModel {
                 let is_same = (orig_01 - trans_01).abs() < 1e-5;
 
                 if is_same && !is_transposed && (orig_01 - trans_01).abs() < 1e-6 {
-                    return Err(RealizarError::InvalidShape {
-                        reason: "PMAT-216: lm_head_weight_t appears to NOT be transposed. \
-                                 Check argument order in from_apr_weights call."
-                            .to_string(),
-                    });
+                    let msg = "PMAT-216: lm_head_weight_t appears to NOT be transposed. Check argument order in from_apr_weights call.";
+                    return Err(RealizarError::InvalidShape { reason: msg.to_string() });
                 }
             }
         }
