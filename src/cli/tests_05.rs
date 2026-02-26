@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn test_load_apr_model_too_small() {
         let result = load_apr_model(&[0x41, 0x50, 0x52, 0x00]); // Just "APR\0" - 4 bytes
-                                                                // May succeed or fail depending on format detection
+        // May succeed or fail depending on format detection
         let _ = result;
     }
 

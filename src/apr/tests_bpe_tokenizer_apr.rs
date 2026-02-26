@@ -12,7 +12,7 @@
             special_tokens: HashMap::new(),
         };
         let encoded = tokenizer.encode("\u{00E9}"); // e-acute
-                                                    // Should not panic
+        // Should not panic
         assert!(encoded.is_empty() || !encoded.is_empty());
     }
 

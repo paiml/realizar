@@ -291,7 +291,7 @@
         let mut token_to_id = HashMap::new();
         token_to_id.insert("a".to_string(), 0);
         let result = bpe_encode("a\u{00A9}", &token_to_id, &[], &HashMap::new()); // a + copyright symbol
-                                                                                  // Non-ASCII gets encoded as bytes
+        // Non-ASCII gets encoded as bytes
         assert!(!result.is_empty() || result.is_empty()); // Just verify no panic
     }
 
@@ -300,7 +300,7 @@
         let token_to_id: HashMap<String, u32> = HashMap::new();
         // Test with unicode characters
         let result = bpe_encode("\u{1F600}", &token_to_id, &[], &HashMap::new()); // Emoji
-                                                                                  // Should not panic, may return empty if no tokens match
+        // Should not panic, may return empty if no tokens match
         assert!(result.is_empty());
     }
 

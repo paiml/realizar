@@ -91,7 +91,7 @@ fn test_active_pygmy_embed() {
     let embedding = model.embed(&[0]);
 
     assert_eq!(embedding.len(), 32); // hidden_dim
-                                     // Verify embedding values are reasonable (not NaN/Inf)
+    // Verify embedding values are reasonable (not NaN/Inf)
     assert!(embedding.iter().all(|&v| v.is_finite()));
 }
 

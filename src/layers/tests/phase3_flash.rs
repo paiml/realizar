@@ -258,7 +258,7 @@ fn test_sliding_window_attention_forward_basic() {
 fn test_sliding_window_attention_causal_masking() {
     // Test that position i can only attend to positions <= i
     let swa = SlidingWindowAttention::new(2, 10).expect("test"); // Large window, so only causal matters
-                                                                 // Query: 3x2, Key: 3x2, Value: 3x2
+    // Query: 3x2, Key: 3x2, Value: 3x2
     let query = Tensor::from_vec(vec![3, 2], vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0]).expect("test");
     let key = Tensor::from_vec(vec![3, 2], vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0]).expect("test");
     let value = Tensor::from_vec(vec![3, 2], vec![1.0, 0.0, 0.0, 1.0, 0.5, 0.5]).expect("test");

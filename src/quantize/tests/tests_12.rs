@@ -313,7 +313,7 @@ fn test_quantize_rmsnorm_q8_0_size_7_remainder() {
     // 1 block (ceil(7/32) = 1)
     assert_eq!(scales.len(), 1);
     assert_eq!(quants.len(), 32); // Padded to 32
-                                  // Padding should be zeros
+    // Padding should be zeros
     for q in &quants[7..32] {
         assert_eq!(*q, 0i8);
     }

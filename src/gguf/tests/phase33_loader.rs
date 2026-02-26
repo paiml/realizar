@@ -32,7 +32,7 @@ fn test_phase33_loader_get_tensor_f32_out_of_bounds() {
     // Build GGUF claiming tensor data that doesn't exist
     let mut data = build_gguf_header(1, 0);
     data.extend(build_tensor_info("test", &[1000000], 0, 0)); // 1M elements
-                                                              // No actual tensor data - should fail
+    // No actual tensor data - should fail
 
     let model = GGUFModel::from_bytes(&data).expect("Should parse");
     let result = model.get_tensor_f32("test", &data);

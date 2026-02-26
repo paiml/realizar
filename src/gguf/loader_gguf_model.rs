@@ -274,7 +274,7 @@
         data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
         data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
         data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count = 0
-                                                     // metadata_count = 50000 (exceeds MAX_METADATA_COUNT)
+        // metadata_count = 50000 (exceeds MAX_METADATA_COUNT)
         data.extend_from_slice(&50_000u64.to_le_bytes());
 
         let result = GGUFModel::from_bytes(&data);

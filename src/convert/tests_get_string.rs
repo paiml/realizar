@@ -286,7 +286,7 @@
         bytes[24..32].copy_from_slice(&66u64.to_le_bytes()); // tensor index offset
         bytes[32..40].copy_from_slice(&100u64.to_le_bytes()); // data offset
         bytes[64..66].copy_from_slice(b"{}"); // metadata
-                                              // Invalid JSON for tensor index (length must match exactly)
+        // Invalid JSON for tensor index (length must match exactly)
         let invalid_json = b"not valid json{{{";
         bytes[66..66 + invalid_json.len()].copy_from_slice(invalid_json);
 

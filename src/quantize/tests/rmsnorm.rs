@@ -22,7 +22,7 @@ fn test_rmsnorm_q8_scalar_partial_block() {
     let (scales, quants) = quantize_rmsnorm_q8_0_scalar(&input, &norm_weight, eps);
     assert_eq!(scales.len(), 2); // ceil(48/32) = 2
     assert_eq!(quants.len(), 64); // 2 * 32
-                                  // Padding elements should be zero
+    // Padding elements should be zero
     for i in 48..64 {
         assert_eq!(quants[i], 0, "Padding at index {} should be 0", i);
     }

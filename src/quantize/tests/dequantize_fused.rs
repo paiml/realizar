@@ -143,7 +143,7 @@ fn test_fused_q4k_q8_dot_invalid_q4k_length() {
 #[test]
 fn test_fused_q4k_q8_dot_mismatched_blocks() {
     let q4k_data = vec![0u8; 144]; // 1 super-block = 256 values
-                                   // Only provide 4 Q8 blocks instead of 8
+    // Only provide 4 Q8 blocks instead of 8
     let q8_blocks: Vec<Q8_0Block> = (0..4)
         .map(|_| Q8_0Block {
             scale: 1.0,
@@ -265,7 +265,7 @@ fn test_fused_q4k_q8k_parallel_matvec_into_basic() {
 fn test_fused_q4k_q8k_ffn_up_gate_into_basic() {
     let hidden_dim: usize = 256;
     let intermediate_dim: usize = 256; // 1 super-block
-                                       // Weight size: intermediate_dim rows * ceil(hidden_dim/256) super-blocks * 144 bytes
+    // Weight size: intermediate_dim rows * ceil(hidden_dim/256) super-blocks * 144 bytes
     let super_blocks_per_row = hidden_dim.div_ceil(256);
     let weight_size = intermediate_dim * super_blocks_per_row * 144;
     let up_weight = vec![0u8; weight_size];

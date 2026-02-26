@@ -314,7 +314,7 @@
     fn test_speculative_decoder_rejection_resamples() {
         // Draft returns token 5 with low probability
         let draft = DifferentTokenModel::new(5, -10.0); // Very low prob
-                                                        // Target returns token 10 with high probability
+        // Target returns token 10 with high probability
         let target = DifferentTokenModel::new(10, -0.1); // High prob
 
         let mut decoder = SpeculativeDecoder::new(draft, target, 4).expect("create");

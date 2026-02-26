@@ -355,7 +355,7 @@ mod tests {
     fn test_token_healing_partial_token() {
         let tokens = vec![1, 2, 3, 4, 5];
         let result = analyze_token_healing(&tokens, Some("ab")); // Short alphanumeric
-                                                                 // Should heal (remove last token, add prefix constraint)
+        // Should heal (remove last token, add prefix constraint)
         assert_eq!(result.tokens_removed, 1);
         assert_eq!(result.adjusted_tokens.len(), 4);
         assert!(result.prefix_constraint.is_some());
@@ -365,7 +365,7 @@ mod tests {
     fn test_token_healing_with_space() {
         let tokens = vec![1, 2, 3];
         let result = analyze_token_healing(&tokens, Some(" the")); // Starts with space
-                                                                   // Should NOT heal (tokens starting with space are complete)
+        // Should NOT heal (tokens starting with space are complete)
         assert_eq!(result.tokens_removed, 0);
     }
 

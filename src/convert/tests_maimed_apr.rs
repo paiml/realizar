@@ -158,7 +158,7 @@ fn test_maimed_apr_truncated_tensor_data() {
 
     // File is only 300 bytes but tensor claims 10000
     let mut data = vec![0u8; data_offset + 50]; // way less than 10000
-                                                // Valid APR magic
+    // Valid APR magic
     data[0..4].copy_from_slice(&MAGIC);
     data[4] = 2;
     data[5] = 0;

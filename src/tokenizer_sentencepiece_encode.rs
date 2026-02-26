@@ -48,7 +48,7 @@ mod tests {
         assert_eq!(encoded.len(), 3);
         assert_eq!(encoded[0], 1); // h
         assert_eq!(encoded[1], 2); // i
-                                   // x should map to unk
+        // x should map to unk
         assert_eq!(encoded[2], 0);
     }
 

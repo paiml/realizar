@@ -21,7 +21,7 @@
         // Create multiple sequences with low fill rates
         for _ in 0..10 {
             let seq = cache.allocate_sequence(32).expect("alloc"); // 2 pages each
-                                                                   // Only fill 1 token per sequence (high waste)
+            // Only fill 1 token per sequence (high waste)
             cache.update_tokens(seq, 1).expect("update");
         }
 

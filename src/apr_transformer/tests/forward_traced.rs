@@ -324,7 +324,7 @@ fn test_from_apr_bytes_metadata_beyond_file() {
     let mut data = vec![0u8; 128];
     data[0..4].copy_from_slice(b"APR\0");
     data[8..12].copy_from_slice(&0u32.to_le_bytes()); // tensor_count=0
-                                                      // metadata_offset = 64, metadata_size = 9999 (beyond file)
+    // metadata_offset = 64, metadata_size = 9999 (beyond file)
     data[12..20].copy_from_slice(&64u64.to_le_bytes());
     data[20..24].copy_from_slice(&9999u32.to_le_bytes());
     data[24..32].copy_from_slice(&64u64.to_le_bytes());

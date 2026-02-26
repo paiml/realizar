@@ -350,7 +350,7 @@ fn test_qa_010_quantized_vs_f32_tolerance() {
     // Q8_0 block format: 2 bytes scale (f16) + 32 bytes quants = 34 bytes
     // Note: Q8_0 block size is 34 bytes per GGML/GGUF spec
     let mut q8_data = vec![0u8; 34]; // 1 block = 34 bytes
-                                     // scale = 1.0 (f16 = 0x3C00)
+    // scale = 1.0 (f16 = 0x3C00)
     q8_data[0..2].copy_from_slice(&0x3C00_u16.to_le_bytes());
     // quants = 0..31 (signed i8, stored as u8)
     for i in 0..32 {
@@ -374,7 +374,7 @@ fn test_qa_010_quantized_vs_f32_tolerance() {
 
     // Q4_K should be within reasonable tolerance
     let mut q4k_data = vec![0u8; 144]; // 1 super-block
-                                       // d = 1.0, dmin = 0.0
+    // d = 1.0, dmin = 0.0
     q4k_data[0..2].copy_from_slice(&0x3C00_u16.to_le_bytes());
     q4k_data[2..4].copy_from_slice(&0x0000_u16.to_le_bytes());
 

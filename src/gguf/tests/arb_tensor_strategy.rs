@@ -394,7 +394,7 @@ fn test_bounds_check_excessive_n_dims() {
     data.extend_from_slice(&(name.len() as u64).to_le_bytes());
     data.extend_from_slice(name.as_bytes());
     data.extend_from_slice(&100u32.to_le_bytes()); // n_dims = 100, exceeds MAX_DIMS (8)
-                                                   // Don't need actual dimensions since it should fail at n_dims check
+    // Don't need actual dimensions since it should fail at n_dims check
 
     let result = GGUFModel::from_bytes(&data);
     assert!(result.is_err());

@@ -11,7 +11,7 @@
         let mut data = Vec::new();
         data.extend_from_slice(b"GGUF");
         data.extend_from_slice(&3u32.to_le_bytes()); // version
-                                                     // Missing rest of header
+        // Missing rest of header
         temp.write_all(&data).expect("write");
         temp.flush().expect("flush");
 

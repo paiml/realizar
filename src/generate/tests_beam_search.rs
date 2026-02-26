@@ -245,7 +245,7 @@
         let logits = Tensor::from_vec(vec![5], vec![10.0, 1.0, 0.5, 0.1, -1.0]).expect("test");
         let config = XtcConfig::new(1.0).with_threshold(0.5); // Always exclude, high threshold
         let result = apply_xtc(&logits, &config, 0.0); // rng < probability
-                                                       // Top token (index 0) should be excluded (set to NEG_INFINITY)
+        // Top token (index 0) should be excluded (set to NEG_INFINITY)
         assert_eq!(result.data()[0], f32::NEG_INFINITY);
     }
 
