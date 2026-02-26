@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "aprender"
-version = "0.26.3"
+version = "0.27.0"
 dependencies = [
  "batuta-common",
  "bincode",
@@ -179,7 +179,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
- "trueno 0.15.0",
+ "trueno 0.16.0",
  "trueno-quant 0.1.0",
 ]
 
@@ -3732,7 +3732,7 @@ dependencies = [
 
 [[package]]
 name = "provable-contracts-macros"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3963,7 +3963,7 @@ dependencies = [
 
 [[package]]
 name = "realizar"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "alimentar",
  "anyhow",
@@ -4013,7 +4013,7 @@ dependencies = [
  "tokio-stream",
  "tower 0.4.13",
  "tracing",
- "trueno 0.15.0",
+ "trueno 0.16.0",
  "trueno-cuda-edge",
  "trueno-db",
  "trueno-gpu",
@@ -5183,6 +5183,23 @@ dependencies = [
 [[package]]
 name = "trueno"
 version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85e19fa22753d395f043b205999122520efd45a33e0867d137f20b777ad794ef"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "hostname",
+ "num_cpus",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "toml",
+ "trueno-quant 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "trueno"
+version = "0.16.0"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -5197,23 +5214,6 @@ dependencies = [
  "toml",
  "trueno-quant 0.1.0",
  "wgpu",
-]
-
-[[package]]
-name = "trueno"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85e19fa22753d395f043b205999122520efd45a33e0867d137f20b777ad794ef"
-dependencies = [
- "anyhow",
- "chrono",
- "hostname",
- "num_cpus",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "toml",
- "trueno-quant 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -5246,7 +5246,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "trueno 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "trueno 0.15.0",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -5286,7 +5286,7 @@ dependencies = [
  "libc",
  "png 0.17.16",
  "thiserror 2.0.18",
- "trueno 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "trueno 0.15.0",
 ]
 
 [[package]]

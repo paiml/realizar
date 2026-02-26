@@ -2,7 +2,7 @@
 resolver = "2"
 
 [workspace.package]
-version = "0.7.1"
+version = "0.8.0"
 edition = "2021"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
 license = "MIT"
@@ -13,7 +13,7 @@ rust-version = "1.89"
 
 [package]
 name = "realizar"
-version = "0.7.1"
+version = "0.8.0"
 edition = "2021"
 rust-version = "1.89"
 authors = ["Pragmatic AI Labs <contact@paiml.com>"]
@@ -65,7 +65,7 @@ workspace = true
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
 # High-performance SIMD compute library with GPU support
 # PAR-073: Using local path for development, version for crates.io
-trueno = { version = "0.15", path = "../trueno", features = ["gpu"] }
+trueno = { version = "0.16", path = "../trueno", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
 # v0.4.12: BatchedQ6K, MultiWarp, RopeNeox, FlashDecoding kernels
 trueno-gpu = { version = "0.4", path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
@@ -76,7 +76,7 @@ trueno-quant = { version = "0.1", path = "../trueno/crates/trueno-quant" }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
 # v0.24.1: chat templates, GGUF tokenizer preservation (local may be newer)
-aprender = { version = ">=0.26", path = "../aprender", optional = true }
+aprender = { version = ">=0.27", path = "../aprender", optional = true }
 
 # Data loading library (optional for data pipeline examples)
 alimentar = { version = "0.2", optional = true, default-features = false, features = ["local", "shuffle"] }
