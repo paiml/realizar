@@ -48,6 +48,7 @@ mod tests {
                 rope_theta: 10000.0,
                 eps: 1e-5,
             eos_token_id: None,
+            ..Default::default()
             },
             token_embedding: vec![0.0; 32000 * 2048],
             output_norm_weight: vec![1.0; 2048],
@@ -82,6 +83,7 @@ mod tests {
                 rope_theta: 10000.0,
                 eps: 1e-5,
             eos_token_id: None,
+            ..Default::default()
             },
             token_embedding: vec![0.0; 400],
             output_norm_weight: vec![1.0; 4],
@@ -120,6 +122,7 @@ mod tests {
                 rope_theta: 10000.0,
                 eps: 1e-5,
             eos_token_id: None,
+            ..Default::default()
             },
             token_embedding: vec![0.0; 800],
             output_norm_weight: vec![1.0; 8],
@@ -176,6 +179,7 @@ mod tests {
                 rope_theta: 10000.0,
                 eps: 1e-5,
             eos_token_id: None,
+            ..Default::default()
             },
             token_embedding: vec![0.0; 1000 * 256],
             layers: vec![

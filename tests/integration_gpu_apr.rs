@@ -39,6 +39,7 @@ fn test_apr_config_to_gpu_config() {
         context_length: 2048,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);
@@ -70,6 +71,7 @@ fn test_apr_config_mha_to_gpu() {
         context_length: 2048,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);
@@ -337,6 +339,7 @@ fn test_apr_inference_scratch_creation() {
         context_length: 1024,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let scratch = AprInferenceScratch::from_config(&config);
@@ -362,6 +365,7 @@ fn test_apr_kv_cache_creation() {
         context_length: 128,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let cache = AprKVCache::new(&config);
@@ -386,6 +390,7 @@ fn test_apr_kv_cache_append() {
         context_length: 32,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let mut cache = AprKVCache::new(&config);
@@ -539,6 +544,13 @@ fn test_f32_adapter_with_all_biases() {
         ffn_norm_bias: None,
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     let apr = AprTransformer {
@@ -553,6 +565,7 @@ fn test_f32_adapter_with_all_biases() {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         },
         token_embedding: vec![0.0; vocab_size * hidden_dim],
         layers: vec![layer],
@@ -593,6 +606,13 @@ fn test_f32_adapter_without_biases() {
         ffn_norm_bias: None,
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     let apr = AprTransformer {
@@ -607,6 +627,7 @@ fn test_f32_adapter_without_biases() {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         },
         token_embedding: vec![0.0; vocab_size * hidden_dim],
         layers: vec![layer],
@@ -652,6 +673,13 @@ fn test_f32_adapter_gqa_config() {
         ffn_norm_bias: None,
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     let apr = AprTransformer {
@@ -666,6 +694,7 @@ fn test_f32_adapter_gqa_config() {
             context_length: 2048,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         },
         token_embedding: vec![0.0; vocab_size * hidden_dim],
         layers: vec![layer.clone(), layer],
@@ -724,6 +753,7 @@ fn create_f32_transformer(num_layers: usize) -> AprTransformer {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         },
         token_embedding: vec![0.0; vocab_size * hidden_dim],
         layers,
@@ -759,6 +789,7 @@ fn create_f32_transformer_large() -> AprTransformer {
             context_length: 2048,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         },
         token_embedding: vec![0.0; vocab_size * hidden_dim],
         layers,

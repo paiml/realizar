@@ -38,12 +38,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(gguf_path)?;
     let gguf_model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = apr_model.config.hidden_dim;
-    let num_heads = apr_model.config.num_heads;
-    let num_kv_heads = apr_model.config.num_kv_heads;
+    let hidden_dim = apr_model.config().hidden_dim;
+    let num_heads = apr_model.config().num_heads;
+    let num_kv_heads = apr_model.config().num_kv_heads;
     let head_dim = hidden_dim / num_heads;
     let kv_dim = num_kv_heads * head_dim;
-    let eps = apr_model.config.eps;
+    let eps = apr_model.config().eps;
 
     println!(
         "hidden_dim: {}, num_heads: {}, num_kv_heads: {}, head_dim: {}",
@@ -279,7 +279,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("No Q4K ffn_gate");
     let apr_ffn_up = q4k_layers[0].ffn_up_weight.as_ref().expect("No Q4K ffn_up");
 
-    let intermediate_dim = apr_model.config.intermediate_dim;
+    let intermediate_dim = apr_model.config().intermediate_dim;
     println!("intermediate_dim: {}", intermediate_dim);
 
     let apr_gate = matmul_q4k_f32_colmajor_dispatch(

@@ -118,6 +118,7 @@ fn test_generate_stops_at_eos() {
         rope_theta: 10000.0,
         eps: 1e-5,
         eos_token_id: Some(2),
+    ..Default::default()
     };
     let mut model = AprTransformer::new(config);
 

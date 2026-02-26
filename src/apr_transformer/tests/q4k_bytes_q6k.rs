@@ -51,6 +51,13 @@ fn build_apr_with_q4k_fused(
         ffn_norm_bias: None,
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     // Q4K layer with separate weights for fused kernel dispatch
@@ -81,6 +88,7 @@ fn build_apr_with_q4k_fused(
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.01; vocab * hidden],
         layers: vec![layer],
@@ -118,6 +126,13 @@ fn build_apr_with_q6k_variants(hidden: usize, intermediate: usize, vocab: usize)
         ffn_norm_bias: None,
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     // Q4K layer with Q6K fallback variants
@@ -148,6 +163,7 @@ fn build_apr_with_q6k_variants(hidden: usize, intermediate: usize, vocab: usize)
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.01; vocab * hidden],
         layers: vec![layer],

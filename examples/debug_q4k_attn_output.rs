@@ -39,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mapped = MappedGGUFModel::from_path(gguf_path)?;
     let gguf_model = OwnedQuantizedModel::from_mapped(&mapped)?;
 
-    let hidden_dim = apr_model.config.hidden_dim;
+    let hidden_dim = apr_model.config().hidden_dim;
     println!("hidden_dim: {}", hidden_dim);
 
     // Create a test input vector (normalized embedding)
@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let embed = apr_model.embed(&[bos]);
 
     // RMSNorm
-    let eps = apr_model.config.eps;
+    let eps = apr_model.config().eps;
     let norm_weight = &apr_model.layers[0].attn_norm_weight;
     let sum_sq: f32 = embed.iter().map(|x| x * x).sum();
     let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();

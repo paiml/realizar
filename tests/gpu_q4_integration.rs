@@ -146,6 +146,7 @@ fn test_q4_adapter_large_model() {
             context_length: 2048,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         },
         token_embedding: vec![0.0; vocab_size * hidden_dim],
         layers,
@@ -379,6 +380,7 @@ fn create_minimal_q4_transformer(num_layers: usize) -> QuantizedAprTransformerQ4
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         },
         token_embedding: vec![0.0; vocab_size * hidden_dim],
         layers,
@@ -416,6 +418,7 @@ fn create_q4_transformer_with_gate(num_layers: usize) -> QuantizedAprTransformer
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         },
         token_embedding: vec![0.0; vocab_size * hidden_dim],
         layers,
@@ -803,6 +806,7 @@ fn test_q4_forward_pass_minimal() {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         },
         token_embedding,
         layers: vec![QuantizedAprLayerQ4 {

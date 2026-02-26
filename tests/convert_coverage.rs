@@ -38,6 +38,8 @@ fn create_minimal_gguf_transformer(
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let layers: Vec<GGUFTransformerLayer> = (0..num_layers)
@@ -90,6 +92,7 @@ fn create_minimal_apr_transformer(
         context_length: 512,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let layers: Vec<AprTransformerLayer> = (0..num_layers)
@@ -110,6 +113,13 @@ fn create_minimal_apr_transformer(
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
         })
         .collect();
 
@@ -778,6 +788,7 @@ fn test_conversion_with_bias_weights() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let layer = AprTransformerLayer {
@@ -797,6 +808,13 @@ fn test_conversion_with_bias_weights() {
         ffn_norm_bias: Some(vec![0.0; 8]),
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     let apr = AprTransformer {
@@ -837,6 +855,8 @@ fn test_gguf_transformer_with_gate_weights() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -963,6 +983,7 @@ fn test_roundtrip_with_different_architectures() {
             context_length: 64,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         };
 
         let apr = AprTransformer {
@@ -985,6 +1006,13 @@ fn test_roundtrip_with_different_architectures() {
                 ffn_norm_bias: None,
                 attn_q_norm_weight: None,
                 attn_k_norm_weight: None,
+                linear_attn_z_weight: None,
+                linear_attn_b_weight: None,
+                linear_attn_a_weight: None,
+                linear_attn_conv1d_weight: None,
+                linear_attn_a_log: None,
+                linear_attn_dt_bias: None,
+                linear_attn_norm_weight: None,
             }],
             output_norm_weight: vec![1.0; 8],
             output_norm_bias: None,
@@ -1456,6 +1484,8 @@ fn test_from_gguf_transformer_with_all_biases() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -1518,6 +1548,8 @@ fn test_from_gguf_transformer_with_ffn_norm() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -1578,6 +1610,8 @@ fn test_from_gguf_transformer_different_kv_heads() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -1632,6 +1666,7 @@ fn test_roundtrip_with_special_rope_theta() {
         context_length: 64,
         rope_theta: 1000000.0, // Llama 3 style high theta
         eps: 1e-6,
+    ..Default::default()
     };
 
     let apr = AprTransformer {
@@ -1654,6 +1689,13 @@ fn test_roundtrip_with_special_rope_theta() {
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -1684,6 +1726,7 @@ fn test_roundtrip_with_long_context() {
         context_length: 131072, // 128K context
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let apr = AprTransformer {
@@ -1706,6 +1749,13 @@ fn test_roundtrip_with_long_context() {
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -2105,6 +2155,8 @@ fn test_gguf_transformer_with_output_norm_bias() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -2158,6 +2210,8 @@ fn test_gguf_transformer_with_lm_head_bias() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -2215,6 +2269,8 @@ fn test_layer_attn_norm_bias_preservation() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -2267,6 +2323,8 @@ fn test_layer_qkv_bias_preservation() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -2319,6 +2377,8 @@ fn test_layer_attn_output_bias_preservation() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -2371,6 +2431,8 @@ fn test_layer_ffn_up_bias_preservation() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -2423,6 +2485,8 @@ fn test_layer_ffn_down_bias_preservation() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let layer = GGUFTransformerLayer {
@@ -2506,6 +2570,7 @@ fn test_roundtrip_empty_architecture() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let apr = AprTransformer {
@@ -2528,6 +2593,13 @@ fn test_roundtrip_empty_architecture() {
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -2557,6 +2629,7 @@ fn test_roundtrip_very_small_eps() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-12, // Very small epsilon
+        ..Default::default()
     };
 
     let apr = AprTransformer {
@@ -2579,6 +2652,13 @@ fn test_roundtrip_very_small_eps() {
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -2608,6 +2688,7 @@ fn test_roundtrip_single_head() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let apr = AprTransformer {
@@ -2630,6 +2711,13 @@ fn test_roundtrip_single_head() {
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -2848,6 +2936,7 @@ fn test_metadata_preservation_all_fields() {
         context_length: 4096,
         rope_theta: 500000.0,
         eps: 1e-6,
+    ..Default::default()
     };
 
     let apr = AprTransformer {
@@ -2871,6 +2960,13 @@ fn test_metadata_preservation_all_fields() {
                 ffn_norm_bias: None,
                 attn_q_norm_weight: None,
                 attn_k_norm_weight: None,
+                linear_attn_z_weight: None,
+                linear_attn_b_weight: None,
+                linear_attn_a_weight: None,
+                linear_attn_conv1d_weight: None,
+                linear_attn_a_log: None,
+                linear_attn_dt_bias: None,
+                linear_attn_norm_weight: None,
             })
             .collect(),
         output_norm_weight: vec![1.0; 512],
@@ -2911,6 +3007,7 @@ fn test_metadata_unicode_architecture() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let apr = AprTransformer {
@@ -2933,6 +3030,13 @@ fn test_metadata_unicode_architecture() {
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 8],
         output_norm_bias: None,
@@ -3118,6 +3222,7 @@ fn test_apr_roundtrip_weight_values_exact() {
         context_length: 32,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     // Use specific weight values
@@ -3146,6 +3251,13 @@ fn test_apr_roundtrip_weight_values_exact() {
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
         }],
         output_norm_weight: vec![1.0, 1.0, 1.0, 1.0],
         output_norm_bias: None,
@@ -3408,6 +3520,7 @@ fn test_apr_with_all_optional_fields_none() {
             context_length: 16,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         },
         token_embedding: vec![0.1; 5 * 4],
         layers: vec![AprTransformerLayer {
@@ -3427,6 +3540,13 @@ fn test_apr_with_all_optional_fields_none() {
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 4],
         output_norm_bias: None, // Optional
@@ -3461,6 +3581,7 @@ fn test_apr_with_all_optional_fields_some() {
             context_length: 16,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         },
         token_embedding: vec![0.1; 5 * 4],
         layers: vec![AprTransformerLayer {
@@ -3480,6 +3601,13 @@ fn test_apr_with_all_optional_fields_some() {
             ffn_norm_bias: Some(vec![0.08; 4]),
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
         }],
         output_norm_weight: vec![1.0; 4],
         output_norm_bias: Some(vec![0.09; 4]),

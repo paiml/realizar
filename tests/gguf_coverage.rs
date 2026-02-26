@@ -206,6 +206,8 @@ fn create_test_config() -> GGUFConfig {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     }
 }
 
@@ -888,10 +890,10 @@ fn test_cov_owned_model_new_for_test_basic() {
         None,                                       // lm_head_bias
     );
 
-    assert_eq!(model.config.architecture, "test");
-    assert_eq!(model.layers.len(), 1);
-    assert_eq!(model.token_embedding.len(), vocab_size * hidden_dim);
-    assert_eq!(model.output_norm_weight.len(), hidden_dim);
+    assert_eq!(model.config().architecture, "test");
+    assert_eq!(model.layers().len(), 1);
+    assert_eq!(model.token_embedding().len(), vocab_size * hidden_dim);
+    assert_eq!(model.output_norm_weight().len(), hidden_dim);
 }
 
 #[test]
@@ -911,8 +913,8 @@ fn test_cov_owned_model_new_for_test_with_biases() {
         Some(vec![0.0; vocab_size]), // lm_head_bias
     );
 
-    assert!(model.output_norm_bias.is_some());
-    assert!(model.lm_head_bias.is_some());
+    assert!(model.output_norm_bias().is_some());
+    assert!(model.lm_head_bias().is_some());
 }
 
 #[test]
@@ -936,7 +938,7 @@ fn test_cov_owned_model_new_for_test_multiple_layers() {
         None,
     );
 
-    assert_eq!(model.layers.len(), 3);
+    assert_eq!(model.layers().len(), 3);
 }
 
 #[test]
@@ -958,9 +960,9 @@ fn test_cov_owned_model_clone() {
 
     let cloned = model.clone();
 
-    assert_eq!(model.config.architecture, cloned.config.architecture);
-    assert_eq!(model.layers.len(), cloned.layers.len());
-    assert_eq!(model.token_embedding.len(), cloned.token_embedding.len());
+    assert_eq!(model.config().architecture, cloned.config().architecture);
+    assert_eq!(model.layers().len(), cloned.layers().len());
+    assert_eq!(model.token_embedding().len(), cloned.token_embedding().len());
 }
 
 #[test]
@@ -1004,8 +1006,8 @@ fn test_cov_owned_model_config_accessor() {
     );
 
     // Direct field access
-    assert_eq!(model.config.architecture, config.architecture);
-    assert_eq!(model.config.hidden_dim, config.hidden_dim);
+    assert_eq!(model.config().architecture, config.architecture);
+    assert_eq!(model.config().hidden_dim, config.hidden_dim);
 }
 
 // ============================================================================
@@ -1509,6 +1511,8 @@ fn create_inference_test_model() -> OwnedQuantizedModel {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     // Q4_0 block size: 18 bytes for 32 elements
@@ -1586,7 +1590,7 @@ fn test_cov_model_forward_single_token() {
 
     assert!(result.is_ok());
     let logits = result.unwrap();
-    assert_eq!(logits.len(), model.config.vocab_size);
+    assert_eq!(logits.len(), model.config().vocab_size);
 }
 
 #[test]
@@ -1600,7 +1604,7 @@ fn test_cov_model_forward_multiple_tokens() {
     assert!(result.is_ok());
     let logits = result.unwrap();
     // Should return logits for last token position
-    assert_eq!(logits.len(), model.config.vocab_size);
+    assert_eq!(logits.len(), model.config().vocab_size);
 }
 
 #[test]
@@ -1619,7 +1623,7 @@ fn test_cov_model_embed_valid_tokens() {
 
     // Test embedding lookup for valid tokens
     let embeddings = model.embed(&[0, 1, 2]);
-    assert_eq!(embeddings.len(), 3 * model.config.hidden_dim);
+    assert_eq!(embeddings.len(), 3 * model.config().hidden_dim);
 }
 
 #[test]
@@ -1627,12 +1631,12 @@ fn test_cov_model_embed_out_of_bounds_token() {
     let model = create_inference_test_model();
 
     // Test embedding lookup for out-of-bounds token (should pad with zeros)
-    let vocab_size = model.config.vocab_size;
+    let vocab_size = model.config().vocab_size;
     let oob_token = (vocab_size + 10) as u32;
     let embeddings = model.embed(&[oob_token]);
 
     // Should return zeros for OOB tokens
-    assert_eq!(embeddings.len(), model.config.hidden_dim);
+    assert_eq!(embeddings.len(), model.config().hidden_dim);
     assert!(embeddings.iter().all(|&x| x == 0.0));
 }
 
@@ -1641,10 +1645,10 @@ fn test_cov_model_embed_boundary_token() {
     let model = create_inference_test_model();
 
     // Test embedding lookup for token at vocab boundary
-    let last_valid = (model.config.vocab_size - 1) as u32;
+    let last_valid = (model.config().vocab_size - 1) as u32;
     let embeddings = model.embed(&[last_valid]);
 
-    assert_eq!(embeddings.len(), model.config.hidden_dim);
+    assert_eq!(embeddings.len(), model.config().hidden_dim);
 }
 
 // ============================================================================
@@ -1654,7 +1658,7 @@ fn test_cov_model_embed_boundary_token() {
 #[test]
 fn test_cov_layer_norm_single_position() {
     let model = create_inference_test_model();
-    let hidden_dim = model.config.hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
 
     // Create test input (prefixed with _ to suppress unused warning)
     let _input: Vec<f32> = (0..hidden_dim).map(|i| i as f32 * 0.1).collect();
@@ -1975,6 +1979,8 @@ fn test_cov_config_with_gqa() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     assert_eq!(config.num_heads / config.num_kv_heads, 4);
@@ -1997,6 +2003,8 @@ fn test_cov_config_with_mqa() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     assert_eq!(config.num_kv_heads, 1);
@@ -2026,6 +2034,8 @@ fn test_cov_config_large_context() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     assert_eq!(config.context_length, 131072);
@@ -2326,7 +2336,7 @@ fn test_cov_tensor_info_large_dimensions() {
 
 #[test]
 fn test_cov_tensor_info_long_name() {
-    let long_name = "model.layers.31.self_attn.q_proj.weight".to_string();
+    let long_name = "model.layers().31.self_attn.q_proj.weight".to_string();
     let info = TensorInfo {
         name: long_name.clone(),
         n_dims: 2,
@@ -2373,6 +2383,8 @@ fn test_cov_config_head_dim_calculation() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let head_dim = config.hidden_dim / config.num_heads;
@@ -2399,6 +2411,8 @@ fn test_cov_config_intermediate_ratio() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let ratio = config.intermediate_dim as f32 / config.hidden_dim as f32;
@@ -2580,19 +2594,19 @@ fn test_cov_qkv_separate_gqa_dimensions() {
 fn test_cov_model_config_accessor() {
     let model = create_inference_test_model();
 
-    assert_eq!(model.config.architecture, "test");
-    assert_eq!(model.config.hidden_dim, 64);
-    assert_eq!(model.config.num_layers, 2);
-    assert_eq!(model.config.num_heads, 4);
+    assert_eq!(model.config().architecture, "test");
+    assert_eq!(model.config().hidden_dim, 64);
+    assert_eq!(model.config().num_layers, 2);
+    assert_eq!(model.config().num_heads, 4);
 }
 
 #[test]
 fn test_cov_model_layers_accessor() {
     let model = create_inference_test_model();
 
-    assert_eq!(model.layers.len(), 2);
+    assert_eq!(model.layers().len(), 2);
 
-    for layer in &model.layers {
+    for layer in model.layers() {
         assert_eq!(layer.attn_norm_weight.len(), 64);
     }
 }
@@ -2601,16 +2615,16 @@ fn test_cov_model_layers_accessor() {
 fn test_cov_model_embedding_accessor() {
     let model = create_inference_test_model();
 
-    assert_eq!(model.token_embedding.len(), 100 * 64); // vocab_size * hidden_dim
+    assert_eq!(model.token_embedding().len(), 100 * 64); // vocab_size * hidden_dim
 }
 
 #[test]
 fn test_cov_model_output_weights_accessor() {
     let model = create_inference_test_model();
 
-    assert_eq!(model.output_norm_weight.len(), 64);
-    assert!(model.output_norm_bias.is_none());
-    assert_eq!(model.lm_head_weight.out_dim, 100); // vocab_size
+    assert_eq!(model.output_norm_weight().len(), 64);
+    assert!(model.output_norm_bias().is_none());
+    assert_eq!(model.lm_head_weight().out_dim, 100); // vocab_size
 }
 
 // ============================================================================

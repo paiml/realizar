@@ -386,6 +386,8 @@ fn test_cov_inference_scratch_buffer_from_config() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let scratch = InferenceScratchBuffer::from_config(&config);
@@ -418,6 +420,8 @@ fn test_cov_inference_scratch_buffer_reset() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let mut scratch = InferenceScratchBuffer::from_config(&config);
@@ -450,6 +454,8 @@ fn test_cov_inference_scratch_buffer_q8k_buffers() {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let scratch = InferenceScratchBuffer::from_config(&config);
@@ -751,7 +757,7 @@ mod gpu_tests {
         let cached = OwnedQuantizedModelCached::new(owned);
 
         // Should have model accessible via method
-        assert_eq!(cached.model().config.hidden_dim, 64);
+        assert_eq!(cached.model().config().hidden_dim, 64);
     }
 }
 

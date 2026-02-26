@@ -505,6 +505,7 @@ fn test_generate_config_custom_values() {
         top_k: 50,
         repetition_penalty: 1.2,
         trace: false,
+    stop_tokens: vec![],
     };
     assert_eq!(config.max_tokens, 100);
     assert!((config.temperature - 0.5).abs() < f32::EPSILON);
@@ -530,6 +531,7 @@ fn test_config_json_roundtrip() {
         context_length: 8192,
         rope_theta: 500000.0,
         eps: 1e-6,
+    ..Default::default()
     };
     let json = serde_json::to_string(&config).expect("serialize");
     let decoded: AprTransformerConfig = serde_json::from_str(&json).expect("deserialize");

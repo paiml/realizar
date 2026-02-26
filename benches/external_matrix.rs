@@ -92,6 +92,8 @@ fn create_benchmark_transformer() -> GGUFTransformer {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+    eos_token_id: None,
+    explicit_head_dim: None,
     };
 
     let layers: Vec<GGUFTransformerLayer> = (0..num_layers)

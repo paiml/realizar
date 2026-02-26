@@ -235,6 +235,7 @@ fn create_test_config(
         rope_theta: 10000.0,
         eps: 1e-5,
         eos_token_id: None,
+    ..Default::default()
     }
 }
 
@@ -292,6 +293,7 @@ fn create_q4_transformer_with_gate(num_layers: usize) -> QuantizedAprTransformer
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.1; vocab_size * hidden_dim],
         layers,
@@ -343,6 +345,7 @@ fn create_custom_transformer(
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.1; vocab_size * hidden_dim],
         layers,

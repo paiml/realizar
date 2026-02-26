@@ -225,12 +225,14 @@ impl GpuModelConfig {
     }
 
     /// GH-278: Whether a specific layer uses linear attention
+    ///
+    /// Accepts both HF naming (`linear_attention`) and short naming (`linear`).
     #[inline]
     pub fn is_linear_layer(&self, block_idx: usize) -> bool {
         self.layer_types
             .as_ref()
             .and_then(|lt| lt.get(block_idx))
-            .is_some_and(|t| t == "linear")
+            .is_some_and(|t| t == "linear" || t == "linear_attention")
     }
 
     /// GH-278: Linear attention key dimension (num_key_heads * key_head_dim)

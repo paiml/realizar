@@ -23,6 +23,7 @@ impl QuantizedAprTransformerQ4 {
             rope_theta: gguf.config.rope_theta,
             eps: gguf.config.eps,
             eos_token_id: gguf.config.eos_token_id,
+        ..Default::default()
         };
 
         let layers =

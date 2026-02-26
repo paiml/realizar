@@ -314,6 +314,7 @@ fn test_apr_roundtrip_minimal() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let layer = AprTransformerLayer {
@@ -333,6 +334,13 @@ fn test_apr_roundtrip_minimal() {
         ffn_norm_bias: None,
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     let transformer = AprTransformer {
@@ -378,6 +386,7 @@ fn test_apr_bytes_config_preservation() {
         rope_theta: 500000.0, // Custom RoPE
         eps: 1e-6,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let transformer = AprTransformer {

@@ -30,6 +30,13 @@ fn test_fwc_q4k_gelu_no_gate() {
         ffn_norm_bias: Some(vec![0.0; hidden]),
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     // Q4K layers for GELU model (no gate)
@@ -60,6 +67,7 @@ fn test_fwc_q4k_gelu_no_gate() {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.01; vocab * hidden],
         layers: vec![layer],
@@ -104,6 +112,13 @@ fn test_forward_batch_q4k_gelu() {
         ffn_norm_bias: Some(vec![0.0; hidden]),
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     let q4k = Q4KLayerWeights {
@@ -133,6 +148,7 @@ fn test_forward_batch_q4k_gelu() {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.01; vocab * hidden],
         layers: vec![layer],
@@ -422,6 +438,13 @@ fn test_forward_batch_gelu_f32_no_q4k() {
         ffn_norm_bias: Some(vec![0.0; hidden]),
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     let apr = AprTransformer {
@@ -437,6 +460,7 @@ fn test_forward_batch_gelu_f32_no_q4k() {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.01; vocab * hidden],
         layers: vec![layer],

@@ -106,6 +106,7 @@ proptest! {
                 eps: 1e-5,
                 context_length: 2048,
                 architecture: "test".to_string(),
+                ..Default::default()
             };
 
             // Verify all fields preserved
@@ -302,6 +303,7 @@ fn test_scratch_from_config_creates_valid_buffers() {
         context_length: 256,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let scratch = AprInferenceScratch::from_config(&config);
@@ -349,6 +351,7 @@ fn test_kv_cache_new_creates_valid_structure() {
         context_length: 128,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let cache = AprKVCache::new(&config);
@@ -374,6 +377,7 @@ fn test_kv_cache_append_and_get() {
         context_length: 16,
         rope_theta: 10000.0,
         eps: 1e-5,
+    ..Default::default()
     };
 
     let mut cache = AprKVCache::new(&config);
@@ -439,6 +443,7 @@ proptest! {
             context_length: 256,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         };
 
         let scratch = AprInferenceScratch::from_config(&config);
@@ -467,6 +472,7 @@ proptest! {
             context_length,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         };
 
         let cache = AprKVCache::new(&config);

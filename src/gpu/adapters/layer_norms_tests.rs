@@ -142,6 +142,7 @@ fn create_tiny_model() -> GpuModelQ4 {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.1; 10 * 4],
         output_norm_weight: vec![1.0; 4],
@@ -168,6 +169,7 @@ fn create_model_for_rope(hidden_dim: usize, num_heads: usize, num_kv_heads: usiz
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.1; 10 * hidden_dim],
         output_norm_weight: vec![1.0; hidden_dim],
@@ -198,6 +200,7 @@ fn create_model_for_attention(
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.1; 10 * hidden_dim],
         output_norm_weight: vec![1.0; hidden_dim],
@@ -251,6 +254,7 @@ fn create_test_apr_model(with_gate: bool, with_ffn_norm: bool) -> QuantizedAprTr
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.1; vocab_size * hidden_dim],
         layers: vec![layer.clone(), layer],

@@ -160,7 +160,7 @@ fn test_ffn06_gguf_loads_gate_weight() {
 
     // TinyLlama uses SwiGLU, so gate weight must be present
     assert!(
-        model.layers[0].ffn_gate_weight.is_some(),
+        model.layers()[0].ffn_gate_weight.is_some(),
         "FFN-06: TinyLlama layer 0 must have ffn_gate_weight (SwiGLU model)"
     );
 }
@@ -182,7 +182,7 @@ fn test_ffn07_gate_dimensions_match_up() {
     let mapped = MappedGGUFModel::from_path(gguf_path).expect("Failed to load GGUF");
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to create model");
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     let gate = layer
         .ffn_gate_weight
         .as_ref()
@@ -244,7 +244,7 @@ fn test_ffn08_swiglu_forward_coherent() {
     );
 
     // Output tokens should be within vocab range
-    let vocab_size = model.config.vocab_size;
+    let vocab_size = model.config().vocab_size;
     for &tok in &output {
         assert!(
             (tok as usize) < vocab_size,
@@ -272,14 +272,14 @@ fn test_ffn09_verify_model_weights() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to create model");
 
     println!("Config:");
-    println!("  hidden_dim: {}", model.config.hidden_dim);
-    println!("  intermediate_dim: {}", model.config.intermediate_dim);
-    println!("  num_layers: {}", model.config.num_layers);
-    println!("  num_heads: {}", model.config.num_heads);
-    println!("  num_kv_heads: {}", model.config.num_kv_heads);
-    println!("  vocab_size: {}", model.config.vocab_size);
+    println!("  hidden_dim: {}", model.config().hidden_dim);
+    println!("  intermediate_dim: {}", model.config().intermediate_dim);
+    println!("  num_layers: {}", model.config().num_layers);
+    println!("  num_heads: {}", model.config().num_heads);
+    println!("  num_kv_heads: {}", model.config().num_kv_heads);
+    println!("  vocab_size: {}", model.config().vocab_size);
 
-    let layer = &model.layers[0];
+    let layer = &model.layers()[0];
     println!("\nLayer 0:");
     println!("  attn_norm_weight len: {}", layer.attn_norm_weight.len());
     println!(
@@ -302,16 +302,16 @@ fn test_ffn09_verify_model_weights() {
         layer.ffn_norm_weight.as_ref().map(|v| v.len())
     );
 
-    println!("\nToken embedding len: {}", model.token_embedding.len());
+    println!("\nToken embedding len: {}", model.token_embedding().len());
     println!(
         "  Expected: {} * {} = {}",
-        model.config.vocab_size,
-        model.config.hidden_dim,
-        model.config.vocab_size * model.config.hidden_dim
+        model.config().vocab_size,
+        model.config().hidden_dim,
+        model.config().vocab_size * model.config().hidden_dim
     );
 
     // Check dimensions
-    assert_eq!(layer.attn_norm_weight.len(), model.config.hidden_dim);
+    assert_eq!(layer.attn_norm_weight.len(), model.config().hidden_dim);
     assert!(
         layer.ffn_gate_weight.is_some(),
         "TinyLlama should have ffn_gate (SwiGLU)"
@@ -344,25 +344,25 @@ fn test_ffn10_verify_output_layers() {
     println!("Output layers:");
     println!(
         "  output_norm_weight len: {}",
-        model.output_norm_weight.len()
+        model.output_norm_weight().len()
     );
     println!(
         "  lm_head_weight: ({}, {})",
-        model.lm_head_weight.in_dim, model.lm_head_weight.out_dim
+        model.lm_head_weight().in_dim, model.lm_head_weight().out_dim
     );
 
     // First few values of output_norm
-    if model.output_norm_weight.len() > 5 {
+    if model.output_norm_weight().len() > 5 {
         println!(
             "  output_norm first 5: {:?}",
-            &model.output_norm_weight[..5]
+            &model.output_norm_weight()[..5]
         );
     }
 
     // Verify dimensions
-    assert_eq!(model.output_norm_weight.len(), model.config.hidden_dim);
-    assert_eq!(model.lm_head_weight.in_dim, model.config.hidden_dim);
-    assert_eq!(model.lm_head_weight.out_dim, model.config.vocab_size);
+    assert_eq!(model.output_norm_weight().len(), model.config().hidden_dim);
+    assert_eq!(model.lm_head_weight().in_dim, model.config().hidden_dim);
+    assert_eq!(model.lm_head_weight().out_dim, model.config().vocab_size);
 
     println!("Output layers verified ✓");
 }

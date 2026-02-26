@@ -33,6 +33,7 @@ fn test_forward_triggers_matmul_remainder_path() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let transformer = AprTransformer::new(config);
@@ -55,6 +56,7 @@ fn test_matmul_scalar_fallback_with_mismatched_weights() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let mut transformer = AprTransformer::new(config.clone());
@@ -171,6 +173,7 @@ fn test_forward_with_single_head() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let transformer = AprTransformer::new(config);
@@ -192,6 +195,7 @@ fn test_forward_with_many_heads() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let transformer = AprTransformer::new(config);
@@ -214,6 +218,7 @@ fn test_forward_with_gqa_4_to_1_ratio() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let mut transformer = AprTransformer::new(config.clone());
@@ -246,6 +251,7 @@ fn test_forward_with_gqa_8_to_2_ratio() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let mut transformer = AprTransformer::new(config.clone());
@@ -281,6 +287,7 @@ fn test_kv_cache_near_capacity() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let transformer = AprTransformer::new(config.clone());

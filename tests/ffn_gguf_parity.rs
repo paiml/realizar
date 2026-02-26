@@ -20,7 +20,7 @@ fn test_trace_layer_by_layer() {
 
     // Get embedding
     let hidden = model.embed(&[token_id]);
-    let hidden_dim = model.config.hidden_dim;
+    let hidden_dim = model.config().hidden_dim;
 
     eprintln!(
         "Initial hidden: sum={:.4}, norm={:.4}",
@@ -29,14 +29,14 @@ fn test_trace_layer_by_layer() {
     );
 
     // Create KV cache (unused in this trace, but shows API)
-    let _cache = OwnedQuantizedKVCache::new(model.config.num_layers, hidden_dim, 512);
+    let _cache = OwnedQuantizedKVCache::new(model.config().num_layers, hidden_dim, 512);
 
     // Process each layer and track hidden state
-    for layer_idx in 0..model.config.num_layers {
-        let _layer = &model.layers[layer_idx];
+    for layer_idx in 0..model.config().num_layers {
+        let _layer = &model.layers()[layer_idx];
 
         // Compute RMS norm for attention
-        let eps = model.config.eps;
+        let eps = model.config().eps;
         let sum_sq: f32 = hidden.iter().map(|x| x * x).sum();
         let rms = (sum_sq / hidden_dim as f32 + eps).sqrt();
 
@@ -46,7 +46,7 @@ fn test_trace_layer_by_layer() {
         let hidden_max: f32 = hidden.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
         let hidden_min: f32 = hidden.iter().cloned().fold(f32::INFINITY, f32::min);
 
-        if layer_idx < 3 || layer_idx >= model.config.num_layers - 2 {
+        if layer_idx < 3 || layer_idx >= model.config().num_layers - 2 {
             eprintln!(
                 "Layer {:2}: rms={:.4}, sum={:.4}, norm={:.4}, range=[{:.2}, {:.2}]",
                 layer_idx, rms, hidden_sum, hidden_norm, hidden_min, hidden_max
@@ -57,7 +57,7 @@ fn test_trace_layer_by_layer() {
     }
 
     // Final forward pass to get logits
-    let mut cache2 = OwnedQuantizedKVCache::new(model.config.num_layers, hidden_dim, 512);
+    let mut cache2 = OwnedQuantizedKVCache::new(model.config().num_layers, hidden_dim, 512);
     let logits = model
         .forward_single_with_cache(token_id, &mut cache2, 0)
         .expect("Forward failed");

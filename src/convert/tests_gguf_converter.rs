@@ -178,6 +178,7 @@
             rope_type: 0, // NORM style (adjacent pairs)
             bos_token_id: None,
             eos_token_id: None,
+        ..Default::default()
         };
 
         let layers: Vec<GGUFTransformerLayer> = (0..num_layers)
@@ -230,6 +231,7 @@
             context_length: 512,
             rope_theta: 10000.0,
             eps: 1e-5,
+        ..Default::default()
         };
 
         let layers: Vec<AprTransformerLayer> = (0..num_layers)

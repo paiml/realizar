@@ -237,6 +237,7 @@ fn test_apr_q4_to_gpu_single_layer() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let apr = QuantizedAprTransformerQ4 {
@@ -268,6 +269,7 @@ fn test_apr_q4_to_gpu_no_layers() {
         rope_theta: 10000.0,
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let apr = QuantizedAprTransformerQ4 {
@@ -366,6 +368,7 @@ fn test_rope_theta_preservation() {
         rope_theta: 500000.0, // Non-standard theta
         eps: 1e-5,
             eos_token_id: None,
+    ..Default::default()
     };
 
     let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);
@@ -386,6 +389,7 @@ fn test_eps_preservation() {
         rope_theta: 10000.0,
         eps: 1e-6, // Different epsilon
         eos_token_id: None,
+    ..Default::default()
     };
 
     let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);

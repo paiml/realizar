@@ -316,6 +316,13 @@ impl AprTransformer {
                 ffn_norm_bias: None,
                 attn_q_norm_weight: None,
                 attn_k_norm_weight: None,
+                linear_attn_z_weight: None,
+                linear_attn_b_weight: None,
+                linear_attn_a_weight: None,
+                linear_attn_conv1d_weight: None,
+                linear_attn_a_log: None,
+                linear_attn_dt_bias: None,
+                linear_attn_norm_weight: None,
             });
         }
 

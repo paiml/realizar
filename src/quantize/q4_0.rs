@@ -16,6 +16,7 @@ use std::arch::x86_64::{
 ///
 /// Returns raw expanded bytes (low nibbles in lower 128, high nibbles in upper 128).
 /// The caller is responsible for masking to 0x0F and subtracting the offset.
+// SAFETY: caller guarantees q4_ptr points to valid Q4_0 block with 18 readable bytes
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 unsafe fn expand_q4_raw_avx2(q4_ptr: *const u8) -> __m256i { unsafe {
@@ -29,6 +30,7 @@ unsafe fn expand_q4_raw_avx2(q4_ptr: *const u8) -> __m256i { unsafe {
 ///
 /// Loads 16 bytes from `q4_ptr + 2`, splits into low/high nibbles, masks to 0x0F,
 /// and subtracts 8 to center at zero.
+// SAFETY: caller guarantees q4_ptr points to valid Q4_0 block with 18 readable bytes
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 unsafe fn expand_q4_nibbles_avx2(q4_ptr: *const u8) -> __m256i { unsafe {

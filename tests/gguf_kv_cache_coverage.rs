@@ -29,6 +29,8 @@ fn make_test_config(num_layers: usize, hidden_dim: usize) -> GGUFConfig {
         eps: 1e-5,
         rope_type: 0,
         bos_token_id: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     }
 }
 

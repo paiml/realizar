@@ -103,6 +103,13 @@ fn test_fwc_partial_q4k_f32_fallback_with_trace() {
         ffn_norm_bias: None,
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     // Partial Q4K: only Q and K populated, everything else None
@@ -134,6 +141,7 @@ fn test_fwc_partial_q4k_f32_fallback_with_trace() {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.01; vocab * hidden],
         layers: vec![layer],
@@ -204,6 +212,13 @@ fn test_fwc_gelu_f32_no_q4k_with_trace() {
         ffn_norm_bias: Some(vec![0.0; hidden]),
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     let apr = AprTransformer {
@@ -219,6 +234,7 @@ fn test_fwc_gelu_f32_no_q4k_with_trace() {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.01; vocab * hidden],
         layers: vec![layer],
@@ -270,6 +286,13 @@ fn test_forward_batch_gelu_with_trace() {
         ffn_norm_bias: Some(vec![0.0; hidden]),
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     let apr = AprTransformer {
@@ -285,6 +308,7 @@ fn test_forward_batch_gelu_with_trace() {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.01; vocab * hidden],
         layers: vec![layer],
@@ -343,6 +367,13 @@ fn test_forward_batch_partial_q4k_with_trace() {
         ffn_norm_bias: None,
         attn_q_norm_weight: None,
         attn_k_norm_weight: None,
+        linear_attn_z_weight: None,
+        linear_attn_b_weight: None,
+        linear_attn_a_weight: None,
+        linear_attn_conv1d_weight: None,
+        linear_attn_a_log: None,
+        linear_attn_dt_bias: None,
+        linear_attn_norm_weight: None,
     };
 
     // Only attn_output Q4K populated — all others fall through to F32
@@ -373,6 +404,7 @@ fn test_forward_batch_partial_q4k_with_trace() {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: vec![0.01; vocab * hidden],
         layers: vec![layer],

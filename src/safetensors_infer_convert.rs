@@ -95,10 +95,11 @@ impl SafetensorsToAprConverter {
         // GH-278: Log Qwen3.5 detection with hybrid attention info
         if config.is_hybrid_attention() {
             let layer_count = config.layer_types.as_ref().map_or(0, Vec::len);
-            let linear_count = config
-                .layer_types
-                .as_ref()
-                .map_or(0, |t| t.iter().filter(|l| *l == "linear").count());
+            let linear_count = config.layer_types.as_ref().map_or(0, |t| {
+                t.iter()
+                    .filter(|l| *l == "linear" || *l == "linear_attention")
+                    .count()
+            });
             eprintln!(
                 "[GH-278] Hybrid attention model detected: {}/{} linear layers, head_dim={:?}",
                 linear_count,
@@ -120,6 +121,14 @@ impl SafetensorsToAprConverter {
             rope_theta,
             eps,
             eos_token_id: config.eos_token_id,
+            // GH-278: Hybrid attention fields
+            explicit_head_dim: config.head_dim,
+            layer_types: config.layer_types.clone(),
+            linear_key_head_dim: config.linear_key_head_dim,
+            linear_value_head_dim: config.linear_value_head_dim,
+            linear_num_key_heads: config.linear_num_key_heads,
+            linear_num_value_heads: config.linear_num_value_heads,
+            linear_conv_kernel_dim: config.linear_conv_kernel_dim,
         };
 
         // Extract embeddings (HuggingFace: model.embed_tokens.weight, GGUF: token_embd.weight)
@@ -156,14 +165,31 @@ impl SafetensorsToAprConverter {
         // Extract layers
         let mut layers = Vec::with_capacity(num_layers);
         for i in 0..num_layers {
-            let layer = Self::extract_layer_generic(
-                source,
-                i,
-                hidden_dim,
-                num_heads,
-                num_kv_heads,
-                intermediate_dim,
-            )?;
+            // GH-278: Dispatch to linear layer extractor for Gated Delta Net layers
+            let is_linear = config
+                .layer_types
+                .as_ref()
+                .and_then(|lt| lt.get(i))
+                .is_some_and(|t| t == "linear" || t == "linear_attention");
+
+            let layer = if is_linear {
+                Self::extract_linear_layer_generic(
+                    source,
+                    i,
+                    hidden_dim,
+                    intermediate_dim,
+                    config,
+                )?
+            } else {
+                Self::extract_layer_generic(
+                    source,
+                    i,
+                    hidden_dim,
+                    num_heads,
+                    num_kv_heads,
+                    intermediate_dim,
+                )?
+            };
             layers.push(layer);
         }
 
@@ -310,6 +336,165 @@ impl SafetensorsToAprConverter {
                 .get_tensor_auto(&format!("{hf_prefix}.self_attn.k_norm.weight"))
                 .or_else(|_| source.get_tensor_auto(&format!("{gguf_prefix}.attn_k_norm.weight")))
                 .ok(),
+            // GH-278: Linear attention weights extracted separately in extract_linear_layer_generic
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
+        })
+    }
+
+    /// GH-278: Extract a single Gated Delta Net (linear attention) transformer layer
+    ///
+    /// Qwen3.5 linear layers have combined projections different from standard attention:
+    /// - `in_proj_qkvz`: Combined Q+K+V+Z → split into qkv_weight + z_weight
+    /// - `in_proj_ba`: Combined Beta+Alpha → split into b_weight + a_weight
+    /// - `out_proj`: Output projection (not `o_proj`)
+    /// - `conv1d`, `A_log`, `dt_bias`, `norm`: GDN-specific parameters
+    fn extract_linear_layer_generic<S: TensorSource>(
+        source: &S,
+        layer_idx: usize,
+        hidden_dim: usize,
+        intermediate_dim: usize,
+        config: &SafetensorsConfig,
+    ) -> Result<AprTransformerLayer> {
+        let hf_prefix = format!("model.layers.{layer_idx}");
+
+        // --- Attention layer norm (same as standard layers) ---
+        let attn_norm_weight = Self::get_tensor_with_fallback_generic(
+            source,
+            &format!("{hf_prefix}.input_layernorm.weight"),
+            &format!("blk.{layer_idx}.attn_norm.weight"),
+        )?;
+
+        // --- GDN combined projections ---
+        // in_proj_qkvz: [q_dim + k_dim + v_dim + z_dim, hidden_dim]
+        let in_proj_qkvz = source
+            .get_tensor_auto(&format!("{hf_prefix}.self_attn.in_proj_qkvz.weight"))?;
+
+        // Compute split dimensions from config
+        let key_head_dim = config.linear_key_head_dim.unwrap_or(128);
+        let value_head_dim = config.linear_value_head_dim.unwrap_or(128);
+        let num_key_heads = config.linear_num_key_heads.unwrap_or(16);
+        let num_value_heads = config.linear_num_value_heads.unwrap_or(32);
+        let key_dim = num_key_heads * key_head_dim;
+        let value_dim = num_value_heads * value_head_dim;
+        // in_proj_qkvz layout: [Q(key_dim) | K(key_dim) | V(value_dim) | Z(value_dim), hidden_dim]
+        let qkvz_out_dim = 2 * key_dim + 2 * value_dim;
+
+        // Validate combined projection size
+        let expected_qkvz = qkvz_out_dim * hidden_dim;
+        if in_proj_qkvz.len() != expected_qkvz {
+            return Err(RealizarError::FormatError {
+                reason: format!(
+                    "GH-278: in_proj_qkvz size mismatch at layer {layer_idx}: \
+                     expected {expected_qkvz} (qkvz_out={qkvz_out_dim} * hidden={hidden_dim}), \
+                     got {}",
+                    in_proj_qkvz.len()
+                ),
+            });
+        }
+
+        // Split QKVZ along the output dimension (row-major: each row is hidden_dim)
+        let q_end = key_dim * hidden_dim;
+        let k_end = q_end + key_dim * hidden_dim;
+        let v_end = k_end + value_dim * hidden_dim;
+        // z occupies the rest: [v_end .. qkvz_out_dim * hidden_dim]
+        let q_weight = &in_proj_qkvz[..q_end];
+        let k_weight = &in_proj_qkvz[q_end..k_end];
+        let v_weight = &in_proj_qkvz[k_end..v_end];
+        let z_weight = in_proj_qkvz[v_end..].to_vec();
+
+        // Concatenate Q+K+V into qkv_weight (same format as standard layers)
+        let qkv_weight = Self::concat_qkv(q_weight, k_weight, v_weight);
+
+        // in_proj_ba: [num_v_heads + num_v_heads, hidden_dim] = [2*num_v_heads, hidden_dim]
+        let in_proj_ba = source
+            .get_tensor_auto(&format!("{hf_prefix}.self_attn.in_proj_ba.weight"))?;
+
+        let ba_split = num_value_heads * hidden_dim;
+        let b_weight = in_proj_ba[..ba_split].to_vec();
+        let a_weight = in_proj_ba[ba_split..].to_vec();
+
+        // out_proj: [hidden_dim, value_dim] — GDN uses out_proj, not o_proj
+        let out_proj_raw = source
+            .get_tensor_auto(&format!("{hf_prefix}.self_attn.out_proj.weight"))?;
+        let attn_output_weight = Self::transpose_weight(&out_proj_raw, hidden_dim, value_dim);
+
+        // Conv1D weight: HF stores as [conv_dim, 1, kernel_size], squeeze middle dim
+        let conv1d_raw = source
+            .get_tensor_auto(&format!("{hf_prefix}.self_attn.conv1d.weight"))?;
+        // Already flattened to [conv_dim * kernel_size] by get_tensor_auto
+        let conv1d_weight = conv1d_raw;
+
+        // A_log: [num_v_heads] — parameter, no .weight suffix
+        let a_log = source
+            .get_tensor_auto(&format!("{hf_prefix}.self_attn.A_log"))?;
+
+        // dt_bias: [num_v_heads] — parameter, no .weight suffix
+        let dt_bias = source
+            .get_tensor_auto(&format!("{hf_prefix}.self_attn.dt_bias"))?;
+
+        // Gated RMSNorm weight
+        let norm_weight = source
+            .get_tensor_auto(&format!("{hf_prefix}.self_attn.norm.weight"))?;
+
+        // --- FFN weights (same as standard layers: SwiGLU MLP) ---
+        let ffn_norm_weight = Self::get_tensor_with_fallback_generic(
+            source,
+            &format!("{hf_prefix}.post_attention_layernorm.weight"),
+            &format!("blk.{layer_idx}.ffn_norm.weight"),
+        )?;
+
+        let ffn_gate_raw = Self::get_tensor_with_fallback_generic(
+            source,
+            &format!("{hf_prefix}.mlp.gate_proj.weight"),
+            &format!("blk.{layer_idx}.ffn_gate.weight"),
+        )?;
+        let ffn_gate_weight = Self::transpose_weight(&ffn_gate_raw, intermediate_dim, hidden_dim);
+
+        let ffn_up_raw = Self::get_tensor_with_fallback_generic(
+            source,
+            &format!("{hf_prefix}.mlp.up_proj.weight"),
+            &format!("blk.{layer_idx}.ffn_up.weight"),
+        )?;
+        let ffn_up_weight = Self::transpose_weight(&ffn_up_raw, intermediate_dim, hidden_dim);
+
+        let ffn_down_raw = Self::get_tensor_with_fallback_generic(
+            source,
+            &format!("{hf_prefix}.mlp.down_proj.weight"),
+            &format!("blk.{layer_idx}.ffn_down.weight"),
+        )?;
+        let ffn_down_weight = Self::transpose_weight(&ffn_down_raw, hidden_dim, intermediate_dim);
+
+        Ok(AprTransformerLayer {
+            attn_norm_weight,
+            attn_norm_bias: None,
+            qkv_weight,
+            qkv_bias: None,
+            attn_output_weight,
+            attn_output_bias: None,
+            ffn_gate_weight: Some(ffn_gate_weight),
+            ffn_gate_bias: None,
+            ffn_up_weight,
+            ffn_up_bias: None,
+            ffn_down_weight,
+            ffn_down_bias: None,
+            ffn_norm_weight: Some(ffn_norm_weight),
+            ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
+            // GH-278: Gated Delta Net weights
+            linear_attn_z_weight: Some(z_weight),
+            linear_attn_b_weight: Some(b_weight),
+            linear_attn_a_weight: Some(a_weight),
+            linear_attn_conv1d_weight: Some(conv1d_weight),
+            linear_attn_a_log: Some(a_log),
+            linear_attn_dt_bias: Some(dt_bias),
+            linear_attn_norm_weight: Some(norm_weight),
         })
     }
 

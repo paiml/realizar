@@ -82,6 +82,7 @@ fn make_valid_transformer(num_layers: usize) -> AprTransformer {
             rope_theta: 10000.0,
             eps: 1e-6,
             eos_token_id: None,
+        ..Default::default()
         },
         token_embedding: make_data(vocab_size * hidden_dim),
         layers: (0..num_layers)
@@ -102,6 +103,13 @@ fn make_valid_transformer(num_layers: usize) -> AprTransformer {
                 ffn_norm_bias: None,
                 attn_q_norm_weight: None,
                 attn_k_norm_weight: None,
+                linear_attn_z_weight: None,
+                linear_attn_b_weight: None,
+                linear_attn_a_weight: None,
+                linear_attn_conv1d_weight: None,
+                linear_attn_a_log: None,
+                linear_attn_dt_bias: None,
+                linear_attn_norm_weight: None,
             })
             .collect(),
         output_norm_weight: vec![1.0; hidden_dim],

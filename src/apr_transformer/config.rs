@@ -255,6 +255,28 @@ pub struct AprTransformerConfig {
     /// Callers must NOT use hardcoded fallbacks.
     #[serde(default)]
     pub eos_token_id: Option<u32>,
+    /// GH-278: Explicit head dimension (Qwen3.5: 256)
+    /// When present, overrides hidden_dim / num_heads calculation.
+    #[serde(default)]
+    pub explicit_head_dim: Option<usize>,
+    /// GH-278: Per-layer attention type ("full_attention" or "linear_attention")
+    #[serde(default)]
+    pub layer_types: Option<Vec<String>>,
+    /// GH-278: Linear attention key head dimension (Qwen3.5: 128)
+    #[serde(default)]
+    pub linear_key_head_dim: Option<usize>,
+    /// GH-278: Linear attention value head dimension (Qwen3.5: 128)
+    #[serde(default)]
+    pub linear_value_head_dim: Option<usize>,
+    /// GH-278: Number of key heads for linear attention (Qwen3.5: 16)
+    #[serde(default)]
+    pub linear_num_key_heads: Option<usize>,
+    /// GH-278: Number of value heads for linear attention (Qwen3.5: 48)
+    #[serde(default)]
+    pub linear_num_value_heads: Option<usize>,
+    /// GH-278: Conv1D kernel size for linear attention (Qwen3.5: 4)
+    #[serde(default)]
+    pub linear_conv_kernel_dim: Option<usize>,
 }
 
 impl Default for AprTransformerConfig {
@@ -271,6 +293,13 @@ impl Default for AprTransformerConfig {
             rope_theta: 10000.0,
             eps: 1e-5,
             eos_token_id: None,
+            explicit_head_dim: None,
+            layer_types: None,
+            linear_key_head_dim: None,
+            linear_value_head_dim: None,
+            linear_num_key_heads: None,
+            linear_num_value_heads: None,
+            linear_conv_kernel_dim: None,
         }
     }
 }
@@ -310,6 +339,34 @@ pub struct AprTransformerLayer {
     pub attn_q_norm_weight: Option<Vec<f32>>,
     /// GH-279: Per-head K RMSNorm weight [head_dim] (Qwen3)
     pub attn_k_norm_weight: Option<Vec<f32>>,
+    // =========================================================================
+    // GH-278: Gated Delta Net weights (Qwen3.5 linear attention layers)
+    // =========================================================================
+    /// Gate projection weight (z): [value_dim, hidden_dim]
+    /// Split from HF `in_proj_qkvz` combined projection.
+    #[serde(default)]
+    pub linear_attn_z_weight: Option<Vec<f32>>,
+    /// Beta gate projection weight: [num_v_heads, hidden_dim]
+    /// Split from HF `in_proj_ba` combined projection.
+    #[serde(default)]
+    pub linear_attn_b_weight: Option<Vec<f32>>,
+    /// Decay projection weight (alpha): [num_v_heads, hidden_dim]
+    /// Split from HF `in_proj_ba` combined projection.
+    #[serde(default)]
+    pub linear_attn_a_weight: Option<Vec<f32>>,
+    /// Depthwise causal Conv1D weight: [conv_dim, kernel_size]
+    /// HF stores as [conv_dim, 1, kernel_size]; middle dim squeezed at load.
+    #[serde(default)]
+    pub linear_attn_conv1d_weight: Option<Vec<f32>>,
+    /// Logged decay base A_log: [num_v_heads]
+    #[serde(default)]
+    pub linear_attn_a_log: Option<Vec<f32>>,
+    /// Time-step bias dt_bias: [num_v_heads]
+    #[serde(default)]
+    pub linear_attn_dt_bias: Option<Vec<f32>>,
+    /// Gated RMSNorm weight: [value_dim]
+    #[serde(default)]
+    pub linear_attn_norm_weight: Option<Vec<f32>>,
 }
 
 impl AprTransformerLayer {
@@ -332,6 +389,13 @@ impl AprTransformerLayer {
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
         }
     }
 
@@ -370,6 +434,13 @@ impl AprTransformerLayer {
             ffn_norm_bias: None,
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
         }
     }
 
@@ -393,6 +464,14 @@ impl AprTransformerLayer {
         count += self.ffn_norm_bias.as_ref().map_or(0, Vec::len);
         count += self.attn_q_norm_weight.as_ref().map_or(0, Vec::len);
         count += self.attn_k_norm_weight.as_ref().map_or(0, Vec::len);
+        // GH-278: Linear attention weights
+        count += self.linear_attn_z_weight.as_ref().map_or(0, Vec::len);
+        count += self.linear_attn_b_weight.as_ref().map_or(0, Vec::len);
+        count += self.linear_attn_a_weight.as_ref().map_or(0, Vec::len);
+        count += self.linear_attn_conv1d_weight.as_ref().map_or(0, Vec::len);
+        count += self.linear_attn_a_log.as_ref().map_or(0, Vec::len);
+        count += self.linear_attn_dt_bias.as_ref().map_or(0, Vec::len);
+        count += self.linear_attn_norm_weight.as_ref().map_or(0, Vec::len);
         count
     }
 }

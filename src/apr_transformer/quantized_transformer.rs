@@ -312,6 +312,7 @@ impl QuantizedAprTransformer {
             rope_theta,
             eps,
             eos_token_id: None, // Parsed from APR metadata if available
+            ..Default::default()
         };
 
         // For now, create with default weights
