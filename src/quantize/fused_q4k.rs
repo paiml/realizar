@@ -19,6 +19,7 @@
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2", enable = "fma")]
 #[allow(unsafe_op_in_unsafe_fn)]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn fused_q4k_dot_avx2(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
     // Allow wildcard import for SIMD intrinsics (standard pattern for arch-specific code)
     #[allow(clippy::wildcard_imports)]

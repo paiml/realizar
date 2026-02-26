@@ -30,7 +30,6 @@ use crate::apr::{AprModel, MAGIC as APR_MAGIC};
 
 /// Embedded model bytes placeholder
 /// In production: `static MODEL_BYTES: &[u8] = include_bytes!("../models/model.apr");`
-#[allow(dead_code)]
 pub static MODEL_BYTES: OnceLock<&'static [u8]> = OnceLock::new();
 
 /// Lambda request format

@@ -3,7 +3,6 @@
 //! High-performance fused bricks for DP4A operations and FFN,
 //! extracted from brick/mod.rs (PMAT-802).
 
-#![allow(dead_code)]
 #![allow(clippy::too_many_arguments)]
 
 use std::time::Instant;

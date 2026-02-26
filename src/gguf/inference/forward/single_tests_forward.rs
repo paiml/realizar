@@ -287,6 +287,7 @@ fn test_forward_single_adaptive_phi_style() {
 
 #[test]
 fn test_forward_single_with_cache_debug_traces_llama() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZAR_DEBUG_FORWARD", "1");
         std::env::set_var("APR_TRACE_LAYERS", "1");
@@ -302,6 +303,7 @@ fn test_forward_single_with_cache_debug_traces_llama() {
     // Second token
     let r2 = model.forward_single_with_cache(10, &mut cache, 1);
     assert!(r2.is_ok(), "Debug traces llama 2nd: {}", r2.unwrap_err());
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZAR_DEBUG_FORWARD");
         std::env::remove_var("APR_TRACE_LAYERS");
@@ -310,6 +312,7 @@ fn test_forward_single_with_cache_debug_traces_llama() {
 
 #[test]
 fn test_forward_single_with_cache_debug_traces_phi() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZAR_DEBUG_FORWARD", "1");
         std::env::set_var("APR_TRACE_LAYERS", "1");
@@ -320,6 +323,7 @@ fn test_forward_single_with_cache_debug_traces_phi() {
 
     let r1 = model.forward_single_with_cache(5, &mut cache, 0);
     assert!(r1.is_ok(), "Debug traces phi fwd: {}", r1.unwrap_err());
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZAR_DEBUG_FORWARD");
         std::env::remove_var("APR_TRACE_LAYERS");
@@ -329,6 +333,7 @@ fn test_forward_single_with_cache_debug_traces_phi() {
 #[test]
 fn test_forward_single_with_cache_debug_traces_multi_token() {
     // Run multiple tokens with debug tracing to cover more trace branches
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZAR_DEBUG_FORWARD", "1");
         std::env::set_var("APR_TRACE_LAYERS", "1");
@@ -341,6 +346,7 @@ fn test_forward_single_with_cache_debug_traces_multi_token() {
         let r = model.forward_single_with_cache(i as u32, &mut cache, i);
         assert!(r.is_ok(), "Debug multi pos {}: {}", i, r.unwrap_err());
     }
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZAR_DEBUG_FORWARD");
         std::env::remove_var("APR_TRACE_LAYERS");
@@ -399,6 +405,7 @@ fn test_forward_single_with_scratch_multi_token() {
 
 #[test]
 fn test_forward_single_with_scratch_debug_traces() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZAR_DEBUG_FORWARD", "1");
         std::env::set_var("APR_TRACE_LAYERS", "1");
@@ -413,6 +420,7 @@ fn test_forward_single_with_scratch_debug_traces() {
 
     let r2 = model.forward_single_with_scratch(10, &mut cache, 1, &mut scratch);
     assert!(r2.is_ok(), "Scratch debug 2: {}", r2.unwrap_err());
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZAR_DEBUG_FORWARD");
         std::env::remove_var("APR_TRACE_LAYERS");

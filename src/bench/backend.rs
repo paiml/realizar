@@ -68,17 +68,12 @@ impl LlamaCppBackend {
                     // Find ms position
                     if let Some(ms_pos) = after_eq.find("ms") {
                         let value_str = after_eq[..ms_pos].trim();
-                        if let Ok(value) = value_str.parse::<f64>() {
-                            // Find the count after "/"
-                            if let Some(slash_pos) = after_eq.find('/') {
-                                let after_slash = &after_eq[slash_pos + 1..];
-                                // Extract number before "tokens" or "runs"
-                                let count_str =
-                                    after_slash.split_whitespace().next().unwrap_or("0");
-                                if let Ok(count) = count_str.parse::<usize>() {
-                                    return Some((value, count));
-                                }
-                            }
+                        let Ok(value) = value_str.parse::<f64>() else { continue };
+                        let Some(slash_pos) = after_eq.find('/') else { continue };
+                        let after_slash = &after_eq[slash_pos + 1..];
+                        let count_str = after_slash.split_whitespace().next().unwrap_or("0");
+                        if let Ok(count) = count_str.parse::<usize>() {
+                            return Some((value, count));
                         }
                     }
                 }

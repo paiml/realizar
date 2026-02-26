@@ -111,7 +111,6 @@
 #![allow(clippy::trivially_copy_pass_by_ref)] // Allow &self on small Copy types
 #![allow(clippy::used_underscore_items)] // Allow using _prefixed items
 #![allow(clippy::field_reassign_with_default)] // Allow field reassign after default
-#![allow(dead_code)] // Allow unused fields/variants in test structs
 
 #[cfg(feature = "server")]
 pub mod api;

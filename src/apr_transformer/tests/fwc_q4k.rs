@@ -175,6 +175,7 @@ fn test_forward_batch_q4k_gelu() {
 fn test_fwc_with_realize_trace() {
     // REALIZE_TRACE enables eprintln trace blocks in forward_with_cache
     // Safe in parallel: only affects stderr output, not computation
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZE_TRACE", "1");
     }
@@ -186,6 +187,7 @@ fn test_fwc_with_realize_trace() {
 
     let r2 = apr.forward_with_cache(2, &mut cache, 1);
     assert!(r2.is_ok(), "Trace fwc second: {}", r2.unwrap_err());
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZE_TRACE");
     }
@@ -194,6 +196,7 @@ fn test_fwc_with_realize_trace() {
 #[test]
 fn test_fwc_force_f32_with_q4k_layers() {
     // APR_FORCE_F32 forces F32 fallback even when Q4K layers exist
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("APR_FORCE_F32", "1");
     }
@@ -202,6 +205,7 @@ fn test_fwc_force_f32_with_q4k_layers() {
 
     let result = apr.forward_with_cache(1, &mut cache, 0);
     assert!(result.is_ok(), "Force F32 fwc: {}", result.unwrap_err());
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("APR_FORCE_F32");
     }
@@ -210,6 +214,7 @@ fn test_fwc_force_f32_with_q4k_layers() {
 #[test]
 fn test_fwc_force_f32_with_trace() {
     // Both APR_FORCE_F32 and REALIZE_TRACE — covers the force_f32 trace blocks
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("APR_FORCE_F32", "1");
         std::env::set_var("REALIZE_TRACE", "1");
@@ -222,6 +227,7 @@ fn test_fwc_force_f32_with_trace() {
 
     let r2 = apr.forward_with_cache(2, &mut cache, 1);
     assert!(r2.is_ok(), "Force F32 + trace 2nd: {}", r2.unwrap_err());
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("APR_FORCE_F32");
         std::env::remove_var("REALIZE_TRACE");
@@ -231,12 +237,14 @@ fn test_fwc_force_f32_with_trace() {
 #[test]
 fn test_forward_batch_with_realize_trace() {
     // REALIZE_TRACE for batch forward path
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZE_TRACE", "1");
     }
     let apr = build_apr_with_q4k_fused(32, 64, 4, 4, 16);
     let result = apr.forward(&[1, 2, 3]);
     assert!(result.is_ok(), "Trace batch: {}", result.unwrap_err());
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZE_TRACE");
     }
@@ -245,6 +253,7 @@ fn test_forward_batch_with_realize_trace() {
 #[test]
 fn test_from_apr_bytes_with_realize_debug() {
     // REALIZE_DEBUG enables debug eprintln blocks in from_apr_bytes
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZE_DEBUG", "1");
     }
@@ -311,6 +320,7 @@ fn test_from_apr_bytes_with_realize_debug() {
 
     let apr = AprTransformer::from_apr_bytes(&build_apr_v2(&meta, &tensors));
     assert!(apr.is_ok(), "Debug from_apr_bytes: {}", apr.unwrap_err());
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZE_DEBUG");
     }

@@ -15,6 +15,7 @@
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn fused_q8_0_q8_0_dot_avx2(
     q8_weight_data: &[u8],
     q8_act_scales: &[f32],

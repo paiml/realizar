@@ -5,9 +5,11 @@
 
 use crate::error::Result;
 use crate::gguf::ops;
+#[cfg(feature = "gpu")]
+use crate::gguf::DispatchMetrics;
 use crate::gguf::{
-    DispatchMetrics, InferenceScratchBuffer, OwnedQuantizedKVCache, OwnedQuantizedLayer,
-    OwnedQuantizedModel, GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K,
+    InferenceScratchBuffer, OwnedQuantizedKVCache, OwnedQuantizedLayer, OwnedQuantizedModel,
+    GGUF_TYPE_Q4_K, GGUF_TYPE_Q5_K, GGUF_TYPE_Q6_K,
 };
 
 include!("results.rs");

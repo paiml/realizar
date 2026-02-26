@@ -705,7 +705,7 @@ strip = true          # Remove debug symbols
 
 [profile.bench]
 inherits = "release"
-panic = "unwind"  # PAR-129: Required for criterion benchmarks
+# Note: panic setting cannot be overridden in bench profile (inherits from release)
 
 [profile.dev]
 panic = "abort"

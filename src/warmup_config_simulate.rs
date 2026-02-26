@@ -33,7 +33,6 @@ impl WarmupExecutor {
     }
 
     /// Check if timeout has been exceeded
-    #[allow(dead_code)]
     fn check_timeout(&self, start: Instant, iterations: usize) -> Option<WarmupResult> {
         if start.elapsed() > self.config.timeout {
             Some(WarmupResult::timed_out(iterations, start.elapsed()))

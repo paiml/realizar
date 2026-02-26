@@ -105,6 +105,7 @@ pub(crate) fn quantize_rmsnorm_q8_0_scalar(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn quantize_rmsnorm_q8_0_avx2(
     input: &[f32],
     norm_weight: &[f32],

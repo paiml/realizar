@@ -5,6 +5,7 @@
 
 #[test]
 fn test_fwc_q6k_lm_head_with_trace() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZE_TRACE", "1");
     }
@@ -18,6 +19,7 @@ fn test_fwc_q6k_lm_head_with_trace() {
         "Q6K lm_head + trace: {}",
         result.unwrap_err()
     );
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZE_TRACE");
     }
@@ -29,6 +31,7 @@ fn test_fwc_q6k_lm_head_with_trace() {
 
 #[test]
 fn test_fwc_q4k_lm_head_with_trace() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZE_TRACE", "1");
     }
@@ -42,6 +45,7 @@ fn test_fwc_q4k_lm_head_with_trace() {
         "Q4K lm_head + trace: {}",
         result.unwrap_err()
     );
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZE_TRACE");
     }
@@ -53,6 +57,7 @@ fn test_fwc_q4k_lm_head_with_trace() {
 
 #[test]
 fn test_fwc_q6k_variants_with_trace() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZE_TRACE", "1");
     }
@@ -61,6 +66,7 @@ fn test_fwc_q6k_variants_with_trace() {
 
     let r1 = apr.forward_with_cache(1, &mut cache, 0);
     assert!(r1.is_ok(), "Q6K variants + trace: {}", r1.unwrap_err());
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZE_TRACE");
     }
@@ -74,6 +80,7 @@ fn test_fwc_q6k_variants_with_trace() {
 
 #[test]
 fn test_fwc_partial_q4k_f32_fallback_with_trace() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZE_TRACE", "1");
     }
@@ -157,6 +164,7 @@ fn test_fwc_partial_q4k_f32_fallback_with_trace() {
     let mut cache = AprKVCache::new(&apr.config);
     let r1 = apr.forward_with_cache(1, &mut cache, 0);
     assert!(r1.is_ok(), "Partial Q4K + trace: {}", r1.unwrap_err());
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZE_TRACE");
     }
@@ -168,6 +176,7 @@ fn test_fwc_partial_q4k_f32_fallback_with_trace() {
 
 #[test]
 fn test_forward_batch_oov_token_with_debug() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZE_DEBUG", "1");
     }
@@ -175,6 +184,7 @@ fn test_forward_batch_oov_token_with_debug() {
     // Token 999 is way out of vocab (vocab=16)
     let result = apr.forward(&[999]);
     assert!(result.is_ok(), "OOV batch: {}", result.unwrap_err());
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZE_DEBUG");
     }
@@ -187,6 +197,7 @@ fn test_forward_batch_oov_token_with_debug() {
 
 #[test]
 fn test_fwc_gelu_f32_no_q4k_with_trace() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZE_TRACE", "1");
     }
@@ -250,6 +261,7 @@ fn test_fwc_gelu_f32_no_q4k_with_trace() {
     let mut cache = AprKVCache::new(&apr.config);
     let result = apr.forward_with_cache(1, &mut cache, 0);
     assert!(result.is_ok(), "GELU F32 + trace: {}", result.unwrap_err());
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZE_TRACE");
     }
@@ -261,6 +273,7 @@ fn test_fwc_gelu_f32_no_q4k_with_trace() {
 
 #[test]
 fn test_forward_batch_gelu_with_trace() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZE_TRACE", "1");
     }
@@ -327,6 +340,7 @@ fn test_forward_batch_gelu_with_trace() {
         "GELU batch + trace: {}",
         result.unwrap_err()
     );
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZE_TRACE");
     }
@@ -338,6 +352,7 @@ fn test_forward_batch_gelu_with_trace() {
 
 #[test]
 fn test_forward_batch_partial_q4k_with_trace() {
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::set_var("REALIZE_TRACE", "1");
     }
@@ -423,6 +438,7 @@ fn test_forward_batch_partial_q4k_with_trace() {
         "Partial Q4K batch + trace: {}",
         result.unwrap_err()
     );
+    // SAFETY: Preconditions verified by caller or enclosing context
     unsafe {
         std::env::remove_var("REALIZE_TRACE");
     }

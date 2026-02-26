@@ -42,7 +42,6 @@ fn test_parity010b_model_download() {
     enum DownloadStatus {
         Cached(String),     // Already in cache
         Downloaded(String), // Freshly downloaded
-        #[allow(dead_code)]
         Failed(String), // Download failed
     }
 
@@ -126,9 +125,7 @@ fn test_parity010c_json_schema_validation() {
         String,
         Number,
         Integer,
-        #[allow(dead_code)]
         Boolean,
-        #[allow(dead_code)]
         Array(Box<FieldType>),
         Object(Vec<SchemaField>),
     }
@@ -328,7 +325,6 @@ fn test_parity010d_benchmark_preflight_suite() {
     struct PreflightResult {
         servers_passed: usize,
         servers_failed: usize,
-        #[allow(dead_code)]
         servers_skipped: usize,
         models_cached: usize,
         models_to_download: usize,

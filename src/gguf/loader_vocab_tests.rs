@@ -365,7 +365,7 @@ mod tests {
         // C-03 (Meyer DbC): Q4K converter writes "num_key_value_heads" but AprMetadata
         // reads "num_kv_heads", causing a field name mismatch. When num_kv_heads is None,
         // it correctly defaults to num_heads (8) rather than a hardcoded 2.
-        // TODO: Fix Q4K converter to write "num_kv_heads" for proper GQA round-trip.
+        // Q4K converter writes "num_key_value_heads" not "num_kv_heads" — needs alignment.
         assert_eq!(model.config.num_kv_heads, 8);
         assert_eq!(model.config.hidden_dim, 128);
     }

@@ -331,9 +331,7 @@ pub struct DiagnosticsSummary {
 pub struct DiagnosticsCollector {
     /// Request count (pub(crate) for test access)
     pub(crate) request_count: std::sync::atomic::AtomicU64,
-    #[allow(dead_code)]
     timings: std::sync::Mutex<Vec<HashMap<String, u64>>>,
-    #[allow(dead_code)]
     memory_snapshots: std::sync::Mutex<Vec<MemoryReport>>,
 }
 
@@ -405,7 +403,6 @@ impl DebugMode {
     }
 
     /// Disable debug mode
-    #[allow(dead_code)]
     pub fn disable(&self) {
         self.enabled
             .store(false, std::sync::atomic::Ordering::SeqCst);

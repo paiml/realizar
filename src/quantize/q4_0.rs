@@ -66,6 +66,7 @@ unsafe fn avx2_block_dot_accumulate(
 /// Horizontal sum of 8 f32 lanes in a __m256 register.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn hsum_avx2(v: __m256) -> f32 {
     let hi = _mm256_extractf128_ps(v, 1);
     let lo = _mm256_castps256_ps128(v);

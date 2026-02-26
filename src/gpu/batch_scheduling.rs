@@ -75,7 +75,6 @@ impl TokenBatch {
 struct SpeculativeCandidate {
     token: usize,
     /// Confidence score (stored for future use in acceptance thresholds)
-    #[allow(dead_code)]
     confidence: f32,
 }
 

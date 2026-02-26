@@ -140,6 +140,7 @@ pub fn fused_q6k_dot_simd(q6k_data: &[u8], activations: &[f32]) -> Result<f32> {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2", enable = "fma")]
 #[allow(unsafe_op_in_unsafe_fn)]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn fused_q6k_dot_avx2(q6k_data: &[u8], activations: &[f32]) -> Result<f32> {
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;

@@ -71,6 +71,7 @@ pub(crate) fn simd_dot_f32(a: &[f32], b: &[f32]) -> f32 {
 /// AVX2 dot product implementation (PMAT-103)
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2", enable = "fma")]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn simd_dot_f32_avx2(a: &[f32], b: &[f32]) -> f32 {
     // SAFETY: Memory safety ensured by bounds checking before SIMD operations
     unsafe {
@@ -137,6 +138,7 @@ pub(crate) fn simd_add_weighted(out: &mut [f32], val: &[f32], weight: f32) {
 /// AVX2 weighted accumulation implementation (PMAT-103)
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2", enable = "fma")]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn simd_add_weighted_avx2(out: &mut [f32], val: &[f32], weight: f32) {
     // SAFETY: Memory safety ensured by bounds checking before SIMD operations
     unsafe {

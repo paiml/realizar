@@ -110,7 +110,7 @@ fn generate_next_tokens(
 /// # Errors
 ///
 /// Returns error if prompt is empty or forward pass fails.
-pub fn generate_with_cache(
+pub(crate) fn generate_with_cache(
     model: &AprTransformer,
     prompt: &[u32],
     config: &GenerateConfig,
@@ -158,7 +158,7 @@ pub fn generate_with_cache(
 /// # Errors
 ///
 /// Returns error if prompt is empty or forward pass fails.
-pub fn generate_with_cache_streaming<F>(
+pub(crate) fn generate_with_cache_streaming<F>(
     model: &AprTransformer,
     prompt: &[u32],
     config: &GenerateConfig,

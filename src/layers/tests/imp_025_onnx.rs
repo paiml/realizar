@@ -5,7 +5,6 @@ fn test_imp_025_onnx_export() {
 
     // Define a simple model graph (ONNX-style)
     #[derive(Debug)]
-    #[allow(dead_code)]
     struct OnnxNode {
         name: String,
         op_type: String,

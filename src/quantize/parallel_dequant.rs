@@ -163,6 +163,7 @@ pub fn dequantize_q4_k_simd(data: &[u8]) -> Result<Vec<f32>> {
 /// Caller must ensure AVX2 is available (use runtime feature detection)
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn dequantize_q4_k_avx2_parallel(data: &[u8]) -> Result<Vec<f32>> {
     use rayon::prelude::*;
 
@@ -216,6 +217,7 @@ unsafe fn dequantize_q4_k_avx2_parallel(data: &[u8]) -> Result<Vec<f32>> {
 /// Uses 256-bit SIMD to process 8 values simultaneously.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2", enable = "fma")]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn dequantize_q4_k_superblock_avx2(sb_data: &[u8]) -> Vec<f32> {
     #[allow(clippy::wildcard_imports)]
     use std::arch::x86_64::*;
@@ -400,6 +402,7 @@ pub fn dequantize_q8_0_simd(data: &[u8]) -> Result<Vec<f32>> {
 /// AVX2-accelerated parallel Q8_0 dequantization
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn dequantize_q8_0_avx2_parallel(data: &[u8]) -> Result<Vec<f32>> {
     use rayon::prelude::*;
 

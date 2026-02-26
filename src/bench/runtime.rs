@@ -6,6 +6,8 @@
 //! - LlamaCppBackend, VllmBackend, OllamaBackend implementations
 
 #![allow(clippy::cast_precision_loss)]
+// Items are conditionally re-exported by parent mod via feature gates (bench-http)
+#![allow(unreachable_pub)]
 
 use std::collections::HashMap;
 

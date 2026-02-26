@@ -147,10 +147,8 @@ pub struct ContiguousAttentionBuffer {
     /// Maximum sequence length
     max_seq_len: usize,
     /// Number of attention heads (stored for future use)
-    #[allow(dead_code)]
     num_heads: usize,
     /// Dimension per head (stored for future use)
-    #[allow(dead_code)]
     head_dim: usize,
     /// Size of each tensor (Q, K, V, O have same size)
     tensor_size: usize,

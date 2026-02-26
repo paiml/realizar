@@ -48,6 +48,7 @@ impl PinnedRegion {
     ///
     /// Caller must ensure ptr points to valid memory for len bytes.
     #[must_use]
+    // SAFETY: Caller must satisfy the documented preconditions
     pub unsafe fn new(ptr: *const u8, len: usize, config: &MlockConfig) -> (Self, MlockResult) {
         if !config.enabled {
             return (

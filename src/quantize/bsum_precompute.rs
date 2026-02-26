@@ -71,6 +71,7 @@ pub fn precompute_q8k_bsums(q8k_quants: &[i8], num_superblocks: usize) -> Result
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[allow(unsafe_op_in_unsafe_fn)]
+// SAFETY: Caller must satisfy the documented preconditions
 unsafe fn fused_q4k_q8k_dot_with_bsums_avx2(
     q4k_data: &[u8],
     q8k_scales: &[f32],

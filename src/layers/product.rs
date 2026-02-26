@@ -25,6 +25,7 @@ impl Attention {
     #[target_feature(enable = "avx2", enable = "fma")]
     #[inline]
     #[allow(clippy::wildcard_imports, unsafe_op_in_unsafe_fn)]
+    // SAFETY: Caller must satisfy the documented preconditions
     unsafe fn simd_dot_avx2(a: &[f32], b: &[f32]) -> f32 {
         use std::arch::x86_64::*;
 

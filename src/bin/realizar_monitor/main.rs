@@ -65,7 +65,6 @@ pub enum MonitorState {
 
 impl MonitorState {
     /// Check if the monitor is receiving updates
-    #[allow(dead_code)]
     fn is_active(&self) -> bool {
         matches!(self, MonitorState::Connected)
     }
@@ -168,8 +167,6 @@ impl TimeSeries {
     fn max(&self) -> Option<f64> {
         self.data.iter().cloned().reduce(f64::max)
     }
-
-    #[allow(dead_code)]
     fn last(&self) -> Option<f64> {
         self.data.back().copied()
     }
@@ -201,7 +198,6 @@ impl TimeSeries {
 
     /// Render sparkline as Unicode string (PARITY-109 QA-E08)
     /// Uses block characters to visualize time series data.
-    #[allow(dead_code)]
     fn sparkline(&self, width: usize) -> String {
         const CHARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
@@ -241,7 +237,6 @@ struct MonitorApp {
     /// Should quit
     should_quit: bool,
     /// Start time
-    #[allow(dead_code)]
     start_time: Instant,
 }
 

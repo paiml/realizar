@@ -20,7 +20,6 @@ pub struct BlockWeights {
     /// Combined QKV projection weights (hidden_dim x 3*hidden_dim)
     pub qkv_weight: Vec<f32>,
     /// QKV projection bias (reserved for future use)
-    #[allow(dead_code)]
     pub qkv_bias: Vec<f32>,
     /// Output projection weight (hidden_dim x hidden_dim)
     pub out_weight: Vec<f32>,

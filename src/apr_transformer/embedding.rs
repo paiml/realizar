@@ -85,7 +85,7 @@ impl AprTransformer {
             context_length: max_position,
             rope_theta,
             eps: rms_norm_eps,
-            eos_token_id: None, // TODO: extract from APR metadata extra fields
+            eos_token_id: None, // Not yet in APR metadata; defaults to tokenizer config
             ..Default::default()
         }
     }

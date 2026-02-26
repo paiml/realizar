@@ -158,9 +158,7 @@ impl OwnedQuantizedModelCuda {
                 error: RealizarError::CapabilityMismatch {
                     architecture: model.config.architecture.clone(),
                     missing_ops: missing_names.join(", "),
-                    suggestion: "Model will use CPU inference. To add GPU support, \
-                                 implement the missing kernels in trueno."
-                        .to_string(),
+                    suggestion: "Model will use CPU inference. To add GPU support, implement the missing kernels in trueno.".to_string(),
                 },
                 model,
             });
