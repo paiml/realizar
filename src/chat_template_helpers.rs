@@ -137,11 +137,11 @@ pub fn auto_detect_template(model_name: &str) -> Box<dyn ChatTemplateEngine> {
 /// ];
 ///
 /// // With model name - uses ChatML format
-/// let prompt = format_messages(&messages, Some("Qwen2-0.5B")).unwrap();
+/// let prompt = format_messages(&messages, Some("Qwen2-0.5B")).expect("prompt");
 /// assert!(prompt.contains("<|im_start|>"));
 ///
 /// // Without model name - uses Raw format
-/// let prompt = format_messages(&messages, None).unwrap();
+/// let prompt = format_messages(&messages, None).expect("prompt");
 /// assert!(prompt.contains("You are helpful."));
 /// ```
 pub fn format_messages(

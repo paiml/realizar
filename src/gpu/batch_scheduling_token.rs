@@ -27,7 +27,7 @@
         batch.push(2);
         let result = batch.push(3);
         assert!(result.is_some());
-        assert_eq!(result.unwrap(), vec![1, 2, 3]);
+        assert_eq!(result.expect("expected value"), vec![1, 2, 3]);
         assert!(batch.is_empty()); // Flushed
     }
 
@@ -177,7 +177,7 @@
 
         let result = scheduler.poll();
         assert!(result.is_some());
-        let (batch_id, tokens) = result.unwrap();
+        let (batch_id, tokens) = result.expect("expected value");
         assert_eq!(batch_id, id);
         assert_eq!(tokens, vec![99]);
         assert_eq!(scheduler.completed_count(), 0);
@@ -327,7 +327,7 @@
         // Already expired
         manager.register(
             1,
-            Instant::now().checked_sub(Duration::from_secs(1)).unwrap(),
+            Instant::now().checked_sub(Duration::from_secs(1)).expect("expected value"),
         );
         // Not expired
         manager.register(2, Instant::now() + Duration::from_secs(60));
@@ -390,7 +390,7 @@
         queue.enqueue(PriorityRequest::new(10, "high"));
         queue.enqueue(PriorityRequest::new(5, "medium"));
 
-        let top = queue.dequeue_highest().unwrap();
+        let top = queue.dequeue_highest().expect("top");
         assert_eq!(top.priority(), 10);
         assert_eq!(top.data(), &"high");
     }
@@ -403,9 +403,9 @@
         queue.enqueue(PriorityRequest::new(5, "third"));
 
         // Should return in FIFO order for same priority
-        assert_eq!(queue.dequeue_highest().unwrap().data(), &"first");
-        assert_eq!(queue.dequeue_highest().unwrap().data(), &"second");
-        assert_eq!(queue.dequeue_highest().unwrap().data(), &"third");
+        assert_eq!(queue.dequeue_highest().expect("dequeue_highest").data(), &"first");
+        assert_eq!(queue.dequeue_highest().expect("dequeue_highest").data(), &"second");
+        assert_eq!(queue.dequeue_highest().expect("dequeue_highest").data(), &"third");
     }
 
     #[test]

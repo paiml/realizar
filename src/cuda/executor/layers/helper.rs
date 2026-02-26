@@ -53,7 +53,7 @@ mod tests {
         let input: Vec<f32> = (0..hidden_dim as usize)
             .map(|i| (i as f32) * 0.001)
             .collect();
-        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).expect("input_buf");
 
         // Execute FFN (may fail due to kernel issues, but exercises path selection)
         let result = fused_ffn_swiglu_gpu(
@@ -93,7 +93,7 @@ mod tests {
         let _ = exec.load_quantized_weights("ffn_down_unaligned", &down_weights);
 
         let input: Vec<f32> = vec![0.1f32; hidden_dim as usize];
-        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).expect("input_buf");
 
         // This tests the unaligned path (even though setup may not be perfect for Q4K)
         let result = fused_ffn_swiglu_gpu(
@@ -124,7 +124,7 @@ mod tests {
         }
 
         let input: Vec<f32> = vec![0.1f32; hidden_dim as usize];
-        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).expect("input_buf");
 
         let result = fused_ffn_swiglu_gpu(
             &mut exec,
@@ -155,7 +155,7 @@ mod tests {
         let input: Vec<f32> = (0..hidden_dim as usize)
             .map(|i| (i as f32) * 0.001)
             .collect();
-        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).expect("input_buf");
 
         // Call the true_dp4a variant directly
         let result = fused_ffn_swiglu_gpu_true_dp4a(
@@ -187,7 +187,7 @@ mod tests {
         }
 
         let input: Vec<f32> = vec![0.1f32; config.hidden_dim];
-        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).expect("input_buf");
 
         let result = fused_ffn_swiglu_gpu(
             &mut exec,
@@ -215,7 +215,7 @@ mod tests {
 
         for layer_idx in 0..config.num_layers {
             let input: Vec<f32> = vec![0.1f32; config.hidden_dim];
-            let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+            let input_buf = GpuBuffer::from_host(&exec.context, &input).expect("input_buf");
 
             let result = fused_ffn_swiglu_gpu(
                 &mut exec,
@@ -251,7 +251,7 @@ mod tests {
         ];
 
         for input in inputs {
-            let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+            let input_buf = GpuBuffer::from_host(&exec.context, &input).expect("input_buf");
 
             let result = fused_ffn_swiglu_gpu(
                 &mut exec,
@@ -278,7 +278,7 @@ mod tests {
         }
 
         let input: Vec<f32> = (0..config.hidden_dim).map(|i| (i as f32) * 0.001).collect();
-        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).expect("input_buf");
 
         // Call true_dp4a variant with harness weights
         let result = fused_ffn_swiglu_gpu_true_dp4a(
@@ -306,7 +306,7 @@ mod tests {
         }
 
         let input: Vec<f32> = vec![0.1f32; config.hidden_dim];
-        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).expect("input_buf");
 
         let result = fused_ffn_swiglu_gpu(
             &mut exec,
@@ -332,7 +332,7 @@ mod tests {
         }
 
         let input: Vec<f32> = vec![0.1f32; config.hidden_dim];
-        let input_buf = GpuBuffer::from_host(&exec.context, &input).unwrap();
+        let input_buf = GpuBuffer::from_host(&exec.context, &input).expect("input_buf");
 
         let result = fused_ffn_swiglu_gpu(
             &mut exec,

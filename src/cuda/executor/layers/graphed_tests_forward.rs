@@ -38,7 +38,7 @@ fn test_gpu_argmax_negative_logits() {
     let mut logits = vec![-100.0f32; 128];
     logits[77] = -0.5; // Least negative
 
-    let logits_buf = GpuBuffer::from_host(&exec.context, &logits).unwrap();
+    let logits_buf = GpuBuffer::from_host(&exec.context, &logits).expect("logits_buf");
     let result = exec.gpu_argmax(logits_buf.as_ptr(), 128);
 
     if let Ok(argmax) = result {
@@ -54,7 +54,7 @@ fn test_gpu_argmax_uniform_logits() {
 
     // All equal - should return first (or consistent result)
     let logits = vec![1.0f32; 64];
-    let logits_buf = GpuBuffer::from_host(&exec.context, &logits).unwrap();
+    let logits_buf = GpuBuffer::from_host(&exec.context, &logits).expect("logits_buf");
 
     let result = exec.gpu_argmax(logits_buf.as_ptr(), 64);
     // Result should be deterministic

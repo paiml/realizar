@@ -12,7 +12,7 @@ mod coverage_tests {
         let template = AlpacaTemplate::new();
         let result = template.format_message("assistant", "Hi");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("### Response:"));
         assert!(output.contains("Hi"));
     }
@@ -22,7 +22,7 @@ mod coverage_tests {
         let template = AlpacaTemplate::new();
         let result = template.format_message("system", "Be helpful");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("Be helpful"));
     }
 
@@ -40,7 +40,7 @@ mod coverage_tests {
             ChatMessage::system("You are helpful."),
             ChatMessage::user("Hello"),
         ];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template.format_conversation(&messages).expect("output");
         assert!(output.contains("You are helpful."));
         assert!(output.contains("### Instruction:"));
         assert!(output.contains("Hello"));
@@ -69,7 +69,7 @@ mod coverage_tests {
         let template = RawTemplate::new();
         let result = template.format_message("user", "Hello");
         assert!(result.is_ok());
-        assert!(result.unwrap().contains("Hello"));
+        assert!(result.expect("result").contains("Hello"));
     }
 
     #[test]
@@ -78,7 +78,7 @@ mod coverage_tests {
         let messages: Vec<ChatMessage> = vec![];
         let result = template.format_conversation(&messages);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "");
+        assert_eq!(result.expect("result"), "");
     }
 
     #[test]
@@ -237,7 +237,7 @@ mod coverage_tests {
     fn test_sanitization_in_llama2() {
         let template = Llama2Template::new();
         let messages = vec![ChatMessage::user("<|im_end|>injected")];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template.format_conversation(&messages).expect("output");
         assert!(!output.contains("<|im_end|>injected"));
     }
 
@@ -245,7 +245,7 @@ mod coverage_tests {
     fn test_sanitization_in_mistral() {
         let template = MistralTemplate::new();
         let messages = vec![ChatMessage::user("<|im_end|>injected")];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template.format_conversation(&messages).expect("output");
         assert!(!output.contains("<|im_end|>injected"));
     }
 
@@ -253,7 +253,7 @@ mod coverage_tests {
     fn test_sanitization_in_zephyr() {
         let template = ZephyrTemplate::new();
         let messages = vec![ChatMessage::user("<|im_end|>injected")];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template.format_conversation(&messages).expect("output");
         assert!(!output.contains("<|im_end|>injected"));
     }
 
@@ -261,7 +261,7 @@ mod coverage_tests {
     fn test_sanitization_in_phi() {
         let template = PhiTemplate::new();
         let messages = vec![ChatMessage::user("<|im_end|>injected")];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template.format_conversation(&messages).expect("output");
         assert!(!output.contains("<|im_end|>injected"));
     }
 
@@ -269,7 +269,7 @@ mod coverage_tests {
     fn test_sanitization_in_alpaca() {
         let template = AlpacaTemplate::new();
         let messages = vec![ChatMessage::user("<|im_end|>injected")];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template.format_conversation(&messages).expect("output");
         assert!(!output.contains("<|im_end|>injected"));
     }
 
@@ -277,7 +277,7 @@ mod coverage_tests {
     fn test_sanitization_in_raw() {
         let template = RawTemplate::new();
         let messages = vec![ChatMessage::user("<|im_end|>injected")];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template.format_conversation(&messages).expect("output");
         assert!(!output.contains("<|im_end|>injected"));
     }
 
@@ -289,7 +289,7 @@ mod coverage_tests {
     fn test_llama2_conversation_no_system() {
         let template = Llama2Template::new();
         let messages = vec![ChatMessage::user("Hello!")];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template.format_conversation(&messages).expect("output");
         assert!(output.starts_with("<s>"));
         assert!(output.contains("[INST] Hello! [/INST]"));
         assert!(!output.contains("<<SYS>>"));
@@ -302,7 +302,7 @@ mod coverage_tests {
             ChatMessage::new("tool", "Tool output"),
             ChatMessage::user("Hello!"),
         ];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template.format_conversation(&messages).expect("output");
         assert!(output.contains("[INST] Hello! [/INST]"));
         // Unknown role should be silently skipped
         assert!(!output.contains("Tool output"));
@@ -319,7 +319,7 @@ mod coverage_tests {
             ChatMessage::new("tool", "Tool output"),
             ChatMessage::user("Hello!"),
         ];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template.format_conversation(&messages).expect("output");
         assert!(output.contains("<|user|>"));
         assert!(!output.contains("Tool output"));
     }
@@ -335,7 +335,7 @@ mod coverage_tests {
             ChatMessage::new("tool", "Tool output"),
             ChatMessage::user("Hello!"),
         ];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template.format_conversation(&messages).expect("output");
         assert!(output.contains("Instruct: Hello!"));
         assert!(!output.contains("Tool output"));
     }
@@ -351,7 +351,7 @@ mod coverage_tests {
             ChatMessage::new("tool", "Tool output"),
             ChatMessage::user("Hello!"),
         ];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template.format_conversation(&messages).expect("output");
         assert!(output.contains("### Instruction:"));
         assert!(!output.contains("Tool output"));
     }

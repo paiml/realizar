@@ -14,7 +14,7 @@ fn test_safetensors_data_offsets() {
         .add_f32_tensor("second", &[4, 2], &f32_data2)
         .build();
 
-    let header_len = u64::from_le_bytes(data[0..8].try_into().unwrap()) as usize;
+    let header_len = u64::from_le_bytes(data[0..8].try_into().expect("type conversion")) as usize;
     let json_str = std::str::from_utf8(&data[8..8 + header_len]).expect("valid UTF-8");
 
     // Parse JSON to verify offsets
@@ -59,8 +59,8 @@ fn test_apr_metadata_json_serialization() {
         .build();
 
     // Read metadata offset and size from header
-    let metadata_offset = u64::from_le_bytes(data[12..20].try_into().unwrap()) as usize;
-    let metadata_size = u32::from_le_bytes(data[20..24].try_into().unwrap()) as usize;
+    let metadata_offset = u64::from_le_bytes(data[12..20].try_into().expect("type conversion")) as usize;
+    let metadata_size = u32::from_le_bytes(data[20..24].try_into().expect("type conversion")) as usize;
 
     // Extract and parse metadata JSON
     let json_bytes = &data[metadata_offset..metadata_offset + metadata_size];

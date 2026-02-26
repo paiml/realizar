@@ -34,7 +34,7 @@ fn test_q4k_convert_llama_produces_valid_apr() {
     let result = GgufToAprQ4KConverter::convert(&gguf_path, &apr_path);
     assert!(result.is_ok(), "convert() failed: {:?}", result.err());
 
-    let stats = result.unwrap();
+    let stats = result.expect("stats");
     assert_eq!(stats.architecture, "llama");
     assert_eq!(stats.num_layers, 1);
     assert_eq!(stats.hidden_size, 64);
@@ -73,11 +73,11 @@ fn test_q4k_convert_output_header_offsets_valid() {
     let apr_data = std::fs::read(&apr_path).expect("read APR");
 
     // Parse header offsets
-    let tensor_count = u32::from_le_bytes(apr_data[8..12].try_into().unwrap());
-    let metadata_offset = u64::from_le_bytes(apr_data[12..20].try_into().unwrap());
-    let metadata_len = u32::from_le_bytes(apr_data[20..24].try_into().unwrap());
-    let tensor_index_offset = u64::from_le_bytes(apr_data[24..32].try_into().unwrap());
-    let data_offset = u64::from_le_bytes(apr_data[32..40].try_into().unwrap());
+    let tensor_count = u32::from_le_bytes(apr_data[8..12].try_into().expect("type conversion"));
+    let metadata_offset = u64::from_le_bytes(apr_data[12..20].try_into().expect("type conversion"));
+    let metadata_len = u32::from_le_bytes(apr_data[20..24].try_into().expect("type conversion"));
+    let tensor_index_offset = u64::from_le_bytes(apr_data[24..32].try_into().expect("type conversion"));
+    let data_offset = u64::from_le_bytes(apr_data[32..40].try_into().expect("type conversion"));
 
     assert!(tensor_count > 0, "should have tensors in header");
     assert_eq!(
@@ -110,8 +110,8 @@ fn test_q4k_convert_metadata_contains_architecture() {
     let apr_data = std::fs::read(&apr_path).expect("read APR");
 
     // Extract metadata JSON
-    let metadata_offset = u64::from_le_bytes(apr_data[12..20].try_into().unwrap()) as usize;
-    let metadata_len = u32::from_le_bytes(apr_data[20..24].try_into().unwrap()) as usize;
+    let metadata_offset = u64::from_le_bytes(apr_data[12..20].try_into().expect("type conversion")) as usize;
+    let metadata_len = u32::from_le_bytes(apr_data[20..24].try_into().expect("type conversion")) as usize;
     let metadata_bytes = &apr_data[metadata_offset..metadata_offset + metadata_len];
     let metadata: serde_json::Value =
         serde_json::from_slice(metadata_bytes).expect("parse metadata JSON");
@@ -138,7 +138,7 @@ fn test_q4k_convert_tensor_count_matches_stats() {
     let stats = GgufToAprQ4KConverter::convert(&gguf_path, &apr_path).expect("should convert");
 
     let apr_data = std::fs::read(&apr_path).expect("read APR");
-    let header_tensor_count = u32::from_le_bytes(apr_data[8..12].try_into().unwrap()) as usize;
+    let header_tensor_count = u32::from_le_bytes(apr_data[8..12].try_into().expect("type conversion")) as usize;
     assert_eq!(header_tensor_count, stats.tensor_count);
 }
 
@@ -153,7 +153,7 @@ fn test_q4k_convert_crc32_checksum_valid() {
     GgufToAprQ4KConverter::convert(&gguf_path, &apr_path).expect("should convert");
 
     let apr_data = std::fs::read(&apr_path).expect("read APR");
-    let stored_checksum = u32::from_le_bytes(apr_data[40..44].try_into().unwrap());
+    let stored_checksum = u32::from_le_bytes(apr_data[40..44].try_into().expect("type conversion"));
 
     // Recompute checksum over header bytes (excluding checksum field at [40..44])
     let header = &apr_data[0..HEADER_SIZE];
@@ -178,8 +178,8 @@ fn test_q4k_convert_gqa_model() {
     assert_eq!(stats.hidden_size, 128);
 
     let apr_data = std::fs::read(&apr_path).expect("read APR");
-    let metadata_offset = u64::from_le_bytes(apr_data[12..20].try_into().unwrap()) as usize;
-    let metadata_len = u32::from_le_bytes(apr_data[20..24].try_into().unwrap()) as usize;
+    let metadata_offset = u64::from_le_bytes(apr_data[12..20].try_into().expect("type conversion")) as usize;
+    let metadata_len = u32::from_le_bytes(apr_data[20..24].try_into().expect("type conversion")) as usize;
     let metadata: serde_json::Value =
         serde_json::from_slice(&apr_data[metadata_offset..metadata_offset + metadata_len])
             .expect("parse metadata");
@@ -244,7 +244,7 @@ fn test_q4k_convert_roundtrip_loadable() {
         result.err()
     );
 
-    let transformer = result.unwrap();
+    let transformer = result.expect("transformer");
     assert_eq!(transformer.config.architecture, "llama");
     assert_eq!(transformer.config.hidden_dim, 64);
     assert_eq!(transformer.config.num_layers, 1);
@@ -266,7 +266,7 @@ fn test_q4k_convert_has_quantized_flag() {
 
     let apr_data = std::fs::read(&apr_path).expect("read APR");
     // Flags at offset [6..8]
-    let flags = u16::from_le_bytes(apr_data[6..8].try_into().unwrap());
+    let flags = u16::from_le_bytes(apr_data[6..8].try_into().expect("type conversion"));
     assert_eq!(flags & 0x0020, 0x0020, "QUANTIZED flag should be set");
 }
 
@@ -300,8 +300,8 @@ fn test_q4k_convert_rope_type_in_metadata() {
     GgufToAprQ4KConverter::convert(&gguf_path, &apr_path).expect("should convert");
 
     let apr_data = std::fs::read(&apr_path).expect("read APR");
-    let metadata_offset = u64::from_le_bytes(apr_data[12..20].try_into().unwrap()) as usize;
-    let metadata_len = u32::from_le_bytes(apr_data[20..24].try_into().unwrap()) as usize;
+    let metadata_offset = u64::from_le_bytes(apr_data[12..20].try_into().expect("type conversion")) as usize;
+    let metadata_len = u32::from_le_bytes(apr_data[20..24].try_into().expect("type conversion")) as usize;
     let metadata: serde_json::Value =
         serde_json::from_slice(&apr_data[metadata_offset..metadata_offset + metadata_len])
             .expect("parse metadata");

@@ -20,12 +20,12 @@ fn test_tiled_single_head_attention_various_tile_sizes() {
 
     let standard = model
         .standard_single_head_attention(&q, &k, &v, seq_len, head_dim, scale)
-        .unwrap();
+        .expect("expected value");
 
     for tile_size in [1, 2, 3, 4, 8] {
         let tiled = model
             .tiled_single_head_attention(&q, &k, &v, seq_len, head_dim, scale, tile_size)
-            .unwrap();
+            .expect("expected value");
         for (s, t) in standard.iter().zip(tiled.iter()) {
             assert!((s - t).abs() < 1e-4, "tile_size={}", tile_size);
         }
@@ -51,7 +51,7 @@ fn test_tiled_causal_attention_basic() {
 
     let result = model.tiled_causal_attention(&q, &k, &v, seq_len, head_dim, scale, 2);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("output");
     assert_eq!(output.len(), seq_len * head_dim);
 }
 
@@ -72,7 +72,7 @@ fn test_tiled_causal_attention_first_position() {
 
     let result = model.tiled_causal_attention(&q, &k, &v, seq_len, head_dim, scale, 1);
     assert!(result.is_ok());
-    let output = result.unwrap();
+    let output = result.expect("output");
     // First position output should be first V (since it only attends to itself)
     assert!((output[0] - 1.0).abs() < 1e-5);
     assert!((output[1] - 1.0).abs() < 1e-5);
@@ -100,12 +100,12 @@ fn test_tiled_causal_attention_various_tile_sizes() {
     // Use tile_size=1 as reference
     let reference = model
         .tiled_causal_attention(&q, &k, &v, seq_len, head_dim, scale, 1)
-        .unwrap();
+        .expect("expected value");
 
     for tile_size in [2, 3, 4, 8] {
         let tiled = model
             .tiled_causal_attention(&q, &k, &v, seq_len, head_dim, scale, tile_size)
-            .unwrap();
+            .expect("expected value");
         for (r, t) in reference.iter().zip(tiled.iter()) {
             assert!((r - t).abs() < 1e-4, "tile_size={}", tile_size);
         }
@@ -144,7 +144,7 @@ mod gpu_tests {
 
         let result = model.forward_batch_with_cache(&[1], &mut cache, &metrics);
         assert!(result.is_ok());
-        let logits = result.unwrap();
+        let logits = result.expect("logits");
         assert_eq!(logits.len(), config.vocab_size);
         // Check that CPU dispatch was recorded
         assert!(metrics.cpu_dispatches() > 0);
@@ -172,7 +172,7 @@ mod gpu_tests {
 
         let result = model.generate_with_batched_prefill(&[1], &gen_config, &metrics);
         assert!(result.is_ok());
-        let tokens = result.unwrap();
+        let tokens = result.expect("tokens");
         assert!(!tokens.is_empty());
         assert_eq!(tokens[0], 1);
     }
@@ -205,7 +205,7 @@ mod gpu_tests {
 
         let result = model.reshape_for_parallel_heads(&input, seq_len, num_heads, head_dim);
         assert!(result.is_ok());
-        let reshaped = result.unwrap();
+        let reshaped = result.expect("reshaped");
         assert_eq!(reshaped.len(), num_heads * seq_len * head_dim);
     }
 

@@ -28,7 +28,7 @@ mod tests {
         let event = TraceEvent::new("test", &tensor, 0, true);
 
         assert!(event.full_data.is_some());
-        assert_eq!(event.full_data.unwrap(), tensor);
+        assert_eq!(event.full_data.expect("full_data"), tensor);
     }
 
     #[test]
@@ -75,7 +75,7 @@ mod tests {
         let comparison = BrickTracer::compare(&cpu, &gpu, 0.01);
         assert!(!comparison.is_equivalent());
 
-        let first = comparison.first_divergence().unwrap();
+        let first = comparison.first_divergence().expect("first");
         assert_eq!(first.name, "layer0_attn");
     }
 
@@ -101,9 +101,9 @@ mod tests {
 
         tracer.log_at("explicit", &[3.0], 5);
 
-        assert_eq!(tracer.get("pos0").unwrap().position, 0);
-        assert_eq!(tracer.get("pos1").unwrap().position, 1);
-        assert_eq!(tracer.get("explicit").unwrap().position, 5);
+        assert_eq!(tracer.get("pos0").expect("get").position, 0);
+        assert_eq!(tracer.get("pos1").expect("get").position, 1);
+        assert_eq!(tracer.get("explicit").expect("get").position, 5);
     }
 
     #[test]
@@ -255,7 +255,7 @@ mod tests {
     fn test_tracer_verbose() {
         let mut tracer = BrickTracer::verbose();
         tracer.log("test", &[1.0, 2.0, 3.0]);
-        let event = tracer.get("test").unwrap();
+        let event = tracer.get("test").expect("event");
         assert!(event.full_data.is_some());
     }
 

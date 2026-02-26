@@ -102,7 +102,7 @@
 
         let result = fused_q4k_tiled_matvec(&weights, &activations, in_dim, out_dim, None);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert_eq!(output.len(), out_dim);
     }
 
@@ -143,7 +143,7 @@
         // Use custom tile size
         let result = fused_q4k_tiled_matvec(&weights, &activations, in_dim, out_dim, Some(32));
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), out_dim);
+        assert_eq!(result.expect("expected value").len(), out_dim);
     }
 
     // ============================================================================
@@ -160,7 +160,7 @@
 
         let result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert_eq!(output.len(), out_dim);
     }
 
@@ -175,7 +175,7 @@
 
         let result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), out_dim);
+        assert_eq!(result.expect("expected value").len(), out_dim);
     }
 
     #[test]
@@ -189,7 +189,7 @@
 
         let result = fused_q4k_parallel_matvec(&weights, &activations, in_dim, out_dim);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), out_dim);
+        assert_eq!(result.expect("expected value").len(), out_dim);
     }
 
     #[test]
@@ -247,7 +247,7 @@
 
         let result = fused_q5k_parallel_matvec(&weights, &activations, in_dim, out_dim);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), out_dim);
+        assert_eq!(result.expect("expected value").len(), out_dim);
     }
 
     #[test]
@@ -304,7 +304,7 @@
 
         let result = fused_q6k_parallel_matvec(&weights, &activations, in_dim, out_dim);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), out_dim);
+        assert_eq!(result.expect("expected value").len(), out_dim);
     }
 
     #[test]

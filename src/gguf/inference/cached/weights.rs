@@ -180,7 +180,7 @@ mod tests {
         };
         assert!(weights.up_bias.is_some());
         assert!(weights.down_bias.is_some());
-        assert_eq!(weights.up_bias.as_ref().unwrap().len(), 2);
+        assert_eq!(weights.up_bias.as_ref().expect("as_ref").len(), 2);
     }
 
     #[test]
@@ -242,7 +242,7 @@ mod tests {
             (up, down, up_bias, down_bias)
         });
 
-        let weights = cache.get(0).unwrap();
+        let weights = cache.get(0).expect("weights");
         assert!(weights.up_bias.is_some());
         assert!(weights.down_bias.is_some());
     }
@@ -258,11 +258,11 @@ mod tests {
             (up, down)
         });
 
-        let w0 = cache.get(0).unwrap();
+        let w0 = cache.get(0).expect("w0");
         assert!((w0.up[0] - 0.0).abs() < f32::EPSILON);
         assert!((w0.down[0] - 10.0).abs() < f32::EPSILON);
 
-        let w1 = cache.get(1).unwrap();
+        let w1 = cache.get(1).expect("w1");
         assert!((w1.up[0] - 1.0).abs() < f32::EPSILON);
 
         // Non-existent layer
@@ -316,13 +316,13 @@ mod tests {
         // Warmup with initial values
         cache.warmup(|_| (vec![1.0; 128], vec![2.0; 128]));
 
-        let initial_up = cache.get(0).unwrap().up[0];
+        let initial_up = cache.get(0).expect("initial_up").up[0];
         assert!((initial_up - 1.0).abs() < f32::EPSILON);
 
         // Warmup again should not overwrite existing entries (or_insert_with)
         cache.warmup(|_| (vec![999.0; 128], vec![888.0; 128]));
 
-        let after_up = cache.get(0).unwrap().up[0];
+        let after_up = cache.get(0).expect("after_up").up[0];
         // Should still be 1.0, not 999.0
         assert!((after_up - 1.0).abs() < f32::EPSILON);
     }

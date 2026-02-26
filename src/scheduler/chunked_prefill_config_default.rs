@@ -296,7 +296,7 @@ mod tests {
 
         let result = scheduler.next_chunk();
         assert!(result.is_some());
-        let (seq_id, range) = result.unwrap();
+        let (seq_id, range) = result.expect("result");
         assert_eq!(seq_id, 0);
         assert_eq!(range, 0..512); // Default chunk_size is 512
     }
@@ -331,7 +331,7 @@ mod tests {
         scheduler.complete_chunk(0, 512, 100);
         scheduler.complete_chunk(0, 488, 90);
 
-        assert!(scheduler.get_state(0).unwrap().is_complete());
+        assert!(scheduler.get_state(0).expect("get_state").is_complete());
         assert_eq!(scheduler.pending_count(), 0);
     }
 
@@ -371,7 +371,7 @@ mod tests {
 
         let state = scheduler.get_state(0);
         assert!(state.is_some());
-        assert_eq!(state.unwrap().total_tokens, 1000);
+        assert_eq!(state.expect("state").total_tokens, 1000);
 
         let missing = scheduler.get_state(999);
         assert!(missing.is_none());
@@ -398,7 +398,7 @@ mod tests {
 
         let removed = scheduler.remove(0);
         assert!(removed.is_some());
-        assert_eq!(removed.unwrap().seq_id, 0);
+        assert_eq!(removed.expect("removed").seq_id, 0);
         assert!(scheduler.get_state(0).is_none());
         assert_eq!(scheduler.queue_len(), 0);
     }

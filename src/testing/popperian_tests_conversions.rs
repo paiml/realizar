@@ -19,8 +19,8 @@ fn test_f116_gqa_ratio_preservation() {
         let original_ratio = config.num_heads / config.num_kv_heads;
 
         let gguf = GgufFixture::new(config.clone(), QuantType::F32, 42);
-        let apr = gguf.convert_to(ModelFormat::APR).unwrap();
-        let st = apr.convert_to(ModelFormat::Safetensors).unwrap();
+        let apr = gguf.convert_to(ModelFormat::APR).expect("apr");
+        let st = apr.convert_to(ModelFormat::Safetensors).expect("st");
 
         let apr_ratio = apr.config().num_heads / apr.config().num_kv_heads;
         let st_ratio = st.config().num_heads / st.config().num_kv_heads;
@@ -50,7 +50,7 @@ fn test_f117_vocab_size_boundaries() {
     let fixture = GgufFixture::new(min_config, QuantType::F32, 42);
     let result = fixture.forward(Device::Cpu, &[0, 1]);
     assert!(result.is_ok(), "Min vocab size should work");
-    assert_eq!(result.unwrap().len(), 2);
+    assert_eq!(result.expect("expected value").len(), 2);
 }
 
 /// F118: Hidden Dimension Divisibility

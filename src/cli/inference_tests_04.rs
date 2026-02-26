@@ -101,7 +101,7 @@ mod artifact_falsification {
     #[test]
     fn test_gguf_artifact_show_probs() {
         let file = create_gguf_artifact();
-        let path = file.path().to_str().unwrap();
+        let path = file.path().to_str().expect("to_str conversion");
 
         let result = inference::run_gguf_inference(
             path,
@@ -120,7 +120,7 @@ mod artifact_falsification {
     #[test]
     fn test_gguf_artifact_debug_mode() {
         let file = create_gguf_artifact();
-        let path = file.path().to_str().unwrap();
+        let path = file.path().to_str().expect("to_str conversion");
 
         let result = inference::run_gguf_inference(
             path,
@@ -139,7 +139,7 @@ mod artifact_falsification {
     #[test]
     fn test_gguf_artifact_all_options() {
         let file = create_gguf_artifact();
-        let path = file.path().to_str().unwrap();
+        let path = file.path().to_str().expect("to_str conversion");
 
         let result = inference::run_gguf_inference(
             path,

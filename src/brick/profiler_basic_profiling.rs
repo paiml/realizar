@@ -127,7 +127,7 @@ mod tests {
         profiler.record("op3", 200.0);
 
         let report = profiler.report();
-        let (name, _) = report.hottest().unwrap();
+        let (name, _) = report.hottest().expect("hottest");
 
         assert_eq!(name, "op2");
     }

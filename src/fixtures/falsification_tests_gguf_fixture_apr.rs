@@ -27,7 +27,7 @@
         assert!(fixture.path().exists());
         let bytes = fixture.read_bytes().expect("read bytes");
         // SafeTensors starts with header length (u64 LE)
-        let header_len = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
+        let header_len = u64::from_le_bytes(bytes[0..8].try_into().expect("type conversion"));
         assert!(header_len > 0 && header_len < 1_000_000);
     }
 
@@ -45,7 +45,7 @@
         };
 
         let checks = falsify(&result);
-        let nan_check = checks.iter().find(|c| c.id == "F012").unwrap();
+        let nan_check = checks.iter().find(|c| c.id == "F012").expect("nan_check");
         assert!(!nan_check.passed, "Should detect NaN");
     }
 
@@ -59,7 +59,7 @@
         };
 
         let checks = falsify(&result);
-        let inf_check = checks.iter().find(|c| c.id == "F013").unwrap();
+        let inf_check = checks.iter().find(|c| c.id == "F013").expect("inf_check");
         assert!(!inf_check.passed, "Should detect Inf");
     }
 
@@ -94,7 +94,7 @@
         };
 
         let checks = falsify_parity(&a, &b);
-        let argmax_check = checks.iter().find(|c| c.id == "F015").unwrap();
+        let argmax_check = checks.iter().find(|c| c.id == "F015").expect("argmax_check");
         assert!(argmax_check.passed, "Argmax should match (both = 1)");
     }
 
@@ -114,7 +114,7 @@
         };
 
         let checks = falsify_parity(&a, &b);
-        let argmax_check = checks.iter().find(|c| c.id == "F015").unwrap();
+        let argmax_check = checks.iter().find(|c| c.id == "F015").expect("argmax_check");
         assert!(!argmax_check.passed, "Argmax should NOT match (1 vs 0)");
     }
 

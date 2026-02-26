@@ -3,7 +3,7 @@
 fn test_read_f64_nan() {
     let data = f64::NAN.to_le_bytes();
     let mut cursor = Cursor::new(&data[..]);
-    assert!(read_f64(&mut cursor).unwrap().is_nan());
+    assert!(read_f64(&mut cursor).expect("expected value").is_nan());
 }
 
 #[test]
@@ -35,17 +35,17 @@ fn test_sequential_mixed_reads() {
 
     let mut cursor = Cursor::new(&data[..]);
 
-    assert_eq!(read_u8(&mut cursor).unwrap(), 42);
-    assert_eq!(read_i8(&mut cursor).unwrap(), -1);
-    assert_eq!(read_u16(&mut cursor).unwrap(), 1000);
-    assert_eq!(read_i16(&mut cursor).unwrap(), -500);
-    assert_eq!(read_u32(&mut cursor).unwrap(), 123456);
-    assert_eq!(read_i32(&mut cursor).unwrap(), -789);
-    assert!((read_f32(&mut cursor).unwrap() - 3.14).abs() < 1e-6);
-    assert!(read_bool(&mut cursor).unwrap());
-    assert_eq!(read_u64(&mut cursor).unwrap(), 999999);
-    assert_eq!(read_i64(&mut cursor).unwrap(), -12345);
-    assert!((read_f64(&mut cursor).unwrap() - 2.71828).abs() < 1e-10);
+    assert_eq!(read_u8(&mut cursor).expect("expected value"), 42);
+    assert_eq!(read_i8(&mut cursor).expect("expected value"), -1);
+    assert_eq!(read_u16(&mut cursor).expect("expected value"), 1000);
+    assert_eq!(read_i16(&mut cursor).expect("expected value"), -500);
+    assert_eq!(read_u32(&mut cursor).expect("expected value"), 123456);
+    assert_eq!(read_i32(&mut cursor).expect("expected value"), -789);
+    assert!((read_f32(&mut cursor).expect("expected value") - 3.14).abs() < 1e-6);
+    assert!(read_bool(&mut cursor).expect("expected value"));
+    assert_eq!(read_u64(&mut cursor).expect("expected value"), 999999);
+    assert_eq!(read_i64(&mut cursor).expect("expected value"), -12345);
+    assert!((read_f64(&mut cursor).expect("expected value") - 2.71828).abs() < 1e-10);
 
     // Should be at end of cursor now
     assert!(read_u8(&mut cursor).is_err());

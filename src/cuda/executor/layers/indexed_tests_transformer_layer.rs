@@ -10,7 +10,7 @@ fn test_transformer_layer_workspace() {
         return;
     }
 
-    let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+    let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).expect("input");
     let layer_weights = exec.indexed_layer_weights[0].clone();
 
     let result = exec.transformer_layer_workspace(
@@ -36,7 +36,7 @@ fn test_transformer_layer_workspace_inner() {
         return;
     }
 
-    let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+    let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).expect("input");
     let layer_weights = exec.indexed_layer_weights[0].clone();
 
     let result = exec.transformer_layer_workspace_inner(
@@ -65,7 +65,7 @@ fn test_transformer_layer_workspace_multiple_layers() {
     }
 
     for layer_idx in 0..config.num_layers {
-        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).expect("input");
         let layer_weights = exec.indexed_layer_weights[layer_idx].clone();
 
         let result = exec.transformer_layer_workspace(
@@ -92,7 +92,7 @@ fn test_indexed_layer_weights_all_qtypes() {
         return;
     }
 
-    let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+    let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).expect("input");
 
     // Test Q4K
     let mut layer_weights_q4k = exec.indexed_layer_weights[0].clone();
@@ -143,7 +143,7 @@ fn test_ffn_indexed_swiglu_path() {
     }
 
     // Transformer layer indexed exercises the full path including FFN SwiGLU
-    let input = GpuBuffer::from_host(&exec.context, &vec![0.5f32; config.hidden_dim]).unwrap();
+    let input = GpuBuffer::from_host(&exec.context, &vec![0.5f32; config.hidden_dim]).expect("input");
     let layer_weights = exec.indexed_layer_weights[0].clone();
 
     let result = exec.transformer_layer_indexed(
@@ -170,7 +170,7 @@ fn test_indexed_attention_kv_update() {
     }
 
     // Run indexed layer which updates KV cache
-    let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+    let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).expect("input");
     let layer_weights = exec.indexed_layer_weights[0].clone();
 
     // Position 0 - first token
@@ -184,7 +184,7 @@ fn test_indexed_attention_kv_update() {
     );
 
     // Position 1 - second token (increment via workspace)
-    let input2 = GpuBuffer::from_host(&exec.context, &vec![0.2f32; config.hidden_dim]).unwrap();
+    let input2 = GpuBuffer::from_host(&exec.context, &vec![0.2f32; config.hidden_dim]).expect("input2");
     let _ = exec.transformer_layer_workspace(
         &input2,
         0,
@@ -208,7 +208,7 @@ fn test_workspace_hidden_buffer_swap() {
     }
 
     // Execute multiple layers to exercise hidden buffer swap logic
-    let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+    let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).expect("input");
     let layer_weights = exec.indexed_layer_weights[0].clone();
 
     let _ = exec.transformer_layer_workspace_for_capture(
@@ -220,7 +220,7 @@ fn test_workspace_hidden_buffer_swap() {
         1e-5,
         0,
     );
-    let input2 = GpuBuffer::from_host(&exec.context, &vec![0.2f32; config.hidden_dim]).unwrap();
+    let input2 = GpuBuffer::from_host(&exec.context, &vec![0.2f32; config.hidden_dim]).expect("input2");
     let _ = exec.transformer_layer_workspace_for_capture(
         &input2,
         0,
@@ -244,7 +244,7 @@ fn test_indexed_gpu_execution_verified() {
     let config = HarnessConfig::default();
     setup_executor_harness(&mut exec, &config).expect("Harness setup MUST succeed");
 
-    let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
+    let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).expect("input");
     let layer_weights = exec.indexed_layer_weights[0].clone();
 
     let result = exec.transformer_layer_indexed(
@@ -285,11 +285,11 @@ fn test_rmsnorm_gpu_verified() {
         .expect("Cache gamma");
 
     // Create gamma buffer directly (avoid borrow conflict)
-    let gamma_buf = GpuBuffer::from_host(&exec.context, &gamma).unwrap();
+    let gamma_buf = GpuBuffer::from_host(&exec.context, &gamma).expect("gamma_buf");
 
     // Create input with known values
     let input_vals: Vec<f32> = (0..256).map(|i| (i as f32 + 1.0) * 0.01).collect();
-    let input = GpuBuffer::from_host(&exec.context, &input_vals).unwrap();
+    let input = GpuBuffer::from_host(&exec.context, &input_vals).expect("input");
 
     // Run RMSNorm directly with gamma buffer
     let output = exec

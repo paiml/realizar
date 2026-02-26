@@ -2,7 +2,7 @@
 #[test]
 fn test_incremental_multiple_steps() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("multi_step");
     model.with_test_executor(Box::new(mock));
@@ -31,7 +31,7 @@ fn test_incremental_multiple_steps() {
 #[test]
 fn test_kv_cache_population_during_forward() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("cache_pop");
     model.with_test_executor(Box::new(mock));
@@ -61,7 +61,7 @@ fn test_kv_cache_population_during_forward() {
 #[test]
 fn test_kv_cache_growth_during_incremental() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("cache_grow");
     model.with_test_executor(Box::new(mock));
@@ -93,7 +93,7 @@ fn test_kv_cache_growth_during_incremental() {
 #[test]
 fn test_forward_single_token_only() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("single");
     model.with_test_executor(Box::new(mock));
@@ -108,14 +108,14 @@ fn test_forward_single_token_only() {
     let result = model.forward_gpu_with_cache(&[0], &mut kv_cache);
     assert!(result.is_ok());
 
-    let logits = result.unwrap();
+    let logits = result.expect("logits");
     assert_eq!(logits.len(), config.vocab_size);
 }
 
 #[test]
 fn test_generate_max_tokens_zero() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("model");
 
     let mock = MockExecutor::new("zero_max");
     model.with_test_executor(Box::new(mock));
@@ -124,7 +124,7 @@ fn test_generate_max_tokens_zero() {
     let result = model.generate_with_cache(&[1, 2], &gen_config);
 
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("tokens");
     // Should return at least prompt
     assert!(!tokens.is_empty());
 }
@@ -132,7 +132,7 @@ fn test_generate_max_tokens_zero() {
 #[test]
 fn test_generate_with_all_stop_tokens() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("all_stop");
     model.with_test_executor(Box::new(mock));
@@ -145,7 +145,7 @@ fn test_generate_with_all_stop_tokens() {
     let result = model.generate_with_cache(&[25], &gen_config);
     assert!(result.is_ok());
 
-    let tokens = result.unwrap();
+    let tokens = result.expect("tokens");
     // Should stop immediately after first generation
     assert!(tokens.len() <= 2);
 }
@@ -174,7 +174,7 @@ fn test_forward_multi_layer_model() {
             constraints: None,
     };
 
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("multi_layer");
     model.with_test_executor(Box::new(mock));

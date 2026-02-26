@@ -227,6 +227,7 @@ impl Drop for CudaExecutor {
             if let (Some(s1), Some(s2), Some(s3)) = (compute, transfer, legacy) {
                 checkin_streams(s1, s2, s3);
             }
+            // SAFETY: ManuallyDrop::take called exactly once; context is valid and healthy
             let ctx = unsafe { std::mem::ManuallyDrop::take(&mut self.context) };
             checkin_context(ctx);
         } else {
@@ -243,7 +244,7 @@ impl Drop for CudaExecutor {
                  streams and context NOT returned to pool. \
                  Next executor will create fresh resources."
             );
-            // Take context out of ManuallyDrop so it drops normally (release).
+            // SAFETY: ManuallyDrop::take called exactly once; letting poisoned context drop
             let _ctx = unsafe { std::mem::ManuallyDrop::take(&mut self.context) };
         }
     }

@@ -10,12 +10,12 @@ mod tests {
     // Helper to create logits tensor (panics on empty - use make_empty_logits for that)
     fn make_logits(data: &[f32]) -> Tensor<f32> {
         assert!(!data.is_empty(), "Use make_empty_logits for empty data");
-        Tensor::from_vec(vec![data.len()], data.to_vec()).unwrap()
+        Tensor::from_vec(vec![data.len()], data.to_vec()).expect("expected value")
     }
 
     // Create a single-element tensor to simulate edge case (empty logits not valid)
     fn make_single_logit() -> Tensor<f32> {
-        Tensor::from_vec(vec![1], vec![0.0]).unwrap()
+        Tensor::from_vec(vec![1], vec![0.0]).expect("expected value")
     }
 
     // ========================================================================
@@ -27,7 +27,7 @@ mod tests {
         let logits = make_logits(&[2.0, 1.0, 0.5, 0.1]);
         let result = sample_min_p(&logits, 0.1, 0.5);
         assert!(result.is_ok());
-        let idx = result.unwrap();
+        let idx = result.expect("idx");
         assert!(idx < 4);
     }
 
@@ -37,7 +37,7 @@ mod tests {
         let logits = make_single_logit();
         let result = sample_min_p(&logits, 0.1, 0.5);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 0);
+        assert_eq!(result.expect("result"), 0);
     }
 
     #[test]
@@ -389,7 +389,7 @@ mod tests {
         let uncond = make_logits(&[0.5, 1.0, 1.5]);
         let result = apply_cfg(&cond, &uncond, 2.0);
         assert!(result.is_ok());
-        let guided = result.unwrap();
+        let guided = result.expect("guided");
         assert_eq!(guided.shape(), cond.shape());
     }
 
@@ -406,7 +406,7 @@ mod tests {
         // With scale=1, output should equal conditional
         let cond = make_logits(&[1.0, 2.0, 3.0]);
         let uncond = make_logits(&[0.0, 0.0, 0.0]);
-        let result = apply_cfg(&cond, &uncond, 1.0).unwrap();
+        let result = apply_cfg(&cond, &uncond, 1.0).expect("result");
         let data = result.data();
         assert!((data[0] - 1.0).abs() < 1e-6);
         assert!((data[1] - 2.0).abs() < 1e-6);
@@ -418,7 +418,7 @@ mod tests {
         // With scale=0, output should equal unconditional
         let cond = make_logits(&[1.0, 2.0, 3.0]);
         let uncond = make_logits(&[0.5, 1.0, 1.5]);
-        let result = apply_cfg(&cond, &uncond, 0.0).unwrap();
+        let result = apply_cfg(&cond, &uncond, 0.0).expect("result");
         let data = result.data();
         assert!((data[0] - 0.5).abs() < 1e-6);
         assert!((data[1] - 1.0).abs() < 1e-6);

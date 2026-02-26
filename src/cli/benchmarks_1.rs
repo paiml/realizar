@@ -2,7 +2,7 @@
 #[test]
 fn test_run_bench_regression_first_file_missing() {
     let path2 = "/tmp/test_bench_reg_2b_cov95.json";
-    std::fs::write(path2, "{}").unwrap();
+    std::fs::write(path2, "{}").expect("expected value");
     let result = run_bench_regression("/nonexistent/baseline.json", path2, false);
     let _ = std::fs::remove_file(path2);
     assert!(result.is_err());
@@ -79,7 +79,7 @@ fn test_load_safetensors_model_valid() {
             "data_offsets": [0, 24]
         }
     });
-    let header = serde_json::to_string(&metadata).unwrap();
+    let header = serde_json::to_string(&metadata).expect("serialization");
     let header_bytes = header.as_bytes();
 
     let mut file_data = Vec::new();
@@ -142,7 +142,7 @@ fn make_valid_full_bench_json() -> String {
             perplexity_wikitext2: None,
         },
     };
-    serde_json::to_string(&result).unwrap()
+    serde_json::to_string(&result).expect("serialization")
 }
 
 #[test]
@@ -151,8 +151,8 @@ fn test_run_bench_compare_valid_json() {
     let path1 = "/tmp/test_bench_cmp_valid1_gh219.json";
     let path2 = "/tmp/test_bench_cmp_valid2_gh219.json";
 
-    std::fs::write(path1, &json).unwrap();
-    std::fs::write(path2, &json).unwrap();
+    std::fs::write(path1, &json).expect("expected value");
+    std::fs::write(path2, &json).expect("expected value");
 
     let result = run_bench_compare(path1, path2, 5.0);
     let _ = std::fs::remove_file(path1);
@@ -167,8 +167,8 @@ fn test_run_bench_compare_different_thresholds() {
     let path1 = "/tmp/test_bench_cmp_thresh1_gh219.json";
     let path2 = "/tmp/test_bench_cmp_thresh2_gh219.json";
 
-    std::fs::write(path1, &json).unwrap();
-    std::fs::write(path2, &json).unwrap();
+    std::fs::write(path1, &json).expect("expected value");
+    std::fs::write(path2, &json).expect("expected value");
 
     let result = run_bench_compare(path1, path2, 0.1);
     let _ = std::fs::remove_file(path1);
@@ -187,8 +187,8 @@ fn test_run_bench_regression_valid_json_no_regression() {
     let path_base = "/tmp/test_bench_reg_valid_base_gh219.json";
     let path_curr = "/tmp/test_bench_reg_valid_curr_gh219.json";
 
-    std::fs::write(path_base, &json).unwrap();
-    std::fs::write(path_curr, &json).unwrap();
+    std::fs::write(path_base, &json).expect("expected value");
+    std::fs::write(path_curr, &json).expect("expected value");
 
     let result = run_bench_regression(path_base, path_curr, false);
     let _ = std::fs::remove_file(path_base);
@@ -203,8 +203,8 @@ fn test_run_bench_regression_strict_mode_no_regression() {
     let path_base = "/tmp/test_bench_reg_strict_base_gh219.json";
     let path_curr = "/tmp/test_bench_reg_strict_curr_gh219.json";
 
-    std::fs::write(path_base, &json).unwrap();
-    std::fs::write(path_curr, &json).unwrap();
+    std::fs::write(path_base, &json).expect("expected value");
+    std::fs::write(path_curr, &json).expect("expected value");
 
     let result = run_bench_regression(path_base, path_curr, true);
     let _ = std::fs::remove_file(path_base);

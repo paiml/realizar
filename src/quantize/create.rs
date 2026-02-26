@@ -37,7 +37,7 @@ mod tests {
         data[208..210].copy_from_slice(&[0x00, 0x00]);
         let activations = vec![1.0f32; 256];
 
-        let result = fused_q6k_dot(&data, &activations).unwrap();
+        let result = fused_q6k_dot(&data, &activations).expect("result");
         assert_eq!(result, 0.0);
     }
 
@@ -88,8 +88,8 @@ mod tests {
 
         let activations: Vec<f32> = (0..256).map(|i| (i as f32) * 0.01).collect();
 
-        let scalar_result = fused_q6k_dot(&data, &activations).unwrap();
-        let simd_result = fused_q6k_dot_simd(&data, &activations).unwrap();
+        let scalar_result = fused_q6k_dot(&data, &activations).expect("scalar_result");
+        let simd_result = fused_q6k_dot_simd(&data, &activations).expect("simd_result");
 
         // Allow 1% tolerance for SIMD vs scalar differences
         let rel_err = if scalar_result.abs() > 1e-6 {
@@ -169,7 +169,7 @@ mod tests {
         // d = 0, dmin = 0
         let activations = vec![1.0f32; 256];
 
-        let result = fused_q5k_dot(&data, &activations).unwrap();
+        let result = fused_q5k_dot(&data, &activations).expect("result");
         // With zero scales, result should be close to zero
         assert!(result.abs() < 1e-6);
     }
@@ -220,8 +220,8 @@ mod tests {
 
         let activations: Vec<f32> = (0..256).map(|i| (i as f32) * 0.01).collect();
 
-        let scalar_result = fused_q5k_dot(&data, &activations).unwrap();
-        let simd_result = fused_q5k_dot_simd(&data, &activations).unwrap();
+        let scalar_result = fused_q5k_dot(&data, &activations).expect("scalar_result");
+        let simd_result = fused_q5k_dot_simd(&data, &activations).expect("simd_result");
 
         // SIMD currently uses scalar, so should be exact match
         assert!(
@@ -306,7 +306,7 @@ mod tests {
         let data = vec![0u8; 144];
         let q8_blocks: Vec<Q8_0Block> = (0..8).map(|_| zero_q8_block()).collect();
 
-        let result = fused_q4k_q8_dot(&data, &q8_blocks).unwrap();
+        let result = fused_q4k_q8_dot(&data, &q8_blocks).expect("result");
         assert_eq!(result, 0.0);
     }
 
@@ -401,7 +401,7 @@ mod tests {
         // Empty is valid (0 super-blocks)
         let result = fused_q6k_dot(&data, &activations);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 0.0);
+        assert_eq!(result.expect("result"), 0.0);
     }
 
     #[test]
@@ -411,6 +411,6 @@ mod tests {
 
         let result = fused_q5k_dot(&data, &activations);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 0.0);
+        assert_eq!(result.expect("result"), 0.0);
     }
 }

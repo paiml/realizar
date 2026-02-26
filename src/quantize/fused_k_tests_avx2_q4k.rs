@@ -14,8 +14,8 @@ fn test_avx2_q4k_q8k_dot_varying_scales() {
     let q8k_scales = vec![0.5f32, 2.0f32];
     let q8k_quants = vec![3i8; 256 * 2];
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
-    let avx2 = unsafe { fused_q4k_q8k_dot_avx2(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("scalar");
+    let avx2 = unsafe { fused_q4k_q8k_dot_avx2(&q4k_data, &q8k_scales, &q8k_quants) }.expect("avx2");
 
     let diff = (scalar - avx2).abs();
     let rel_tolerance = scalar.abs().max(1.0) * 0.01;
@@ -43,9 +43,9 @@ fn test_avx512vnni_q4k_q8k_dot_parity_with_scalar() {
     let q8k_scales = vec![1.0f32];
     let q8k_quants = vec![1i8; 256];
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("scalar");
     let vnni =
-        unsafe { fused_q4k_q8k_dot_avx512vnni(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
+        unsafe { fused_q4k_q8k_dot_avx512vnni(&q4k_data, &q8k_scales, &q8k_quants) }.expect("expected value");
 
     let diff = (scalar - vnni).abs();
     assert!(
@@ -67,7 +67,7 @@ fn test_avx512vnni_q4k_q8k_dot_zero_quants() {
     let q8k_quants = vec![0i8; 256];
 
     let result =
-        unsafe { fused_q4k_q8k_dot_avx512vnni(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
+        unsafe { fused_q4k_q8k_dot_avx512vnni(&q4k_data, &q8k_scales, &q8k_quants) }.expect("expected value");
     assert!(
         result.abs() < 1e-6,
         "zero × zero should produce ~0, got {result}"
@@ -89,9 +89,9 @@ fn test_avx512vnni_q4k_q8k_dot_multi_superblock() {
     let q8k_scales = vec![1.0f32; 3];
     let q8k_quants = vec![2i8; 256 * 3];
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("scalar");
     let vnni =
-        unsafe { fused_q4k_q8k_dot_avx512vnni(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
+        unsafe { fused_q4k_q8k_dot_avx512vnni(&q4k_data, &q8k_scales, &q8k_quants) }.expect("expected value");
 
     let diff = (scalar - vnni).abs();
     let tol = scalar.abs().max(1.0) * 0.01;
@@ -146,9 +146,9 @@ fn test_avx512vnni_opt_q4k_q8k_dot_parity_with_scalar() {
     let q8k_scales = vec![1.0f32];
     let q8k_quants = vec![1i8; 256];
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("scalar");
     let vnni_opt =
-        unsafe { fused_q4k_q8k_dot_avx512vnni_opt(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
+        unsafe { fused_q4k_q8k_dot_avx512vnni_opt(&q4k_data, &q8k_scales, &q8k_quants) }.expect("expected value");
 
     let diff = (scalar - vnni_opt).abs();
     assert!(
@@ -170,7 +170,7 @@ fn test_avx512vnni_opt_q4k_q8k_dot_zero() {
     let q8k_quants = vec![0i8; 256];
 
     let result =
-        unsafe { fused_q4k_q8k_dot_avx512vnni_opt(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
+        unsafe { fused_q4k_q8k_dot_avx512vnni_opt(&q4k_data, &q8k_scales, &q8k_quants) }.expect("expected value");
     assert!(
         result.abs() < 1e-6,
         "zero × zero should produce ~0, got {result}"
@@ -192,9 +192,9 @@ fn test_avx512vnni_opt_q4k_q8k_dot_multi_superblock() {
     let q8k_scales = vec![0.5f32, 1.0, 2.0, 0.25];
     let q8k_quants = vec![3i8; 256 * 4];
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("scalar");
     let vnni_opt =
-        unsafe { fused_q4k_q8k_dot_avx512vnni_opt(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
+        unsafe { fused_q4k_q8k_dot_avx512vnni_opt(&q4k_data, &q8k_scales, &q8k_quants) }.expect("expected value");
 
     let diff = (scalar - vnni_opt).abs();
     let tol = scalar.abs().max(1.0) * 0.01;
@@ -247,9 +247,9 @@ fn test_avx512vnni_opt_q4k_q8k_dot_negative_quants() {
     let q8k_scales = vec![1.0f32];
     let q8k_quants = vec![-3i8; 256];
 
-    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).unwrap();
+    let scalar = fused_q4k_q8k_dot(&q4k_data, &q8k_scales, &q8k_quants).expect("scalar");
     let vnni_opt =
-        unsafe { fused_q4k_q8k_dot_avx512vnni_opt(&q4k_data, &q8k_scales, &q8k_quants) }.unwrap();
+        unsafe { fused_q4k_q8k_dot_avx512vnni_opt(&q4k_data, &q8k_scales, &q8k_quants) }.expect("expected value");
 
     let diff = (scalar - vnni_opt).abs();
     let tol = scalar.abs().max(1.0) * 0.02;
@@ -275,7 +275,7 @@ fn test_avx512vnni_q4k_dot_exercises_code_path() {
     // AVX512 VNNI Q4K dot uses internal int8 quantization of activations,
     // so results may differ from the AVX2 public path. Just verify it runs
     // and produces a finite value.
-    let result = unsafe { fused_q4k_dot_avx512_vnni(&q4k_data, &activations) }.unwrap();
+    let result = unsafe { fused_q4k_dot_avx512_vnni(&q4k_data, &activations) }.expect("result");
     assert!(
         result.is_finite(),
         "should produce finite result, got {result}"
@@ -293,7 +293,7 @@ fn test_avx512vnni_q4k_dot_zero_activations() {
     let q4k_data = block.to_vec();
     let activations = vec![0.0f32; 256];
 
-    let result = unsafe { fused_q4k_dot_avx512_vnni(&q4k_data, &activations) }.unwrap();
+    let result = unsafe { fused_q4k_dot_avx512_vnni(&q4k_data, &activations) }.expect("result");
     assert!(
         result.abs() < 1e-3,
         "zero activations should produce ~0, got {result}"
@@ -328,7 +328,7 @@ fn test_avx512vnni_q4k_dot_multi_superblock() {
     let activations: Vec<f32> = (0..512).map(|i| (i as f32 - 256.0) * 0.01).collect();
 
     // Exercises multi-block AVX512 VNNI path with varied activations
-    let result = unsafe { fused_q4k_dot_avx512_vnni(&q4k_data, &activations) }.unwrap();
+    let result = unsafe { fused_q4k_dot_avx512_vnni(&q4k_data, &activations) }.expect("result");
     assert!(
         result.is_finite(),
         "should produce finite result, got {result}"

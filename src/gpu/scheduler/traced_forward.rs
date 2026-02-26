@@ -510,6 +510,6 @@ mod tests {
         };
 
         assert!(block.ffn_gate_weight.is_some());
-        assert_eq!(block.ffn_gate_weight.as_ref().unwrap().len(), 64 * 256);
+        assert_eq!(block.ffn_gate_weight.as_ref().expect("as_ref").len(), 64 * 256);
     }
 }

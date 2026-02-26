@@ -78,7 +78,7 @@
         // Exactly 32 should work
         let decoder = SpeculativeDecoder::new(draft, target, 32);
         assert!(decoder.is_ok());
-        assert_eq!(decoder.unwrap().spec_length(), 32);
+        assert_eq!(decoder.expect("decoder").spec_length(), 32);
     }
 
     #[test]
@@ -89,7 +89,7 @@
         // Exactly 1 should work
         let decoder = SpeculativeDecoder::new(draft, target, 1);
         assert!(decoder.is_ok());
-        assert_eq!(decoder.unwrap().spec_length(), 1);
+        assert_eq!(decoder.expect("decoder").spec_length(), 1);
     }
 
     /// Mock model that returns EOS token

@@ -21,12 +21,14 @@ impl CudaExecutor {
             for seq_idx in 0..m as usize {
                 let in_offset = seq_idx * k_per_seq as usize;
                 let out_offset = seq_idx * n_per_seq as usize;
+                // SAFETY: packed_input_ptr/packed_output_ptr are valid GPU allocs, offsets bounded by m * k/n
                 let input_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         packed_input_ptr + (in_offset * std::mem::size_of::<f32>()) as u64,
                         k_per_seq as usize,
                     )
                 };
+                // SAFETY: packed_output_ptr is valid GPU alloc, out_offset bounded by seq_idx * n
                 let output_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         packed_output_ptr + (out_offset * std::mem::size_of::<f32>()) as u64,
@@ -92,6 +94,7 @@ impl CudaExecutor {
         )?;
 
         // ========== 2b. QKV Bias ==========
+        // SAFETY: bias ptrs/lens come from validated layer_weights, GPU memory is pre-allocated
         if layer_weights.attn_q_bias_len > 0 {
             let q_bias_buf = unsafe {
                 GpuBuffer::<f32>::from_raw_parts(
@@ -101,6 +104,7 @@ impl CudaExecutor {
             };
             for seq_idx in 0..m as usize {
                 let offset = seq_idx * q_dim as usize;
+                // SAFETY: q_buf_ptr is valid GPU alloc, offset bounded by m * q_dim
                 let q_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         q_buf_ptr + (offset * std::mem::size_of::<f32>()) as u64,
@@ -112,6 +116,7 @@ impl CudaExecutor {
             }
             std::mem::forget(q_bias_buf);
         }
+        // SAFETY: bias ptrs/lens come from validated layer_weights, GPU memory is pre-allocated
         if layer_weights.attn_k_bias_len > 0 {
             let k_bias_buf = unsafe {
                 GpuBuffer::<f32>::from_raw_parts(
@@ -121,6 +126,7 @@ impl CudaExecutor {
             };
             for seq_idx in 0..m as usize {
                 let offset = seq_idx * kv_dim as usize;
+                // SAFETY: k_buf_ptr is valid GPU alloc, offset bounded by m * kv_dim
                 let k_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         k_buf_ptr + (offset * std::mem::size_of::<f32>()) as u64,
@@ -132,6 +138,7 @@ impl CudaExecutor {
             }
             std::mem::forget(k_bias_buf);
         }
+        // SAFETY: bias ptrs/lens come from validated layer_weights, GPU memory is pre-allocated
         if layer_weights.attn_v_bias_len > 0 {
             let v_bias_buf = unsafe {
                 GpuBuffer::<f32>::from_raw_parts(
@@ -141,6 +148,7 @@ impl CudaExecutor {
             };
             for seq_idx in 0..m as usize {
                 let offset = seq_idx * kv_dim as usize;
+                // SAFETY: v_buf_ptr is valid GPU alloc, offset bounded by m * kv_dim
                 let v_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         v_buf_ptr + (offset * std::mem::size_of::<f32>()) as u64,
@@ -180,12 +188,14 @@ impl CudaExecutor {
                 let q_offset = seq_idx * q_dim as usize;
                 let kv_offset = seq_idx * kv_dim as usize;
                 let position = positions[seq_idx];
+                // SAFETY: q_buf_ptr/k_buf_ptr are valid GPU allocs, offsets bounded by seq_idx * dim
                 let q_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         q_buf_ptr + (q_offset * std::mem::size_of::<f32>()) as u64,
                         q_dim as usize,
                     )
                 };
+                // SAFETY: k_buf_ptr is valid GPU alloc, kv_offset bounded by seq_idx * kv_dim
                 let k_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         k_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,

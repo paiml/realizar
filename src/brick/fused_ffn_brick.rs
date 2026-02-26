@@ -83,7 +83,7 @@ mod tests {
 
         let result = brick.forward(&input_q8, input_scale, &weights_q4, &weight_scales);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 2);
+        assert_eq!(result.expect("result").len(), 2);
     }
 
     #[test]
@@ -135,7 +135,7 @@ mod tests {
 
         let result = brick.forward_timed(&input_q8, input_scale, &weights_q4, &weight_scales);
         assert!(result.is_ok());
-        let token_result = result.unwrap();
+        let token_result = result.expect("token_result");
         assert_eq!(token_result.tokens_processed, 1);
         assert!(token_result.us_per_token > 0.0);
         assert!(token_result.tokens_per_sec > 0.0);
@@ -198,7 +198,7 @@ mod tests {
         let brick = CoalescedDp4aBrick::new(256, 128);
         let result = brick.execute();
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 128);
+        assert_eq!(result.expect("result").len(), 128);
 
         // Invalid: k not multiple of 256
         let brick_invalid = CoalescedDp4aBrick::new(100, 128);
@@ -248,7 +248,7 @@ mod tests {
 
         let result = brick.forward(&input, &gate_proj, &up_proj, &down_proj);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert_eq!(output.len(), 2);
         // Output should be finite
         for &val in &output {
@@ -305,7 +305,7 @@ mod tests {
 
         let result = brick.forward_timed(&input, &gate_proj, &up_proj, &down_proj);
         assert!(result.is_ok());
-        let token_result = result.unwrap();
+        let token_result = result.expect("token_result");
         assert_eq!(token_result.tokens_processed, 1);
         assert!(token_result.us_per_token > 0.0);
         assert!(token_result.tokens_per_sec > 0.0);
@@ -366,7 +366,7 @@ mod tests {
         let brick = FusedFfnBrick::new(128, 512);
         let result = brick.execute();
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 128);
+        assert_eq!(result.expect("result").len(), 128);
 
         // Invalid: zero dimension
         let brick_invalid = FusedFfnBrick::new(0, 512);
@@ -388,7 +388,7 @@ mod tests {
 
         let result = brick.forward(&input, &gate_proj, &up_proj, &down_proj);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         // With gate=0, silu(0)=0, so output should be 0
         for &val in &output {
             assert!(val.abs() < 0.001, "Expected ~0, got {}", val);
@@ -406,7 +406,7 @@ mod tests {
 
         let result = brick.forward(&input, &gate_proj, &up_proj, &down_proj);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         // Output should be finite
         for &val in &output {
             assert!(val.is_finite());

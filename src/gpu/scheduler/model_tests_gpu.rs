@@ -2,7 +2,7 @@
 #[test]
 fn test_gpu_model_large_vocab_incremental() {
     let config = create_large_vocab_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("large_vocab_incremental");
     model.with_test_executor(Box::new(mock));
@@ -17,7 +17,7 @@ fn test_gpu_model_large_vocab_incremental() {
     // This should hit the CPU fallback path for LM head in incremental
     let result = model.forward_gpu_incremental_optimized(1, &mut kv_cache);
     assert!(result.is_ok());
-    let logits = result.unwrap();
+    let logits = result.expect("logits");
     assert_eq!(logits.len(), config.vocab_size);
 }
 
@@ -44,14 +44,14 @@ fn test_gpu_model_multi_layer_forward() {
             linear_conv_kernel_dim: None,
             constraints: None,
     };
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("multi_layer_forward");
     model.with_test_executor(Box::new(mock));
 
     let result = model.forward_gpu(&[1, 2, 3]);
     assert!(result.is_ok());
-    let logits = result.unwrap();
+    let logits = result.expect("logits");
     assert_eq!(logits.len(), 3 * config.vocab_size);
 }
 
@@ -74,7 +74,7 @@ fn test_gpu_model_all_blocks_forward_idx() {
             linear_conv_kernel_dim: None,
             constraints: None,
     };
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("all_blocks");
     model.with_test_executor(Box::new(mock));
@@ -83,7 +83,7 @@ fn test_gpu_model_all_blocks_forward_idx() {
     for block_idx in 0..config.num_layers {
         let result = model.forward_block_idx(&hidden, 1, block_idx);
         assert!(result.is_ok(), "Block {} should succeed", block_idx);
-        hidden = result.unwrap();
+        hidden = result.expect("expected value");
         assert_eq!(hidden.len(), config.hidden_dim);
     }
 }
@@ -112,7 +112,7 @@ fn test_gpu_model_gqa_multiple_q_per_kv() {
             linear_conv_kernel_dim: None,
             constraints: None,
     };
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("gqa_multiple");
     model.with_test_executor(Box::new(mock));
@@ -124,7 +124,7 @@ fn test_gpu_model_gqa_multiple_q_per_kv() {
 #[test]
 fn test_gpu_model_gqa_incremental_with_cache() {
     let config = create_gqa_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("gqa_cache");
     model.with_test_executor(Box::new(mock));
@@ -151,7 +151,7 @@ fn test_gpu_model_gqa_incremental_with_cache() {
 #[test]
 fn test_gpu_model_empty_generate() {
     let config = create_minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("model");
 
     let gen_config = GpuGenerateConfig::deterministic(5);
     let result = model.generate(&[], &gen_config);
@@ -162,7 +162,7 @@ fn test_gpu_model_empty_generate() {
 #[test]
 fn test_gpu_model_token_at_vocab_boundary() {
     let config = create_minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("boundary");
     model.with_test_executor(Box::new(mock));
@@ -245,7 +245,7 @@ fn test_gpu_model_custom_rope_theta() {
         eps: 1e-5,
         rope_theta: 500000.0, // Different rope_theta (like Llama 3)
     };
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("custom_rope");
     model.with_test_executor(Box::new(mock));
@@ -287,7 +287,7 @@ fn test_gpu_model_different_eps() {
             linear_conv_kernel_dim: None,
             constraints: None,
         };
-        let mut model = GpuModel::new(config.clone()).unwrap();
+        let mut model = GpuModel::new(config.clone()).expect("model");
 
         let mock = MockExecutor::new(&format!("eps_{}", eps));
         model.with_test_executor(Box::new(mock));
@@ -304,7 +304,7 @@ fn test_gpu_model_different_eps() {
 #[test]
 fn test_gpu_model_sequential_incremental_forwards() {
     let config = create_minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("sequential");
     model.with_test_executor(Box::new(mock));
@@ -347,7 +347,7 @@ fn test_gpu_model_block_incremental_all_layers() {
             linear_conv_kernel_dim: None,
             constraints: None,
     };
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("block_all_layers");
     model.with_test_executor(Box::new(mock));
@@ -363,6 +363,6 @@ fn test_gpu_model_block_incremental_all_layers() {
     for block_idx in 0..config.num_layers {
         let result = model.forward_block_incremental_optimized(&hidden, block_idx, &mut kv_cache);
         assert!(result.is_ok(), "Block {} incremental should succeed", block_idx);
-        hidden = result.unwrap();
+        hidden = result.expect("expected value");
     }
 }

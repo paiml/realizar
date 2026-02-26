@@ -54,7 +54,7 @@ mod tests {
         let Some(mut exec) = create_executor() else {
             return;
         };
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).expect("input");
         let result = exec.q4k_gemv_cached_async("nonexistent", &input, 128, 256);
         assert!(result.is_err());
     }
@@ -64,7 +64,7 @@ mod tests {
         let Some(mut exec) = create_executor() else {
             return;
         };
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).expect("input");
         let result = exec.q6k_gemv_cached_async("nonexistent", &input, 128, 256);
         assert!(result.is_err());
     }
@@ -78,7 +78,7 @@ mod tests {
         let Some(mut exec) = create_executor() else {
             return;
         };
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).expect("input");
         // Use zero pointer - will likely fail kernel but tests buffer creation
         let result = exec.q4k_gemv_indexed_async(0, &input, 128, 256);
         // Just testing it compiles and runs - actual result depends on PTX
@@ -90,7 +90,7 @@ mod tests {
         let Some(mut exec) = create_executor() else {
             return;
         };
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).expect("input");
         let result = exec.q6k_gemv_indexed_async(0, &input, 128, 256);
         let _ = result;
     }
@@ -104,8 +104,8 @@ mod tests {
         let Some(mut exec) = create_executor() else {
             return;
         };
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, 128).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, 128).expect("output");
         // Test kernel loading path with zero weight pointer
         let result = exec.q4k_gemv_into_tiled(0, &input, &output, 128, 256);
         let _ = result;
@@ -116,8 +116,8 @@ mod tests {
         let Some(mut exec) = create_executor() else {
             return;
         };
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, 128).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, 128).expect("output");
         let result = exec.coalesced_q4k_gemv_into(0, &input, &output, 128, 256);
         let _ = result;
     }
@@ -127,8 +127,8 @@ mod tests {
         let Some(mut exec) = create_executor() else {
             return;
         };
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, 128).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, 128).expect("output");
         let result = exec.vectorized_q4k_gemv_into(0, &input, &output, 128, 256);
         let _ = result;
     }
@@ -138,8 +138,8 @@ mod tests {
         let Some(mut exec) = create_executor() else {
             return;
         };
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, 128).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, 128).expect("output");
         let result = exec.dp4a_q4k_gemv_into(0, &input, &output, 128, 256);
         let _ = result;
     }
@@ -153,8 +153,8 @@ mod tests {
         let Some(mut exec) = create_executor() else {
             return;
         };
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, 128).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, 128).expect("output");
         let result = exec.fused_rmsnorm_q4k_gemv_into(0, &input, 0, &output, 256, 128, 1e-5);
         let _ = result;
     }
@@ -164,9 +164,9 @@ mod tests {
         let Some(mut exec) = create_executor() else {
             return;
         };
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).unwrap();
-        let gate_out = GpuBuffer::<f32>::new(&exec.context, 128).unwrap();
-        let up_out = GpuBuffer::<f32>::new(&exec.context, 128).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 256]).expect("input");
+        let gate_out = GpuBuffer::<f32>::new(&exec.context, 128).expect("gate_out");
+        let up_out = GpuBuffer::<f32>::new(&exec.context, 128).expect("up_out");
         let result = exec.fused_gate_up_q4k_gemv_into(0, 0, &input, &gate_out, &up_out, 256, 128);
         let _ = result;
     }
@@ -181,8 +181,8 @@ mod tests {
             return;
         };
         // M=4, K=256, N=128
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 4 * 256]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, 4 * 128).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 4 * 256]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, 4 * 128).expect("output");
         let result = exec.batched_q4k_gemv_into(0, &input, &output, 4, 128, 256);
         let _ = result;
     }
@@ -193,8 +193,8 @@ mod tests {
             return;
         };
         // M=8 (max for single kernel)
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 8 * 256]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, 8 * 128).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 8 * 256]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, 8 * 128).expect("output");
         let result = exec.batched_q4k_gemv_into(0, &input, &output, 8, 128, 256);
         let _ = result;
     }
@@ -205,8 +205,8 @@ mod tests {
             return;
         };
         // M=16 uses multi-warp kernel
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 16 * 256]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, 16 * 128).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 16 * 256]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, 16 * 128).expect("output");
         let result = exec.batched_q4k_gemv_into(0, &input, &output, 16, 128, 256);
         let _ = result;
     }
@@ -217,8 +217,8 @@ mod tests {
             return;
         };
         // M=32 uses 4-warp kernel
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 32 * 256]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, 32 * 128).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 32 * 256]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, 32 * 128).expect("output");
         let result = exec.batched_q4k_gemv_into(0, &input, &output, 32, 128, 256);
         let _ = result;
     }
@@ -229,8 +229,8 @@ mod tests {
             return;
         };
         // M=12 uses tiling (8+4)
-        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 12 * 256]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, 12 * 128).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; 12 * 256]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, 12 * 128).expect("output");
         let result = exec.batched_q4k_gemv_into(0, &input, &output, 12, 128, 256);
         let _ = result;
     }
@@ -280,8 +280,8 @@ mod tests {
 
         // Use indexed weights from layer 0
         let layer_weights = &exec.indexed_layer_weights[0];
-        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).expect("output");
 
         // Test Q4K GEMV using attn_q weight
         let result = exec.q4k_gemv_into_tiled(
@@ -306,8 +306,8 @@ mod tests {
         }
 
         let layer_weights = &exec.indexed_layer_weights[0];
-        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).expect("output");
 
         let result = exec.coalesced_q4k_gemv_into(
             layer_weights.attn_q_ptr,
@@ -331,8 +331,8 @@ mod tests {
         }
 
         let layer_weights = &exec.indexed_layer_weights[0];
-        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).expect("output");
 
         let result = exec.vectorized_q4k_gemv_into(
             layer_weights.attn_q_ptr,
@@ -356,8 +356,8 @@ mod tests {
         }
 
         let layer_weights = &exec.indexed_layer_weights[0];
-        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).expect("output");
 
         let result = exec.dp4a_q4k_gemv_into(
             layer_weights.attn_q_ptr,
@@ -381,8 +381,8 @@ mod tests {
         }
 
         let layer_weights = &exec.indexed_layer_weights[0];
-        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
-        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).expect("input");
+        let output = GpuBuffer::<f32>::new(&exec.context, config.hidden_dim).expect("output");
 
         // Use RMSNorm gamma pointer and attn_q weight
         let result = exec.fused_rmsnorm_q4k_gemv_into(
@@ -409,9 +409,9 @@ mod tests {
         }
 
         let layer_weights = &exec.indexed_layer_weights[0];
-        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).unwrap();
-        let gate_out = GpuBuffer::<f32>::new(&exec.context, config.intermediate_dim).unwrap();
-        let up_out = GpuBuffer::<f32>::new(&exec.context, config.intermediate_dim).unwrap();
+        let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; config.hidden_dim]).expect("input");
+        let gate_out = GpuBuffer::<f32>::new(&exec.context, config.intermediate_dim).expect("gate_out");
+        let up_out = GpuBuffer::<f32>::new(&exec.context, config.intermediate_dim).expect("up_out");
 
         let result = exec.fused_gate_up_q4k_gemv_into(
             layer_weights.ffn_gate_ptr,
@@ -442,9 +442,9 @@ mod tests {
             &exec.context,
             &vec![0.1f32; (m as usize) * config.hidden_dim],
         )
-        .unwrap();
+        .expect("expected value");
         let output =
-            GpuBuffer::<f32>::new(&exec.context, (m as usize) * config.hidden_dim).unwrap();
+            GpuBuffer::<f32>::new(&exec.context, (m as usize) * config.hidden_dim).expect("expected value");
 
         let result = exec.batched_q4k_gemv_into(
             layer_weights.attn_q_ptr,

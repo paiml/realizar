@@ -25,7 +25,7 @@ fn test_all_format_conversions() {
                 target
             );
 
-            let converted = result.unwrap();
+            let converted = result.expect("converted");
             assert_eq!(converted.format(), *target);
             assert_eq!(
                 converted.config().num_heads,
@@ -55,7 +55,7 @@ fn test_all_gqa_ratios() {
         let fixture = GgufFixture::new(config.clone(), QuantType::F32, 42);
 
         // Test conversion preserves GQA config
-        let apr = fixture.convert_to(ModelFormat::APR).unwrap();
+        let apr = fixture.convert_to(ModelFormat::APR).expect("apr");
 
         assert_eq!(
             apr.config().num_kv_heads,
@@ -79,8 +79,8 @@ fn test_forward_determinism() {
     let tokens = vec![1, 2, 3, 4, 5];
 
     // Multiple forward passes should give same result
-    let out1 = fixture.forward(Device::Cpu, &tokens).unwrap();
-    let out2 = fixture.forward(Device::Cpu, &tokens).unwrap();
+    let out1 = fixture.forward(Device::Cpu, &tokens).expect("out1");
+    let out2 = fixture.forward(Device::Cpu, &tokens).expect("out2");
 
     assert_eq!(
         out1.len(),
@@ -104,8 +104,8 @@ fn test_embedding_determinism() {
     let fixture = GgufFixture::tiny_gqa();
 
     for token in [0u32, 1, 42, 255] {
-        let embed1 = fixture.embed(Device::Cpu, token).unwrap();
-        let embed2 = fixture.embed(Device::Cpu, token).unwrap();
+        let embed1 = fixture.embed(Device::Cpu, token).expect("embed1");
+        let embed2 = fixture.embed(Device::Cpu, token).expect("embed2");
 
         assert_eq!(
             embed1, embed2,

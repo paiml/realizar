@@ -61,24 +61,28 @@ impl CudaExecutor {
                 let kv_offset = seq_idx * kv_dim as usize;
                 let attn_offset = seq_idx * q_dim as usize;
 
+                // SAFETY: q/k/v/attn_out buf ptrs are valid GPU allocs, offsets bounded by seq_idx * dim
                 let q_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         q_buf_ptr + (q_offset * std::mem::size_of::<f32>()) as u64,
                         q_dim as usize,
                     )
                 };
+                // SAFETY: k_buf_ptr is valid GPU alloc, kv_offset bounded by seq_idx * kv_dim
                 let k_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         k_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
                         kv_dim as usize,
                     )
                 };
+                // SAFETY: v_buf_ptr is valid GPU alloc, kv_offset bounded by seq_idx * kv_dim
                 let v_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         v_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
                         kv_dim as usize,
                     )
                 };
+                // SAFETY: attn_out_ptr is valid GPU alloc, attn_offset bounded by seq_idx * q_dim
                 let attn_out_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         attn_out_ptr + (attn_offset * std::mem::size_of::<f32>()) as u64,
@@ -150,12 +154,14 @@ impl CudaExecutor {
             for seq_idx in 0..m as usize {
                 let h_offset = seq_idx * hidden_dim as usize;
                 let ffn_offset = seq_idx * intermediate_dim as usize;
+                // SAFETY: ffn_act_ptr/hidden_buf1_ptr are valid GPU allocs, offsets bounded by seq*dim
                 let act_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         ffn_act_ptr + (ffn_offset * std::mem::size_of::<f32>()) as u64,
                         intermediate_dim as usize,
                     )
                 };
+                // SAFETY: hidden_buf1_ptr is valid GPU alloc, h_offset bounded by seq * hidden_dim
                 let out_view = unsafe {
                     GpuBuffer::<f32>::from_raw_parts(
                         hidden_buf1_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,

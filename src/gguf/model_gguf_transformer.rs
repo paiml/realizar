@@ -207,7 +207,7 @@
 
         assert!(transformer.output_norm_bias.is_some());
         assert!(transformer.lm_head_bias.is_some());
-        assert_eq!(transformer.lm_head_bias.as_ref().unwrap().len(), 500);
+        assert_eq!(transformer.lm_head_bias.as_ref().expect("as_ref").len(), 500);
     }
 
     #[test]
@@ -387,7 +387,7 @@
 
         assert!(model.output_norm_bias.is_some());
         assert!(model.lm_head_bias.is_some());
-        assert_eq!(model.lm_head_bias.as_ref().unwrap().len(), 100);
+        assert_eq!(model.lm_head_bias.as_ref().expect("as_ref").len(), 100);
     }
 
     #[test]

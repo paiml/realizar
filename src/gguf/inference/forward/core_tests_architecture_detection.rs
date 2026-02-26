@@ -46,14 +46,14 @@ fn test_kv_cache_grows_correctly() {
 
     assert_eq!(cache.len(), 0, "Cache should start empty");
 
-    model.forward_cached(10, &mut cache, 0).unwrap();
+    model.forward_cached(10, &mut cache, 0).expect("expected value");
     assert_eq!(
         cache.len(),
         1,
         "Cache should have 1 entry after first token"
     );
 
-    model.forward_cached(20, &mut cache, 1).unwrap();
+    model.forward_cached(20, &mut cache, 1).expect("expected value");
     assert_eq!(
         cache.len(),
         2,
@@ -67,8 +67,8 @@ fn test_forward_vs_forward_cached_first_token() {
     let mut cache = OwnedQuantizedKVCache::from_config(&model.config, 128);
 
     // Both should produce logits of same dimension
-    let logits_forward = model.forward(&[42u32]).unwrap();
-    let logits_cached = model.forward_cached(42, &mut cache, 0).unwrap();
+    let logits_forward = model.forward(&[42u32]).expect("logits_forward");
+    let logits_cached = model.forward_cached(42, &mut cache, 0).expect("logits_cached");
 
     assert_eq!(logits_forward.len(), logits_cached.len());
     // Note: Values may differ slightly due to different code paths,
@@ -152,7 +152,7 @@ fn test_forward_with_separate_qkv() {
         cached_weight_names: std::sync::Mutex::new(std::collections::HashSet::new()),
     };
 
-    let logits = model.forward(&[42u32]).unwrap();
+    let logits = model.forward(&[42u32]).expect("logits");
     assert_eq!(logits.len(), 100);
     assert!(logits.iter().all(|x| x.is_finite()));
 }
@@ -215,8 +215,8 @@ fn test_forward_cached_gqa() {
     let mut cache = OwnedQuantizedKVCache::from_config(&model.config, 128);
 
     // Two sequential tokens to exercise GQA cached attention
-    let _ = model.forward_cached(5, &mut cache, 0).unwrap();
-    let logits = model.forward_cached(10, &mut cache, 1).unwrap();
+    let _ = model.forward_cached(5, &mut cache, 0).expect("_");
+    let logits = model.forward_cached(10, &mut cache, 1).expect("logits");
 
     assert_eq!(logits.len(), 100);
     assert!(logits.iter().all(|x| x.is_finite()));

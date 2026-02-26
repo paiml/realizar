@@ -19,7 +19,7 @@
             .add_f64("v.f64", std::f64::consts::E)
             .build();
 
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         // Verify u8
         match model.metadata.get("v.u8") {
@@ -98,7 +98,7 @@
         let data = GGUFBuilder::new()
             .add_string_array("arr.strings", &["alpha", "beta", "gamma", "delta"])
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         match model.metadata.get("arr.strings") {
             Some(GGUFValue::Array(arr)) => {
                 assert_eq!(arr.len(), 4);
@@ -121,7 +121,7 @@
         let data = GGUFBuilder::new()
             .add_string_array("arr.empty", &[])
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         match model.metadata.get("arr.empty") {
             Some(GGUFValue::Array(arr)) => assert!(arr.is_empty()),
             other => panic!("Expected empty Array, got {:?}", other),
@@ -188,7 +188,7 @@
         let data = GGUFBuilder::new()
             .add_f32_tensor("single_dim", &[4], &[1.0, 2.0, 3.0, 4.0])
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         assert_eq!(model.tensors.len(), 1);
         assert_eq!(model.tensors[0].name, "single_dim");
         assert_eq!(model.tensors[0].n_dims, 1);
@@ -201,7 +201,7 @@
         let data = GGUFBuilder::new()
             .add_f32_tensor("matrix", &[2, 3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         assert_eq!(model.tensors.len(), 1);
         assert_eq!(model.tensors[0].name, "matrix");
         assert_eq!(model.tensors[0].n_dims, 2);
@@ -236,17 +236,17 @@
             .add_f32_tensor("t2", &[2, 2], &[5.0, 6.0, 7.0, 8.0])
             .add_f32_tensor("t3", &[3], &[9.0, 10.0, 11.0])
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         assert_eq!(model.tensors.len(), 3);
 
         // Verify all tensors can be extracted
-        let t1 = model.get_tensor_f32("t1", &data).unwrap();
+        let t1 = model.get_tensor_f32("t1", &data).expect("t1");
         assert_eq!(t1, vec![1.0, 2.0, 3.0, 4.0]);
 
-        let t2 = model.get_tensor_f32("t2", &data).unwrap();
+        let t2 = model.get_tensor_f32("t2", &data).expect("t2");
         assert_eq!(t2, vec![5.0, 6.0, 7.0, 8.0]);
 
-        let t3 = model.get_tensor_f32("t3", &data).unwrap();
+        let t3 = model.get_tensor_f32("t3", &data).expect("t3");
         assert_eq!(t3, vec![9.0, 10.0, 11.0]);
     }
 
@@ -258,7 +258,7 @@
             .add_string("tokenizer.ggml.model", "llama")
             .add_string_array("tokenizer.ggml.tokens", &["<unk>", "▁Hello", "▁world", "!"])
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         let decoded = model.decode(&[1, 2, 3]);
         // SentencePiece: \u{2581} -> space
         assert!(decoded.contains("Hello"));
@@ -274,7 +274,7 @@
             .add_string("tokenizer.ggml.model", "gpt2")
             .add_string_array("tokenizer.ggml.tokens", &["a", "b", "c"])
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         let decoded = model.decode(&[0, 1, 2]);
         // GPT-2 style uses byte-level BPE mapping
         assert!(!decoded.is_empty());
@@ -287,7 +287,7 @@
             .architecture("llama")
             .add_string_array("tokenizer.ggml.tokens", &["hello", "world"])
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         // Token ID 999 is out of range
         let decoded = model.decode(&[999]);
         // Should use fallback character
@@ -301,7 +301,7 @@
             .architecture("llama")
             .add_string_array("tokenizer.ggml.tokens", &["hello"])
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         let decoded = model.decode(&[]);
         assert!(decoded.is_empty());
     }
@@ -310,7 +310,7 @@
     fn test_gguf_model_decode_no_vocab_large_id() {
         use crate::gguf::test_factory::GGUFBuilder;
         let data = GGUFBuilder::new().architecture("llama").build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         // Token ID > 127 should be capped
         let decoded = model.decode(&[200, 300]);
         assert_eq!(decoded.len(), 2); // two characters
@@ -325,7 +325,7 @@
             .architecture("starcoder2")
             .hidden_dim("starcoder2", 64)
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         assert_eq!(model.rope_type(), Some(2));
 
         // Test falcon -> NEOX
@@ -333,7 +333,7 @@
             .architecture("falcon")
             .hidden_dim("falcon", 64)
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         assert_eq!(model.rope_type(), Some(2));
 
         // Test deepseek2 -> NEOX
@@ -341,7 +341,7 @@
             .architecture("deepseek2")
             .hidden_dim("deepseek2", 64)
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         assert_eq!(model.rope_type(), Some(2));
     }
 
@@ -353,7 +353,7 @@
             .architecture("unknown_model")
             .hidden_dim("unknown_model", 64)
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         assert_eq!(model.rope_type(), Some(0));
     }
 
@@ -364,7 +364,7 @@
             .architecture("llama")
             .add_string("llama.rope.scaling.type", "neox")
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         assert_eq!(model.rope_type(), Some(2)); // neox -> NEOX
     }
 
@@ -376,7 +376,7 @@
             .architecture("llama")
             .add_string("llama.rope.scaling.type", "unknown_type")
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         assert_eq!(model.rope_type(), Some(0)); // llama -> NORM
     }
 
@@ -388,7 +388,7 @@
             .hidden_dim("llama", 64)
             .context_length("llama", 4096)
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         assert_eq!(model.context_length(), Some(4096));
     }
 
@@ -400,10 +400,10 @@
             .hidden_dim("llama", 64)
             .rope_freq_base("llama", 10000.0)
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         let theta = model.rope_freq_base();
         assert!(theta.is_some());
-        assert!((theta.unwrap() - 10000.0).abs() < 0.1);
+        assert!((theta.expect("theta") - 10000.0).abs() < 0.1);
     }
 
     #[test]
@@ -415,7 +415,7 @@
             .num_heads("llama", 8)
             .num_kv_heads("llama", 2)
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
         assert_eq!(model.num_kv_heads(), Some(2));
         assert_eq!(model.num_heads(), Some(8));
     }
@@ -429,7 +429,7 @@
             .architecture("llama")
             .add_f32_tensor("small_tensor", &[2], &[1.0, 2.0])
             .build();
-        let model = GGUFModel::from_bytes(&data).unwrap();
+        let model = GGUFModel::from_bytes(&data).expect("model");
 
         // This should succeed since the tensor data is present
         let result = model.get_tensor_f32("small_tensor", &data);

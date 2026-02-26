@@ -35,7 +35,7 @@ mod tests {
 
         // Initialize Q8 KV cache
         exec.init_kv_cache_q8_gpu(1, 4, num_kv_heads, head_dim, max_len)
-            .unwrap();
+            .expect("expected value");
 
         let size = num_kv_heads * head_dim;
 
@@ -44,7 +44,7 @@ mod tests {
         let v: Vec<f32> = (0..size).map(|i| -(i as f32) * 0.1).collect();
 
         // Write to position 0
-        exec.write_kv_q8(0, 0, &k, &v).unwrap();
+        exec.write_kv_q8(0, 0, &k, &v).expect("write_kv_q8");
 
         // Dequantize on GPU
         let (k_fp32, v_fp32) = exec
@@ -54,8 +54,8 @@ mod tests {
         // Download and verify
         let mut k_out = vec![0.0f32; size];
         let mut v_out = vec![0.0f32; size];
-        k_fp32.copy_to_host(&mut k_out).unwrap();
-        v_fp32.copy_to_host(&mut v_out).unwrap();
+        k_fp32.copy_to_host(&mut k_out).expect("copy_to_host");
+        v_fp32.copy_to_host(&mut v_out).expect("copy_to_host");
 
         // Verify values are close (Q8 has ~1% quantization error)
         for i in 0..size {
@@ -96,7 +96,7 @@ mod tests {
         let seq_len = 4;
 
         exec.init_kv_cache_q8_gpu(1, 4, num_kv_heads, head_dim, max_len)
-            .unwrap();
+            .expect("expected value");
 
         let size = num_kv_heads * head_dim;
 
@@ -104,7 +104,7 @@ mod tests {
         for pos in 0..seq_len {
             let k: Vec<f32> = (0..size).map(|i| (pos as f32 + i as f32) * 0.05).collect();
             let v: Vec<f32> = (0..size).map(|i| -(pos as f32 + i as f32) * 0.05).collect();
-            exec.write_kv_q8(0, pos, &k, &v).unwrap();
+            exec.write_kv_q8(0, pos, &k, &v).expect("write_kv_q8");
         }
 
         // Dequantize all positions on GPU
@@ -116,8 +116,8 @@ mod tests {
         let expected_size = seq_len * num_kv_heads * head_dim;
         let mut k_out = vec![0.0f32; expected_size];
         let mut v_out = vec![0.0f32; expected_size];
-        k_fp32.copy_to_host(&mut k_out).unwrap();
-        v_fp32.copy_to_host(&mut v_out).unwrap();
+        k_fp32.copy_to_host(&mut k_out).expect("copy_to_host");
+        v_fp32.copy_to_host(&mut v_out).expect("copy_to_host");
 
         assert_eq!(k_out.len(), expected_size);
         assert_eq!(v_out.len(), expected_size);
@@ -135,7 +135,7 @@ mod tests {
         let seq_len = 3;
 
         exec.init_kv_cache_q8_gpu(1, 4, num_kv_heads, head_dim, max_len)
-            .unwrap();
+            .expect("expected value");
 
         let size = num_kv_heads * head_dim;
 
@@ -147,18 +147,18 @@ mod tests {
             let v: Vec<f32> = (0..size)
                 .map(|i| -((pos * size + i) as f32) * 0.01)
                 .collect();
-            exec.write_kv_q8(0, pos, &k, &v).unwrap();
+            exec.write_kv_q8(0, pos, &k, &v).expect("write_kv_q8");
         }
 
         // CPU dequantization (read_kv_q8) - layout: [seq_len, num_kv_heads, head_dim]
-        let (k_cpu, v_cpu) = exec.read_kv_q8(0, 0, seq_len).unwrap();
+        let (k_cpu, v_cpu) = exec.read_kv_q8(0, 0, seq_len).expect("read_kv_q8");
 
         // GPU dequantization - layout: [num_kv_heads, seq_len, head_dim]
-        let (k_gpu_buf, v_gpu_buf) = exec.dequantize_kv_q8_gpu(0, seq_len).unwrap();
+        let (k_gpu_buf, v_gpu_buf) = exec.dequantize_kv_q8_gpu(0, seq_len).expect("dequantize_kv_q8_gpu");
         let mut k_gpu = vec![0.0f32; seq_len * size];
         let mut v_gpu = vec![0.0f32; seq_len * size];
-        k_gpu_buf.copy_to_host(&mut k_gpu).unwrap();
-        v_gpu_buf.copy_to_host(&mut v_gpu).unwrap();
+        k_gpu_buf.copy_to_host(&mut k_gpu).expect("copy_to_host");
+        v_gpu_buf.copy_to_host(&mut v_gpu).expect("copy_to_host");
 
         // Compare with layout transformation:
         // CPU index: pos * (num_kv_heads * head_dim) + head * head_dim + d
@@ -204,7 +204,7 @@ mod tests {
             return;
         };
 
-        exec.init_kv_cache_q8_gpu(1, 4, 2, 32, 8).unwrap();
+        exec.init_kv_cache_q8_gpu(1, 4, 2, 32, 8).expect("init_kv_cache_q8_gpu");
 
         // Request more than max_len
         let result = exec.dequantize_kv_q8_gpu(0, 16);
@@ -266,7 +266,7 @@ mod tests {
         // Run Q8 attention
         let result = exec.incremental_attention_q8_gpu(0, &q, &k, &v, &mut output);
         assert!(result.is_ok(), "Q8 attention failed: {:?}", result.err());
-        assert_eq!(result.unwrap(), 1, "Should return seq_len=1");
+        assert_eq!(result.expect("result"), 1, "Should return seq_len=1");
 
         // Output should be non-zero
         let sum: f32 = output.iter().sum();
@@ -311,7 +311,7 @@ mod tests {
                 result.err()
             );
             assert_eq!(
-                result.unwrap(),
+                result.expect("result"),
                 token_idx + 1,
                 "Should return seq_len={}",
                 token_idx + 1

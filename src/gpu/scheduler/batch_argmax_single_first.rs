@@ -167,7 +167,7 @@ mod tests {
             0.5, 0.5, 0.5, 0.5, // V
         ];
 
-        let output = simplified_attention(&config, &qkv, 1).unwrap();
+        let output = simplified_attention(&config, &qkv, 1).expect("output");
         assert_eq!(output.len(), 4);
         // Single position: attention = softmax([score]) * V = 1.0 * V = V
         for (i, &v) in output.iter().enumerate() {
@@ -212,7 +212,7 @@ mod tests {
             1.0, 0.0, 0.0, 1.0,
         ];
 
-        let output = simplified_attention(&config, &qkv, 2).unwrap();
+        let output = simplified_attention(&config, &qkv, 2).expect("output");
         assert_eq!(output.len(), 4);
 
         // Position 0: only attends to itself, output = V[0] = [1, 0]
@@ -248,7 +248,7 @@ mod tests {
             0.5, 0.5, 0.5, 0.5, // V
         ];
 
-        let output = simplified_attention(&config, &qkv, 1).unwrap();
+        let output = simplified_attention(&config, &qkv, 1).expect("output");
         assert_eq!(output.len(), 4);
     }
 

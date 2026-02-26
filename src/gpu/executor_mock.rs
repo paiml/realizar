@@ -27,12 +27,12 @@ mod tests {
         let a = vec![1.0, 2.0, 3.0, 4.0]; // 2x2
         let b = vec![5.0, 6.0, 7.0, 8.0]; // 2x2
 
-        let result = mock.matmul(&a, &b, 2, 2, 2).unwrap();
+        let result = mock.matmul(&a, &b, 2, 2, 2).expect("result");
 
         assert_eq!(result.len(), 4); // 2x2 output
         assert_eq!(mock.matmul_count(), 1);
 
-        let call = mock.last_call().unwrap();
+        let call = mock.last_call().expect("call");
         assert!(matches!(
             call,
             ExecutorCall::Matmul {
@@ -51,7 +51,7 @@ mod tests {
 
         let a = vec![0.0; 4];
         let b = vec![0.0; 4];
-        let result = mock.matmul(&a, &b, 2, 2, 2).unwrap();
+        let result = mock.matmul(&a, &b, 2, 2, 2).expect("result");
 
         assert_eq!(result, vec![1.0, 2.0, 3.0, 4.0]);
     }
@@ -119,7 +119,7 @@ mod tests {
         let a = vec![1.0, 2.0, 3.0, 4.0];
         let b = vec![5.0, 6.0, 7.0, 8.0];
 
-        let c = cpu.matmul(&a, &b, 2, 2, 2).unwrap();
+        let c = cpu.matmul(&a, &b, 2, 2, 2).expect("c");
 
         assert_eq!(c.len(), 4);
         assert!((c[0] - 19.0).abs() < 1e-5);
@@ -136,7 +136,7 @@ mod tests {
         let a = vec![1.0, 2.0, 3.0]; // 1x3
         let b = vec![1.0, 2.0, 3.0]; // 3x1
 
-        let c = cpu.matmul(&a, &b, 1, 3, 1).unwrap();
+        let c = cpu.matmul(&a, &b, 1, 3, 1).expect("c");
 
         assert_eq!(c.len(), 1);
         assert!((c[0] - 14.0).abs() < 1e-5);
@@ -150,7 +150,7 @@ mod tests {
         let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // 2x3
         let b = vec![1.0; 12]; // 3x4
 
-        let c = cpu.matmul(&a, &b, 2, 3, 4).unwrap();
+        let c = cpu.matmul(&a, &b, 2, 3, 4).expect("c");
 
         assert_eq!(c.len(), 8);
         // First row: [1+2+3, 1+2+3, 1+2+3, 1+2+3] = [6, 6, 6, 6]
@@ -214,8 +214,8 @@ mod tests {
         let mut mock = MockExecutor::new("mock");
         let mut cpu = CpuExecutor::new();
 
-        let mock_result = run_matmul(&mut mock).unwrap();
-        let cpu_result = run_matmul(&mut cpu).unwrap();
+        let mock_result = run_matmul(&mut mock).expect("mock_result");
+        let cpu_result = run_matmul(&mut cpu).expect("cpu_result");
 
         // Mock returns zeros, CPU returns actual computation
         assert_eq!(mock_result, vec![0.0; 4]);

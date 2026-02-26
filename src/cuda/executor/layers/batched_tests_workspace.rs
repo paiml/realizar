@@ -34,7 +34,7 @@ fn test_rmsnorm_gpu_ptr_batched() {
     }
 
     let layer_weights = &exec.indexed_layer_weights[0];
-    let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).unwrap();
+    let input = GpuBuffer::from_host(&exec.context, &vec![1.0f32; config.hidden_dim]).expect("input");
 
     // rmsnorm_gpu_ptr is defined in batched.rs as pub(crate)
     let result = exec.rmsnorm_gpu_ptr(
@@ -91,7 +91,7 @@ fn test_transformer_layer_batched_different_layers() {
     let _ = exec.init_batched_workspace(config.hidden_dim, config.intermediate_dim, 4);
 
     let inputs: Vec<f32> = vec![0.1; 4 * config.hidden_dim];
-    let input_buf = GpuBuffer::from_host(&exec.context, &inputs).unwrap();
+    let input_buf = GpuBuffer::from_host(&exec.context, &inputs).expect("input_buf");
     let positions: [u32; 4] = [0, 1, 2, 3];
 
     // Test each layer
@@ -176,7 +176,7 @@ fn test_transformer_layer_batched_qtype_q6k() {
     let _ = exec.init_batched_workspace(config.hidden_dim, config.intermediate_dim, 4);
 
     let inputs: Vec<f32> = vec![0.1; 4 * config.hidden_dim];
-    let input_buf = GpuBuffer::from_host(&exec.context, &inputs).unwrap();
+    let input_buf = GpuBuffer::from_host(&exec.context, &inputs).expect("input_buf");
 
     if exec.indexed_layer_weights.is_empty() {
         return;

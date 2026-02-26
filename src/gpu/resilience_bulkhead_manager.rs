@@ -8,10 +8,10 @@ mod tests {
         let config = BulkheadConfig::new().with_pool("inference", 2);
         let manager = BulkheadManager::new(&config);
 
-        let permit1 = manager.acquire(RequestType::Inference).unwrap();
+        let permit1 = manager.acquire(RequestType::Inference).expect("permit1");
         assert_eq!(manager.available(RequestType::Inference), 1);
 
-        let permit2 = manager.acquire(RequestType::Inference).unwrap();
+        let permit2 = manager.acquire(RequestType::Inference).expect("permit2");
         assert_eq!(manager.available(RequestType::Inference), 0);
 
         manager.release(&permit1);
@@ -26,7 +26,7 @@ mod tests {
         let config = BulkheadConfig::new().with_pool("batch", 1);
         let manager = BulkheadManager::new(&config);
 
-        let _permit = manager.acquire(RequestType::Batch).unwrap();
+        let _permit = manager.acquire(RequestType::Batch).expect("_permit");
         let result = manager.acquire(RequestType::Batch);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Pool exhausted");
@@ -37,7 +37,7 @@ mod tests {
         let config = BulkheadConfig::new().with_pool("embedding", 1);
         let manager = BulkheadManager::new(&config);
 
-        let permit = manager.try_acquire(RequestType::Embedding).unwrap();
+        let permit = manager.try_acquire(RequestType::Embedding).expect("permit");
         assert_eq!(manager.available(RequestType::Embedding), 0);
 
         let result = manager.try_acquire(RequestType::Embedding);
@@ -68,8 +68,8 @@ mod tests {
         let manager = BulkheadManager::new(&config);
 
         // Exhaust inference pool
-        let _p1 = manager.acquire(RequestType::Inference).unwrap();
-        let _p2 = manager.acquire(RequestType::Inference).unwrap();
+        let _p1 = manager.acquire(RequestType::Inference).expect("_p1");
+        let _p2 = manager.acquire(RequestType::Inference).expect("_p2");
 
         // Embedding pool should still be available
         let result = manager.acquire(RequestType::Embedding);

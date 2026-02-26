@@ -84,7 +84,7 @@ fn swiglu_config() -> GpuModelConfig {
 /// Create model with SwiGLU gate weights
 fn create_swiglu_model() -> GpuModel {
     let config = swiglu_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     // Add gate weights to enable SwiGLU path
     if !model.block_weights.is_empty() {
@@ -102,7 +102,7 @@ fn create_swiglu_model() -> GpuModel {
 #[test]
 fn test_forward_gpu_with_cache_empty_tokens_error() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mut kv_cache = StreamingKVCache::new(
         config.num_layers,
@@ -122,7 +122,7 @@ fn test_forward_gpu_with_cache_empty_tokens_error() {
 #[test]
 fn test_forward_gpu_with_cache_out_of_bounds_token() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mut kv_cache = StreamingKVCache::new(
         config.num_layers,
@@ -147,7 +147,7 @@ fn test_forward_gpu_with_cache_out_of_bounds_token() {
 #[test]
 fn test_forward_gpu_incremental_out_of_bounds_token() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mut kv_cache = StreamingKVCache::new(
         config.num_layers,
@@ -164,7 +164,7 @@ fn test_forward_gpu_incremental_out_of_bounds_token() {
 #[test]
 fn test_forward_gpu_incremental_boundary_token() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("boundary_token");
     model.with_test_executor(Box::new(mock));
@@ -188,7 +188,7 @@ fn test_forward_gpu_incremental_boundary_token() {
 #[test]
 fn test_generate_with_cache_empty_prompt_error() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("model");
 
     let gen_config = GpuGenerateConfig::deterministic(5);
     let result = model.generate_with_cache(&[], &gen_config);
@@ -201,7 +201,7 @@ fn test_generate_with_cache_empty_prompt_error() {
 #[test]
 fn test_generate_with_cache_single_token_prompt() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("model");
 
     let mock = MockExecutor::new("single_prompt");
     model.with_test_executor(Box::new(mock));
@@ -210,7 +210,7 @@ fn test_generate_with_cache_single_token_prompt() {
     let result = model.generate_with_cache(&[1], &gen_config);
 
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("tokens");
     assert!(!tokens.is_empty());
 }
 
@@ -221,7 +221,7 @@ fn test_generate_with_cache_single_token_prompt() {
 #[test]
 fn test_generate_with_cache_greedy_sampling() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("model");
 
     let mock = MockExecutor::new("greedy");
     model.with_test_executor(Box::new(mock));
@@ -238,7 +238,7 @@ fn test_generate_with_cache_greedy_sampling() {
 #[test]
 fn test_generate_with_cache_topk_sampling() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("model");
 
     let mock = MockExecutor::new("topk");
     model.with_test_executor(Box::new(mock));
@@ -255,7 +255,7 @@ fn test_generate_with_cache_topk_sampling() {
 #[test]
 fn test_generate_with_cache_high_temperature() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("model");
 
     let mock = MockExecutor::new("high_temp");
     model.with_test_executor(Box::new(mock));
@@ -270,7 +270,7 @@ fn test_generate_with_cache_high_temperature() {
 #[test]
 fn test_generate_with_cache_topk_1_with_temperature() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("model");
 
     let mock = MockExecutor::new("topk_1");
     model.with_test_executor(Box::new(mock));
@@ -295,7 +295,7 @@ fn test_generate_with_cache_topk_1_with_temperature() {
 #[test]
 fn test_generate_with_cache_stop_token_first_iteration() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("model");
 
     // MockExecutor returns zeros, so argmax returns 0
     let mock = MockExecutor::new("stop_first");
@@ -306,7 +306,7 @@ fn test_generate_with_cache_stop_token_first_iteration() {
     let result = model.generate_with_cache(&[1], &gen_config);
 
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("tokens");
     // Should stop early due to stop token
     assert!(tokens.len() <= 2); // prompt + at most 1 generated
 }
@@ -314,7 +314,7 @@ fn test_generate_with_cache_stop_token_first_iteration() {
 #[test]
 fn test_generate_with_cache_multiple_stop_tokens() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("model");
 
     let mock = MockExecutor::new("multi_stop");
     model.with_test_executor(Box::new(mock));
@@ -333,7 +333,7 @@ fn test_generate_with_cache_multiple_stop_tokens() {
 #[test]
 fn test_forward_gpu_with_cache_gqa() {
     let config = gqa_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("gqa_cache");
     model.with_test_executor(Box::new(mock));
@@ -352,7 +352,7 @@ fn test_forward_gpu_with_cache_gqa() {
 #[test]
 fn test_forward_gpu_incremental_gqa() {
     let config = gqa_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("gqa_incremental");
     model.with_test_executor(Box::new(mock));
@@ -375,7 +375,7 @@ fn test_forward_gpu_incremental_gqa() {
 #[test]
 fn test_generate_with_cache_gqa_multiple_iterations() {
     let config = gqa_config();
-    let mut model = GpuModel::new(config).unwrap();
+    let mut model = GpuModel::new(config).expect("model");
 
     let mock = MockExecutor::new("gqa_gen");
     model.with_test_executor(Box::new(mock));
@@ -384,7 +384,7 @@ fn test_generate_with_cache_gqa_multiple_iterations() {
     let result = model.generate_with_cache(&[1, 2], &gen_config);
 
     assert!(result.is_ok());
-    let tokens = result.unwrap();
+    let tokens = result.expect("tokens");
     assert!(tokens.len() >= 2); // At least the prompt
 }
 
@@ -441,7 +441,7 @@ fn test_forward_gpu_incremental_swiglu_path() {
 #[test]
 fn test_forward_gpu_with_cache_long_sequence() {
     let config = minimal_config();
-    let mut model = GpuModel::new(config.clone()).unwrap();
+    let mut model = GpuModel::new(config.clone()).expect("model");
 
     let mock = MockExecutor::new("long_seq");
     model.with_test_executor(Box::new(mock));

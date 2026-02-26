@@ -434,7 +434,7 @@
     #[test]
     fn test_request_capture_from_json() {
         let json = "{\"input\":\"test prompt\",\"params\":{}}";
-        let capture = RequestCapture::from_json(json).unwrap();
+        let capture = RequestCapture::from_json(json).expect("capture");
         assert_eq!(capture.input(), "test prompt");
     }
 

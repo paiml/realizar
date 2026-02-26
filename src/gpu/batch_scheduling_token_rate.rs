@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn test_resource_tracker_release() {
         let mut tracker = ResourceTracker::new(1000, 100);
-        let id = tracker.allocate(500, 50).unwrap();
+        let id = tracker.allocate(500, 50).expect("id");
         tracker.release(id);
         assert_eq!(tracker.memory_usage(), 0);
         assert_eq!(tracker.compute_usage(), 0);
@@ -67,8 +67,8 @@ mod tests {
     #[test]
     fn test_resource_tracker_multiple_allocations() {
         let mut tracker = ResourceTracker::new(1000, 100);
-        let id1 = tracker.allocate(200, 20).unwrap();
-        let id2 = tracker.allocate(300, 30).unwrap();
+        let id1 = tracker.allocate(200, 20).expect("id1");
+        let id2 = tracker.allocate(300, 30).expect("id2");
 
         assert_eq!(tracker.memory_usage(), 500);
         assert_eq!(tracker.compute_usage(), 50);
@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn test_resource_tracker_usage_percentage() {
         let mut tracker = ResourceTracker::new(1000, 100);
-        tracker.allocate(500, 25).unwrap();
+        tracker.allocate(500, 25).expect("allocate");
 
         let (mem_pct, compute_pct) = tracker.usage_percentage();
         assert!((mem_pct - 50.0).abs() < 0.1);

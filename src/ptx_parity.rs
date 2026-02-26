@@ -597,7 +597,7 @@ mod tests {
     fn test_generate_named_kernel_ptx_q4k_cuda_gh219() {
         let result = generate_named_kernel_ptx("q4k", &dims_1_5b());
         assert!(result.is_ok());
-        let (label, ptx) = result.unwrap();
+        let (label, ptx) = result.expect("result");
         assert_eq!(label, "Q4KGemvKernel");
         assert!(ptx.contains(".version"));
         assert!(ptx.contains(".entry"));
@@ -629,7 +629,7 @@ mod tests {
         for name in names {
             let result = generate_named_kernel_ptx(name, &dims);
             assert!(result.is_ok(), "Failed for kernel: {}", name);
-            let (_, ptx) = result.unwrap();
+            let (_, ptx) = result.expect("result");
             assert!(!ptx.is_empty(), "Empty PTX for kernel: {}", name);
         }
     }
@@ -671,7 +671,7 @@ mod tests {
         let ptx = ".version 8.0\n.entry test {\nst.shared.f32 [%rd1], val;\n}";
         let result = check_u64_shared_mem(ptx);
         assert!(result.is_some());
-        assert!(result.unwrap().contains("u64 shared memory addressing"));
+        assert!(result.expect("result").contains("u64 shared memory addressing"));
     }
 
     #[cfg(feature = "cuda")]

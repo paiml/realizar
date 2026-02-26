@@ -42,7 +42,7 @@
 
         let result = template.format_message("user", "Hello!");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("user"));
     }
 
@@ -61,7 +61,7 @@
         let messages = vec![ChatMessage::user("Hello!")];
         let result = template.format_conversation(&messages);
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.starts_with("<s>"));
         assert!(output.ends_with("</s>"));
     }
@@ -191,7 +191,7 @@
         let template = Llama2Template::new();
         let result = template.format_message("system", "Be helpful");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("<<SYS>>"));
         assert!(output.contains("Be helpful"));
         assert!(output.contains("<</SYS>>"));
@@ -202,7 +202,7 @@
         let template = Llama2Template::new();
         let result = template.format_message("user", "Hello");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("[INST]"));
         assert!(output.contains("Hello"));
         assert!(output.contains("[/INST]"));
@@ -213,7 +213,7 @@
         let template = Llama2Template::new();
         let result = template.format_message("assistant", "Hi there");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("Hi there"));
         assert!(output.contains("</s>"));
     }
@@ -223,7 +223,7 @@
         let template = Llama2Template::new();
         let result = template.format_message("tool", "Result: 42");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("Result: 42"));
     }
 
@@ -259,7 +259,7 @@
         let template = MistralTemplate::new();
         let result = template.format_message("user", "Hello");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("[INST]"));
         assert!(output.contains("Hello"));
     }
@@ -269,7 +269,7 @@
         let template = MistralTemplate::new();
         let result = template.format_message("assistant", "Hi");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("Hi"));
         assert!(output.contains("</s>"));
     }
@@ -279,7 +279,7 @@
         let template = MistralTemplate::new();
         let result = template.format_message("system", "Be helpful");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("Be helpful"));
     }
 
@@ -298,7 +298,7 @@
             ChatMessage::assistant("Hi"),
             ChatMessage::user("How are you?"),
         ];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template.format_conversation(&messages).expect("output");
         assert!(output.starts_with("<s>"));
         assert!(output.contains("[INST] Hello [/INST]"));
         assert!(output.contains("Hi</s>"));
@@ -328,7 +328,7 @@
         let template = ZephyrTemplate::new();
         let result = template.format_message("system", "Be helpful");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("<|system|>"));
         assert!(output.contains("Be helpful"));
     }
@@ -338,7 +338,7 @@
         let template = ZephyrTemplate::new();
         let result = template.format_message("user", "Hello");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("<|user|>"));
     }
 
@@ -347,7 +347,7 @@
         let template = ZephyrTemplate::new();
         let result = template.format_message("assistant", "Hi");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("<|assistant|>"));
     }
 
@@ -380,7 +380,7 @@
         let template = PhiTemplate::new();
         let result = template.format_message("user", "Hello");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("Instruct: Hello"));
     }
 
@@ -389,7 +389,7 @@
         let template = PhiTemplate::new();
         let result = template.format_message("assistant", "Hi");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("Output: Hi"));
     }
 
@@ -398,7 +398,7 @@
         let template = PhiTemplate::new();
         let result = template.format_message("system", "Be helpful");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("Be helpful"));
     }
 
@@ -416,7 +416,7 @@
             ChatMessage::system("You are helpful."),
             ChatMessage::user("Hello"),
         ];
-        let output = template.format_conversation(&messages).unwrap();
+        let output = template.format_conversation(&messages).expect("output");
         assert!(output.contains("You are helpful."));
         assert!(output.contains("Instruct: Hello"));
         assert!(output.ends_with("Output:"));
@@ -444,7 +444,7 @@
         let template = AlpacaTemplate::new();
         let result = template.format_message("user", "Hello");
         assert!(result.is_ok());
-        let output = result.unwrap();
+        let output = result.expect("output");
         assert!(output.contains("### Instruction:"));
         assert!(output.contains("Hello"));
     }
