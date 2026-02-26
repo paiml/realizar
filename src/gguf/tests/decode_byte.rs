@@ -158,7 +158,7 @@ fn test_from_bytes_truncated_16_bytes() {
     data.extend_from_slice(&0x4655_4747u32.to_le_bytes());
     data.extend_from_slice(&3u32.to_le_bytes());
     data.extend_from_slice(&0u64.to_le_bytes()); // tensor count
-                                                 // missing metadata count
+    // missing metadata count
     let result = GGUFModel::from_bytes(&data);
     assert!(result.is_err());
 }
@@ -263,7 +263,7 @@ fn test_get_tensor_f32_unsupported_qtype() {
     data.extend_from_slice(&3u32.to_le_bytes()); // version
     data.extend_from_slice(&1u64.to_le_bytes()); // 1 tensor
     data.extend_from_slice(&0u64.to_le_bytes()); // 0 metadata
-                                                 // Tensor info: name "bad.weight", 1 dim [4], qtype=99, offset=0
+    // Tensor info: name "bad.weight", 1 dim [4], qtype=99, offset=0
     let name = "bad.weight";
     data.extend_from_slice(&(name.len() as u64).to_le_bytes());
     data.extend_from_slice(name.as_bytes());
@@ -271,7 +271,7 @@ fn test_get_tensor_f32_unsupported_qtype() {
     data.extend_from_slice(&4u64.to_le_bytes()); // dim[0]
     data.extend_from_slice(&99u32.to_le_bytes()); // qtype = 99 (unsupported)
     data.extend_from_slice(&0u64.to_le_bytes()); // offset
-                                                 // Align to 32 bytes
+    // Align to 32 bytes
     let aligned = data.len().div_ceil(32) * 32;
     data.resize(aligned, 0);
     // Tensor data (some bytes)

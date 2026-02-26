@@ -267,7 +267,7 @@ fn test_apr_v2_model_from_bytes_minimal_valid() {
     data[20..24].copy_from_slice(&2u32.to_le_bytes()); // metadata_size = 2
     data[24..32].copy_from_slice(&128u64.to_le_bytes()); // tensor_index_offset
     data[32..40].copy_from_slice(&128u64.to_le_bytes()); // data_offset
-                                                         // Put valid JSON metadata at offset 64
+    // Put valid JSON metadata at offset 64
     data[64] = b'{';
     data[65] = b'}';
 

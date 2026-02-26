@@ -392,7 +392,7 @@ mod tests {
     fn test_mock_backend_matmul_dimension_error_b() {
         let mut backend = MockBackend::new(0).expect("backend");
         let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // 2x3
-                                                    // B should be 3x2 but we provide wrong size
+        // B should be 3x2 but we provide wrong size
         let b = vec![7.0, 8.0]; // only 2 elements, not 6
 
         let result = backend.matmul(&a, &b, 2, 3, 2);

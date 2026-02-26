@@ -40,7 +40,7 @@ fn test_parity043_multi_head_attention_scale_factor() {
     // as a hex float literal (0F3E000000 = 0.125)
     // Trueno bakes scale into the PTX during generation
     assert!(ptx.contains("mul.f32")); // Scaling operation exists
-                                      // The scale is applied after dot product in online softmax
+    // The scale is applied after dot product in online softmax
     assert!(ptx.contains("ex2")); // exp2 for softmax
 }
 

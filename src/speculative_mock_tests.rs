@@ -432,7 +432,7 @@
             max_spec_length: 8,
         };
         config.adapt_spec_length(0.95); // Very high acceptance
-                                        // Should not exceed max
+        // Should not exceed max
         assert_eq!(config.spec_length, 8);
     }
 
@@ -445,6 +445,6 @@
             max_spec_length: 8,
         };
         config.adapt_spec_length(0.1); // Very low acceptance
-                                       // Should not go below 1
+        // Should not go below 1
         assert_eq!(config.spec_length, 1);
     }

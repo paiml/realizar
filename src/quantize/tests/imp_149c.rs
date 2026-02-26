@@ -241,7 +241,7 @@ fn test_dequantize_q6_k_basic_block() {
 fn test_dequantize_f16_basic() {
     // F16: 2 bytes per value
     let mut data = vec![0u8; 4]; // 2 values
-                                 // First value: 1.0 (f16 = 0x3C00)
+    // First value: 1.0 (f16 = 0x3C00)
     data[0..2].copy_from_slice(&0x3C00_u16.to_le_bytes());
     // Second value: 0.5 (f16 = 0x3800)
     data[2..4].copy_from_slice(&0x3800_u16.to_le_bytes());

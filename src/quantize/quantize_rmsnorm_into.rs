@@ -174,7 +174,7 @@ unsafe fn fused_swiglu_avx2(gate: &mut [f32], up: &[f32]) {
             // Use fast reciprocal approximation with Newton-Raphson refinement
             let denom = _mm256_add_ps(one, exp_neg_g);
             let rcp = _mm256_rcp_ps(denom); // ~12-bit precision
-                                            // One Newton-Raphson iteration: x' = x * (2 - d*x)
+            // One Newton-Raphson iteration: x' = x * (2 - d*x)
             let sigmoid = _mm256_mul_ps(rcp, _mm256_fnmadd_ps(denom, rcp, two));
 
             // silu(g) = g * sigmoid(g)

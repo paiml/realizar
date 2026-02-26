@@ -88,7 +88,7 @@ fn test_dequantize_q4_k_edge_all_zero_nibbles_deep_qcov_028() {
     data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
     data[2..4].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
     data[4..16].copy_from_slice(&[0x3F; 12]); // max scales
-                                              // qs all zero
+    // qs all zero
     data[16..144].copy_from_slice(&[0x00; 128]);
 
     let result = dequantize_q4_k(&data);
@@ -112,7 +112,7 @@ fn test_dequantize_q5_k_edge_high_bits_deep_qcov_029() {
     data[0..2].copy_from_slice(&half::f16::from_f32(2.0).to_le_bytes());
     data[2..4].copy_from_slice(&half::f16::from_f32(0.5).to_le_bytes());
     data[4..16].copy_from_slice(&[0x1F; 12]); // varied scales
-                                              // qh all 0xFF (high bits set)
+    // qh all 0xFF (high bits set)
     data[16..48].copy_from_slice(&[0xFF; 32]);
     // qs varied
     data[48..176].copy_from_slice(&[0xAA; 128]);

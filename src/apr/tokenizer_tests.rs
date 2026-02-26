@@ -268,7 +268,7 @@ mod tests {
         // Should be: [100, 0, 1, 101] = <|im_start|>, H, i, <|im_end|>
         assert!(result.contains(&100)); // <|im_start|>
         assert!(result.contains(&101)); // <|im_end|>
-                                        // Verify order: special token should be first
+        // Verify order: special token should be first
         assert_eq!(result[0], 100);
     }
 

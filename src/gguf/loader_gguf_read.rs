@@ -148,7 +148,7 @@
         data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
         data.extend_from_slice(&GGUF_VERSION_V3.to_le_bytes());
         data.extend_from_slice(&1u64.to_le_bytes()); // tensor_count = 1
-                                                     // Only 4 bytes of metadata_count (need 8)
+        // Only 4 bytes of metadata_count (need 8)
         data.extend_from_slice(&[0u8; 4]);
 
         let result = GGUFModel::from_bytes(&data);

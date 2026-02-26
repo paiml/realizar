@@ -200,7 +200,7 @@
         data.extend_from_slice(&3u32.to_le_bytes()); // version 3
         data.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
         data.extend_from_slice(&0u64.to_le_bytes()); // metadata_count
-                                                     // Add some padding
+        // Add some padding
         data.extend_from_slice(&[0u8; 100]);
         temp.write_all(&data).expect("write");
         temp.flush().expect("flush");

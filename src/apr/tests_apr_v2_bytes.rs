@@ -278,7 +278,7 @@ fn test_predict_with_weight_tensor() {
     // Create a 2x3 F32 weight matrix: [[1,0,0],[0,1,0]]
     // Result: y = W * x for x=[1,2,3] -> y=[1,2]
     let mut weight_data = vec![0u8; 6 * 4]; // 6 floats
-                                            // Row 0: [1.0, 0.0, 0.0]
+    // Row 0: [1.0, 0.0, 0.0]
     weight_data[0..4].copy_from_slice(&1.0f32.to_le_bytes());
     // Row 1: [0.0, 1.0, 0.0]
     weight_data[16..20].copy_from_slice(&1.0f32.to_le_bytes());

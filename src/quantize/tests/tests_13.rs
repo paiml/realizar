@@ -333,7 +333,7 @@ fn test_fused_q4_0_q8_0_dot_scalar_mod_two_complete_blocks() {
 fn test_fused_q4_0_q8_0_dot_scalar_mod_negative_quants() {
     let mut q4_data = vec![0u8; 18];
     q4_data[0..2].copy_from_slice(&0x3C00u16.to_le_bytes()); // scale = 1.0
-                                                             // Set q4 quants to 0x00 (low=0, high=0 -> values = -8 after offset)
+    // Set q4 quants to 0x00 (low=0, high=0 -> values = -8 after offset)
     for i in 2..18 {
         q4_data[i] = 0x00;
     }

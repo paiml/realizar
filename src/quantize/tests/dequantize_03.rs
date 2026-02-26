@@ -2,7 +2,7 @@ use crate::quantize::*;
 #[test]
 fn test_dequantize_q4_0_two_blocks_ext_cov() {
     let mut data = vec![0u8; 36]; // 2 blocks at 18 bytes each
-                                  // First block scale = 1.0
+    // First block scale = 1.0
     data[0..2].copy_from_slice(&half::f16::from_f32(1.0).to_le_bytes());
     // Second block scale = 2.0
     data[18..20].copy_from_slice(&half::f16::from_f32(2.0).to_le_bytes());

@@ -301,7 +301,7 @@ fn test_embed_single_token() {
     let model = make_pygmy_model();
     let embeddings = model.embed(&[0]);
     assert_eq!(embeddings.len(), 8); // hidden_dim = 8
-                                     // Token 0: values should be (0+d)*0.01 for d in 0..8
+    // Token 0: values should be (0+d)*0.01 for d in 0..8
     for d in 0..8 {
         let expected = (d as f32) * 0.01;
         assert!(
@@ -383,7 +383,7 @@ fn test_forward_swiglu_produces_logits() {
     let model = make_pygmy_model();
     let logits = model.forward(&[1]).expect("forward should succeed");
     assert_eq!(logits.len(), 16); // vocab_size
-                                  // Logits should be finite
+    // Logits should be finite
     assert!(
         logits.iter().all(|v| v.is_finite()),
         "All logits should be finite"

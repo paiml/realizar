@@ -302,7 +302,7 @@ fn test_phase35_truncated_metadata_value() {
     data.extend(build_gguf_string("test_key"));
     // Add value type
     data.extend_from_slice(&4u32.to_le_bytes()); // u32
-                                                 // Missing value bytes
+    // Missing value bytes
 
     let result = GGUFModel::from_bytes(&data);
     assert!(result.is_err(), "Truncated metadata value should fail");
@@ -341,7 +341,7 @@ fn test_phase35_truncated_array_elements() {
     let mut array_bytes = Vec::new();
     array_bytes.extend_from_slice(&4u32.to_le_bytes()); // element type: u32
     array_bytes.extend_from_slice(&10u64.to_le_bytes()); // array length: 10
-                                                         // Only provide 2 elements
+    // Only provide 2 elements
     array_bytes.extend_from_slice(&1u32.to_le_bytes());
     array_bytes.extend_from_slice(&2u32.to_le_bytes());
 

@@ -28,7 +28,7 @@ mod tests {
         let mut data = vec![0u8; 144];
         // Set d = 1.0 (f16 encoding)
         data[0..2].copy_from_slice(&0x3C00u16.to_le_bytes()); // 1.0 in f16
-                                                              // Set dmin = 0.0
+        // Set dmin = 0.0
         data[2..4].copy_from_slice(&0x0000u16.to_le_bytes());
 
         let result = dequantize_q4_k_parallel(&data);
@@ -154,7 +154,7 @@ mod tests {
     fn test_dequantize_q8_0_parallel_negative_values() {
         let mut data = vec![0u8; 34];
         data[0..2].copy_from_slice(&0x3C00u16.to_le_bytes()); // scale = 1.0
-                                                              // Set quants to -5 (i8 represented as u8)
+        // Set quants to -5 (i8 represented as u8)
         for i in 2..34 {
             data[i] = (-5i8) as u8;
         }

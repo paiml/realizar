@@ -184,7 +184,7 @@
         data.push(0); // dtype
         data.push(2); // ndim = 2
         data.extend_from_slice(&1024u64.to_le_bytes()); // first dim only
-                                                        // Missing second dim, offset, size
+        // Missing second dim, offset, size
         let result = TensorEntry::from_binary(&data);
         assert!(result.is_err());
     }

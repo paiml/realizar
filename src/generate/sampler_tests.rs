@@ -236,7 +236,7 @@ fn test_apply_presence_frequency_penalty_presence() {
 fn test_apply_presence_frequency_penalty_frequency() {
     let logits = Tensor::from_vec(vec![4], vec![10.0, 10.0, 10.0, 10.0]).unwrap();
     let config = PresenceFrequencyPenalty::new(0.0, 0.5); // Only frequency
-                                                          // Token 0 appears 3 times
+    // Token 0 appears 3 times
     let result = apply_presence_frequency_penalty(&logits, &[0, 0, 0, 1], &config);
     let data = result.data();
     assert_eq!(data[0], 8.5); // 10.0 - 0.5 * 3

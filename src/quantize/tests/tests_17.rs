@@ -68,7 +68,7 @@ fn test_quantize_rmsnorm_q8_0_size_57_horizontal_sum() {
     let (scales, quants) = quantize_rmsnorm_q8_0(&input, &norm_weight, eps);
 
     assert_eq!(scales.len(), 2); // ceil(57/32)
-                                 // Should produce valid quantized output
+    // Should produce valid quantized output
     for _q in &quants[..57] {
         assert!(true /* i8 always in range */);
     }
