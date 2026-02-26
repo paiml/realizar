@@ -63,3 +63,6 @@ benches/comparative/results/
 .pmat/context.db
 .pmat/bug-hunter-cache/
 .pmat/coverage-cache.json
+
+# Machine-specific Cargo config (target-dir, linker paths)
+.cargo/config.toml
