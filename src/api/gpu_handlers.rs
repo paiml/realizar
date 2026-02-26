@@ -2,6 +2,7 @@
 //!
 //! Extracted from api/mod.rs (PMAT-802) to reduce module size.
 //! Contains batch completions, warmup, and status handlers for GPU inference.
+#![allow(unreachable_pub)] // Items re-exported as pub from api/mod.rs
 
 use std::convert::Infallible;
 

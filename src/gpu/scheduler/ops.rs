@@ -16,7 +16,7 @@ use trueno::Vector;
 /// * `head_dim` - Dimension per head
 /// * `rope_theta` - Base frequency (typically 10000.0)
 /// * `position` - Token position for RoPE encoding
-pub fn apply_rope_inline(
+pub(super) fn apply_rope_inline(
     x: &mut [f32],
     num_heads: usize,
     head_dim: usize,
@@ -56,7 +56,7 @@ pub fn apply_rope_inline(
 ///
 /// Static method to avoid borrow conflicts with scheduler and weights.
 #[allow(clippy::too_many_arguments)]
-pub fn gqa_multihead_attention(
+pub(super) fn gqa_multihead_attention(
     q: &[f32], // Q: [num_heads * head_dim]
     k: &[f32], // K: [kv_len * num_kv_heads * head_dim]
     v: &[f32], // V: [kv_len * num_kv_heads * head_dim]
@@ -129,7 +129,7 @@ pub fn gqa_multihead_attention(
 /// PMAT-094 FIX: Qwen2, LLaMA, Mistral use RMSNorm, NOT LayerNorm.
 /// Formula: output = x / sqrt(mean(x^2) + eps) * weight + bias
 #[allow(clippy::cast_precision_loss)]
-pub fn layer_norm_static(
+pub(crate) fn layer_norm_static(
     input: &[f32],
     weight: &[f32],
     bias: &[f32],
@@ -158,7 +158,7 @@ pub fn layer_norm_static(
 }
 
 /// Top-k sampling with temperature (returns highest prob token in top-k for determinism)
-pub fn sample_topk(logits: &[f32], temperature: f32, top_k: usize) -> usize {
+pub(super) fn sample_topk(logits: &[f32], temperature: f32, top_k: usize) -> usize {
     // Apply temperature
     let scaled: Vec<f32> = logits.iter().map(|&x| x / temperature).collect();
 
@@ -180,7 +180,7 @@ pub fn sample_topk(logits: &[f32], temperature: f32, top_k: usize) -> usize {
 /// Transpose weight matrix from [rows, cols] to [cols, rows].
 ///
 /// PMAT-285: Delegates to `contract_gate::transpose_f32` (single source of truth).
-pub fn transpose_weights(weights: &[f32], rows: usize, cols: usize) -> Vec<f32> {
+pub(super) fn transpose_weights(weights: &[f32], rows: usize, cols: usize) -> Vec<f32> {
     crate::contract_gate::transpose_f32(weights, rows, cols)
 }
 

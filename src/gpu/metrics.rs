@@ -1,6 +1,7 @@
 //! Metrics & Health Monitoring (PMAT-802)
 //!
 //! M28: InferenceMetrics, HealthChecker, ShutdownCoordinator, GpuCompute, HybridScheduler.
+#![allow(unreachable_pub)] // Items re-exported as pub from gpu/mod.rs
 
 use super::MatmulOp;
 use crate::error::{RealizarError, Result};

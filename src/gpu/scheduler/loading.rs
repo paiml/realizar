@@ -7,7 +7,7 @@ use super::types::{BlockWeights, GpuModelConfig};
 use crate::error::Result;
 
 /// Loaded GGUF weights ready for GPU model construction.
-pub struct GgufWeights {
+pub(super) struct GgufWeights {
     pub config: GpuModelConfig,
     pub embedding_weights: Vec<f32>,
     pub block_weights: Vec<BlockWeights>,
@@ -25,7 +25,7 @@ pub struct GgufWeights {
 /// # Errors
 ///
 /// Returns error if required tensors are missing or shapes don't match.
-pub fn load_weights_from_gguf(mapped: &crate::gguf::MappedGGUFModel) -> Result<GgufWeights> {
+pub(super) fn load_weights_from_gguf(mapped: &crate::gguf::MappedGGUFModel) -> Result<GgufWeights> {
     use crate::gguf::ValidatedModelConfig;
 
     // Phase 2: Validate config at construction boundary.
