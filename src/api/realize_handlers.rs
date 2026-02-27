@@ -7,7 +7,9 @@
 use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 
-use super::{AppState, ChatMessage, ContinuousBatchRequest, ErrorResponse, Usage};
+use super::{AppState, ChatMessage, ErrorResponse, Usage};
+#[cfg(feature = "gpu")]
+use super::ContinuousBatchRequest;
 use crate::generate::{GenerationConfig, SamplingStrategy};
 use crate::registry::ModelInfo;
 
