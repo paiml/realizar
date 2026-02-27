@@ -184,7 +184,7 @@ fn test_transformer_layer_batched_qtype_q6k() {
 
     // Modify weights to use Q6K
     let mut layer_weights = exec.indexed_layer_weights[0].clone();
-    layer_weights.attn_v_qtype = WeightQuantType::Q6K;
+    layer_weights.inner_mut().attn_v_qtype = WeightQuantType::Q6K;
 
     let positions: [u32; 4] = [0, 1, 2, 3];
     let result = exec.transformer_layer_batched(

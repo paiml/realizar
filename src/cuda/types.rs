@@ -541,6 +541,16 @@ impl ValidatedLayerWeights {
         &self.inner
     }
 
+    /// Bypass validation to wrap raw weights (test-only).
+    ///
+    /// Production code MUST NOT use this — the weights may violate
+    /// architecture constraints. Only available in test builds.
+    #[cfg(test)]
+    #[must_use]
+    pub fn new_unchecked(raw: IndexedLayerWeights) -> Self {
+        Self { inner: raw }
+    }
+
     /// Mutable access to inner weights (test-only).
     ///
     /// Production code MUST NOT use this — validation invariants are not

@@ -9,15 +9,16 @@
 //! - COV-031: Additional Activation & Attention coverage
 
 use super::*;
-use crate::cuda::types::{IndexedLayerWeights, WeightQuantType};
+use crate::cuda::types::{IndexedLayerWeights, ValidatedLayerWeights, WeightQuantType};
 use serial_test::serial;
 
-/// Helper to create zeroed `IndexedLayerWeights` for tests.
+/// Helper to create zeroed `ValidatedLayerWeights` for tests.
 /// PMAT-232: `Default` was intentionally removed from `IndexedLayerWeights`
 /// to enforce explicit construction from GGUF metadata in production code.
 /// Tests that only need a dummy/zeroed struct use this helper instead.
-fn test_zeroed_layer_weights() -> IndexedLayerWeights {
-    IndexedLayerWeights {
+/// Uses `new_unchecked` to bypass validation (these are negative tests).
+fn test_zeroed_layer_weights() -> ValidatedLayerWeights {
+    ValidatedLayerWeights::new_unchecked(IndexedLayerWeights {
         attn_q_ptr: 0,
         attn_q_len: 0,
         attn_q_qtype: WeightQuantType::Q4K,
@@ -53,7 +54,7 @@ fn test_zeroed_layer_weights() -> IndexedLayerWeights {
         attn_q_norm_len: 0,
         attn_k_norm_ptr: 0,
         attn_k_norm_len: 0,
-    }
+    })
 }
 
 // =============================================================================
