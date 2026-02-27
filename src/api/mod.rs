@@ -60,13 +60,15 @@ pub(crate) use gpu_handlers::{
     gpu_batch_completions_handler, gpu_status_handler, gpu_warmup_handler, models_handler,
     stream_generate_handler, tokenize_handler,
 };
-// Public exports for tests
+// Public exports for tests (GPU-only types)
+#[cfg(feature = "gpu")]
 pub use gpu_handlers::{
     BatchProcessResult, BatchQueueStats, ContinuousBatchRequest, ContinuousBatchResponse,
     GpuBatchRequest, GpuBatchResponse, GpuBatchResult, GpuBatchStats, GpuStatusResponse,
     GpuWarmupResponse,
 };
 // Public exports for apr-cli CUDA integration (PMAT-GPU-001)
+#[cfg(feature = "gpu")]
 pub use gpu_handlers::{spawn_batch_processor, BatchConfig};
 mod realize_handlers;
 pub(crate) use realize_handlers::{
