@@ -96,7 +96,7 @@ fn test_indexed_layer_weights_all_qtypes() {
 
     // Test Q4K
     let mut layer_weights_q4k = exec.indexed_layer_weights[0].clone();
-    layer_weights_q4k.attn_v_qtype = WeightQuantType::Q4K;
+    layer_weights_q4k.inner_mut().attn_v_qtype = WeightQuantType::Q4K;
     let _ = exec.transformer_layer_indexed(
         &input,
         0,
@@ -108,7 +108,7 @@ fn test_indexed_layer_weights_all_qtypes() {
 
     // Test Q5K
     let mut layer_weights_q5k = exec.indexed_layer_weights[0].clone();
-    layer_weights_q5k.attn_v_qtype = WeightQuantType::Q5K;
+    layer_weights_q5k.inner_mut().attn_v_qtype = WeightQuantType::Q5K;
     let _ = exec.transformer_layer_indexed(
         &input,
         0,
@@ -120,7 +120,7 @@ fn test_indexed_layer_weights_all_qtypes() {
 
     // Test Q6K (already tested above but ensuring coverage)
     let mut layer_weights_q6k = exec.indexed_layer_weights[0].clone();
-    layer_weights_q6k.attn_v_qtype = WeightQuantType::Q6K;
+    layer_weights_q6k.inner_mut().attn_v_qtype = WeightQuantType::Q6K;
     let _ = exec.transformer_layer_indexed(
         &input,
         0,

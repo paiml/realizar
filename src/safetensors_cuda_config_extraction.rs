@@ -25,6 +25,7 @@ mod tests {
             bos_token_id: Some(151643),
             eos_token_id: Some(151645),
             tie_word_embeddings: Some(true), // F-GT-002: Qwen2 uses tied embeddings
+            ..Default::default()
         };
 
         let config = SafeTensorsCudaModel::extract_config(&json).expect("config");
@@ -57,6 +58,7 @@ mod tests {
             bos_token_id: None,
             eos_token_id: None,
             tie_word_embeddings: None, // Will default to false
+            ..Default::default()
         };
 
         let config = SafeTensorsCudaModel::extract_config(&json).expect("config");
@@ -84,6 +86,7 @@ mod tests {
             bos_token_id: None,
             eos_token_id: None,
             tie_word_embeddings: None,
+            ..Default::default()
         };
 
         let result = SafeTensorsCudaModel::extract_config(&json);
@@ -107,6 +110,7 @@ mod tests {
             bos_token_id: None,
             eos_token_id: None,
             tie_word_embeddings: None,
+            ..Default::default()
         };
 
         let result = SafeTensorsCudaModel::extract_config(&json);
@@ -130,6 +134,7 @@ mod tests {
             bos_token_id: None,
             eos_token_id: None,
             tie_word_embeddings: None,
+            ..Default::default()
         };
 
         let result = SafeTensorsCudaModel::extract_config(&json);
@@ -153,6 +158,7 @@ mod tests {
             bos_token_id: None,
             eos_token_id: None,
             tie_word_embeddings: None,
+            ..Default::default()
         };
 
         let result = SafeTensorsCudaModel::extract_config(&json);

@@ -5,12 +5,13 @@ fn create_executor() -> Option<CudaExecutor> {
     CudaExecutor::new(0).ok()
 }
 
-/// Helper to create zeroed `IndexedLayerWeights` for tests.
+/// Helper to create zeroed `ValidatedLayerWeights` for tests.
 /// PMAT-232: `Default` was intentionally removed from `IndexedLayerWeights`
 /// to enforce explicit construction from GGUF metadata in production code.
 /// Tests that only need a dummy/zeroed struct use this helper instead.
-fn test_zeroed_layer_weights() -> IndexedLayerWeights {
-    IndexedLayerWeights {
+/// Uses `new_unchecked` to bypass validation (these are negative tests).
+fn test_zeroed_layer_weights() -> ValidatedLayerWeights {
+    ValidatedLayerWeights::new_unchecked(IndexedLayerWeights {
         attn_q_ptr: 0,
         attn_q_len: 0,
         attn_q_qtype: WeightQuantType::Q4K,
@@ -46,7 +47,7 @@ fn test_zeroed_layer_weights() -> IndexedLayerWeights {
         attn_q_norm_len: 0,
         attn_k_norm_ptr: 0,
         attn_k_norm_len: 0,
-    }
+    })
 }
 
 // ========================================================================
@@ -140,7 +141,7 @@ fn test_indexed_rejects_null_weight_pointer() {
 
     // Create weights with null pointer (0)
     let mut null_weights = test_zeroed_layer_weights();
-    null_weights.attn_norm_ptr = 0; // Null pointer
+    null_weights.inner_mut().attn_norm_ptr = 0; // Null pointer
 
     let input = GpuBuffer::from_host(&exec.context, &vec![0.1f32; 256]).unwrap();
 
