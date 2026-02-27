@@ -800,9 +800,9 @@ mod cuda_tests {
         let cloned = Clone::clone(&owned);
 
         // Verify config is preserved in clone
-        assert_eq!(cloned.config.hidden_dim, owned.config.hidden_dim);
-        assert_eq!(cloned.config.vocab_size, owned.config.vocab_size);
-        assert_eq!(cloned.config.num_layers, owned.config.num_layers);
+        assert_eq!(cloned.config().hidden_dim, owned.config().hidden_dim);
+        assert_eq!(cloned.config().vocab_size, owned.config().vocab_size);
+        assert_eq!(cloned.config().num_layers, owned.config().num_layers);
         // Cloned model should not have CUDA enabled (not copied)
         assert!(!cloned.cuda_enabled());
     }
