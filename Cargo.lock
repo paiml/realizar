@@ -164,7 +164,7 @@ dependencies = [
 
 [[package]]
 name = "aprender"
-version = "0.27.0"
+version = "0.27.2"
 dependencies = [
  "batuta-common",
  "bincode",
@@ -179,8 +179,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
- "trueno 0.16.0",
- "trueno-quant 0.1.0",
+ "trueno 0.16.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "trueno-quant 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -249,8 +249,10 @@ dependencies = [
  "arrow-array 54.2.1",
  "arrow-buffer 54.3.1",
  "arrow-cast 54.2.1",
+ "arrow-csv",
  "arrow-data 54.3.1",
  "arrow-ipc",
+ "arrow-json",
  "arrow-ord 54.2.1",
  "arrow-row 54.2.1",
  "arrow-schema 54.3.1",
@@ -3732,7 +3734,9 @@ dependencies = [
 
 [[package]]
 name = "provable-contracts-macros"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c383d865124fe9fda96af4a04d0c2641bcb93e16eb5e13f7c665f98c15333447"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4013,7 +4017,7 @@ dependencies = [
  "tokio-stream",
  "tower 0.4.13",
  "tracing",
- "trueno 0.16.0",
+ "trueno 0.16.1",
  "trueno-cuda-edge",
  "trueno-db",
  "trueno-gpu",
@@ -5182,9 +5186,9 @@ dependencies = [
 
 [[package]]
 name = "trueno"
-version = "0.15.0"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85e19fa22753d395f043b205999122520efd45a33e0867d137f20b777ad794ef"
+checksum = "90b0f08c743a6d63e691f80624e67e306e83f9bc532ebc618b2352cd02126e7e"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5194,12 +5198,11 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "toml",
- "trueno-quant 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "trueno"
-version = "0.16.0"
+version = "0.16.1"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -5217,6 +5220,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "trueno"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9715d8cfb8858f90018316f8b9201c98de5e3beea4dedb2e35c4c140504f656f"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "hostname",
+ "num_cpus",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "toml",
+ "trueno-quant 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "trueno-cuda-edge"
 version = "0.1.0"
 dependencies = [
@@ -5226,11 +5246,10 @@ dependencies = [
 
 [[package]]
 name = "trueno-db"
-version = "0.3.15"
+version = "0.3.13"
 dependencies = [
  "anyhow",
  "arrow 54.2.1",
- "batuta-common",
  "chrono",
  "console_error_panic_hook",
  "dashmap",
@@ -5246,7 +5265,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "trueno 0.15.0",
+ "trueno 0.14.6",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -5279,14 +5298,13 @@ dependencies = [
 
 [[package]]
 name = "trueno-viz"
-version = "0.1.27"
+version = "0.1.24"
 dependencies = [
  "base64 0.22.1",
- "batuta-common",
  "libc",
  "png 0.17.16",
  "thiserror 2.0.18",
- "trueno 0.15.0",
+ "trueno 0.14.6",
 ]
 
 [[package]]

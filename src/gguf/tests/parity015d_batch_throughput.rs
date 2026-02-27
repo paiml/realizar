@@ -160,6 +160,7 @@ fn test_parity015e_integration_verification() {
 // ============================================================================
 
 #[test]
+#[ignore] // Requires GPU: asserts GPU scheduling at batch=32, fails in clean-room Docker CI without GPU
 fn test_parity016a_gpu_batch_ffn_function() {
     use crate::gpu::HybridScheduler;
 
