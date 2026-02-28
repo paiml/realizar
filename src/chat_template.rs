@@ -227,6 +227,7 @@ struct TokenizerConfig {
     unk_token: Option<String>,
     pad_token: Option<String>,
     #[serde(flatten)]
+    #[allow(dead_code)]
     extra: HashMap<String, serde_json::Value>,
 }
 

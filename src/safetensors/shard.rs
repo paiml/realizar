@@ -35,8 +35,6 @@ pub struct ShardedSafeTensorsModel {
     tensor_to_shard: HashMap<String, usize>,
     /// Base directory path (parent of index.json)
     base_path: std::path::PathBuf,
-    /// Ordered list of unique shard filenames (for deduplication)
-    shard_filenames: Vec<String>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -111,7 +109,6 @@ impl ShardedSafeTensorsModel {
             shards,
             tensor_to_shard,
             base_path,
-            shard_filenames,
         })
     }
 

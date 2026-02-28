@@ -136,6 +136,7 @@ impl OwnedQuantizedModel {
     /// # Errors
     /// Returns error if tensor operations fail
     #[cfg(feature = "gpu")]
+    #[allow(dead_code)]
     fn adaptive_layer_attention_cuda(
         &self,
         hidden: &mut [f32],
@@ -453,6 +454,7 @@ impl OwnedQuantizedModel {
     /// # Errors
     /// Returns error if tensor operations fail
     #[cfg(feature = "gpu")]
+    #[allow(dead_code)]
     fn adaptive_layer_ffn_cuda(
         &self,
         hidden: &[f32],

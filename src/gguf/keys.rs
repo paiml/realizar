@@ -32,6 +32,7 @@ pub(crate) const TOKENIZER_ADD_BOS: &str = "tokenizer.ggml.add_bos_token";
 pub(crate) const TOKENIZER_VOCAB_SIZE: &str = "tokenizer.ggml.vocab_size";
 
 /// `tokenizer.ggml.tokens.size` — vocabulary size (test factory location)
+#[allow(dead_code)]
 pub(crate) const TOKENIZER_TOKENS_SIZE: &str = "tokenizer.ggml.tokens.size";
 
 // ─── Architecture-parameterized key suffixes ─────────────────────────────────
