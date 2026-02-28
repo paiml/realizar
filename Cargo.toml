@@ -85,7 +85,7 @@ alimentar = { version = "0.2", optional = true, default-features = false, featur
 pacha = { version = "0.2", optional = true }
 
 # Terminal/PNG visualization for benchmarks and metrics
-trueno-viz = { version = "0.1", path = "../trueno-viz", optional = true, features = ["terminal"] }
+trueno-viz = { version = "0.2", path = "../trueno-viz", optional = true, features = ["terminal"] }
 
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = { version = "0.7", optional = true }

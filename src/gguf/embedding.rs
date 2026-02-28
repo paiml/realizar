@@ -6,6 +6,8 @@ fn transpose_f32_matrix(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
 }
 
 /// Dequantize token embedding from APR format to f32 based on dtype.
+///
+/// Refs realizar#85: Added BF16/F16 support for aprender's GH-205/GH-353 passthrough.
 fn dequantize_embedding(
     embed_data: &[u8],
     dtype: &str,
@@ -16,6 +18,11 @@ fn dequantize_embedding(
             .chunks_exact(4)
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect()),
+        "BF16" | "bf16" => Ok(crate::inference::simd_bf16_to_f32(embed_data)),
+        "F16" | "f16" => Ok(crate::apr::dequant::dequantize_f16(
+            embed_data,
+            num_elements,
+        )),
         "Q4_K" => crate::quantize::dequantize_q4_k(embed_data),
         "q8" => Ok(crate::apr::dequant::dequantize_apr_q8(
             embed_data,

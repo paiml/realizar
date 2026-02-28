@@ -249,10 +249,8 @@ dependencies = [
  "arrow-array 54.2.1",
  "arrow-buffer 54.3.1",
  "arrow-cast 54.2.1",
- "arrow-csv",
  "arrow-data 54.3.1",
  "arrow-ipc",
- "arrow-json",
  "arrow-ord 54.2.1",
  "arrow-row 54.2.1",
  "arrow-schema 54.3.1",
@@ -5186,9 +5184,9 @@ dependencies = [
 
 [[package]]
 name = "trueno"
-version = "0.14.6"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90b0f08c743a6d63e691f80624e67e306e83f9bc532ebc618b2352cd02126e7e"
+checksum = "85e19fa22753d395f043b205999122520efd45a33e0867d137f20b777ad794ef"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5198,6 +5196,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "toml",
+ "trueno-quant 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -5246,10 +5245,11 @@ dependencies = [
 
 [[package]]
 name = "trueno-db"
-version = "0.3.13"
+version = "0.3.15"
 dependencies = [
  "anyhow",
  "arrow 54.2.1",
+ "batuta-common",
  "chrono",
  "console_error_panic_hook",
  "dashmap",
@@ -5265,7 +5265,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "trueno 0.14.6",
+ "trueno 0.15.0",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -5273,7 +5273,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-gpu"
-version = "0.4.18"
+version = "0.4.19"
 dependencies = [
  "batuta-common",
  "libloading",
@@ -5298,13 +5298,14 @@ dependencies = [
 
 [[package]]
 name = "trueno-viz"
-version = "0.1.24"
+version = "0.2.1"
 dependencies = [
  "base64 0.22.1",
+ "batuta-common",
  "libc",
  "png 0.17.16",
  "thiserror 2.0.18",
- "trueno 0.14.6",
+ "trueno 0.16.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
