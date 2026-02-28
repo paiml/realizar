@@ -145,7 +145,6 @@ impl ProfileReport {
 #[derive(Debug)]
 struct ActiveTimer {
     start: Instant,
-    layer_idx: Option<usize>,
 }
 
 /// BrickProfiler: Captures real timing data for inference operations
@@ -228,7 +227,6 @@ impl BrickProfiler {
             operation.to_string(),
             ActiveTimer {
                 start: Instant::now(),
-                layer_idx: Some(self.current_layer),
             },
         );
     }

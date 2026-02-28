@@ -8,6 +8,8 @@
 #![allow(clippy::cast_precision_loss)]
 // Items are conditionally re-exported by parent mod via feature gates (bench-http)
 #![allow(unreachable_pub)]
+// Backend abstraction types used by tests but not production inference
+#![allow(dead_code)]
 
 use std::collections::HashMap;
 

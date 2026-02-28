@@ -130,8 +130,6 @@ pub struct BPETokenizer {
     token_to_id: HashMap<String, u32>,
     /// ID to token mapping
     id_to_token: HashMap<u32, String>,
-    /// Merge rules: pairs to merge in order of priority
-    merges: Vec<(String, String)>,
     /// Unknown token ID
     unk_token_id: u32,
     /// Cached vocabulary size (PMAT-805: vLLM pattern)
@@ -152,7 +150,7 @@ impl BPETokenizer {
     /// # Errors
     ///
     /// Returns error if vocabulary is empty or unknown token not found
-    pub fn new(vocab: Vec<String>, merges: Vec<(String, String)>, unk_token: &str) -> Result<Self> {
+    pub fn new(vocab: Vec<String>, _merges: Vec<(String, String)>, unk_token: &str) -> Result<Self> {
         if vocab.is_empty() {
             return Err(RealizarError::UnsupportedOperation {
                 operation: "create_bpe_tokenizer".to_string(),
@@ -188,7 +186,6 @@ impl BPETokenizer {
         Ok(Self {
             token_to_id,
             id_to_token,
-            merges,
             unk_token_id,
             vocab_size,
             max_token_id,
@@ -279,29 +276,6 @@ impl BPETokenizer {
         }
 
         tokens
-    }
-
-    /// Apply a single merge rule to token list
-    fn apply_merge(tokens: &[String], first: &str, second: &str) -> Vec<String> {
-        if tokens.len() < 2 {
-            return tokens.to_vec();
-        }
-
-        let mut result = Vec::new();
-        let mut i = 0;
-
-        while i < tokens.len() {
-            if i + 1 < tokens.len() && tokens[i] == first && tokens[i + 1] == second {
-                // Merge the pair
-                result.push(format!("{first}{second}"));
-                i += 2;
-            } else {
-                result.push(tokens[i].clone());
-                i += 1;
-            }
-        }
-
-        result
     }
 
     /// Decode token IDs to text

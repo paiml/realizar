@@ -21,8 +21,6 @@
 #![allow(clippy::missing_errors_doc)]
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
 use thiserror::Error;
 
 /// Error type for parallelism operations
@@ -373,8 +371,6 @@ pub struct Communicator {
     world_size: usize,
     /// Current rank
     rank: usize,
-    /// test buffers for testing
-    buffers: Arc<std::sync::RwLock<HashMap<usize, Vec<f32>>>>,
 }
 
 include!("mod_all_reduce_communicator.rs");

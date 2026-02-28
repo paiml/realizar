@@ -390,11 +390,6 @@ impl Default for FailureIsolator {
     }
 }
 
-/// Isolated request handle (unused but kept for API completeness)
-pub struct IsolatedRequest {
-    id: u64,
-}
-
 // ============================================================================
 // M30: Connection Pooling & Resource Limits (IMP-073, IMP-074, IMP-075)
 // ============================================================================

@@ -11,6 +11,7 @@ use std::sync::OnceLock;
 
 /// Check if verbose mode is enabled (REALIZAR_VERBOSE=1)
 /// Default is quiet - only errors are printed
+#[allow(dead_code)]
 pub(crate) fn verbose() -> bool {
     static VERBOSE: OnceLock<bool> = OnceLock::new();
     *VERBOSE.get_or_init(|| std::env::var("REALIZAR_VERBOSE").is_ok())
@@ -57,6 +58,7 @@ pub(crate) fn gpt2_unicode_to_byte(c: char) -> Option<u8> {
 ///
 /// Each character in the token may represent either a direct byte (printable ASCII/Latin-1)
 /// or an encoded byte (using Unicode codepoints U+0100-U+0143).
+#[allow(dead_code)]
 pub(crate) fn decode_gpt2_token_to_bytes(token: &str) -> Vec<u8> {
     token.chars().filter_map(gpt2_unicode_to_byte).collect()
 }

@@ -287,16 +287,6 @@ impl BeamSearchState {
     }
 }
 
-/// Streaming generation callback type
-///
-/// The callback receives:
-/// - token_id: The generated token ID
-/// - token_text: Optional decoded text for the token
-/// - is_final: Whether this is the last token
-///
-/// Returns `true` to continue, `false` to stop generation
-pub(crate) type StreamCallback = Box<dyn FnMut(usize, Option<&str>, bool) -> bool + Send>;
-
 /// Streaming generation state
 #[derive(Debug)]
 pub struct StreamingGenerator {

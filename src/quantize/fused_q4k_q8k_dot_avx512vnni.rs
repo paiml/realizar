@@ -9,6 +9,7 @@
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(clippy::similar_names)]
 #[allow(clippy::too_many_lines)]
+#[allow(dead_code)]
 // SAFETY: Caller must satisfy the documented preconditions
 unsafe fn fused_q4k_q8k_dot_avx512vnni_v2(
     q4k_data: &[u8],
@@ -262,6 +263,7 @@ unsafe fn fused_q4k_q8k_dot_avx512vnni_v2(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f", enable = "avx512vnni", enable = "avx512bw")]
 #[allow(unsafe_op_in_unsafe_fn)]
+#[allow(dead_code)]
 // SAFETY: Caller must satisfy the documented preconditions
 unsafe fn fused_q4k_q8k_dot_avx512vnni(
     q4k_data: &[u8],

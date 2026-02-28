@@ -8,7 +8,6 @@ impl Communicator {
         Ok(Self {
             world_size,
             rank,
-            buffers: Arc::new(std::sync::RwLock::new(HashMap::new())),
         })
     }
 

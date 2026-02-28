@@ -138,6 +138,7 @@ fn decode_tokens_with_cache(
 }
 
 /// Print GPU model info when verbose mode is enabled
+#[allow(dead_code)]
 fn print_gpu_model_info(
     vocab_size: usize,
     hidden_dim: usize,

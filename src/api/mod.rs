@@ -102,8 +102,10 @@ pub struct AppState {
     /// Tokenizer for encoding/decoding (single model mode)
     tokenizer: Option<Arc<BPETokenizer>>,
     /// Model cache for multi-model support
+    #[allow(dead_code)]
     cache: Option<Arc<ModelCache>>,
     /// Default cache key for single model mode
+    #[allow(dead_code)]
     cache_key: Option<CacheKey>,
     /// Metrics collector for monitoring
     metrics: Arc<MetricsCollector>,

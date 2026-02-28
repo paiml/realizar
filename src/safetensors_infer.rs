@@ -15,7 +15,7 @@ use crate::error::{RealizarError, Result};
 use crate::safetensors::validation::ValidatedAprTransformer;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::safetensors::ShardedSafeTensorsModel;
-use crate::safetensors::{MappedSafeTensorsModel, SafetensorsConfig, SafetensorsTensorInfo};
+use crate::safetensors::{MappedSafeTensorsModel, SafetensorsConfig};
 use std::path::Path;
 
 /// Trait abstracting tensor access for both single-file and sharded SafeTensors models.
@@ -26,7 +26,6 @@ pub(crate) trait TensorSource {
     fn get_tensor_auto(&self, name: &str) -> Result<Vec<f32>>;
     fn has_tensor(&self, name: &str) -> bool;
     fn tensor_names(&self) -> Vec<&str>;
-    fn get_tensor_info(&self, name: &str) -> Option<&SafetensorsTensorInfo>;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -40,9 +39,6 @@ impl TensorSource for MappedSafeTensorsModel {
     fn tensor_names(&self) -> Vec<&str> {
         MappedSafeTensorsModel::tensor_names(self)
     }
-    fn get_tensor_info(&self, name: &str) -> Option<&SafetensorsTensorInfo> {
-        MappedSafeTensorsModel::get_tensor_info(self, name)
-    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -55,9 +51,6 @@ impl TensorSource for ShardedSafeTensorsModel {
     }
     fn tensor_names(&self) -> Vec<&str> {
         ShardedSafeTensorsModel::tensor_names(self)
-    }
-    fn get_tensor_info(&self, name: &str) -> Option<&SafetensorsTensorInfo> {
-        ShardedSafeTensorsModel::get_tensor_info(self, name)
     }
 }
 

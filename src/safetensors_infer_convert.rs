@@ -211,6 +211,7 @@ impl SafetensorsToAprConverter {
     }
 
     /// Extract a single transformer layer from SafeTensors (MappedSafeTensorsModel)
+    #[allow(dead_code)]
     fn extract_layer(
         st_model: &MappedSafeTensorsModel,
         layer_idx: usize,
@@ -547,6 +548,7 @@ impl SafetensorsToAprConverter {
     }
 
     /// Try to concatenate Q, K, V biases if they exist
+    #[allow(dead_code)]
     fn try_concat_qkv_bias(
         st_model: &MappedSafeTensorsModel,
         prefix: &str,
@@ -572,6 +574,7 @@ impl SafetensorsToAprConverter {
     }
 
     /// Try to concatenate Q, K, V biases with dual naming support
+    #[allow(dead_code)]
     fn try_concat_qkv_bias_dual(
         st_model: &MappedSafeTensorsModel,
         hf_prefix: &str,
@@ -630,6 +633,7 @@ impl SafetensorsToAprConverter {
     ///
     /// GH-196: Also tries stripping `model.` prefix for APR canonical names,
     /// and adds diagnostic tensor name listing on failure.
+    #[allow(dead_code)]
     fn get_tensor_with_fallback(
         st_model: &MappedSafeTensorsModel,
         hf_name: &str,
@@ -679,6 +683,7 @@ impl SafetensorsToAprConverter {
     }
 
     /// Check if tensor exists with either naming convention
+    #[allow(dead_code)]
     fn has_tensor_with_fallback(
         st_model: &MappedSafeTensorsModel,
         hf_name: &str,
@@ -702,6 +707,7 @@ impl SafetensorsToAprConverter {
     }
 
     /// Get optional tensor with fallback naming
+    #[allow(dead_code)]
     fn get_optional_tensor_with_fallback(
         st_model: &MappedSafeTensorsModel,
         hf_name: &str,

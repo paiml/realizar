@@ -9,6 +9,7 @@
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(clippy::similar_names)]
 #[allow(clippy::too_many_lines)]
+#[allow(dead_code)]
 // SAFETY: Caller must satisfy the documented preconditions
 unsafe fn fused_q4k_q8k_dot_avx512vnni_opt(
     q4k_data: &[u8],
@@ -211,6 +212,7 @@ unsafe fn fused_q4k_q8k_dot_avx512vnni_opt(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
+#[allow(dead_code)]
 // SAFETY: Caller must satisfy the documented preconditions
 unsafe fn hsum_epi32_128(v: std::arch::x86_64::__m128i) -> i32 {
     use std::arch::x86_64::{_mm_cvtsi128_si32, _mm_hadd_epi32};
@@ -223,6 +225,7 @@ unsafe fn hsum_epi32_128(v: std::arch::x86_64::__m128i) -> i32 {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
+#[allow(dead_code)]
 // SAFETY: Caller must satisfy the documented preconditions
 unsafe fn hsum_epi32_256(v: std::arch::x86_64::__m256i) -> i32 {
     use std::arch::x86_64::{_mm256_castsi256_si128, _mm256_extracti128_si256, _mm_add_epi32};
@@ -238,6 +241,7 @@ unsafe fn hsum_epi32_256(v: std::arch::x86_64::__m256i) -> i32 {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
+#[allow(dead_code)]
 // SAFETY: Caller must satisfy the documented preconditions
 unsafe fn horizontal_sum_epi32_256(v: std::arch::x86_64::__m256i) -> i32 {
     use std::arch::x86_64::{
@@ -262,6 +266,7 @@ unsafe fn horizontal_sum_epi32_256(v: std::arch::x86_64::__m256i) -> i32 {
 #[target_feature(enable = "avx2")]
 #[inline]
 #[allow(unsafe_op_in_unsafe_fn)]
+#[allow(dead_code)]
 // SAFETY: Caller must satisfy the documented preconditions
 unsafe fn horizontal_sum_epi16_256(v: std::arch::x86_64::__m256i) -> i32 {
     use std::arch::x86_64::{_mm256_madd_epi16, _mm256_set1_epi16};

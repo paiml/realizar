@@ -36,7 +36,8 @@ all-features = true
 rustdoc-args = ["--generate-link-to-definition"]
 
 [workspace.lints.rust]
-unsafe_code = "warn"
+# unsafe is expected: SIMD intrinsics (quantize/), mmap (gguf/model.rs), libc FFI (memory.rs)
+unsafe_code = "allow"
 unsafe_op_in_unsafe_fn = "warn"
 unreachable_pub = "warn"
 # Allow coverage cfg for cargo-llvm-cov

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // GH-311: Generated from tensor-names-v1.yaml by build.rs.
 // The include! pulls in the generated enums, normalize_architecture(),
 // and name/template lookup functions.
