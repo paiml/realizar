@@ -340,18 +340,26 @@ impl OwnedQuantizedModel {
         };
 
         // QKV biases (Qwen2 has separate Q, K, V biases — concatenate for CUDA)
+        // GH-87: Try both HF names (SafeTensors->APR) and GGUF names (GGUF->APR Q4K)
         let hf_q_bias = format!("model.layers.{layer_idx}.self_attn.q_proj.bias");
         let hf_k_bias = format!("model.layers.{layer_idx}.self_attn.k_proj.bias");
         let hf_v_bias = format!("model.layers.{layer_idx}.self_attn.v_proj.bias");
-        let qkv_bias = apr_try_load_f32(apr, data, data_offset, &hf_q_bias).and_then(|q_b| {
-            let k_b = apr_try_load_f32(apr, data, data_offset, &hf_k_bias)?;
-            let v_b = apr_try_load_f32(apr, data, data_offset, &hf_v_bias)?;
-            let mut combined = Vec::with_capacity(q_b.len() + k_b.len() + v_b.len());
-            combined.extend_from_slice(&q_b);
-            combined.extend_from_slice(&k_b);
-            combined.extend_from_slice(&v_b);
-            Some(combined)
-        });
+        let gguf_q_bias = format!("blk.{layer_idx}.attn_q.bias");
+        let gguf_k_bias = format!("blk.{layer_idx}.attn_k.bias");
+        let gguf_v_bias = format!("blk.{layer_idx}.attn_v.bias");
+        let qkv_bias = apr_try_load_f32(apr, data, data_offset, &hf_q_bias)
+            .or_else(|| apr_try_load_f32(apr, data, data_offset, &gguf_q_bias))
+            .and_then(|q_b| {
+                let k_b = apr_try_load_f32(apr, data, data_offset, &hf_k_bias)
+                    .or_else(|| apr_try_load_f32(apr, data, data_offset, &gguf_k_bias))?;
+                let v_b = apr_try_load_f32(apr, data, data_offset, &hf_v_bias)
+                    .or_else(|| apr_try_load_f32(apr, data, data_offset, &gguf_v_bias))?;
+                let mut combined = Vec::with_capacity(q_b.len() + k_b.len() + v_b.len());
+                combined.extend_from_slice(&q_b);
+                combined.extend_from_slice(&k_b);
+                combined.extend_from_slice(&v_b);
+                Some(combined)
+            });
 
         let o_weight = apr_load_quantized_tensor(apr, data, data_offset, &[&hf_o, &gguf_o], hidden_dim, hidden_dim, transpose)?;
 
