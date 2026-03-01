@@ -317,18 +317,26 @@ impl OwnedQuantizedModel {
         };
 
         // QKV biases (Qwen2 has separate Q, K, V biases — concatenate for CUDA)
+        // GH-87: Try both HF names (SafeTensors→APR) and GGUF names (GGUF→APR Q4K)
         let hf_q_bias = format!("model.layers.{layer_idx}.self_attn.q_proj.bias");
         let hf_k_bias = format!("model.layers.{layer_idx}.self_attn.k_proj.bias");
         let hf_v_bias = format!("model.layers.{layer_idx}.self_attn.v_proj.bias");
-        let qkv_bias = apr_try_load_f32(apr, data, data_offset, &hf_q_bias).and_then(|q_b| {
-            let k_b = apr_try_load_f32(apr, data, data_offset, &hf_k_bias)?;
-            let v_b = apr_try_load_f32(apr, data, data_offset, &hf_v_bias)?;
-            let mut combined = Vec::with_capacity(q_b.len() + k_b.len() + v_b.len());
-            combined.extend_from_slice(&q_b);
-            combined.extend_from_slice(&k_b);
-            combined.extend_from_slice(&v_b);
-            Some(combined)
-        });
+        let gguf_q_bias = format!("blk.{layer_idx}.attn_q.bias");
+        let gguf_k_bias = format!("blk.{layer_idx}.attn_k.bias");
+        let gguf_v_bias = format!("blk.{layer_idx}.attn_v.bias");
+        let qkv_bias = apr_try_load_f32(apr, data, data_offset, &hf_q_bias)
+            .or_else(|| apr_try_load_f32(apr, data, data_offset, &gguf_q_bias))
+            .and_then(|q_b| {
+                let k_b = apr_try_load_f32(apr, data, data_offset, &hf_k_bias)
+                    .or_else(|| apr_try_load_f32(apr, data, data_offset, &gguf_k_bias))?;
+                let v_b = apr_try_load_f32(apr, data, data_offset, &hf_v_bias)
+                    .or_else(|| apr_try_load_f32(apr, data, data_offset, &gguf_v_bias))?;
+                let mut combined = Vec::with_capacity(q_b.len() + k_b.len() + v_b.len());
+                combined.extend_from_slice(&q_b);
+                combined.extend_from_slice(&k_b);
+                combined.extend_from_slice(&v_b);
+                Some(combined)
+            });
 
         let o_weight = apr_load_quantized_tensor(apr, data, data_offset, &[&hf_o, &gguf_o], hidden_dim, hidden_dim, transpose)?;
 
@@ -342,27 +350,38 @@ impl OwnedQuantizedModel {
         let ffn_norm_weight = apr_load_f32_tensor(apr, data, data_offset, &[&hf_ffn_norm, &gguf_ffn_norm]).ok();
 
         // GH-278: Load biases (GPT-2/phi-2 style models have biases on all projections)
+        // GH-87: Try both HF names and GGUF names for all bias tensors
         let hf_attn_norm_bias = format!("model.layers.{layer_idx}.input_layernorm.bias");
         let hf_ffn_norm_bias = format!("model.layers.{layer_idx}.post_attention_layernorm.bias");
         let hf_o_bias = format!("model.layers.{layer_idx}.self_attn.o_proj.bias");
         let hf_up_bias = format!("model.layers.{layer_idx}.mlp.up_proj.bias");
         let hf_down_bias = format!("model.layers.{layer_idx}.mlp.down_proj.bias");
+        let gguf_attn_norm_bias = format!("blk.{layer_idx}.attn_norm.bias");
+        let gguf_ffn_norm_bias = format!("blk.{layer_idx}.ffn_norm.bias");
+        let gguf_o_bias = format!("blk.{layer_idx}.attn_output.bias");
+        let gguf_up_bias = format!("blk.{layer_idx}.ffn_up.bias");
+        let gguf_down_bias = format!("blk.{layer_idx}.ffn_down.bias");
 
         Ok(OwnedQuantizedLayer {
             attn_norm_weight,
-            attn_norm_bias: apr_try_load_f32(apr, data, data_offset, &hf_attn_norm_bias),
+            attn_norm_bias: apr_try_load_f32(apr, data, data_offset, &hf_attn_norm_bias)
+                .or_else(|| apr_try_load_f32(apr, data, data_offset, &gguf_attn_norm_bias)),
             qkv_weight,
             qkv_bias,
             attn_output_weight: o_weight,
-            attn_output_bias: apr_try_load_f32(apr, data, data_offset, &hf_o_bias),
+            attn_output_bias: apr_try_load_f32(apr, data, data_offset, &hf_o_bias)
+                .or_else(|| apr_try_load_f32(apr, data, data_offset, &gguf_o_bias)),
             ffn_norm_weight,
-            ffn_norm_bias: apr_try_load_f32(apr, data, data_offset, &hf_ffn_norm_bias),
+            ffn_norm_bias: apr_try_load_f32(apr, data, data_offset, &hf_ffn_norm_bias)
+                .or_else(|| apr_try_load_f32(apr, data, data_offset, &gguf_ffn_norm_bias)),
             ffn_gate_weight,
             ffn_gate_bias: None,
             ffn_up_weight,
-            ffn_up_bias: apr_try_load_f32(apr, data, data_offset, &hf_up_bias),
+            ffn_up_bias: apr_try_load_f32(apr, data, data_offset, &hf_up_bias)
+                .or_else(|| apr_try_load_f32(apr, data, data_offset, &gguf_up_bias)),
             ffn_down_weight,
-            ffn_down_bias: apr_try_load_f32(apr, data, data_offset, &hf_down_bias),
+            ffn_down_bias: apr_try_load_f32(apr, data, data_offset, &hf_down_bias)
+                .or_else(|| apr_try_load_f32(apr, data, data_offset, &gguf_down_bias)),
             attn_q_norm_weight: None,
             attn_k_norm_weight: None,
         })
