@@ -44,6 +44,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{RealizarError, Result};
 use crate::safetensors::find_sibling_file;
+use crate::tokenizer::SentencePieceTokenizer;
 
 // PMAT-802: Extracted modules
 #[cfg(feature = "cuda")]

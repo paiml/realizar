@@ -171,6 +171,36 @@ impl AprMetadata {
             Some(merges)
         }
     }
+
+    /// GH-366: Extract embedded SentencePiece scores from APR metadata
+    ///
+    /// Returns token log-probability scores for Unigram/Viterbi encoding.
+    /// Parallel to vocabulary — scores[i] is the score for vocabulary[i].
+    #[must_use]
+    pub fn get_embedded_scores(&self) -> Option<Vec<f32>> {
+        let scores_value = self.extra.get("tokenizer.scores")?;
+        let scores_array = scores_value.as_array()?;
+
+        let scores: Vec<f32> = scores_array
+            .iter()
+            .filter_map(|v| v.as_f64().map(|f| f as f32))
+            .collect();
+
+        if scores.is_empty() {
+            None
+        } else {
+            Some(scores)
+        }
+    }
+
+    /// GH-366: Get embedded tokenizer model type
+    #[must_use]
+    pub fn get_embedded_model_type(&self) -> Option<String> {
+        self.extra
+            .get("tokenizer.model_type")
+            .and_then(serde_json::Value::as_str)
+            .map(String::from)
+    }
 }
 
 /// APR v2 model for realizar inference

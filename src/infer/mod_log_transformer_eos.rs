@@ -210,13 +210,46 @@ fn find_fallback_tokenizer(model_path: &std::path::Path) -> Option<crate::apr::B
         return Some(bpe_tokenizer);
     }
 
-    // 2. SimpleTokenizer converted to BPE (decode-only, no merges)
+    // 2. GH-366: SentencePiece tokenizer converted to BPE for decode-only use
+    if let Some(tok) = convert_sentencepiece_to_bpe(&model) {
+        return Some(tok);
+    }
+
+    // 3. SimpleTokenizer converted to BPE (decode-only, no merges)
     if let Some(tok) = convert_simple_tokenizer_to_bpe(&model) {
         return Some(tok);
     }
 
     // 3. Search HuggingFace cache and APR tokenizer cache
     search_external_tokenizer_caches()
+}
+
+/// GH-366: Convert embedded SentencePiece vocab to BPE for decode-only inference
+fn convert_sentencepiece_to_bpe(
+    model: &crate::apr::AprV2Model,
+) -> Option<crate::apr::BpeTokenizer> {
+    let sp = model.load_embedded_sentencepiece_tokenizer()?;
+    let id_to_token: Vec<String> = (0..sp.vocab_size() as u32)
+        .map(|id| sp.decode(&[id]).unwrap_or_default())
+        .collect();
+    let token_to_id: std::collections::HashMap<String, u32> = id_to_token
+        .iter()
+        .enumerate()
+        .map(|(id, token)| (token.clone(), id as u32))
+        .collect();
+    let special_tokens = crate::apr::extract_special_tokens_from_vocab(&token_to_id);
+    eprintln!(
+        "[GH-366] Converted SentencePiece to BPE-compatible tokenizer for inference: {} tokens",
+        id_to_token.len()
+    );
+    Some(crate::apr::BpeTokenizer {
+        token_to_id,
+        id_to_token,
+        merge_rules: Vec::new(),
+        bos_id: None,
+        eos_id: None,
+        special_tokens,
+    })
 }
 
 /// Convert embedded SimpleTokenizer to BpeTokenizer (GH-189)
