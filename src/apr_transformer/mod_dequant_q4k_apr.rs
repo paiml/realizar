@@ -56,6 +56,14 @@ fn dequant_by_dtype(tensor_data: &[u8], dims: &[usize], dtype: u8) -> Vec<f32> {
             .chunks_exact(2)
             .map(|c| f16_to_f32(u16::from_le_bytes([c[0], c[1]])))
             .collect(),
+        // GH-369: BF16 (GGML type 30) — 2 bytes per element, upper 16 bits of F32
+        30 => tensor_data
+            .chunks_exact(2)
+            .map(|c| {
+                let bits = u16::from_le_bytes([c[0], c[1]]);
+                f32::from_bits((bits as u32) << 16)
+            })
+            .collect(),
         _ => tensor_data
             .chunks_exact(4)
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
@@ -336,5 +344,111 @@ impl AprTransformer {
         };
 
         (layers, q4k_layers)
+    }
+}
+
+// ============================================================================
+// GH-369: BF16 dequant_by_dtype contract tests (Popperian falsification)
+// ============================================================================
+#[cfg(test)]
+mod tests_dequant_bf16 {
+    use super::dequant_by_dtype;
+
+    /// Helper: encode f32 as BF16 bytes (truncate lower 16 bits).
+    fn f32_to_bf16_bytes(val: f32) -> [u8; 2] {
+        let bits = val.to_bits();
+        let bf16 = (bits >> 16) as u16;
+        bf16.to_le_bytes()
+    }
+
+    /// Falsify: BF16 element count matches dims, not half (old bug: 4 bytes/elem → wrong count).
+    #[test]
+    fn falsify_bf16_dequant_001_element_count() {
+        let n = 8;
+        let mut data = Vec::with_capacity(n * 2);
+        for i in 0..n {
+            data.extend_from_slice(&f32_to_bf16_bytes(i as f32));
+        }
+        let result = dequant_by_dtype(&data, &[n], 30);
+        assert_eq!(result.len(), n, "BF16 must produce exactly {n} elements from {n}*2 bytes");
+    }
+
+    /// Falsify: BF16 zeros produce f32 zeros (not garbage from misaligned reads).
+    #[test]
+    fn falsify_bf16_dequant_002_zeros() {
+        let data = vec![0u8; 16]; // 8 BF16 zeros
+        let result = dequant_by_dtype(&data, &[8], 30);
+        assert!(result.iter().all(|&x| x == 0.0), "BF16 zeros must decode to f32 zeros");
+    }
+
+    /// Falsify: BF16 round-trip preserves BF16-representable values.
+    #[test]
+    fn falsify_bf16_dequant_003_round_trip() {
+        let test_values: Vec<f32> = vec![1.0, -1.0, 0.5, 42.0, -128.0, 3.14159];
+        let mut data = Vec::new();
+        for &v in &test_values {
+            data.extend_from_slice(&f32_to_bf16_bytes(v));
+        }
+        let result = dequant_by_dtype(&data, &[test_values.len()], 30);
+        for (i, (&original, &decoded)) in test_values.iter().zip(result.iter()).enumerate() {
+            // BF16 truncates lower 16 bits — tolerance is relative
+            let expected_bf16 = f32::from_bits(original.to_bits() & 0xFFFF_0000);
+            assert!(
+                (decoded - expected_bf16).abs() < 1e-10,
+                "BF16 round-trip mismatch at [{i}]: original={original}, expected_bf16={expected_bf16}, got={decoded}"
+            );
+        }
+    }
+
+    /// Falsify: BF16 1.0 decodes to exactly 1.0 (1.0 is BF16-exact).
+    #[test]
+    fn falsify_bf16_dequant_004_one() {
+        let data = f32_to_bf16_bytes(1.0);
+        let result = dequant_by_dtype(&data, &[1], 30);
+        assert_eq!(result[0], 1.0, "BF16 1.0 must decode to exactly f32 1.0");
+    }
+
+    /// Falsify: F16 (dtype=1) and BF16 (dtype=30) produce DIFFERENT results for same bytes.
+    /// This proves they're not aliased (old default arm treated both as F32).
+    #[test]
+    fn falsify_bf16_dequant_005_not_f16() {
+        // 0x3F80 as F16 = 1.875, as BF16 = some other value
+        let data: [u8; 2] = [0x80, 0x3F];
+        let bf16_result = dequant_by_dtype(&data, &[1], 30);
+        let f16_result = dequant_by_dtype(&data, &[1], 1);
+        assert_ne!(
+            bf16_result[0], f16_result[0],
+            "BF16 and F16 must not decode identically — they're different formats"
+        );
+    }
+
+    /// Falsify: BF16 dtype 30 is NOT treated as F32 (old default arm bug).
+    /// F32 needs 4 bytes/element; BF16 needs 2. If treated as F32, 8 bytes → 2 elements.
+    /// Correct BF16: 8 bytes → 4 elements.
+    #[test]
+    fn falsify_bf16_dequant_006_not_f32_default() {
+        let data = vec![0u8; 8]; // 4 BF16 elements OR 2 F32 elements
+        let bf16_result = dequant_by_dtype(&data, &[4], 30);
+        let f32_result = dequant_by_dtype(&data, &[2], 0); // dtype 0 hits default (F32)
+        assert_eq!(bf16_result.len(), 4, "BF16: 8 bytes → 4 elements");
+        assert_eq!(f32_result.len(), 2, "F32: 8 bytes → 2 elements");
+    }
+
+    /// Falsify: 2D tensor dims work correctly (embedding matrix shape).
+    #[test]
+    fn falsify_bf16_dequant_007_2d_embedding() {
+        let rows = 4;
+        let cols = 8;
+        let n = rows * cols;
+        let mut data = Vec::with_capacity(n * 2);
+        for i in 0..n {
+            data.extend_from_slice(&f32_to_bf16_bytes(i as f32));
+        }
+        let result = dequant_by_dtype(&data, &[rows, cols], 30);
+        assert_eq!(result.len(), n, "BF16 2D tensor must produce rows*cols elements");
+        // Verify first and last values
+        assert_eq!(result[0], 0.0);
+        let expected_last = f32::from_bits(((n - 1) as f32).to_bits() & 0xFFFF_0000);
+        assert!((result[n - 1] - expected_last).abs() < 0.1);
     }
 }
