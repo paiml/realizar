@@ -41,6 +41,26 @@ impl GgufToAprQ4KConverter {
         }
     }
 
+    /// Helper to extract string array from GGUF metadata (GH-86: tokenizer vocab/merges)
+    fn get_string_array(
+        metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>,
+        key: &str,
+    ) -> Option<Vec<String>> {
+        match metadata.get(key) {
+            Some(crate::gguf::GGUFValue::Array(arr)) => {
+                let strings: Vec<String> = arr
+                    .iter()
+                    .filter_map(|v| match v {
+                        crate::gguf::GGUFValue::String(s) => Some(s.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                if strings.is_empty() { None } else { Some(strings) }
+            }
+            _ => None,
+        }
+    }
+
     /// Helper to extract f32 from GGUF metadata
     fn get_f32(
         metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>,
@@ -50,6 +70,48 @@ impl GgufToAprQ4KConverter {
             Some(crate::gguf::GGUFValue::Float32(v)) => Some(*v),
             Some(crate::gguf::GGUFValue::Float64(v)) => Some(*v as f32),
             _ => None,
+        }
+    }
+
+    /// GH-86 / F-APR-SELF-CONTAINED-001: Embed tokenizer from GGUF into APR metadata.
+    ///
+    /// Without this, APR serve falls back to character-level tokenizer producing garbage.
+    /// Keys match what `load_embedded_bpe_tokenizer()` expects in `realizar/src/apr/loading.rs`.
+    fn embed_tokenizer_metadata(
+        metadata: &mut serde_json::Value,
+        gguf_metadata: &std::collections::HashMap<String, crate::gguf::GGUFValue>,
+    ) {
+        use crate::gguf::keys;
+        let obj = match metadata.as_object_mut() {
+            Some(obj) => obj,
+            None => return,
+        };
+
+        if let Some(vocab) = Self::get_string_array(gguf_metadata, keys::TOKENIZER_TOKENS) {
+            eprintln!("[GH-86] Embedding {} vocabulary tokens into APR metadata", vocab.len());
+            obj.insert("tokenizer.vocab_size".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(vocab.len())));
+            obj.insert("tokenizer.vocabulary".to_string(),
+                serde_json::Value::Array(vocab.into_iter().map(serde_json::Value::String).collect()));
+        }
+        if let Some(merges) = Self::get_string_array(gguf_metadata, "tokenizer.ggml.merges") {
+            eprintln!("[GH-86] Embedding {} BPE merge rules into APR metadata", merges.len());
+            obj.insert("tokenizer.merges".to_string(),
+                serde_json::Value::Array(merges.into_iter().map(serde_json::Value::String).collect()));
+        }
+        if let Some(bos) = Self::get_u32(gguf_metadata, keys::TOKENIZER_BOS_ID) {
+            obj.insert("tokenizer.bos_token_id".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(bos)));
+        }
+        if let Some(eos) = Self::get_u32(gguf_metadata, keys::TOKENIZER_EOS_ID) {
+            obj.insert("tokenizer.eos_token_id".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(eos)));
+        }
+        if let Some(tmpl) = Self::get_string(gguf_metadata, "tokenizer.chat_template") {
+            obj.insert("chat_template".to_string(), serde_json::Value::String(tmpl));
+        }
+        if let Some(model) = Self::get_string(gguf_metadata, keys::TOKENIZER_MODEL) {
+            obj.insert("tokenizer.model".to_string(), serde_json::Value::String(model));
         }
     }
 
@@ -165,7 +227,7 @@ impl GgufToAprQ4KConverter {
         // Build metadata JSON
         // F-REGR-231 FIX: Use field names consistent with AprTransformer::from_apr_bytes
         // BUG-APR-044 FIX: Use QuantizationMetadata struct format expected by aprender
-        let metadata = serde_json::json!({
+        let mut metadata = serde_json::json!({
             "model_type": "transformer_lm_q4k",
             "architecture": architecture,
             "hidden_size": hidden_size,
@@ -185,6 +247,9 @@ impl GgufToAprQ4KConverter {
                 "symmetric": true
             },
         });
+
+        // GH-86 / F-APR-SELF-CONTAINED-001: Embed tokenizer for standalone inference
+        Self::embed_tokenizer_metadata(&mut metadata, &gguf_model.metadata);
         let metadata_bytes =
             serde_json::to_vec(&metadata).map_err(|e| RealizarError::FormatError {
                 reason: format!("Failed to serialize metadata: {e}"),
