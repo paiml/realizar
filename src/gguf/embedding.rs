@@ -8,6 +8,7 @@ fn transpose_f32_matrix(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
 /// Dequantize token embedding from APR format to f32 based on dtype.
 ///
 /// Refs realizar#85: Added BF16/F16 support for aprender's GH-205/GH-353 passthrough.
+/// Refs realizar#86: Added all GGML quant types (Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K, Q5_K, Q6_K).
 fn dequantize_embedding(
     embed_data: &[u8],
     dtype: &str,
@@ -23,7 +24,17 @@ fn dequantize_embedding(
             embed_data,
             num_elements,
         )),
+        // GGML quant types (from GGUF-sourced APR files)
+        "Q4_0" => crate::quantize::dequantize_q4_0(embed_data),
+        "Q4_1" => crate::quantize::dequantize_q4_1(embed_data),
+        "Q5_0" => crate::quantize::dequantize_q5_0(embed_data),
+        "Q5_1" => crate::quantize::dequantize_q5_1(embed_data),
+        "Q8_0" => crate::quantize::dequantize_q8_0(embed_data),
+        "Q2_K" => crate::quantize::dequantize_q2_k(embed_data),
         "Q4_K" => crate::quantize::dequantize_q4_k(embed_data),
+        "Q5_K" => crate::quantize::dequantize_q5_k(embed_data),
+        "Q6_K" => crate::quantize::dequantize_q6_k(embed_data),
+        // APR native quant types
         "q8" => Ok(crate::apr::dequant::dequantize_apr_q8(
             embed_data,
             num_elements,
