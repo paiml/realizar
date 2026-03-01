@@ -34,22 +34,23 @@ impl AprV2Model {
         if model_path.extension().is_some_and(|e| e == "apr") {
             match Self::load(model_path) {
                 Ok(model) => {
-                    match model.load_embedded_bpe_tokenizer() {
-                        Some(tokenizer) => {
-                            return Some(tokenizer.encode(text));
-                        },
-                        None => {
-                            // PMAT-172: FAIL FAST - Do not fall back to external tokenizers
-                            eprintln!("\n[PMAT-172] ERROR: APR file missing embedded tokenizer.");
-                            eprintln!("           APR format requires self-contained tokenizer.");
-                            eprintln!(
-                                "           Re-convert with: apr convert <source>.gguf -o {}",
-                                model_path.display()
-                            );
-                            eprintln!("           Or use the original GGUF file directly.\n");
-                            return None;
-                        },
+                    // Try BPE tokenizer first
+                    if let Some(tokenizer) = model.load_embedded_bpe_tokenizer() {
+                        return Some(tokenizer.encode(text));
                     }
+                    // GH-366: Try SentencePiece tokenizer (Unigram models)
+                    if let Some(tokenizer) = model.load_embedded_sentencepiece_tokenizer() {
+                        return Some(tokenizer.encode(text));
+                    }
+                    // PMAT-172: FAIL FAST - No embedded tokenizer found
+                    eprintln!("\n[PMAT-172] ERROR: APR file missing embedded tokenizer.");
+                    eprintln!("           APR format requires self-contained tokenizer.");
+                    eprintln!(
+                        "           Re-convert with: apr convert <source>.gguf -o {}",
+                        model_path.display()
+                    );
+                    eprintln!("           Or use the original GGUF file directly.\n");
+                    return None;
                 },
                 Err(e) => {
                     eprintln!("[PMAT-172] Error loading APR file: {}", e);
@@ -207,6 +208,45 @@ impl AprV2Model {
             eos_id,
             special_tokens,
         })
+    }
+
+    /// GH-366: Load a SentencePiece tokenizer from embedded APR metadata
+    ///
+    /// APR files converted from SafeTensors models with tokenizer.model
+    /// contain vocabulary + scores for Unigram/Viterbi encoding.
+    ///
+    /// Returns `Some(SentencePieceTokenizer)` if vocab and scores are embedded.
+    pub fn load_embedded_sentencepiece_tokenizer(&self) -> Option<SentencePieceTokenizer> {
+        let vocab_list = self.metadata.get_embedded_vocabulary()?;
+        let scores = self.metadata.get_embedded_scores()?;
+
+        if vocab_list.len() != scores.len() {
+            eprintln!(
+                "[GH-366] Vocab/scores length mismatch: {} vs {}",
+                vocab_list.len(),
+                scores.len()
+            );
+            return None;
+        }
+
+        let vocab_with_scores: Vec<(String, f32)> = vocab_list
+            .into_iter()
+            .zip(scores)
+            .collect();
+
+        match SentencePieceTokenizer::new(vocab_with_scores, "<unk>") {
+            Ok(tokenizer) => {
+                eprintln!(
+                    "[GH-366] Loaded embedded SentencePiece tokenizer: {} vocab tokens",
+                    tokenizer.vocab_size()
+                );
+                Some(tokenizer)
+            }
+            Err(e) => {
+                eprintln!("[GH-366] Failed to create SentencePiece tokenizer: {e}");
+                None
+            }
+        }
     }
 
     /// Load a full tokenizer struct from sibling tokenizer.json
