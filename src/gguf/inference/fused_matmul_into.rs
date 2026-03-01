@@ -519,6 +519,18 @@ impl OwnedQuantizedModel {
                     .collect();
                 Ok(floats)
             }
+            // GH-368: BF16 weights — convert to F32 (left-shift 16 bits)
+            GGUF_TYPE_BF16 => {
+                let floats: Vec<f32> = weight
+                    .data
+                    .chunks_exact(2)
+                    .map(|b| {
+                        let bits = u16::from_le_bytes([b[0], b[1]]);
+                        f32::from_bits((bits as u32) << 16)
+                    })
+                    .collect();
+                Ok(floats)
+            }
             GGUF_TYPE_Q4_0 => dequantize_q4_0(&weight.data),
             GGUF_TYPE_Q4_1 => dequantize_q4_1(&weight.data),
             GGUF_TYPE_Q5_0 => dequantize_q5_0(&weight.data),

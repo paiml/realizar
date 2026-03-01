@@ -62,6 +62,9 @@ pub const GGUF_TYPE_Q5_K: u32 = 13;
 /// GGUF quantization type: `Q6_K` (6-bit K-quantization, super-block size 256)
 pub const GGUF_TYPE_Q6_K: u32 = 14;
 
+/// GGUF quantization type: BF16 (bfloat16, GGML type 30)
+pub const GGUF_TYPE_BF16: u32 = 30;
+
 // ============================================================================
 // GH-321: Unified GGML Quantization Type Enum
 // ============================================================================

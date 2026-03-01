@@ -17,7 +17,7 @@ use crate::gguf::config::GGUFConfig;
 use crate::gguf::model::OwnedQuantizedModel;
 use crate::gguf::quantized::{OwnedQKVWeights, OwnedQuantizedTensor};
 use crate::gguf::types::{
-    GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_K, GGUF_TYPE_Q8_0,
+    GGUF_TYPE_BF16, GGUF_TYPE_F16, GGUF_TYPE_F32, GGUF_TYPE_Q4_0, GGUF_TYPE_Q4_K, GGUF_TYPE_Q8_0,
 };
 
 // ============================================================================
@@ -328,6 +328,196 @@ fn test_fused_matmul_q4k_multi_token() {
     assert!(result.is_ok());
     let output = result.unwrap();
     assert_eq!(output.len(), 64 * 4);
+}
+
+// ============================================================================
+// fused_matmul() Tests - BF16 (GH-368: Design-by-Contract)
+//
+// CONTRACT: BF16 matmul must produce identical results to computing with
+// F32 weights that were created by BF16→F32 conversion.
+// BF16 encoding: f32::from_bits((bf16_bits as u32) << 16)
+// This is NOT a lossy approximation — it is exact bit manipulation.
+// ============================================================================
+
+/// Create BF16 weight tensor with known F32 values
+/// CONTRACT: BF16 is the upper 16 bits of F32.
+///   To encode F32→BF16: (f32.to_bits() >> 16) as u16
+///   To decode BF16→F32: f32::from_bits((bf16_bits as u32) << 16)
+fn create_bf16_test_data(in_dim: usize, out_dim: usize, value: f32) -> OwnedQuantizedTensor {
+    let bf16_bits = (value.to_bits() >> 16) as u16;
+    let mut data = Vec::with_capacity(out_dim * in_dim * 2);
+    for _ in 0..(out_dim * in_dim) {
+        data.extend_from_slice(&bf16_bits.to_le_bytes());
+    }
+    OwnedQuantizedTensor {
+        data,
+        in_dim,
+        out_dim,
+        qtype: GGUF_TYPE_BF16,
+    }
+}
+
+/// CONTRACT: Create BF16 identity matrix (1.0 on diagonal, 0.0 elsewhere)
+fn create_bf16_identity(dim: usize) -> OwnedQuantizedTensor {
+    let one_bf16 = (1.0_f32.to_bits() >> 16) as u16;
+    let zero_bf16 = (0.0_f32.to_bits() >> 16) as u16;
+    let mut data = Vec::with_capacity(dim * dim * 2);
+    for row in 0..dim {
+        for col in 0..dim {
+            let bits = if row == col { one_bf16 } else { zero_bf16 };
+            data.extend_from_slice(&bits.to_le_bytes());
+        }
+    }
+    OwnedQuantizedTensor {
+        data,
+        in_dim: dim,
+        out_dim: dim,
+        qtype: GGUF_TYPE_BF16,
+    }
+}
+
+#[test]
+fn falsify_bf16_001_shape_preservation_single_token() {
+    // CONTRACT: output.len() == out_dim for single token
+    let model = create_test_model(64, 100);
+    let weight = create_bf16_test_data(64, 32, 0.0);
+    let input = vec![1.0f32; 64];
+
+    let result = model.fused_matmul(&input, &weight);
+    assert!(result.is_ok(), "BF16 matmul must not error");
+    assert_eq!(result.unwrap().len(), 32, "Output shape must be out_dim");
+}
+
+#[test]
+fn falsify_bf16_002_shape_preservation_multi_token() {
+    // CONTRACT: output.len() == out_dim * seq_len for multi-token
+    let model = create_test_model(64, 100);
+    let weight = create_bf16_test_data(64, 32, 0.0);
+    let input = vec![1.0f32; 64 * 3]; // 3 tokens
+
+    let result = model.fused_matmul(&input, &weight);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap().len(), 32 * 3, "Output shape must be out_dim * seq_len");
+}
+
+#[test]
+fn falsify_bf16_003_zero_weights_produce_zero_output() {
+    // CONTRACT: W=0 ⟹ W·x = 0 for all x (additive identity)
+    let model = create_test_model(64, 100);
+    let weight = create_bf16_test_data(64, 32, 0.0);
+    let input = vec![42.0f32; 64];
+
+    let output = model.fused_matmul(&input, &weight).unwrap();
+    for (i, &v) in output.iter().enumerate() {
+        assert!(v == 0.0, "Zero weights must produce zero output, got {v} at index {i}");
+    }
+}
+
+#[test]
+fn falsify_bf16_004_identity_matmul_preserves_input() {
+    // CONTRACT: I·x = x (identity matrix preserves input)
+    let dim = 64;
+    let model = create_test_model(dim, 100);
+    let weight = create_bf16_identity(dim);
+    let input: Vec<f32> = (0..dim).map(|i| (i as f32) * 0.1).collect();
+
+    let output = model.fused_matmul(&input, &weight).unwrap();
+    assert_eq!(output.len(), dim);
+    for (i, (&out, &inp)) in output.iter().zip(input.iter()).enumerate() {
+        // CONTRACT: Identity(BF16) × x = x exactly, because:
+        //   diagonal = BF16(1.0) = 1.0 (exact), off-diagonal = BF16(0.0) = 0.0 (exact)
+        //   So dot product = 1.0 * x[i] + sum(0.0 * x[j]) = x[i]
+        // Allow small tolerance for FP accumulation across 64 additions.
+        assert!(
+            (out - inp).abs() < 1e-5,
+            "Identity matmul must preserve input at index {i}: expected {inp}, got {out}"
+        );
+    }
+}
+
+#[test]
+fn falsify_bf16_005_known_dot_product() {
+    // CONTRACT: BF16 matmul must equal hand-computed dot product
+    // W = [[1.0, 2.0], [3.0, 4.0]], x = [1.0, 1.0]
+    // Expected: [1+2, 3+4] = [3.0, 7.0]
+    let model = create_test_model(64, 100);
+
+    let one_bf16 = (1.0_f32.to_bits() >> 16) as u16;
+    let two_bf16 = (2.0_f32.to_bits() >> 16) as u16;
+    let three_bf16 = (3.0_f32.to_bits() >> 16) as u16;
+    let four_bf16 = (4.0_f32.to_bits() >> 16) as u16;
+
+    let mut data = Vec::new();
+    // Row 0: [1.0, 2.0]
+    data.extend_from_slice(&one_bf16.to_le_bytes());
+    data.extend_from_slice(&two_bf16.to_le_bytes());
+    // Row 1: [3.0, 4.0]
+    data.extend_from_slice(&three_bf16.to_le_bytes());
+    data.extend_from_slice(&four_bf16.to_le_bytes());
+
+    let weight = OwnedQuantizedTensor {
+        data,
+        in_dim: 2,
+        out_dim: 2,
+        qtype: GGUF_TYPE_BF16,
+    };
+    let input = vec![1.0f32; 2];
+
+    let output = model.fused_matmul(&input, &weight).unwrap();
+    assert_eq!(output.len(), 2);
+    assert!((output[0] - 3.0).abs() < 1e-6, "Expected 3.0, got {}", output[0]);
+    assert!((output[1] - 7.0).abs() < 1e-6, "Expected 7.0, got {}", output[1]);
+}
+
+#[test]
+fn falsify_bf16_006_f32_equivalence() {
+    // CONTRACT: BF16 matmul must produce same results as F32 matmul on BF16-representable values
+    // This is the design-by-contract proof: BF16 path ≡ F32 path for BF16-exact values
+    let model = create_test_model(64, 100);
+    let in_dim = 64;
+    let out_dim = 16;
+
+    // Create weights with BF16-exact values (1.5 is exactly representable)
+    let value = 1.5_f32;
+    let bf16_weight = create_bf16_test_data(in_dim, out_dim, value);
+
+    // Create equivalent F32 weight
+    let bf16_decoded = f32::from_bits(((value.to_bits() >> 16) as u32) << 16);
+    let f32_data: Vec<u8> = (0..out_dim * in_dim)
+        .flat_map(|_| bf16_decoded.to_le_bytes())
+        .collect();
+    let f32_weight = OwnedQuantizedTensor {
+        data: f32_data,
+        in_dim,
+        out_dim,
+        qtype: GGUF_TYPE_F32,
+    };
+
+    let input: Vec<f32> = (0..in_dim).map(|i| ((i % 7) as f32) * 0.5).collect();
+
+    let bf16_output = model.fused_matmul(&input, &bf16_weight).unwrap();
+    let f32_output = model.fused_matmul(&input, &f32_weight).unwrap();
+
+    assert_eq!(bf16_output.len(), f32_output.len());
+    for (i, (&b, &f)) in bf16_output.iter().zip(f32_output.iter()).enumerate() {
+        assert!(
+            (b - f).abs() < 1e-3,
+            "BF16 must match F32 at index {i}: bf16={b}, f32={f}"
+        );
+    }
+}
+
+#[test]
+fn falsify_bf16_007_finite_output() {
+    // CONTRACT: BF16 matmul must produce finite values (no NaN, no Inf)
+    let model = create_test_model(64, 100);
+    let weight = create_bf16_test_data(64, 32, 0.5);
+    let input = vec![1.0f32; 64];
+
+    let output = model.fused_matmul(&input, &weight).unwrap();
+    for (i, &v) in output.iter().enumerate() {
+        assert!(v.is_finite(), "Output must be finite at index {i}, got {v}");
+    }
 }
 
 // ============================================================================
