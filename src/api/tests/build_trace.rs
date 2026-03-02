@@ -24,13 +24,15 @@ fn test_build_trace_data_brick_level() {
     assert_eq!(trace.level, "brick");
     assert_eq!(trace.operations, 5);
     assert_eq!(trace.total_time_us, 1000);
-    assert!(!trace.breakdown.is_empty());
-    assert!(trace
-        .breakdown
-        .iter()
-        .any(|op| op.name == "embedding_lookup"));
-    assert!(trace.breakdown.iter().any(|op| op.name == "matmul_qkv"));
-    assert!(trace.breakdown.iter().any(|op| op.name == "softmax"));
+    // Single honest entry with wall-clock total — no fabricated per-op breakdown
+    assert_eq!(trace.breakdown.len(), 1);
+    assert_eq!(trace.breakdown[0].name, "total_inference");
+    assert_eq!(trace.breakdown[0].time_us, 1000);
+    assert!(trace.breakdown[0]
+        .details
+        .as_ref()
+        .expect("details should be present")
+        .contains("apr profile"));
 }
 
 #[test]
@@ -44,16 +46,13 @@ fn test_build_trace_data_step_level() {
     assert_eq!(trace.level, "step");
     assert_eq!(trace.operations, 10);
     assert_eq!(trace.total_time_us, 5000);
-    assert!(trace.breakdown.iter().any(|op| op.name == "tokenize"));
-    assert!(trace.breakdown.iter().any(|op| op.name == "forward_pass"));
-    assert!(trace.breakdown.iter().any(|op| op.name == "decode"));
-    // Check details fields
-    let tokenize = trace
-        .breakdown
-        .iter()
-        .find(|op| op.name == "tokenize")
-        .expect("test value should be present");
-    assert!(tokenize.details.as_ref().expect("test value should be present").contains("20"));
+    // Single honest entry — no fabricated tokenize/forward_pass/decode breakdown
+    assert_eq!(trace.breakdown.len(), 1);
+    assert_eq!(trace.breakdown[0].name, "total_inference");
+    assert_eq!(trace.breakdown[0].time_us, 5000);
+    let details = trace.breakdown[0].details.as_ref().expect("details should be present");
+    assert!(details.contains("20 prompt"));
+    assert!(details.contains("10 completion"));
 }
 
 #[test]
@@ -67,14 +66,12 @@ fn test_build_trace_data_layer_level() {
     assert_eq!(trace.level, "layer");
     assert_eq!(trace.operations, 12);
     assert_eq!(trace.total_time_us, 8000);
-    assert_eq!(trace.breakdown.len(), 12);
-    assert!(trace.breakdown[0].name.starts_with("layer_"));
-    assert!(trace.breakdown[11].name.contains("11"));
-    assert!(trace.breakdown[0]
-        .details
-        .as_ref()
-        .expect("test value should be present")
-        .contains("attention+mlp"));
+    // Single honest entry — no fabricated per-layer breakdown
+    assert_eq!(trace.breakdown.len(), 1);
+    assert_eq!(trace.breakdown[0].name, "total_inference");
+    assert_eq!(trace.breakdown[0].time_us, 8000);
+    let details = trace.breakdown[0].details.as_ref().expect("details should be present");
+    assert!(details.contains("12 layers"));
 }
 
 #[test]
@@ -124,7 +121,9 @@ fn test_build_trace_data_large_values() {
     let (_brick, _step, layer) = build_trace_data(Some("layer"), u64::MAX / 2, 100000, 50000, 1000);
     assert!(layer.is_some());
     let trace = layer.expect("test value should be present");
-    assert_eq!(trace.breakdown.len(), 1000);
+    // Single honest entry regardless of layer count
+    assert_eq!(trace.breakdown.len(), 1);
+    assert_eq!(trace.breakdown[0].time_us, u64::MAX / 2);
 }
 
 // ============================================================================

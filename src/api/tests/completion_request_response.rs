@@ -62,8 +62,10 @@ fn test_build_trace_data_brick() {
     assert_eq!(brick.level, "brick");
     assert_eq!(brick.operations, 5);
     assert_eq!(brick.total_time_us, 1000);
-    assert_eq!(brick.breakdown.len(), 3);
-    assert_eq!(brick.breakdown[0].name, "embedding_lookup");
+    assert_eq!(brick.breakdown.len(), 1);
+    assert_eq!(brick.breakdown[0].name, "total_inference");
+    assert_eq!(brick.breakdown[0].time_us, 1000);
+    assert!(brick.breakdown[0].details.as_ref().expect("details").contains("apr profile"));
 }
 
 #[test]
@@ -74,10 +76,10 @@ fn test_build_trace_data_step() {
     assert!(layer.is_none());
     let step = step.expect("step trace");
     assert_eq!(step.level, "step");
-    assert_eq!(step.breakdown.len(), 3);
-    assert_eq!(step.breakdown[0].name, "tokenize");
-    assert_eq!(step.breakdown[1].name, "forward_pass");
-    assert_eq!(step.breakdown[2].name, "decode");
+    assert_eq!(step.breakdown.len(), 1);
+    assert_eq!(step.breakdown[0].name, "total_inference");
+    assert_eq!(step.breakdown[0].time_us, 2000);
+    assert!(step.breakdown[0].details.as_ref().expect("details").contains("apr profile"));
 }
 
 #[test]
@@ -89,11 +91,12 @@ fn test_build_trace_data_layer() {
     let layer = layer.expect("layer trace");
     assert_eq!(layer.level, "layer");
     assert_eq!(layer.operations, 6);
-    assert_eq!(layer.breakdown.len(), 6);
-    // Each layer should have uniform time distribution
-    for (i, op) in layer.breakdown.iter().enumerate() {
-        assert_eq!(op.name, format!("layer_{}", i));
-    }
+    assert_eq!(layer.breakdown.len(), 1);
+    assert_eq!(layer.breakdown[0].name, "total_inference");
+    assert_eq!(layer.breakdown[0].time_us, 3000);
+    let details = layer.breakdown[0].details.as_ref().expect("details present");
+    assert!(details.contains("6 layers"));
+    assert!(details.contains("apr profile"));
 }
 
 #[test]
