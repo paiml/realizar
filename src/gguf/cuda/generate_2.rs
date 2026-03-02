@@ -384,12 +384,21 @@ impl OwnedQuantizedModelCuda {
         // Without this, cache positions accumulate across generate calls causing degradation
         self.executor.reset_kv_cache_gpu();
 
-        // PMAT-PREFILL-FIX: Clear stale graph state (position_buf, seq_len_buf) from previous
-        // generation. validate_gpu_first_token() captures a graph that sets position_buf=Some(0).
-        // If batched prefill runs with stale position_buf, the KV scatter uses INDIRECT mode
-        // which reads position from the device buffer (always 0), so ALL tokens scatter to
-        // position 0 instead of their correct positions.
-        self.executor.clear_decode_graph();
+        // GH-93: Preserve CUDA graph across requests — skip clear_decode_graph().
+        // Graph pointers are stable (PAR-200 workspace reuse), position/seq_len/input
+        // buffers are updated via H2D copy before each replay. The captured graph's
+        // kernels operate on the same device addresses every time.
+        //
+        // With graph preserved, first prefill token at position=0 goes through the
+        // replay path (decode_token_count > 0 && decode_graph.is_some()), which
+        // correctly updates position_buf=0, seq_len_buf=1, and launches the graph.
+        //
+        // PMAT-PREFILL-FIX caveat: If BATCHED_PREFILL=1 is enabled, we must clear
+        // the graph because batched prefill uses DIRECT position mode, but stale
+        // position_buf triggers INDIRECT mode (reads device buffer = wrong position).
+        if std::env::var("BATCHED_PREFILL").map(|v| v == "1").unwrap_or(false) {
+            self.executor.clear_decode_graph();
+        }
 
         let mut tokens = prompt.to_vec();
 
