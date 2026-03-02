@@ -51,28 +51,24 @@
         assert!((tok_per_sec - 100000.0).abs() < 0.001); // 100k tok/s
     }
 
-    // --- Max Tokens Capping Tests (Line 285) ---
+    // --- Max Tokens Passthrough Tests (GH-372: removed .min(128) cap) ---
 
     #[test]
-    fn test_max_tokens_capped_at_128_deep_icov() {
-        // Test the .min(128) capping in gen_config (line 285)
+    fn test_max_tokens_passthrough_large() {
         let config = InferenceConfig::new("/model.gguf").with_max_tokens(1000);
-        let capped = config.max_tokens.min(128);
-        assert_eq!(capped, 128);
+        assert_eq!(config.max_tokens, 1000);
     }
 
     #[test]
-    fn test_max_tokens_not_capped_if_under_128_deep_icov() {
+    fn test_max_tokens_passthrough_small() {
         let config = InferenceConfig::new("/model.gguf").with_max_tokens(50);
-        let capped = config.max_tokens.min(128);
-        assert_eq!(capped, 50);
+        assert_eq!(config.max_tokens, 50);
     }
 
     #[test]
-    fn test_max_tokens_exactly_128_deep_icov() {
-        let config = InferenceConfig::new("/model.gguf").with_max_tokens(128);
-        let capped = config.max_tokens.min(128);
-        assert_eq!(capped, 128);
+    fn test_max_tokens_passthrough_512() {
+        let config = InferenceConfig::new("/model.gguf").with_max_tokens(512);
+        assert_eq!(config.max_tokens, 512);
     }
 
     // --- Format String Tests ---
