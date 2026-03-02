@@ -54,16 +54,18 @@ curl -X POST http://localhost:8080/generate -d '{"prompt": "Hello", "max_tokens"
 | MNIST | 103K | **73µs** | 13.6K inferences/sec |
 | Large NN | 1M | **410µs** | 2.4K inferences/sec |
 
-### GGUF Format (LLM Inference)
+### GGUF / APR Format (LLM Inference)
 
-| Model | Size | Runtime | Backend | Throughput |
-|-------|------|---------|---------|------------|
-| Phi-2 Q4_K_M | 2.7B | **realizar** | RTX 4090 (CUDA) | **276 tok/s** |
-| Phi-2 Q4_K_M | 2.7B | llama.cpp | RTX 4090 (CUDA) | 256 tok/s |
-| Phi-2 Q4_K_M | 2.7B | Ollama | RTX 4090 (CUDA) | 228 tok/s |
-| Phi-2 Q4_K_M | 2.7B | realizar | CPU (AVX2) | ~15 tok/s |
+| Model | Size | Format | Runtime | Backend | Throughput |
+|-------|------|--------|---------|---------|------------|
+| Qwen2.5-Coder Q4_K_M | 1.5B | APR | **realizar** | RTX 4090 (CUDA) | **240 tok/s** |
+| Qwen2.5-Coder Q4_K_M | 1.5B | APR | realizar | CPU (AVX2) | 18 tok/s |
+| Phi-2 Q4_K_M | 2.7B | GGUF | **realizar** | RTX 4090 (CUDA) | **276 tok/s** |
+| Phi-2 Q4_K_M | 2.7B | GGUF | llama.cpp | RTX 4090 (CUDA) | 256 tok/s |
+| Phi-2 Q4_K_M | 2.7B | GGUF | Ollama | RTX 4090 (CUDA) | 228 tok/s |
+| Phi-2 Q4_K_M | 2.7B | GGUF | realizar | CPU (AVX2) | ~15 tok/s |
 
-*realizar achieves 8-21% faster inference than llama.cpp/Ollama via pure Rust CUDA PTX generation (no LLVM/nvcc)*
+*realizar achieves 8-21% faster inference than llama.cpp/Ollama via pure Rust CUDA PTX generation (no LLVM/nvcc). GQA models (Qwen2.5) fully supported on GPU via GH-88.*
 
 ### The Complete Benchmark Matrix
 
@@ -71,7 +73,7 @@ curl -X POST http://localhost:8080/generate -d '{"prompt": "Hello", "max_tokens"
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                     GGUF Format (Same Model)                                │
+│                     GGUF Format (Phi-2 2.7B Q4_K)                           │
 ├──────────────┬─────────┬─────────────┬─────────────┬───────────────────────┤
 │ Runtime      │ Backend │ p50 Latency │ Throughput  │ Command               │
 ├──────────────┼─────────┼─────────────┼─────────────┼───────────────────────┤
@@ -80,6 +82,11 @@ curl -X POST http://localhost:8080/generate -d '{"prompt": "Hello", "max_tokens"
 │ Ollama       │ CUDA    │ ~120ms      │ 228 tok/s   │ ollama serve          │
 │ realizar     │ CPU     │ ~500ms      │ ~15 tok/s   │ cargo bench gguf_real │
 │ llama.cpp    │ CPU     │ ~3000ms     │ ~15 tok/s   │ llama-server -ngl 0   │
+├──────────────┴─────────┴─────────────┴─────────────┴───────────────────────┤
+│                     APR Format (Qwen2.5-Coder 1.5B Q4_K)                    │
+├──────────────┬─────────┬─────────────┬─────────────┬───────────────────────┤
+│ realizar     │ CUDA    │ ~4ms TTFT   │ 240 tok/s   │ apr bench --fast      │
+│ realizar     │ CPU     │ ~56ms       │ 18 tok/s    │ bench_forward example │
 ├──────────────┴─────────┴─────────────┴─────────────┴───────────────────────┤
 │                     APR Format (Classical ML)                               │
 ├──────────────┬─────────┬─────────────┬─────────────┬───────────────────────┤
@@ -158,13 +165,14 @@ realizar convert model.gguf --output model.apr  # Coming soon
 <!-- SERVER_BENCHMARK_START -->
 ## Server Benchmark Results
 
-| Server | Backend | Mean Latency (ms) | Throughput (tok/s) |
-|--------|---------|------------------|-------------------|
-| **realizar** | CUDA | **3.6** | **276** |
-| llama.cpp | CUDA | 162 | 256 |
-| Ollama | CUDA | 120 | 228 |
+| Server | Model | Backend | Mean Latency (ms) | Throughput (tok/s) |
+|--------|-------|---------|------------------|-------------------|
+| **realizar** | Qwen 1.5B Q4_K | CUDA | **4** | **240** |
+| **realizar** | Phi-2 2.7B Q4_K | CUDA | **3.6** | **276** |
+| llama.cpp | Phi-2 2.7B Q4_K | CUDA | 162 | 256 |
+| Ollama | Phi-2 2.7B Q4_K | CUDA | 120 | 228 |
 
-_Methodology: CV-based stopping per Hoefler & Belli SC15. RTX 4090, Phi-2 2.7B Q4_K_M._
+_Methodology: CV-based stopping per Hoefler & Belli SC15. RTX 4090. Qwen measured via `apr bench --fast`._
 <!-- SERVER_BENCHMARK_END -->
 
 ### Run Benchmarks

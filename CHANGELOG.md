@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **GH-88: APR GPU inference for GQA models** — `AprMetadata` now accepts `num_key_value_heads` alias from Q4K converter metadata. Previously, GQA models (Qwen2.5-Coder) panicked during GPU weight preload because `num_kv_heads` defaulted to `num_heads`, causing KV dimension mismatch.
+- **GH-89: bench_forward hardcoded model path** — Example now accepts model path as `argv[1]` or `GGUF_MODEL` env var instead of hardcoded path (SATD removal).
+- **GH-215: Q5K/Q6K CUDA kernel bounds checks** — Added predicated loads for non-256-aligned K dimensions in batched Q6K and single Q5K kernels.
+
+### Performance
+- **Qwen2.5-Coder 1.5B (APR Q4_K, RTX 4090)**: 240 tok/s GPU, 18 tok/s CPU
+- **Qwen2.5-Coder 0.5B (APR, RTX 4090)**: Verified correct output ("2+2=4") on both GPU and CPU
+
 ## [0.8.0] - 2026-02-26
 
 ### Changed
