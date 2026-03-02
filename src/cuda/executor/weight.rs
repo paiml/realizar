@@ -390,4 +390,62 @@ impl CudaExecutor {
 
         Ok(())
     }
+
+    /// GH-374: Execute F32 GEMV into existing buffer (zero-allocation, async)
+    ///
+    /// CONTRACT: weight_ptr points to N*K f32 values (4 bytes each).
+    /// Uses KernelType::Gemv which maps to trueno-gpu's GemvKernel (gemv_warp_reduce).
+    ///
+    /// This is needed for APR checkpoints where the LM head is stored as F32
+    /// (GGML type 0) rather than a quantized format. Without this, F32 weights
+    /// were silently misclassified as Q4K, producing garbage logits.
+    pub fn f32_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "f32_gemv_into")?;
+        let kernel_type = KernelType::Gemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("f32_gemv_{}_{}", k, n);
+        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        // SAFETY: All pointers validated above, kernel params match signature
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
 }

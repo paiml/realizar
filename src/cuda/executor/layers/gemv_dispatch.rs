@@ -22,6 +22,7 @@ impl CudaExecutor {
             WeightQuantType::Q5K => self.q5k_gemv_into(weight_ptr, input, output, n, k),
             WeightQuantType::Q6K => self.q6k_gemv_into(weight_ptr, input, output, n, k),
             WeightQuantType::Q8_0 => self.q8_0_gemv_into(weight_ptr, input, output, n, k),
+            WeightQuantType::F32 => self.f32_gemv_into(weight_ptr, input, output, n, k),
         }
     }
 
