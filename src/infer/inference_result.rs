@@ -189,12 +189,20 @@ fn run_gguf_inference(
     let input_token_count = prepared.input_count();
     let model_config = model.config.clone();
 
+    // GH-373: Merge model EOS + caller stop tokens
+    let mut stop_tokens: Vec<u32> = model_config.eos_token_id.into_iter().collect();
+    for &t in &config.stop_tokens {
+        if !stop_tokens.contains(&t) {
+            stop_tokens.push(t);
+        }
+    }
+
     let gen_config = QuantizedGenerateConfig {
         max_tokens: config.max_tokens,
         temperature: config.temperature,
         top_k: config.top_k,
+        stop_tokens,
         trace: config.trace,
-        ..Default::default()
     };
 
     let infer_start = Instant::now();

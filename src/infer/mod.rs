@@ -67,6 +67,8 @@ pub struct InferenceConfig {
     pub trace_steps: Option<Vec<String>>,
     /// Show verbose loading/progress output
     pub verbose: bool,
+    /// Stop token IDs for early termination (GH-373)
+    pub stop_tokens: Vec<u32>,
     /// INTERNAL: Use mock backend for testing (PMAT-COV-95)
     #[doc(hidden)]
     pub use_mock_backend: bool,
@@ -89,6 +91,7 @@ impl InferenceConfig {
             trace_output: None,
             trace_steps: None,
             verbose: false,
+            stop_tokens: Vec::new(),
             use_mock_backend: false,
         }
     }
@@ -153,6 +156,13 @@ impl InferenceConfig {
     #[must_use]
     pub fn with_trace_output(mut self, path: impl Into<PathBuf>) -> Self {
         self.trace_output = Some(path.into());
+        self
+    }
+
+    /// Set stop token IDs for early termination (GH-373)
+    #[must_use]
+    pub fn with_stop_tokens(mut self, stop_tokens: Vec<u32>) -> Self {
+        self.stop_tokens = stop_tokens;
         self
     }
 }
