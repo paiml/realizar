@@ -54,7 +54,7 @@ mod cuda_tests;
 pub mod dequant;
 mod helpers;
 mod model_data;
-mod tokenizer;
+pub(crate) mod tokenizer;
 
 // PMAT-COMPLY: Re-export ModelData
 pub use model_data::ModelData;

@@ -136,6 +136,12 @@ pub struct BPETokenizer {
     vocab_size: usize,
     /// Cached maximum token ID (PMAT-805: vLLM pattern)
     max_token_id: u32,
+    /// GH-88: Optional BPE merge rules for proper encoding.
+    /// When present, `encode()` uses merge-based BPE instead of greedy longest-match.
+    /// Required for HuggingFace vocabularies (SafeTensors/APR imports).
+    merge_rules: Vec<(String, String)>,
+    /// GH-88: Special tokens for atomic tokenization (not split by BPE).
+    special_tokens: HashMap<String, u32>,
 }
 
 impl BPETokenizer {
@@ -189,7 +195,35 @@ impl BPETokenizer {
             unk_token_id,
             vocab_size,
             max_token_id,
+            merge_rules: Vec::new(),
+            special_tokens: HashMap::new(),
         })
+    }
+
+    /// GH-88: Create a BPE tokenizer with merge rules for proper encoding.
+    ///
+    /// HuggingFace vocabularies require merge-based BPE (not greedy longest-match).
+    /// When merge rules are provided, `encode()` delegates to `bpe_encode()` from
+    /// `apr::tokenizer` which handles special tokens atomically and applies merges.
+    pub fn with_merges(
+        vocab: Vec<String>,
+        merges: Vec<(String, String)>,
+        unk_token: &str,
+    ) -> Result<Self> {
+        let mut tokenizer = Self::new(vocab, vec![], unk_token)?;
+        // Extract special tokens from vocabulary for atomic tokenization
+        let special_tokens: HashMap<String, u32> = tokenizer
+            .token_to_id
+            .iter()
+            .filter(|(k, _)| {
+                (k.starts_with("<|") && k.ends_with("|>"))
+                    || (k.starts_with("<") && k.ends_with(">") && k.len() > 2 && !k.starts_with("<0x"))
+            })
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+        tokenizer.merge_rules = merges;
+        tokenizer.special_tokens = special_tokens;
+        Ok(tokenizer)
     }
 
     /// Get maximum token ID (cached, O(1))
@@ -201,10 +235,11 @@ impl BPETokenizer {
         self.max_token_id
     }
 
-    /// Encode text to token IDs using greedy longest match
+    /// Encode text to token IDs.
     ///
-    /// Uses GPT-2 style encoding where spaces become Ġ (U+0120) and
-    /// newlines become Ċ (U+010A).
+    /// GH-88: When merge rules are present (HuggingFace tokenizers), uses proper
+    /// BPE encoding with special token support. Otherwise falls back to greedy
+    /// longest-match (sufficient for GGUF vocabularies).
     ///
     /// # Arguments
     ///
@@ -217,6 +252,16 @@ impl BPETokenizer {
     pub fn encode(&self, text: &str) -> Vec<u32> {
         if text.is_empty() {
             return Vec::new();
+        }
+
+        // GH-88: Use proper BPE when merge rules are available
+        if !self.merge_rules.is_empty() {
+            return crate::apr::tokenizer::bpe_encode(
+                text,
+                &self.token_to_id,
+                &self.merge_rules,
+                &self.special_tokens,
+            );
         }
 
         // Convert to GPT-2 encoding: space -> Ġ, newline -> Ċ
