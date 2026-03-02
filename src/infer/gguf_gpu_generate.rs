@@ -199,13 +199,17 @@ fn try_apr_cuda_inference(
         log_apr_cuda_info(&info, &cuda_model, load_ms);
     }
 
-    // GH-330: EOS from model config (Design by Contract)
-    let model_eos: Vec<u32> = cuda_model.model().config.eos_token_id.into_iter().collect();
+    // GH-373: EOS from model config + caller stop tokens + sibling tokenizer
+    let stop_tokens = resolve_apr_stop_tokens(
+        &cuda_model.model().config.eos_token_id,
+        &config.stop_tokens,
+        &config.model_path,
+    );
     let gen_config = QuantizedGenerateConfig {
         max_tokens: config.max_tokens,
         temperature: 0.0,
         top_k: 1,
-        stop_tokens: model_eos,
+        stop_tokens,
         trace: false,
     };
 
@@ -293,6 +297,16 @@ fn run_apr_cpu_inference(
         eprintln!("Backend: CPU (SIMD-accelerated)");
     }
 
+    // GH-373: Resolve stop tokens from model config, caller, and sibling tokenizer
+    let stop_tokens = resolve_apr_stop_tokens(
+        &validated.config.eos_token_id,
+        &config.stop_tokens,
+        &config.model_path,
+    );
+    if config.verbose && !stop_tokens.is_empty() {
+        eprintln!("Stop tokens: {:?}", stop_tokens);
+    }
+
     let infer_start = Instant::now();
     let mut all_tokens = input_tokens.to_vec();
     let mut cache = crate::apr_transformer::AprKVCache::new(&validated.config);
@@ -314,8 +328,8 @@ fn run_apr_cpu_inference(
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map_or(0, |(i, _)| i as u32);
 
-        // GH-330: EOS from model config (Design by Contract)
-        if next_token == 0 || validated.config.eos_token_id == Some(next_token) {
+        // GH-373: EOS from model config + sibling tokenizer + caller
+        if next_token == 0 || stop_tokens.contains(&next_token) {
             break;
         }
 
@@ -372,12 +386,19 @@ fn run_apr_quantized_cpu_inference(
         eprintln!("Backend: CPU (OwnedQuantizedModel fallback for non-LLaMA arch)");
     }
 
+    // GH-373: Resolve stop tokens for quantized path
+    let stop_tokens = resolve_apr_stop_tokens(
+        &model.config.eos_token_id,
+        &config.stop_tokens,
+        &config.model_path,
+    );
+
     let gen_config = QuantizedGenerateConfig {
         max_tokens: config.max_tokens,
         temperature: config.temperature,
         top_k: config.top_k,
+        stop_tokens,
         trace: config.trace,
-        ..Default::default()
     };
 
     let infer_start = Instant::now();
@@ -398,6 +419,59 @@ fn run_apr_quantized_cpu_inference(
         format: "APR".to_string(),
         used_gpu: false,
     })
+}
+
+/// GH-373: Resolve stop tokens from model config, caller, and sibling tokenizer.
+///
+/// Merges EOS tokens from three sources:
+/// 1. Model config (`eos_token_id` from APR/GGUF metadata)
+/// 2. Caller-provided stop tokens (`InferenceConfig.stop_tokens`)
+/// 3. Sibling tokenizer (ChatML markers like `<|im_end|>`, `<|endoftext|>`)
+fn resolve_apr_stop_tokens(
+    model_eos: &Option<u32>,
+    caller_stop_tokens: &[u32],
+    model_path: &std::path::Path,
+) -> Vec<u32> {
+    let mut tokens: Vec<u32> = model_eos.into_iter().copied().collect();
+
+    // Caller-provided stop tokens
+    for &t in caller_stop_tokens {
+        if !tokens.contains(&t) {
+            tokens.push(t);
+        }
+    }
+
+    // Sibling tokenizer fallback (GH-373)
+    if tokens.is_empty() {
+        tokens = resolve_stop_tokens_from_tokenizer(model_path);
+    }
+
+    tokens
+}
+
+/// Load stop tokens from sibling tokenizer.json (GH-373 helper)
+fn resolve_stop_tokens_from_tokenizer(model_path: &std::path::Path) -> Vec<u32> {
+    let tokenizer = match crate::apr::AprV2Model::load_tokenizer(model_path) {
+        Some(t) => t,
+        None => return Vec::new(),
+    };
+
+    let mut tokens: Vec<u32> = tokenizer.eos_id.into_iter().collect();
+
+    // ChatML stop tokens for instruct models
+    for marker in &["<|im_end|>", "<|endoftext|>"] {
+        let id = tokenizer
+            .special_tokens
+            .get(*marker)
+            .or_else(|| tokenizer.token_to_id.get(*marker));
+        if let Some(&id) = id {
+            if !tokens.contains(&id) {
+                tokens.push(id);
+            }
+        }
+    }
+
+    tokens
 }
 
 /// Decode APR output tokens using available tokenizer (GH-156)

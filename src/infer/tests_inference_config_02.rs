@@ -303,6 +303,7 @@
             trace_output: Some(PathBuf::from("/trace.json")),
             trace_steps: Some(vec!["embedding".to_string(), "attention".to_string()]),
             verbose: false,
+            stop_tokens: Vec::new(),
             use_mock_backend: false,
         };
         let debug_str = format!("{:?}", config);
@@ -326,6 +327,7 @@
             trace_output: None,
             trace_steps: None,
             verbose: true,
+            stop_tokens: Vec::new(),
             use_mock_backend: false,
         };
         let cloned = config.clone();
