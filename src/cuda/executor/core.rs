@@ -100,6 +100,7 @@ impl CudaExecutor {
             // PAR-118: Graph capture failure tracking
             graph_capture_failed: false,
             is_capturing: false,
+            is_prefilling: false,
             // PAR-118: Flash Decoding (disabled by default, enable via init_flash_decoding)
             flash_decode_partials: None,
             flash_decode_max_seq_len: 0,

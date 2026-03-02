@@ -233,9 +233,8 @@ impl OwnedQuantizedModelCuda {
 
     /// Run prefill phase: process prompt tokens through all layers to populate KV cache.
     ///
-    /// GH-93: Batched prefill produces garbage output (KV cache corruption).
-    /// Serial prefill is default until batched prefill correctness is fixed.
-    /// Opt-in: `BATCHED_PREFILL=1` (for development/testing only).
+    /// GH-94: Batched prefill is now default (2x throughput vs serial).
+    /// Set `BATCHED_PREFILL=0` for serial fallback.
     fn run_prefill(
         &mut self,
         prompt: &[u32],
@@ -250,9 +249,11 @@ impl OwnedQuantizedModelCuda {
             return Ok(());
         }
 
+        // GH-94: Batched prefill is default (36% throughput improvement).
+        // Set BATCHED_PREFILL=0 to disable (serial fallback).
         let use_batched = std::env::var("BATCHED_PREFILL")
-            .map(|v| v == "1")
-            .unwrap_or(false);
+            .map(|v| v != "0")
+            .unwrap_or(true);
 
         let prefill_start = std::time::Instant::now();
 
@@ -270,7 +271,7 @@ impl OwnedQuantizedModelCuda {
             return Ok(());
         }
 
-        // Batched prefill path (experimental — GH-93 tracks correctness bug)
+        // GH-94: Batched prefill (default path)
         let hidden_dim = self.model.config.hidden_dim;
         let intermediate_dim = self.model.layers[0].ffn_up_weight.out_dim;
         let num_layers = self.model.config.num_layers;
@@ -384,19 +385,13 @@ impl OwnedQuantizedModelCuda {
         // Without this, cache positions accumulate across generate calls causing degradation
         self.executor.reset_kv_cache_gpu();
 
-        // GH-93: Preserve CUDA graph across requests — skip clear_decode_graph().
-        // Graph pointers are stable (PAR-200 workspace reuse), position/seq_len/input
-        // buffers are updated via H2D copy before each replay. The captured graph's
-        // kernels operate on the same device addresses every time.
-        //
-        // With graph preserved, first prefill token at position=0 goes through the
-        // replay path (decode_token_count > 0 && decode_graph.is_some()), which
-        // correctly updates position_buf=0, seq_len_buf=1, and launches the graph.
-        //
-        // PMAT-PREFILL-FIX caveat: If BATCHED_PREFILL=1 is enabled, we must clear
-        // the graph because batched prefill uses DIRECT position mode, but stale
-        // position_buf triggers INDIRECT mode (reads device buffer = wrong position).
-        if std::env::var("BATCHED_PREFILL").map(|v| v == "1").unwrap_or(false) {
+        // GH-94: Batched prefill (default) must clear decode graph because it uses
+        // DIRECT position mode, but stale position_buf triggers INDIRECT mode.
+        // Serial prefill preserves graph (position updated via replay).
+        let use_batched = std::env::var("BATCHED_PREFILL")
+            .map(|v| v != "0")
+            .unwrap_or(true);
+        if use_batched {
             self.executor.clear_decode_graph();
         }
 

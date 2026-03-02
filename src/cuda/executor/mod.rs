@@ -445,6 +445,10 @@ pub struct CudaExecutor {
     // PAR-118: True while inside try_graph_capture — Flash Decoding dispatch is
     // suppressed (uses multi-warp instead) to avoid forbidden synchronize() calls.
     is_capturing: bool,
+    // GH-94: True during batched prefill — Flash Decoding dispatch is suppressed
+    // because sequential attention processes tiny seq_lens (1,2,3...) where flash
+    // decoding's split-K chunking produces incorrect results.
+    is_prefilling: bool,
     // PAR-118: Flash Decoding buffers for split-K attention
     // Partials buffer: [M, num_heads, max_chunks, head_dim + 2]
     flash_decode_partials: Option<GpuBuffer<f32>>,

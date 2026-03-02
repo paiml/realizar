@@ -155,6 +155,9 @@ impl CudaExecutor {
             })?
             .len();
 
+        // GH-94: Suppress flash decoding during prefill (small seq_lens cause errors)
+        self.is_prefilling = true;
+
         // 2. Process all layers with batched GEMV
         for layer_idx in 0..num_layers {
             if layer_idx >= self.indexed_layer_weights.len() {
@@ -195,6 +198,8 @@ impl CudaExecutor {
                 std::mem::forget(buf);
             }
         }
+
+        self.is_prefilling = false;
 
         // After all layers, output is in hidden_buf2 [S × hidden_dim]
         // KV cache has been populated by transformer_layer_batched for each layer.
