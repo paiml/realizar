@@ -91,10 +91,10 @@ mod tests {
         assert!(!is_eos(1000));
     }
 
-    // --- Max tokens capping in different formats ---
+    // --- Max tokens passthrough in different formats (GH-372) ---
 
     #[test]
-    fn test_max_tokens_capping_consistency() {
+    fn test_max_tokens_passthrough_consistency() {
         let configs = [
             InferenceConfig::new("/m.gguf").with_max_tokens(500),
             InferenceConfig::new("/m.apr").with_max_tokens(500),
@@ -102,8 +102,7 @@ mod tests {
         ];
 
         for config in configs {
-            let capped = config.max_tokens.min(128);
-            assert_eq!(capped, 128, "Max tokens should be capped at 128");
+            assert_eq!(config.max_tokens, 500, "Max tokens should pass through uncapped");
         }
     }
 

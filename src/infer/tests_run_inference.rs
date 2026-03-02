@@ -175,25 +175,21 @@
         }
     }
 
-    // --- Max tokens capping behavior ---
+    // --- Max tokens passthrough behavior (GH-372: removed .min(128) cap) ---
 
     #[test]
-    fn test_max_tokens_cap_behavior() {
+    fn test_max_tokens_passthrough() {
         let configs = [
             (InferenceConfig::new("/m.gguf").with_max_tokens(0), 0),
             (InferenceConfig::new("/m.gguf").with_max_tokens(64), 64),
             (InferenceConfig::new("/m.gguf").with_max_tokens(128), 128),
-            (InferenceConfig::new("/m.gguf").with_max_tokens(256), 128), // capped
-            (InferenceConfig::new("/m.gguf").with_max_tokens(1024), 128), // capped
-            (
-                InferenceConfig::new("/m.gguf").with_max_tokens(usize::MAX),
-                128,
-            ), // capped
+            (InferenceConfig::new("/m.gguf").with_max_tokens(256), 256),
+            (InferenceConfig::new("/m.gguf").with_max_tokens(512), 512),
+            (InferenceConfig::new("/m.gguf").with_max_tokens(1024), 1024),
         ];
 
-        for (config, expected_capped) in configs {
-            let capped = config.max_tokens.min(128);
-            assert_eq!(capped, expected_capped);
+        for (config, expected) in configs {
+            assert_eq!(config.max_tokens, expected);
         }
     }
 

@@ -44,7 +44,7 @@ fn greedy_decode_with_transformer(
         logits = transformer.forward_with_cache(token, &mut cache, pos)?;
     }
 
-    for _ in 0..max_tokens.min(128) {
+    for _ in 0..max_tokens {
         let next_token = greedy_argmax(&logits);
         // GH-330: Use model config EOS
         let stop_tokens: Vec<u32> = transformer.config.eos_token_id.into_iter().collect();

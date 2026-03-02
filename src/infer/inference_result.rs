@@ -190,7 +190,7 @@ fn run_gguf_inference(
     let model_config = model.config.clone();
 
     let gen_config = QuantizedGenerateConfig {
-        max_tokens: config.max_tokens.min(128),
+        max_tokens: config.max_tokens,
         temperature: config.temperature,
         top_k: config.top_k,
         trace: config.trace,

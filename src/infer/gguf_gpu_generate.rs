@@ -202,7 +202,7 @@ fn try_apr_cuda_inference(
     // GH-330: EOS from model config (Design by Contract)
     let model_eos: Vec<u32> = cuda_model.model().config.eos_token_id.into_iter().collect();
     let gen_config = QuantizedGenerateConfig {
-        max_tokens: config.max_tokens.min(128),
+        max_tokens: config.max_tokens,
         temperature: 0.0,
         top_k: 1,
         stop_tokens: model_eos,
@@ -304,7 +304,7 @@ fn run_apr_cpu_inference(
 
     // Generate with KV cache (O(1) per token)
     let mut position = input_tokens.len();
-    for _ in 0..config.max_tokens.min(128) {
+    for _ in 0..config.max_tokens {
         let last_token = *all_tokens.last().unwrap_or(&1);
         let logits = validated.forward_with_cache(last_token, &mut cache, position)?;
 
@@ -373,7 +373,7 @@ fn run_apr_quantized_cpu_inference(
     }
 
     let gen_config = QuantizedGenerateConfig {
-        max_tokens: config.max_tokens.min(128),
+        max_tokens: config.max_tokens,
         temperature: config.temperature,
         top_k: config.top_k,
         trace: config.trace,
@@ -498,7 +498,7 @@ fn try_safetensors_cuda_inference(
     let infer_start = Instant::now();
     // GH-330: EOS from model config (Design by Contract)
     let eos_id = cuda_model.config().eos_token_id.unwrap_or(0);
-    let tokens = match cuda_model.generate(input_tokens, config.max_tokens.min(128), eos_id) {
+    let tokens = match cuda_model.generate(input_tokens, config.max_tokens, eos_id) {
         Ok(t) => t,
         Err(e) => {
             return Some(Err(RealizarError::InferenceError(format!(
