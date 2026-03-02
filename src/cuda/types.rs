@@ -112,6 +112,10 @@ pub enum WeightQuantType {
     /// Q4_1 quantization (type 3) - 20 bytes per 32 elements (2 f16 scale + 2 f16 min + 16 quants)
     /// PAR-058: Added to handle Qwen 0.5B which has FFN down in Q4_1 despite metadata
     Q4_1,
+    /// F32 unquantized (type 0) - 4 bytes per element
+    /// GH-374: APR checkpoints may have F32 LM head when source model was not quantized.
+    /// Without this variant, F32 weights silently default to Q4K GEMV → garbage logits.
+    F32,
 }
 
 impl WeightQuantType {
@@ -125,6 +129,7 @@ impl WeightQuantType {
             Self::Q5_0 => 22 * 8, // Q5_0 uses 32-element blocks, so 8 blocks for 256 elements
             Self::Q4_0 => 18 * 8, // Q4_0 uses 32-element blocks, so 8 blocks for 256 elements
             Self::Q4_1 => 20 * 8, // Q4_1 uses 32-element blocks, so 8 blocks for 256 elements
+            Self::F32 => 256 * 4, // F32: 4 bytes per element, 256 elements
         }
     }
 
@@ -138,12 +143,14 @@ impl WeightQuantType {
             Self::Q5_0 => 22,
             Self::Q4_0 => 18,
             Self::Q4_1 => 20,
+            Self::F32 => 128, // F32: 4 bytes per element, 32 elements
         }
     }
 
     /// Create from GGML type ID
     pub fn from_ggml_type(type_id: u32) -> Option<Self> {
         match type_id {
+            0 => Some(Self::F32), // GH-374: F32 LM head in APR checkpoints
             2 => Some(Self::Q4_0),
             3 => Some(Self::Q4_1), // PAR-058: Q4_1 support
             6 => Some(Self::Q5_0),
@@ -159,6 +166,8 @@ impl WeightQuantType {
     /// Returns true if the qtype would produce the given byte size
     pub fn matches_size(&self, size_bytes: usize, n_rows: usize, n_cols: usize) -> bool {
         match self {
+            // F32: 4 bytes per element
+            Self::F32 => size_bytes == n_rows * n_cols * 4,
             // Super-block formats (256 elements per super-block)
             Self::Q4K | Self::Q5K | Self::Q6K => {
                 let n_superblocks = n_rows * ((n_cols + 255) / 256);
@@ -179,6 +188,12 @@ impl WeightQuantType {
     /// the SAME byte size (e.g., 1536×8960: 1536×280×18 = 1536×35×144 = 7,741,440).
     /// Check super-block formats FIRST since they have more distinctive layouts.
     pub fn from_size(size_bytes: usize, n_rows: usize, n_cols: usize) -> Option<Self> {
+        // GH-374: Check F32 first — unambiguous (no block alignment rounding)
+        // APR checkpoints may have F32 LM head from SafeTensors import
+        if size_bytes == n_rows * n_cols * 4 {
+            return Some(Self::F32);
+        }
+
         // CORRECTNESS-002: Check super-block formats FIRST
         // Super-block formats (256 elements per super-block)
         let n_superblocks = n_rows * ((n_cols + 255) / 256);
@@ -270,6 +285,9 @@ pub enum GemvKernel {
     Q5_0,
     /// Q4_1 block kernel (20 bytes / 32 elements)
     Q4_1,
+    /// F32 GEMV kernel (4 bytes per element, no dequantization)
+    /// GH-374: For F32 LM head weights in APR checkpoints
+    F32,
 }
 
 impl BoundWeight {
@@ -288,6 +306,7 @@ impl BoundWeight {
             WeightQuantType::Q4_0 => GemvKernel::Q4_0,
             WeightQuantType::Q5_0 => GemvKernel::Q5_0,
             WeightQuantType::Q4_1 => GemvKernel::Q4_1,
+            WeightQuantType::F32 => GemvKernel::F32,
         };
         Self {
             ptr,

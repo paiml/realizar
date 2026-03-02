@@ -279,6 +279,15 @@ impl CudaExecutor {
                     hidden_dim,
                 )?;
             },
+            WeightQuantType::F32 => {
+                self.f32_gemv_into(
+                    self.lm_head_ptr,
+                    &normed_input,
+                    &logits_output,
+                    vocab_size,
+                    hidden_dim,
+                )?;
+            },
         }
 
         // PAR-064-FIX: Add LM head bias after GEMV (if present)
