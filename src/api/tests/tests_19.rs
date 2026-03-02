@@ -324,12 +324,13 @@ fn test_build_trace_data_brick_breakdown_fields() {
     let b = brick.expect("test value should be present");
     assert_eq!(b.operations, 10); // completion_tokens
     assert_eq!(b.total_time_us, 1000);
-    assert_eq!(b.breakdown.len(), 3);
-    assert_eq!(b.breakdown[0].name, "embedding_lookup");
-    assert_eq!(b.breakdown[0].time_us, 100); // 1000 / 10
-    assert!(b.breakdown[0].details.is_some());
-    assert_eq!(b.breakdown[1].name, "matmul_qkv");
-    assert_eq!(b.breakdown[2].name, "softmax");
+    assert_eq!(b.breakdown.len(), 1);
+    assert_eq!(b.breakdown[0].name, "total_inference");
+    assert_eq!(b.breakdown[0].time_us, 1000);
+    let details = b.breakdown[0].details.as_ref().expect("details present");
+    assert!(details.contains("20 prompt"));
+    assert!(details.contains("10 completion"));
+    assert!(details.contains("apr profile"));
 }
 
 #[test]
@@ -338,12 +339,13 @@ fn test_build_trace_data_step_breakdown_fields() {
     let s = step.expect("test value should be present");
     assert_eq!(s.operations, 8); // completion_tokens
     assert_eq!(s.total_time_us, 2000);
-    assert_eq!(s.breakdown.len(), 3);
-    assert_eq!(s.breakdown[0].name, "tokenize");
-    assert_eq!(s.breakdown[1].name, "forward_pass");
-    assert_eq!(s.breakdown[2].name, "decode");
-    // forward_pass time = total - 200
-    assert_eq!(s.breakdown[1].time_us, 1800);
+    assert_eq!(s.breakdown.len(), 1);
+    assert_eq!(s.breakdown[0].name, "total_inference");
+    assert_eq!(s.breakdown[0].time_us, 2000);
+    let details = s.breakdown[0].details.as_ref().expect("details present");
+    assert!(details.contains("15 prompt"));
+    assert!(details.contains("8 completion"));
+    assert!(details.contains("apr profile"));
 }
 
 #[test]
@@ -352,12 +354,12 @@ fn test_build_trace_data_layer_breakdown_fields() {
     let l = layer.expect("test value should be present");
     assert_eq!(l.operations, 4); // num_layers
     assert_eq!(l.total_time_us, 4000);
-    assert_eq!(l.breakdown.len(), 4);
-    for (i, op) in l.breakdown.iter().enumerate() {
-        assert_eq!(op.name, format!("layer_{}", i));
-        assert_eq!(op.time_us, 1000); // 4000 / 4
-        assert_eq!(op.details, Some("attention+mlp".to_string()));
-    }
+    assert_eq!(l.breakdown.len(), 1);
+    assert_eq!(l.breakdown[0].name, "total_inference");
+    assert_eq!(l.breakdown[0].time_us, 4000);
+    let details = l.breakdown[0].details.as_ref().expect("details present");
+    assert!(details.contains("4 layers"));
+    assert!(details.contains("apr profile"));
 }
 
 #[test]

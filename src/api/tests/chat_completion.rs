@@ -173,10 +173,13 @@ fn test_build_trace_data_brick_level() {
     assert_eq!(trace.level, "brick");
     assert_eq!(trace.operations, 20); // completion_tokens
     assert_eq!(trace.total_time_us, 10000);
-    assert_eq!(trace.breakdown.len(), 3);
-    assert_eq!(trace.breakdown[0].name, "embedding_lookup");
-    assert_eq!(trace.breakdown[1].name, "matmul_qkv");
-    assert_eq!(trace.breakdown[2].name, "softmax");
+    assert_eq!(trace.breakdown.len(), 1);
+    assert_eq!(trace.breakdown[0].name, "total_inference");
+    assert_eq!(trace.breakdown[0].time_us, 10000);
+    let details = trace.breakdown[0].details.as_ref().expect("details present");
+    assert!(details.contains("apr profile"));
+    assert!(details.contains("50 prompt"));
+    assert!(details.contains("20 completion"));
 }
 
 #[test]
@@ -191,10 +194,11 @@ fn test_build_trace_data_step_level() {
     assert_eq!(trace.level, "step");
     assert_eq!(trace.operations, 50); // completion_tokens
     assert_eq!(trace.total_time_us, 5000);
-    assert_eq!(trace.breakdown.len(), 3);
-    assert_eq!(trace.breakdown[0].name, "tokenize");
-    assert_eq!(trace.breakdown[1].name, "forward_pass");
-    assert_eq!(trace.breakdown[2].name, "decode");
+    assert_eq!(trace.breakdown.len(), 1);
+    assert_eq!(trace.breakdown[0].name, "total_inference");
+    assert_eq!(trace.breakdown[0].time_us, 5000);
+    let details = trace.breakdown[0].details.as_ref().expect("details present");
+    assert!(details.contains("apr profile"));
 }
 
 #[test]
@@ -209,12 +213,12 @@ fn test_build_trace_data_layer_level() {
     assert_eq!(trace.level, "layer");
     assert_eq!(trace.operations, 6); // num_layers
     assert_eq!(trace.total_time_us, 12000);
-    assert_eq!(trace.breakdown.len(), 6);
-    for (i, op) in trace.breakdown.iter().enumerate() {
-        assert_eq!(op.name, format!("layer_{}", i));
-        assert_eq!(op.time_us, 2000); // 12000 / 6
-        assert_eq!(op.details, Some("attention+mlp".to_string()));
-    }
+    assert_eq!(trace.breakdown.len(), 1);
+    assert_eq!(trace.breakdown[0].name, "total_inference");
+    assert_eq!(trace.breakdown[0].time_us, 12000);
+    let details = trace.breakdown[0].details.as_ref().expect("details present");
+    assert!(details.contains("6 layers"));
+    assert!(details.contains("apr profile"));
 }
 
 #[test]

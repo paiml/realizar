@@ -109,7 +109,8 @@ pub struct TraceOperation {
 /// Build trace data based on X-Trace-Level header
 ///
 /// Returns (brick_trace, step_trace, layer_trace) tuple based on requested level.
-/// Used by all inference paths (GPU, cached, registry) for consistent tracing.
+/// Only reports wall-clock totals — per-operation breakdown requires `apr profile`
+/// with BrickProfiler instrumentation. We refuse to fabricate per-op estimates.
 #[must_use]
 pub fn build_trace_data(
     trace_level: Option<&str>,
@@ -126,19 +127,13 @@ pub fn build_trace_data(
                 total_time_us: latency_us,
                 breakdown: vec![
                     TraceOperation {
-                        name: "embedding_lookup".to_string(),
-                        time_us: latency_us / 10,
-                        details: Some(format!("{} tokens", prompt_tokens)),
-                    },
-                    TraceOperation {
-                        name: "matmul_qkv".to_string(),
-                        time_us: latency_us / 3,
-                        details: None,
-                    },
-                    TraceOperation {
-                        name: "softmax".to_string(),
-                        time_us: latency_us / 5,
-                        details: None,
+                        name: "total_inference".to_string(),
+                        time_us: latency_us,
+                        details: Some(format!(
+                            "{} prompt + {} completion tokens, {} layers. \
+                             Per-op breakdown not available — use `apr profile` for real brick-level telemetry",
+                            prompt_tokens, completion_tokens, num_layers
+                        )),
                     },
                 ],
             }),
@@ -153,19 +148,13 @@ pub fn build_trace_data(
                 total_time_us: latency_us,
                 breakdown: vec![
                     TraceOperation {
-                        name: "tokenize".to_string(),
-                        time_us: 100,
-                        details: Some(format!("{} input tokens", prompt_tokens)),
-                    },
-                    TraceOperation {
-                        name: "forward_pass".to_string(),
-                        time_us: latency_us.saturating_sub(200),
-                        details: Some(format!("{} layers", num_layers)),
-                    },
-                    TraceOperation {
-                        name: "decode".to_string(),
-                        time_us: 100,
-                        details: Some(format!("{} output tokens", completion_tokens)),
+                        name: "total_inference".to_string(),
+                        time_us: latency_us,
+                        details: Some(format!(
+                            "{} prompt + {} completion tokens, {} layers. \
+                             Step-level breakdown not instrumented — use `apr profile` for real timing",
+                            prompt_tokens, completion_tokens, num_layers
+                        )),
                     },
                 ],
             }),
@@ -178,13 +167,17 @@ pub fn build_trace_data(
                 level: "layer".to_string(),
                 operations: num_layers,
                 total_time_us: latency_us,
-                breakdown: (0..num_layers)
-                    .map(|i| TraceOperation {
-                        name: format!("layer_{}", i),
-                        time_us: latency_us / num_layers as u64,
-                        details: Some("attention+mlp".to_string()),
-                    })
-                    .collect(),
+                breakdown: vec![
+                    TraceOperation {
+                        name: "total_inference".to_string(),
+                        time_us: latency_us,
+                        details: Some(format!(
+                            "{} layers, {} tokens. \
+                             Per-layer breakdown not instrumented — use `apr profile --granular` for real per-layer timing",
+                            num_layers, prompt_tokens + completion_tokens
+                        )),
+                    },
+                ],
             }),
         ),
         _ => (None, None, None),

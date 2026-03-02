@@ -198,7 +198,10 @@ fn test_build_trace_data_brick_level() {
     assert_eq!(trace.level, "brick");
     assert_eq!(trace.operations, 5); // completion_tokens
     assert_eq!(trace.total_time_us, 1000);
-    assert_eq!(trace.breakdown.len(), 3);
+    assert_eq!(trace.breakdown.len(), 1);
+    assert_eq!(trace.breakdown[0].name, "total_inference");
+    assert_eq!(trace.breakdown[0].time_us, 1000);
+    assert!(trace.breakdown[0].details.as_ref().expect("details").contains("apr profile"));
 }
 
 #[test]
@@ -212,7 +215,10 @@ fn test_build_trace_data_step_level() {
     let trace = step.expect("test value should be present");
     assert_eq!(trace.level, "step");
     assert_eq!(trace.operations, 10); // completion_tokens
-    assert_eq!(trace.breakdown.len(), 3);
+    assert_eq!(trace.breakdown.len(), 1);
+    assert_eq!(trace.breakdown[0].name, "total_inference");
+    assert_eq!(trace.breakdown[0].time_us, 2000);
+    assert!(trace.breakdown[0].details.as_ref().expect("details").contains("apr profile"));
 }
 
 #[test]
@@ -226,7 +232,12 @@ fn test_build_trace_data_layer_level() {
     let trace = layer.expect("test value should be present");
     assert_eq!(trace.level, "layer");
     assert_eq!(trace.operations, 32); // num_layers
-    assert_eq!(trace.breakdown.len(), 32);
+    assert_eq!(trace.breakdown.len(), 1);
+    assert_eq!(trace.breakdown[0].name, "total_inference");
+    assert_eq!(trace.breakdown[0].time_us, 3000);
+    let details = trace.breakdown[0].details.as_ref().expect("details present");
+    assert!(details.contains("32 layers"));
+    assert!(details.contains("apr profile"));
 }
 
 #[test]
