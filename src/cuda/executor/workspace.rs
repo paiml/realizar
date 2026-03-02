@@ -30,6 +30,17 @@ impl CudaExecutor {
         hidden_dim: usize,
         intermediate_dim: usize,
     ) -> Result<(), GpuError> {
+        // PAR-200: Skip reallocation if decode workspace already initialized with matching dims.
+        // This avoids GPU malloc churn when generate_gpu_resident is called repeatedly.
+        // Only reuse when batch_size == 1 (decode-only workspace, not leftover from batched prefill).
+        if self.workspace.initialized
+            && self.workspace.batch_size == 1
+            && self.workspace.hidden_dim == hidden_dim
+            && self.workspace.intermediate_dim == intermediate_dim
+        {
+            return Ok(());
+        }
+
         let q_dim = self.kv_num_heads * self.kv_head_dim;
         let kv_dim = self.kv_num_kv_heads * self.kv_head_dim;
 

@@ -40,6 +40,16 @@ impl CudaExecutor {
             ));
         }
 
+        // PAR-200: Skip reallocation if workspace already large enough.
+        // Eliminates GPU malloc churn when batched prefill runs per-request.
+        if self.workspace.initialized
+            && self.workspace.batch_size >= max_seq_len
+            && self.workspace.hidden_dim == hidden_dim
+            && self.workspace.intermediate_dim == intermediate_dim
+        {
+            return Ok(());
+        }
+
         let q_dim = self.kv_num_heads * self.kv_head_dim;
         let kv_dim = self.kv_num_kv_heads * self.kv_head_dim;
         let m = max_seq_len;
