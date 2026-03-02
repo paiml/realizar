@@ -3,10 +3,14 @@ use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 use std::time::Instant;
 
 fn main() {
-    // Support custom model path via env var
-    let model_path = std::env::var("GGUF_MODEL").unwrap_or_else(|_| {
-        "/home/noah/src/aprender/tinyllama-1.1b-chat-v1.0.Q4_0.gguf".to_string()
-    });
+    let model_path = std::env::args()
+        .nth(1)
+        .or_else(|| std::env::var("GGUF_MODEL").ok())
+        .unwrap_or_else(|| {
+            eprintln!("Usage: bench_forward <model.gguf>");
+            eprintln!("   or: GGUF_MODEL=path cargo run --example bench_forward");
+            std::process::exit(1);
+        });
 
     println!("Loading model: {}", model_path);
     let start = Instant::now();
