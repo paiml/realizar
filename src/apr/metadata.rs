@@ -45,8 +45,12 @@ pub struct AprMetadata {
     )]
     pub num_heads: Option<usize>,
     /// Number of key-value heads (for GQA, defaults to num_heads)
-    /// Aliases: n_kv_heads (PMAT-111 schema resilience)
-    #[serde(default, alias = "n_kv_heads")]
+    /// Aliases: n_kv_heads, num_key_value_heads (PMAT-111 schema resilience)
+    #[serde(
+        default,
+        alias = "n_kv_heads",
+        alias = "num_key_value_heads"
+    )]
     pub num_kv_heads: Option<usize>,
     /// Vocabulary size
     /// Aliases: n_vocab (PMAT-111 schema resilience)

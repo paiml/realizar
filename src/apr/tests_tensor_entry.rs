@@ -348,6 +348,39 @@
         );
     }
 
+    /// GH-88: Verify AprMetadata parses "num_key_value_heads" alias
+    /// The Q4K converter writes this HuggingFace-style field name.
+    /// Without the alias, num_kv_heads defaults to num_heads, causing
+    /// GPU bias slicing panic on GQA models.
+    #[test]
+    fn test_apr_metadata_parses_num_key_value_heads_alias() {
+        // JSON from the Q4K converter path (uses HuggingFace field names)
+        let metadata_json = r#"{
+            "model_type": "transformer_lm_q4k",
+            "architecture": "qwen2",
+            "hidden_size": 896,
+            "num_hidden_layers": 24,
+            "num_attention_heads": 14,
+            "num_key_value_heads": 2,
+            "vocab_size": 151936,
+            "intermediate_size": 4864,
+            "rope_theta": 1000000.0,
+            "rms_norm_eps": 0.000001
+        }"#;
+
+        let metadata: AprMetadata =
+            serde_json::from_str(metadata_json).expect("AprMetadata should parse Q4K converter JSON");
+
+        assert_eq!(
+            metadata.num_kv_heads,
+            Some(2),
+            "GH-88: num_key_value_heads alias must be parsed as num_kv_heads.\n\
+             Without this, GQA models panic at GPU bias slicing."
+        );
+        assert_eq!(metadata.num_heads, Some(14));
+        assert_eq!(metadata.num_layers, Some(24));
+    }
+
     /// PMAT-107: Falsification test with REAL APR file
     ///
     /// This test loads the actual APR file from disk and verifies that

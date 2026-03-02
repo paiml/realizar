@@ -199,6 +199,48 @@ impl AppState {
         })
     }
 
+    /// GH-88: Create CUDA model state with proper BPE tokenizer (merge rules + special tokens).
+    ///
+    /// HuggingFace models (SafeTensors/APR imports) require merge-based BPE encoding.
+    /// GGUF models use greedy longest-match and should use `with_cuda_model_and_vocab`.
+    #[cfg(feature = "cuda")]
+    pub fn with_cuda_model_and_bpe(
+        cuda_model: crate::gguf::OwnedQuantizedModelCuda,
+        vocab: Vec<String>,
+        merges: Vec<(String, String)>,
+    ) -> Result<Self, RealizarError> {
+        let tokenizer = BPETokenizer::with_merges(vocab, merges, "<unk>")?;
+
+        let (audit_logger, audit_sink) = create_audit_state();
+        Ok(Self {
+            model: None,
+            tokenizer: Some(Arc::new(tokenizer)),
+            cache: None,
+            cache_key: None,
+            metrics: Arc::new(MetricsCollector::new()),
+            registry: None,
+            default_model_id: None,
+            apr_model: None,
+            audit_logger,
+            audit_sink,
+            #[cfg(feature = "gpu")]
+            gpu_model: None,
+            quantized_model: None,
+            #[cfg(feature = "gpu")]
+            cached_model: None,
+            #[cfg(feature = "gpu")]
+            dispatch_metrics: None,
+            #[cfg(feature = "gpu")]
+            batch_request_tx: None,
+            #[cfg(feature = "gpu")]
+            batch_config: None,
+            #[cfg(feature = "cuda")]
+            cuda_model: Some(Arc::new(std::sync::RwLock::new(cuda_model))),
+            apr_transformer: None,
+            verbose: false,
+        })
+    }
+
     /// Create application state with APR Transformer for SafeTensors/APR inference (PMAT-SERVE-FIX-001)
     ///
     /// This enables the `/generate` and `/batch/generate` endpoints for SafeTensors and APR models.

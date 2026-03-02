@@ -322,6 +322,10 @@ impl GgufToAprQ4KConverter {
             let apr_dtype = match tensor.dtype {
                 0 => 0u8,   // F32
                 1 => 1u8,   // F16
+                2 => 2u8,   // Q4_0 (GGML type 2)
+                3 => 3u8,   // Q4_1 (GGML type 3)
+                6 => 6u8,   // Q5_0 (GGML type 6) — GH-88 FIX
+                7 => 7u8,   // Q5_1 (GGML type 7) — GH-88 FIX
                 8 => 8u8,   // Q8_0 (GGML type 8)
                 12 => 12u8, // Q4_K (GGML type 12)
                 13 => 13u8, // Q5_K (GGML type 13)

@@ -34,8 +34,21 @@ fn dequant_q6k_tensor(tensor_data: &[u8], dims: &[usize]) -> Vec<f32> {
 
 /// Dequantize a single tensor's raw bytes based on GGML dtype.
 /// GH-191: Match on GGML dtype values written by converter.
+/// GH-88: Added Q4_0, Q4_1, Q5_0, Q5_1 support for mixed-quantization GGUF imports.
 fn dequant_by_dtype(tensor_data: &[u8], dims: &[usize], dtype: u8) -> Vec<f32> {
     match dtype {
+        // GH-88: Q4_0 (GGML type 2) — 32-element blocks, 18 bytes each
+        2 => crate::quantize::dequantize_q4_0(tensor_data)
+            .unwrap_or_else(|_| vec![0.0; dims.iter().product()]),
+        // GH-88: Q4_1 (GGML type 3) — 32-element blocks, 20 bytes each
+        3 => crate::quantize::dequantize_q4_1(tensor_data)
+            .unwrap_or_else(|_| vec![0.0; dims.iter().product()]),
+        // GH-88: Q5_0 (GGML type 6) — 32-element blocks, 22 bytes each
+        6 => crate::quantize::dequantize_q5_0(tensor_data)
+            .unwrap_or_else(|_| vec![0.0; dims.iter().product()]),
+        // GH-88: Q5_1 (GGML type 7) — 32-element blocks, 24 bytes each
+        7 => crate::quantize::dequantize_q5_1(tensor_data)
+            .unwrap_or_else(|_| vec![0.0; dims.iter().product()]),
         12 | 13 => dequant_q4k_tensor(tensor_data, dims),
         14 => dequant_q6k_tensor(tensor_data, dims),
         // GH-239: dtype=8 is ambiguous — either GGML Q8_0 or APR Q4 native.
