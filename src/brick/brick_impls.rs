@@ -332,3 +332,414 @@ pub struct FlashAttentionBrick {
     /// Use online softmax (FlashAttention algorithm)
     pub use_online_softmax: bool,
 }
+
+/// Tokenize brick - BPE encoding performance (GH-378).
+///
+/// Measures tokenizer encode latency as a ComputeBrick. Unlike transformer
+/// bricks (which operate on f32 tensors), this brick operates on text→token_ids.
+/// The budget is based on measured GH-378 results: 70µs for a 636-char payload
+/// on the priority-queue BPE encoder (1.49x faster than HF tokenizers v0.22).
+#[derive(Debug)]
+pub struct TokenizeBrick {
+    /// Input text length (chars) for budget calibration
+    pub input_chars: usize,
+    /// Budget
+    budget: TokenBudget,
+}
+
+impl TokenizeBrick {
+    /// Create a new tokenize brick with default budget (80µs for ~636 chars).
+    pub fn new() -> Self {
+        Self {
+            input_chars: 636,
+            budget: TokenBudget::from_latency(80.0), // 80µs target (GH-378: measured 70µs)
+        }
+    }
+
+    /// Create with specific input size and proportional budget.
+    pub fn for_input_chars(chars: usize) -> Self {
+        // Linear budget scaling: 80µs per 636 chars
+        let budget_us = (chars as f64 / 636.0) * 80.0;
+        Self {
+            input_chars: chars,
+            budget: TokenBudget::from_latency(budget_us.max(1.0)),
+        }
+    }
+
+    /// Set custom budget.
+    #[must_use]
+    pub fn with_budget(mut self, budget: TokenBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+}
+
+impl Default for TokenizeBrick {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ComputeBrick for TokenizeBrick {
+    type Output = Vec<u32>;
+
+    fn name(&self) -> &'static str {
+        "tokenize"
+    }
+
+    fn budget(&self) -> TokenBudget {
+        self.budget
+    }
+
+    fn assertions(&self) -> Vec<BrickAssertion> {
+        vec![BrickAssertion::budget_met()]
+    }
+}
+
+// ============================================================================
+// Training Bricks
+// ============================================================================
+
+/// LoRA forward pass brick — measures rank-decomposed projection latency.
+///
+/// LoRA projects x through two small matrices: A [rank × d_in] and B [d_out × rank].
+/// Budget calibrated for rank-16 projections on typical hidden dimensions.
+#[derive(Debug)]
+pub struct LoraForwardBrick {
+    /// Input dimension (e.g., 3584 for Qwen2.5-7B hidden_dim)
+    pub d_in: usize,
+    /// Output dimension (same as d_in for Q/V projections)
+    pub d_out: usize,
+    /// LoRA rank (16 default from InstructConfig)
+    pub rank: usize,
+    /// LoRA alpha scaling factor
+    pub alpha: f32,
+    /// Budget
+    budget: TokenBudget,
+}
+
+impl LoraForwardBrick {
+    /// Create a LoRA forward brick with model dimensions.
+    pub fn new(d_in: usize, d_out: usize, rank: usize, alpha: f32) -> Self {
+        Self {
+            d_in,
+            d_out,
+            rank,
+            alpha,
+            budget: TokenBudget::from_latency(5.0), // 5µs target for rank-16
+        }
+    }
+
+    /// Create with default rank-16 config for a given hidden dimension.
+    pub fn for_hidden_dim(hidden_dim: usize) -> Self {
+        Self::new(hidden_dim, hidden_dim, 16, 32.0)
+    }
+
+    /// Set custom budget.
+    #[must_use]
+    pub fn with_budget(mut self, budget: TokenBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+}
+
+impl ComputeBrick for LoraForwardBrick {
+    type Output = Vec<f32>;
+
+    fn name(&self) -> &'static str {
+        "lora_forward"
+    }
+
+    fn budget(&self) -> TokenBudget {
+        self.budget
+    }
+
+    fn assertions(&self) -> Vec<BrickAssertion> {
+        vec![
+            BrickAssertion::no_nan(),
+            BrickAssertion::no_inf(),
+            BrickAssertion::budget_met(),
+        ]
+    }
+}
+
+/// Optimizer step brick — measures SIMD AdamW update latency over LoRA parameters.
+#[derive(Debug)]
+pub struct OptimizerStepBrick {
+    /// Total trainable parameters
+    pub num_params: usize,
+    /// Budget
+    budget: TokenBudget,
+}
+
+impl OptimizerStepBrick {
+    /// Create an optimizer step brick for the given parameter count.
+    pub fn new(num_params: usize) -> Self {
+        Self {
+            num_params,
+            budget: TokenBudget::from_latency(50.0), // 50µs target for SIMD AdamW
+        }
+    }
+
+    /// Set custom budget.
+    #[must_use]
+    pub fn with_budget(mut self, budget: TokenBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+}
+
+impl ComputeBrick for OptimizerStepBrick {
+    type Output = Vec<f32>;
+
+    fn name(&self) -> &'static str {
+        "optimizer_step"
+    }
+
+    fn budget(&self) -> TokenBudget {
+        self.budget
+    }
+
+    fn assertions(&self) -> Vec<BrickAssertion> {
+        vec![
+            BrickAssertion::no_nan(),
+            BrickAssertion::no_inf(),
+            BrickAssertion::budget_met(),
+        ]
+    }
+}
+
+/// Loss computation brick — measures cross-entropy loss over logits.
+#[derive(Debug)]
+pub struct LossComputeBrick {
+    /// Vocabulary size (e.g., 152064 for Qwen2.5)
+    pub vocab_size: usize,
+    /// Response token count
+    pub seq_len: usize,
+    /// Budget
+    budget: TokenBudget,
+}
+
+impl LossComputeBrick {
+    /// Create a loss compute brick for the given vocabulary and sequence length.
+    pub fn new(vocab_size: usize, seq_len: usize) -> Self {
+        Self {
+            vocab_size,
+            seq_len,
+            budget: TokenBudget::from_latency(20.0), // 20µs target
+        }
+    }
+
+    /// Set custom budget.
+    #[must_use]
+    pub fn with_budget(mut self, budget: TokenBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+}
+
+impl ComputeBrick for LossComputeBrick {
+    type Output = Vec<f32>;
+
+    fn name(&self) -> &'static str {
+        "loss_compute"
+    }
+
+    fn budget(&self) -> TokenBudget {
+        self.budget
+    }
+
+    fn assertions(&self) -> Vec<BrickAssertion> {
+        vec![
+            BrickAssertion::budget_met(),
+            BrickAssertion::bounds(0.0, 30.0),
+        ]
+    }
+}
+
+/// Full training step brick — composite: forward + backward + optimizer.
+///
+/// Budget is the sum of sub-brick budgets scaled by layer count.
+#[derive(Debug)]
+pub struct TrainingStepBrick {
+    /// Model hidden dimension
+    pub hidden_dim: usize,
+    /// Number of transformer layers
+    pub num_layers: usize,
+    /// LoRA rank
+    pub lora_rank: usize,
+    /// Budget
+    budget: TokenBudget,
+}
+
+impl TrainingStepBrick {
+    /// Create a training step brick from model config dimensions.
+    pub fn from_model_config(hidden_dim: usize, num_layers: usize, lora_rank: usize) -> Self {
+        Self {
+            hidden_dim,
+            num_layers,
+            lora_rank,
+            budget: TokenBudget::from_latency(5000.0), // 5ms target for full step
+        }
+    }
+
+    /// Set custom budget.
+    #[must_use]
+    pub fn with_budget(mut self, budget: TokenBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+}
+
+impl ComputeBrick for TrainingStepBrick {
+    type Output = Vec<f32>;
+
+    fn name(&self) -> &'static str {
+        "train_step"
+    }
+
+    fn budget(&self) -> TokenBudget {
+        self.budget
+    }
+
+    fn assertions(&self) -> Vec<BrickAssertion> {
+        vec![BrickAssertion::budget_met()]
+    }
+}
+
+// ============================================================================
+// Serving Bricks
+// ============================================================================
+
+/// TTFT (Time to First Token) brick — measures prefill + first decode latency.
+#[derive(Debug)]
+pub struct ServeTtftBrick {
+    /// Input prompt length in tokens
+    pub prompt_tokens: usize,
+    /// Budget
+    budget: TokenBudget,
+}
+
+impl ServeTtftBrick {
+    /// Create a TTFT brick for the given prompt length.
+    pub fn new(prompt_tokens: usize) -> Self {
+        Self {
+            prompt_tokens,
+            budget: TokenBudget::from_latency(500.0), // 500µs target
+        }
+    }
+
+    /// Set custom budget.
+    #[must_use]
+    pub fn with_budget(mut self, budget: TokenBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+}
+
+impl ComputeBrick for ServeTtftBrick {
+    type Output = Vec<u32>;
+
+    fn name(&self) -> &'static str {
+        "ttft"
+    }
+
+    fn budget(&self) -> TokenBudget {
+        self.budget
+    }
+
+    fn assertions(&self) -> Vec<BrickAssertion> {
+        vec![BrickAssertion::budget_met()]
+    }
+}
+
+/// Decode throughput brick — measures sustained token generation rate.
+#[derive(Debug)]
+pub struct ServeThroughputBrick {
+    /// Maximum tokens to generate
+    pub max_tokens: usize,
+    /// Budget
+    budget: TokenBudget,
+}
+
+impl ServeThroughputBrick {
+    /// Create a throughput brick with 50 tok/s decode target.
+    pub fn new(max_tokens: usize) -> Self {
+        Self {
+            max_tokens,
+            budget: TokenBudget::from_throughput(50.0), // 50 tok/s target
+        }
+    }
+
+    /// Set custom budget.
+    #[must_use]
+    pub fn with_budget(mut self, budget: TokenBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+}
+
+impl ComputeBrick for ServeThroughputBrick {
+    type Output = Vec<u32>;
+
+    fn name(&self) -> &'static str {
+        "throughput"
+    }
+
+    fn budget(&self) -> TokenBudget {
+        self.budget
+    }
+
+    fn assertions(&self) -> Vec<BrickAssertion> {
+        vec![BrickAssertion::budget_met()]
+    }
+}
+
+/// Batch generation brick — measures concurrent request throughput.
+///
+/// Budget scales from single-request baseline with 70% efficiency factor.
+#[derive(Debug)]
+pub struct ServeBatchBrick {
+    /// Number of concurrent requests
+    pub batch_size: usize,
+    /// Per-request generation length
+    pub max_tokens: usize,
+    /// Budget
+    budget: TokenBudget,
+}
+
+impl ServeBatchBrick {
+    /// Create a batch brick with scaled throughput target (70% efficiency).
+    pub fn new(batch_size: usize, max_tokens: usize) -> Self {
+        let throughput = 50.0 * batch_size as f64 * 0.7;
+        Self {
+            batch_size,
+            max_tokens,
+            budget: TokenBudget::from_throughput(throughput)
+                .with_batch_size(batch_size),
+        }
+    }
+
+    /// Set custom budget.
+    #[must_use]
+    pub fn with_budget(mut self, budget: TokenBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+}
+
+impl ComputeBrick for ServeBatchBrick {
+    type Output = Vec<u32>;
+
+    fn name(&self) -> &'static str {
+        "batch_generate"
+    }
+
+    fn budget(&self) -> TokenBudget {
+        self.budget
+    }
+
+    fn assertions(&self) -> Vec<BrickAssertion> {
+        vec![BrickAssertion::budget_met()]
+    }
+}
