@@ -84,14 +84,21 @@ async fn health_handler(State(state): State<AppState>) -> Json<HealthResponse> {
     }
 
     // Determine compute mode based on what's available
+    // BUG-HEALTH-001: Must check all GPU dispatch paths.
+    // - has_gpu_model(): legacy wgpu path
+    // - cached_model: batched GPU inference
+    // - has_cuda_model(): PAR-111 CUDA path (stores in AppState.cuda_model)
+    let mut compute_mode = "cpu";
+
     #[cfg(feature = "gpu")]
-    let compute_mode = if state.has_gpu_model() || state.cached_model.is_some() {
-        "gpu"
-    } else {
-        "cpu"
-    };
-    #[cfg(not(feature = "gpu"))]
-    let compute_mode = "cpu";
+    if state.has_gpu_model() || state.cached_model.is_some() {
+        compute_mode = "gpu";
+    }
+
+    #[cfg(feature = "cuda")]
+    if state.has_cuda_model() {
+        compute_mode = "gpu";
+    }
 
     let response = HealthResponse {
         status: "healthy".to_string(),
