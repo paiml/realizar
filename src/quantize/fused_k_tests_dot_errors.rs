@@ -236,23 +236,33 @@ fn test_q4k_layout_consistency_pmat170() {
     }
 
     // Compare element by element
+    // Contract: cpu-q4k-activation-quant-v1.yaml (Refs realizar#96)
+    // fused_q4k_parallel_matvec now uses Q8K activation quantization internally,
+    // which introduces small rounding (< 0.2%) vs the f32 dequant path.
+    // We use relative tolerance to catch layout bugs while allowing Q8K rounding.
     let mut mismatches = 0;
-    let mut max_diff = 0.0f32;
+    let mut max_rel_err = 0.0f32;
 
     for i in 0..num_elements {
         let diff = (dequant[i] - fused_matrix[i]).abs();
-        if diff > 1e-5 {
+        let rel_err = if dequant[i].abs() > 1e-6 {
+            diff / dequant[i].abs()
+        } else {
+            diff
+        };
+        if rel_err > 0.01 {
             mismatches += 1;
-            max_diff = max_diff.max(diff);
+            max_rel_err = max_rel_err.max(rel_err);
         }
     }
 
     assert_eq!(
         mismatches, 0,
-        "Q4K layout mismatch: {} elements differ (max diff: {}). \
+        "Q4K layout mismatch: {} elements differ (max rel_err: {:.4}%). \
              This indicates dequantize_q4_k has different element ordering \
              than fused_q4k_parallel_matvec, which would cause GPU explosion.",
-        mismatches, max_diff
+        mismatches,
+        max_rel_err * 100.0
     );
 }
 

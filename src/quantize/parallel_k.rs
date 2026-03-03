@@ -11,7 +11,7 @@
 //! - Tile size should fit in L2 cache (~256KB-512KB typically)
 
 use super::bsum_precompute::{fused_q4k_q8k_dot_with_bsums_simd, precompute_q8k_bsums};
-use super::format_trait::{Q4K, Q5K, Q6K};
+use super::format_trait::{Q5K, Q6K};
 use super::fused_k::{
     fused_q4k_dot_simd, fused_q4k_q8k_dot_4rows_avx512vnni, fused_q4k_q8k_dot_simd,
 };
@@ -178,6 +178,8 @@ pub fn fused_q4k_tiled_matvec(
 /// - **Fused**: 8x memory bandwidth reduction
 /// - **SIMD**: AVX2 when available
 /// - **Adaptive parallelism**: Sequential for small matrices, parallel for large (IMP-103)
+/// - **Q8K activation quantization**: Pre-quantizes f32 activations to Q8_K once per matmul,
+///   enabling integer-only inner loops (maddubs) for ~4-8x speedup (Refs realizar#96)
 ///
 /// # Errors
 ///
@@ -191,21 +193,20 @@ pub fn fused_q4k_parallel_matvec(
     in_dim: usize,
     out_dim: usize,
 ) -> Result<Vec<f32>> {
-    // Contract: quantized-dot-product-v1.yaml — delegates to generic matvec
-    // with format-specific SIMD dot product (Phase 3: eliminate ~300 lines duplication)
-    generic_parallel_matvec::<Q4K>(
-        weight_data,
-        activations,
-        in_dim,
-        out_dim,
-        fused_q4k_dot_simd,
-    )
+    let mut output = vec![0.0f32; out_dim];
+    fused_q4k_parallel_matvec_into(weight_data, activations, in_dim, out_dim, &mut output)?;
+    Ok(output)
 }
 
 /// Parallel fused Q4_K matrix-vector multiply - writes to pre-allocated buffer
 ///
 /// IMP-131: Zero-allocation variant for hot-path inference.
 /// This avoids Vec allocation overhead that causes 30-40% performance loss.
+///
+/// Contract: cpu-q4k-activation-quant-v1.yaml (Refs realizar#96)
+/// Pre-quantizes f32 activations to Q8_K format once per matmul call, then
+/// delegates to `fused_q4k_q8k_parallel_matvec_into` for integer-only inner loops.
+/// This eliminates per-element f32 dequant×multiply and uses maddubs_epi16 instead.
 ///
 /// # Arguments
 /// * `weight_data` - Raw Q4_K quantized weights [out_dim, in_dim]
@@ -228,14 +229,42 @@ pub fn fused_q4k_parallel_matvec_into(
     out_dim: usize,
     output: &mut [f32],
 ) -> Result<()> {
-    // Contract: quantized-dot-product-v1.yaml — delegates to generic matvec
-    generic_parallel_matvec_into::<Q4K>(
+    // Contract: cpu-q4k-activation-quant-v1.yaml
+    // Phase 1: Quantize f32 activations to Q8_K (once per matmul, amortized)
+    // Phase 2: Integer-only Q4K×Q8K dot products via fused_q4k_q8k_parallel_matvec_into
+
+    // Validate activation length matches in_dim
+    if activations.len() != in_dim {
+        return Err(RealizarError::InvalidShape {
+            reason: format!(
+                "Q4K activation length {} doesn't match in_dim {}",
+                activations.len(),
+                in_dim
+            ),
+        });
+    }
+
+    let super_blocks_per_row = in_dim.div_ceil(QK_K);
+    let padded_in_dim = super_blocks_per_row * QK_K;
+
+    // Pad activations to super-block boundary
+    let acts = pad_activations(activations, padded_in_dim);
+
+    // Phase 1: Pre-quantize activations to Q8_K
+    let num_superblocks = padded_in_dim / QK_K;
+    let mut q8k_scales = vec![0.0f32; num_superblocks];
+    let mut q8k_quants = vec![0i8; padded_in_dim];
+
+    super::quantize_activations_q8k_into(&acts, &mut q8k_scales, &mut q8k_quants)?;
+
+    // Phase 2: Delegate to Q4K×Q8K integer-only parallel matvec
+    fused_q4k_q8k_parallel_matvec_into(
         weight_data,
-        activations,
+        &q8k_scales,
+        &q8k_quants,
         in_dim,
         out_dim,
         output,
-        fused_q4k_dot_simd,
     )
 }
 

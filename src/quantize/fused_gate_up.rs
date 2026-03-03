@@ -169,6 +169,11 @@ pub fn generic_fused_gate_up_matvec_into<F: QuantBlockFormat>(
 }
 
 /// Fused gate+up matvec for Q4_K weights
+///
+/// Contract: cpu-q4k-activation-quant-v1.yaml (Refs realizar#96)
+/// Pre-quantizes f32 activations to Q8_K once, then delegates to
+/// `fused_q4k_q8k_ffn_up_gate_into` for integer-only inner loops.
+/// Both gate and up projections share the same quantized activations.
 pub fn fused_gate_up_q4k_into(
     gate_weight_data: &[u8],
     up_weight_data: &[u8],
@@ -178,18 +183,31 @@ pub fn fused_gate_up_q4k_into(
     gate_output: &mut [f32],
     up_output: &mut [f32],
 ) -> Result<()> {
-    use super::format_trait::Q4K;
-    use super::fused_k::fused_q4k_dot_simd;
+    use super::parallel_k::fused_q4k_q8k_ffn_up_gate_into;
+    use super::types::QK_K;
 
-    generic_fused_gate_up_matvec_into::<Q4K>(
-        gate_weight_data,
+    // Phase 1: Quantize activations to Q8_K (shared by gate + up)
+    let super_blocks_per_row = in_dim.div_ceil(QK_K);
+    let padded_in_dim = super_blocks_per_row * QK_K;
+
+    let acts = pad_activations(activations, padded_in_dim);
+
+    let num_superblocks = padded_in_dim / QK_K;
+    let mut q8k_scales = vec![0.0f32; num_superblocks];
+    let mut q8k_quants = vec![0i8; padded_in_dim];
+
+    super::quantize_activations_q8k_into(&acts, &mut q8k_scales, &mut q8k_quants)?;
+
+    // Phase 2: Q4K×Q8K fused gate+up with integer-only inner loops
+    fused_q4k_q8k_ffn_up_gate_into(
         up_weight_data,
-        activations,
+        gate_weight_data,
+        &q8k_scales,
+        &q8k_quants,
         in_dim,
         out_dim,
-        gate_output,
         up_output,
-        fused_q4k_dot_simd,
+        gate_output,
     )
 }
 
