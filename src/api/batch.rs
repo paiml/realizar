@@ -25,8 +25,12 @@ fn try_quantized_generate(
         trace: false,
     };
 
+    // GH-95: Use generate_with_cache for O(n) autoregressive generation.
+    // The previous .generate() call was O(n²) — it reprocessed the entire
+    // token sequence on every step. With KV cache, only the new token is
+    // processed each step. Contract: gguf-cpu-cache-v1.yaml
     let generated = quantized_model
-        .generate(&prompt_ids, &q_config)
+        .generate_with_cache(&prompt_ids, &q_config)
         .map_err(|e| {
             api_err(
                 StatusCode::INTERNAL_SERVER_ERROR,
