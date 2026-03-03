@@ -150,17 +150,22 @@ fn test_fused_q4k_parallel_matvec_basic() {
         reference.push(dot);
     }
 
-    // Parallel result
+    // Parallel result (uses Q8K activation quantization internally — Refs realizar#96)
     let parallel =
         fused_q4k_parallel_matvec(&weight_data, &activations, in_dim, out_dim).expect("test");
 
     assert_eq!(parallel.len(), out_dim);
+    // Contract: cpu-q4k-activation-quant-v1.yaml — Q8K error < 0.1% relative to f32
     for i in 0..out_dim {
-        assert_ulp_eq(
-            parallel[i],
-            reference[i],
-            4,
-            &format!("parallel_matvec output {}", i),
+        let rel_err = if reference[i].abs() > 1e-6 {
+            (parallel[i] - reference[i]).abs() / reference[i].abs()
+        } else {
+            (parallel[i] - reference[i]).abs()
+        };
+        assert!(
+            rel_err < 0.002,
+            "parallel_matvec output {}: actual={}, expected={}, rel_err={:.4}% > 0.2%",
+            i, parallel[i], reference[i], rel_err * 100.0
         );
     }
 }
@@ -192,7 +197,7 @@ fn test_fused_q4k_parallel_matvec_large() {
 
     let activations: Vec<f32> = (0..in_dim).map(|i| (i as f32 * 0.003).cos()).collect();
 
-    // Reference
+    // Reference (f32 dot product path)
     let mut reference = Vec::with_capacity(out_dim);
     for row in 0..out_dim {
         let row_start = row * bytes_per_row;
@@ -201,17 +206,22 @@ fn test_fused_q4k_parallel_matvec_large() {
         reference.push(dot);
     }
 
-    // Parallel result
+    // Parallel result (uses Q8K activation quantization internally — Refs realizar#96)
     let parallel =
         fused_q4k_parallel_matvec(&weight_data, &activations, in_dim, out_dim).expect("test");
 
     assert_eq!(parallel.len(), out_dim);
+    // Contract: cpu-q4k-activation-quant-v1.yaml — Q8K error < 0.1% relative to f32
     for i in 0..out_dim {
-        assert_ulp_eq(
-            parallel[i],
-            reference[i],
-            8,
-            &format!("parallel_matvec_large output {}", i),
+        let rel_err = if reference[i].abs() > 1e-6 {
+            (parallel[i] - reference[i]).abs() / reference[i].abs()
+        } else {
+            (parallel[i] - reference[i]).abs()
+        };
+        assert!(
+            rel_err < 0.002,
+            "parallel_matvec_large output {}: actual={}, expected={}, rel_err={:.4}% > 0.2%",
+            i, parallel[i], reference[i], rel_err * 100.0
         );
     }
 }
