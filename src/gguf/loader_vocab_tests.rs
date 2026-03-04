@@ -362,11 +362,10 @@ mod tests {
         let model = OwnedQuantizedModel::from_apr(&mapped).unwrap();
 
         assert_eq!(model.config.num_heads, 8);
-        // C-03 (Meyer DbC): Q4K converter writes "num_key_value_heads" but AprMetadata
-        // reads "num_kv_heads", causing a field name mismatch. When num_kv_heads is None,
-        // it correctly defaults to num_heads (8) rather than a hardcoded 2.
-        // Q4K converter writes "num_key_value_heads" not "num_kv_heads" — needs alignment.
-        assert_eq!(model.config.num_kv_heads, 8);
+        // PMAT-111: AprMetadata now has alias "num_key_value_heads" for num_kv_heads,
+        // so the Q4K converter's "num_key_value_heads" field is correctly parsed.
+        // GQA model has 2 KV heads (build_llama_gguf_with_lm_head args: n_head=8, n_head_kv=2).
+        assert_eq!(model.config.num_kv_heads, 2);
         assert_eq!(model.config.hidden_dim, 128);
     }
 include!("loader_gguf_model.rs");
