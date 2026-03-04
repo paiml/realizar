@@ -309,8 +309,12 @@ fn test_imp_093_real_gguf_gpu_benchmark() {
     use std::time::Instant;
 
     // Real GGUF model path (Qwen 2.5 Coder 1.5B Q4_K_M)
-    let model_path =
-        "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf";
+    let home = std::env::var("HOME").expect("HOME env var not set");
+    let model_path_str = format!(
+        "{}/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+        home
+    );
+    let model_path = &model_path_str;
 
     if !Path::new(model_path).exists() {
         eprintln!("IMP-093: Skipping - model not found at {}", model_path);

@@ -10,9 +10,12 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_falsification_apr_cuda_gqa_dimensions() {
-        let apr_path = std::path::Path::new(
-            "/home/noah/.cache/huggingface/models/qwen2.5-coder-1.5b-apr/qwen2.5-coder-1.5b-q4k.apr"
+        let home = std::env::var("HOME").expect("HOME env var not set");
+        let apr_path_str = format!(
+            "{}/.cache/huggingface/models/qwen2.5-coder-1.5b-apr/qwen2.5-coder-1.5b-q4k.apr",
+            home
         );
+        let apr_path = std::path::Path::new(&apr_path_str);
 
         if !apr_path.exists() {
             println!("⚠️ Test model not available at {:?}, skipping", apr_path);

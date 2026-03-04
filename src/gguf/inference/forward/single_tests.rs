@@ -1,6 +1,6 @@
 //! Tests for single-token forward pass with KV cache
 //!
-//! Coverage target: /home/noah/src/realizar/src/gguf/inference/forward/single.rs
+//! Coverage target: src/gguf/inference/forward/single.rs
 //!
 //! Tests cover:
 //! - forward_single_with_cache: Main decode-phase forward pass

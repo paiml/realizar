@@ -226,9 +226,10 @@ mod server_and_inference_tests {
         #[test]
         #[ignore = "requires real GGUF model file"]
         fn test_run_gguf_inference_real() {
+            let home = std::env::var("HOME").expect("HOME env var not set");
             let model_paths = [
-                "/home/noah/.apr/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-                "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf",
+                format!("{}/.apr/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf", home),
+                format!("{}/src/single-shot-eval/models/raw/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf", home),
             ];
 
             let model_path = model_paths
@@ -259,7 +260,8 @@ mod server_and_inference_tests {
         #[test]
         #[ignore = "requires real GGUF model file"]
         fn test_run_gguf_inference_json_output_real() {
-            let model_paths = ["/home/noah/.apr/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"];
+            let home = std::env::var("HOME").expect("HOME env var not set");
+            let model_paths = [format!("{}/.apr/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf", home)];
 
             let model_path = model_paths
                 .iter()
