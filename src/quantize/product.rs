@@ -115,6 +115,7 @@ impl InterleavedQ4K {
         self.dot_scalar(activations)
     }
 
+    /// Compute dot product using scalar fallback (non-x86_64).
     #[cfg(not(target_arch = "x86_64"))]
     pub fn dot(&self, activations: &[f32]) -> Result<f32> {
         self.dot_scalar(activations)
