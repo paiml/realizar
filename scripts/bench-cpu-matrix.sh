@@ -14,8 +14,10 @@ YELLOW='\033[0;33m'
 NC='\033[0m'
 
 # Configuration
-MODEL_DIR="${MODEL_DIR:-/home/noah/src/single-shot-eval/models/raw}"
-LLAMA_CPP_PATH="${LLAMA_CPP_PATH:-/home/noah/src/llama.cpp/llama-server}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+MODEL_DIR="${MODEL_DIR:-${REPO_DIR}/../single-shot-eval/models/raw}"
+LLAMA_CPP_PATH="${LLAMA_CPP_PATH:-${REPO_DIR}/../llama.cpp/llama-server}"
 RESULTS_DIR="${RESULTS_DIR:-benches/comparative/results}"
 
 # Models to test
