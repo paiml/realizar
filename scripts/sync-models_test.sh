@@ -3,8 +3,8 @@
 # Run: bashrs test scripts/sync-models_test.sh
 set -euo pipefail
 
-# bashrs runs tests in isolation, so use absolute path
-readonly SCRIPT_UNDER_TEST='/home/noah/src/realizar/scripts/sync-models.sh'
+# Derive path from test file location
+readonly SCRIPT_UNDER_TEST="$(cd "$(dirname "$0")" && pwd)/sync-models.sh"
 
 # Test: Script exists and is executable
 test_script_exists() {

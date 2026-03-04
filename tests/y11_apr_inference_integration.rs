@@ -220,7 +220,8 @@ fn y12_1_apr_performance_parity() {
     use realizar::apr_transformer::{AprBenchmarkRunner, AprTransformer};
 
     let apr_model = "/tmp/test-tinyllama.apr";
-    let gguf_model = "/home/noah/src/llamafile/models/TinyLLama-v0.1-5M-F16.gguf";
+    let gguf_model = option_env!("GGUF_MODEL_PATH")
+        .unwrap_or("models/TinyLLama-v0.1-5M-F16.gguf");
 
     if !Path::new(apr_model).exists() || !Path::new(gguf_model).exists() {
         eprintln!("SKIP: Test models not found");

@@ -15,7 +15,10 @@ use std::time::Instant;
 // ============================================================================
 
 const APR_MODEL: &str = "/tmp/test-tinyllama.apr";
-const GGUF_MODEL: &str = "/home/noah/src/llamafile/models/TinyLLama-v0-1-5M-F16.gguf";
+const GGUF_MODEL: &str = match option_env!("GGUF_MODEL_PATH") {
+    Some(p) => p,
+    None => "models/TinyLLama-v0.1-5M-F16.gguf",
+};
 
 fn models_available() -> bool {
     Path::new(APR_MODEL).exists() && Path::new(GGUF_MODEL).exists()
