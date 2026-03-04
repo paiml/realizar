@@ -335,9 +335,10 @@
     #[ignore = "requires real GGUF model file"]
     fn test_prepare_serve_state_gguf_success() {
         // Look for a test model file
+        let home = std::env::var("HOME").expect("HOME env var not set");
         let model_paths = [
-            "/home/noah/.apr/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-            "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf",
+            format!("{}/.apr/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf", home),
+            format!("{}/src/single-shot-eval/models/raw/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf", home),
         ];
 
         let model_path = model_paths
@@ -363,9 +364,10 @@
     #[tokio::test]
     #[ignore = "requires real GGUF model file"]
     async fn test_prepare_serve_state_gguf_batch() {
+        let home = std::env::var("HOME").expect("HOME env var not set");
         let model_paths = [
-            "/home/noah/.apr/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-            "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf",
+            format!("{}/.apr/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf", home),
+            format!("{}/src/single-shot-eval/models/raw/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf", home),
         ];
 
         let model_path = model_paths
