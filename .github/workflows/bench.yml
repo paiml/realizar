@@ -56,7 +56,7 @@ jobs:
 
       # Download baseline from previous successful run (if exists)
       - name: Download baseline
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true  # First run won't have baseline
         with:
           name: benchmark-baseline
@@ -221,7 +221,7 @@ jobs:
     if: always()
     steps:
       - name: Download all results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: results/
 
