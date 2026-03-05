@@ -28,7 +28,7 @@ fn generate_q4_0_candle_ptx(k: u32, n: u32) -> String {
     String::from(
         r"
 .version 7.5
-.target sm_80
+.target sm_70
 .address_size 64
 
 // BUG-GGUF-001 FIX: Q4_0 GEMV with candle nibble layout
@@ -194,7 +194,7 @@ fn generate_q5_0_candle_ptx(k: u32, n: u32) -> String {
     String::from(
         r"
 .version 7.5
-.target sm_80
+.target sm_70
 .address_size 64
 
 // BUG-GGUF-002 FIX: Q5_0 GEMV with candle nibble layout

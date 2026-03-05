@@ -299,8 +299,29 @@ impl OwnedQuantizedModelCuda {
         }
         executor.set_rope_type(model.config.rope_type);
 
+        // GH-129: Pre-load ALL kernel modules BEFORE heavy GPU allocations.
+        // Five-Whys root cause: PTX JIT compilation requires GPU memory for the
+        // JIT compiler itself. On Jetson (unified memory), weight upload consumes
+        // ~1 GB, leaving less for JIT. Moving kernel preload here (before weight
+        // upload) ensures JIT runs with maximum available GPU memory.
+        {
+            let hidden_dim = model.config.hidden_dim as u32;
+            let intermediate_dim = model.config.intermediate_dim as u32;
+            let vocab_size = model.config.vocab_size as u32;
+            match executor.preload_modules_for_capture(
+                num_layers, hidden_dim, intermediate_dim, vocab_size,
+            ) {
+                Ok(()) => eprintln!(
+                    "[GH-129] Early kernel preload: {} modules compiled",
+                    executor.module_count()
+                ),
+                Err(e) => {
+                    eprintln!("[GH-129] Early kernel preload failed: {e}");
+                },
+            }
+        }
+
         // PAR-083: Pre-allocate embedding buffer (hidden_dim f32s) to avoid per-token malloc.
-        // Five-Whys: embed() heap alloc per token → eliminated by reusing this buffer.
         let embed_buf = vec![0.0f32; model.config.hidden_dim];
 
         let cuda_model = Self {
@@ -313,6 +334,30 @@ impl OwnedQuantizedModelCuda {
 
         // GH-199 ROOT CAUSE B + PARITY-GATE: preload weights and verify GPU correctness.
         cuda_model.preload_and_verify()
+    }
+
+    /// GH-129: Free CPU projection weight copies after GPU preload.
+    ///
+    /// On Jetson (unified memory), the CPU `Vec<u8>` copies are redundant after
+    /// `preload_weights_gpu()` uploads them to GPU buffers. Frees ~1 GB for 1.5B.
+    pub fn free_cpu_weights(&mut self) {
+        let mut freed = 0usize;
+        for layer in &mut self.model.layers {
+            freed += layer.qkv_weight.data_bytes();
+            freed += layer.attn_output_weight.data.len();
+            freed += layer.ffn_up_weight.data.len();
+            freed += layer.ffn_down_weight.data.len();
+            if let Some(ref gate) = layer.ffn_gate_weight {
+                freed += gate.data.len();
+            }
+            layer.free_projection_weights();
+        }
+        freed += self.model.lm_head_weight.data.len();
+        self.model.lm_head_weight.data = Vec::new();
+        eprintln!(
+            "[GH-129] Freed {:.1} MB CPU weight copies (GPU-resident path active)",
+            freed as f64 / (1024.0 * 1024.0)
+        );
     }
 
     /// Check if CUDA is available
