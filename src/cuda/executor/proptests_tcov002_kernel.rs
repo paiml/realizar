@@ -92,7 +92,11 @@ fn test_tcov003a_weight_quant_type_from_ggml() {
 
     // Unknown types
     assert_eq!(WeightQuantType::from_ggml_type(255), None);
-    assert_eq!(WeightQuantType::from_ggml_type(0), None);
+    // GH-374: GGML type 0 is F32 (used by APR LM head checkpoints)
+    assert_eq!(
+        WeightQuantType::from_ggml_type(0),
+        Some(WeightQuantType::F32)
+    );
 }
 
 #[test]
