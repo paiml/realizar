@@ -26,10 +26,22 @@ impl CudaExecutor {
                 "null weight pointer in q6k_gemv_indexed_async".to_string(),
             ));
         }
-        // PAR-058: Direct pointer access for Q6K weights
-        let kernel_type = KernelType::Q6KGemv { k, n };
+        // GH-118: MWV Q6K kernel opt-in via MWV_Q6K=1 env var
+        let use_mwv = std::env::var("MWV_Q6K").is_ok() && k.is_multiple_of(256);
+        let num_warps = crate::cuda::kernels::mwv_warp_count();
+
+        let (kernel_type, cache_key, config) = if use_mwv {
+            let kt = KernelType::MwvQ6KGemv { k, n, num_warps };
+            let ck = format!("mwv_q6k_gemv_{}_{}_{}", k, n, num_warps);
+            let cfg = LaunchConfig::grid_2d(n, 1, num_warps * 32, 1);
+            (kt, ck, cfg)
+        } else {
+            let kt = KernelType::Q6KGemv { k, n };
+            let ck = format!("q6k_gemv_{}_{}", k, n);
+            let cfg = LaunchConfig::grid_2d(n, 1, 32, 1);
+            (kt, ck, cfg)
+        };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("q6k_gemv_{}_{}", k, n);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -44,8 +56,6 @@ impl CudaExecutor {
 
         // Allocate output buffer
         let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
-
-        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
 
         let mut ptr_output = buf_output.as_ptr();
         let mut ptr_weights = weight_ptr;
@@ -74,16 +84,8 @@ impl CudaExecutor {
 
     /// PAR-044: Execute Q4_K GEMV into existing buffer (zero-allocation, async)
     ///
-    /// Like `q4k_gemv_indexed_async` but writes into a pre-allocated output buffer.
-    /// Used by `transformer_layer_workspace` for zero-allocation forward pass.
-    ///
-    /// # Arguments
-    ///
-    /// * `weight_ptr` - Raw device pointer to Q4K weight data
-    /// * `input` - GPU buffer containing input vector
-    /// * `output` - Pre-allocated output buffer (must be at least n elements)
-    /// * `n` - Output dimension
-    /// * `k` - Input dimension
+    /// Dispatches to optimal kernel variant based on env vars.
+    /// Default: MWV (multi-warp vectorized). See PAR-082 for empirical results.
     #[inline]
     pub fn q4k_gemv_into(
         &mut self,
@@ -93,47 +95,13 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        // PAR-132: Use WideQ4KGemv (256 threads, 8 warps) for all Q4K GEMV
-        //
-        // Five-Whys root cause chain:
-        // 1. Why 39 tok/s vs Ollama's 128 tok/s? → 12% BW utilization
-        // 2. Why 12% BW? → SM occupancy too low to hide memory latency
-        // 3. Why low occupancy? → 32 threads/block = 1 warp = 33% max occupancy
-        // 4. Why 32 threads? → Original kernel: 1 warp per output element
-        // 5. Why not more warps? → No cross-warp reduction was implemented
-        //
-        // Fix: WideQ4KGemvKernel uses 8 warps (256 threads) per output,
-        // with cross-warp reduction via shared memory (32 bytes).
-        // llama.cpp also uses 256 threads for Q4_K decode.
-        //
-        // PAR-082-V2: Use MwvQ4KGemv (4 warps + u32 loads) as default
-        //
-        // Empirical results on RTX 4090, 7B Q4K:
-        // - Legacy tiled (128 threads): 41 tok/s (WIDE_Q4K_DISABLE=1)
-        // - Wide 8-warp (256 threads):  67 tok/s (WIDE_Q4K=1)
-        // - Vectorized u32 (32 threads): 79 tok/s (VECTORIZED_Q4K=1)
-        // - MWV 4-warp + u32 loads:     ??? tok/s (default)
-        //
-        // Env vars for A/B testing:
-        // WIDE_Q4K_DISABLE=1 → legacy tiled/chunked
-        // WIDE_Q4K=1 → multi-warp 256 threads (byte loads)
-        // VECTORIZED_Q4K=1 → single-warp u32 loads
-        if std::env::var("WIDE_Q4K_DISABLE").is_ok() {
-            return self.q4k_gemv_into_legacy(weight_ptr, input, output, n, k);
+        match Self::q4k_variant() {
+            Q4kVariant::Legacy => self.q4k_gemv_into_legacy(weight_ptr, input, output, n, k),
+            Q4kVariant::Wide => self.wide_q4k_gemv_into(weight_ptr, input, output, n, k),
+            Q4kVariant::Vectorized => self.vectorized_q4k_gemv_into(weight_ptr, input, output, n, k),
+            Q4kVariant::Dp4a => self.mwv_dp4a_q4k_gemv_into(weight_ptr, input, output, n, k),
+            Q4kVariant::Mwv => self.mwv_q4k_gemv_into(weight_ptr, input, output, n, k),
         }
-        if std::env::var("WIDE_Q4K").is_ok() {
-            return self.wide_q4k_gemv_into(weight_ptr, input, output, n, k);
-        }
-        if std::env::var("VECTORIZED_Q4K").is_ok() {
-            return self.vectorized_q4k_gemv_into(weight_ptr, input, output, n, k);
-        }
-        // PAR-082-V4: DP4A integer dot products with Q8_1-quantized activations
-        // Set DP4A_Q4K=1 to enable (quantize activations to Q8_1, use dp4a.u32.s32)
-        if std::env::var("DP4A_Q4K").is_ok() {
-            return self.mwv_dp4a_q4k_gemv_into(weight_ptr, input, output, n, k);
-        }
-
-        self.mwv_q4k_gemv_into(weight_ptr, input, output, n, k)
     }
 
     /// Legacy Q4K GEMV dispatch (pre-PAR-132)
@@ -412,4 +380,25 @@ impl CudaExecutor {
 
         Ok(())
     }
+
+    /// Select Q4K kernel variant from env vars (cached after first call)
+    fn q4k_variant() -> Q4kVariant {
+        static VARIANT: std::sync::OnceLock<Q4kVariant> = std::sync::OnceLock::new();
+        *VARIANT.get_or_init(|| {
+            if std::env::var("WIDE_Q4K_DISABLE").is_ok() { return Q4kVariant::Legacy; }
+            if std::env::var("WIDE_Q4K").is_ok() { return Q4kVariant::Wide; }
+            if std::env::var("VECTORIZED_Q4K").is_ok() { return Q4kVariant::Vectorized; }
+            if std::env::var("DP4A_Q4K").is_ok() { return Q4kVariant::Dp4a; }
+            Q4kVariant::Mwv
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Q4kVariant {
+    Legacy,
+    Wide,
+    Vectorized,
+    Dp4a,
+    Mwv,
 }
