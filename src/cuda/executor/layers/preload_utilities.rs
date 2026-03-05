@@ -60,87 +60,8 @@ impl CudaExecutor {
             }
         }
 
-        // 6. RoPE kernels (for Q and K)
-        let theta = self.rope_theta;
-        let rope_q_key = format!("rope_{}_{}", num_heads, head_dim);
-        if !self.modules.contains_key(&rope_q_key) {
-            let kernel_type = KernelType::Rope { num_heads, head_dim, theta };
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(rope_q_key, module);
-        }
-        let rope_k_key = format!("rope_{}_{}", num_kv_heads, head_dim);
-        if !self.modules.contains_key(&rope_k_key) {
-            let kernel_type = KernelType::Rope { num_heads: num_kv_heads, head_dim, theta };
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(rope_k_key, module);
-        }
-
-        // RoPE indirect kernels for CUDA graph capture
-        let rope_q_indirect_key = format!("rope_indirect_{}_{}", num_heads, head_dim);
-        if !self.modules.contains_key(&rope_q_indirect_key) {
-            let kernel_type = KernelType::RopeIndirect { num_heads, head_dim, theta };
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(rope_q_indirect_key, module);
-        }
-        let rope_k_indirect_key = format!("rope_indirect_{}_{}", num_kv_heads, head_dim);
-        if !self.modules.contains_key(&rope_k_indirect_key) {
-            let kernel_type = KernelType::RopeIndirect { num_heads: num_kv_heads, head_dim, theta };
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(rope_k_indirect_key, module);
-        }
-
-        // RoPE NEOX indirect kernels for Qwen2.5 (rope_type=2)
-        if self.rope_type == 2 {
-            if use_precise {
-                let rope_precise_q_indirect_key = format!("rope_precise_indirect_{}_{}", num_heads, head_dim);
-                if !self.modules.contains_key(&rope_precise_q_indirect_key) {
-                    let kernel_type = KernelType::PreciseRopeNeoxIndirect { num_heads, head_dim, theta };
-                    let ptx = self.kernels.generate_ptx(&kernel_type);
-                    let module = self.compile_ptx(&ptx)?;
-                    self.modules.insert(rope_precise_q_indirect_key, module);
-                }
-                let rope_precise_k_indirect_key = format!("rope_precise_indirect_{}_{}", num_kv_heads, head_dim);
-                if !self.modules.contains_key(&rope_precise_k_indirect_key) {
-                    let kernel_type = KernelType::PreciseRopeNeoxIndirect { num_heads: num_kv_heads, head_dim, theta };
-                    let ptx = self.kernels.generate_ptx(&kernel_type);
-                    let module = self.compile_ptx(&ptx)?;
-                    self.modules.insert(rope_precise_k_indirect_key, module);
-                }
-            } else {
-                let rope_neox_q_indirect_key = format!("rope_neox_indirect_{}_{}", num_heads, head_dim);
-                if !self.modules.contains_key(&rope_neox_q_indirect_key) {
-                    let kernel_type = KernelType::RopeNeoxIndirect { num_heads, head_dim, theta };
-                    let ptx = self.kernels.generate_ptx(&kernel_type);
-                    let module = self.compile_ptx(&ptx)?;
-                    self.modules.insert(rope_neox_q_indirect_key, module);
-                }
-                let rope_neox_k_indirect_key = format!("rope_neox_indirect_{}_{}", num_kv_heads, head_dim);
-                if !self.modules.contains_key(&rope_neox_k_indirect_key) {
-                    let kernel_type = KernelType::RopeNeoxIndirect { num_heads: num_kv_heads, head_dim, theta };
-                    let ptx = self.kernels.generate_ptx(&kernel_type);
-                    let module = self.compile_ptx(&ptx)?;
-                    self.modules.insert(rope_neox_k_indirect_key, module);
-                }
-            }
-            let rope_neox_q_key = format!("rope_neox_{}_{}", num_heads, head_dim);
-            if !self.modules.contains_key(&rope_neox_q_key) {
-                let kernel_type = KernelType::RopeNeox { num_heads, head_dim, theta };
-                let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = self.compile_ptx(&ptx)?;
-                self.modules.insert(rope_neox_q_key, module);
-            }
-            let rope_neox_k_key = format!("rope_neox_{}_{}", num_kv_heads, head_dim);
-            if !self.modules.contains_key(&rope_neox_k_key) {
-                let kernel_type = KernelType::RopeNeox { num_heads: num_kv_heads, head_dim, theta };
-                let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = self.compile_ptx(&ptx)?;
-                self.modules.insert(rope_neox_k_key, module);
-            }
-        }
+        // 6. RoPE kernels — extracted to reduce cyclomatic complexity
+        self.preload_rope_modules(num_heads, num_kv_heads, head_dim, use_precise)?;
 
         // 7. SwiGLU kernel
         let swiglu_key = format!("fused_swiglu_{}", intermediate_dim);
@@ -152,7 +73,8 @@ impl CudaExecutor {
         }
 
         // 8. Residual add kernel
-        let residual_key = format!("residual_add_{}", hidden_dim);
+        // GH-129: PTX is n-independent, use constant cache key
+        let residual_key = "residual_add".to_string();
         if !self.modules.contains_key(&residual_key) {
             let kernel_type = KernelType::ResidualAdd { n: hidden_dim };
             let ptx = self.kernels.generate_ptx(&kernel_type);

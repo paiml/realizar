@@ -23,7 +23,8 @@ impl CudaExecutor {
     ) -> Result<(), GpuError> {
         let kernel_type = KernelType::BatchedSwiglu { n, batch_size };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("batched_swiglu_{}_{}", n, batch_size);
+        // GH-129: PTX depends on n (immediate) but NOT batch_size (grid dim).
+        let cache_key = format!("batched_swiglu_{}", n);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -192,7 +193,9 @@ impl CudaExecutor {
     ) -> Result<GpuBuffer<f32>, GpuError> {
         let kernel_type = KernelType::ResidualAdd { n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("residual_add_{}", n);
+        // GH-129: PTX is n-independent (n is a runtime param), so use constant cache key.
+        // Prevents JIT recompilation for different n values on memory-constrained devices.
+        let cache_key = "residual_add".to_string();
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -248,7 +251,8 @@ impl CudaExecutor {
     ) -> Result<(), GpuError> {
         let kernel_type = KernelType::ResidualAdd { n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("residual_add_{}", n);
+        // GH-129: PTX is n-independent (n is a runtime param), so use constant cache key.
+        let cache_key = "residual_add".to_string();
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);

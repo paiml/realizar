@@ -465,7 +465,9 @@ impl CudaExecutor {
     ) -> Result<(), GpuError> {
         let kernel_type = KernelType::BatchedResidualAdd { n, batch_size };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("batched_residual_add_{}_{}", n, batch_size);
+        // GH-129: PTX depends on n (immediate constant) but NOT batch_size (grid dim only).
+        // Remove batch_size from cache key to prevent JIT recompilation per prompt length.
+        let cache_key = format!("batched_residual_add_{}", n);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);

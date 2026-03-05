@@ -60,87 +60,8 @@ impl CudaExecutor {
             }
         }
 
-        // 6. RoPE kernels (for Q and K)
-        let theta = self.rope_theta;
-        let rope_q_key = format!("rope_{}_{}", num_heads, head_dim);
-        if !self.modules.contains_key(&rope_q_key) {
-            let kernel_type = KernelType::Rope { num_heads, head_dim, theta };
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(rope_q_key, module);
-        }
-        let rope_k_key = format!("rope_{}_{}", num_kv_heads, head_dim);
-        if !self.modules.contains_key(&rope_k_key) {
-            let kernel_type = KernelType::Rope { num_heads: num_kv_heads, head_dim, theta };
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(rope_k_key, module);
-        }
-
-        // RoPE indirect kernels for CUDA graph capture
-        let rope_q_indirect_key = format!("rope_indirect_{}_{}", num_heads, head_dim);
-        if !self.modules.contains_key(&rope_q_indirect_key) {
-            let kernel_type = KernelType::RopeIndirect { num_heads, head_dim, theta };
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(rope_q_indirect_key, module);
-        }
-        let rope_k_indirect_key = format!("rope_indirect_{}_{}", num_kv_heads, head_dim);
-        if !self.modules.contains_key(&rope_k_indirect_key) {
-            let kernel_type = KernelType::RopeIndirect { num_heads: num_kv_heads, head_dim, theta };
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(rope_k_indirect_key, module);
-        }
-
-        // RoPE NEOX indirect kernels for Qwen2.5 (rope_type=2)
-        if self.rope_type == 2 {
-            if use_precise {
-                let rope_precise_q_indirect_key = format!("rope_precise_indirect_{}_{}", num_heads, head_dim);
-                if !self.modules.contains_key(&rope_precise_q_indirect_key) {
-                    let kernel_type = KernelType::PreciseRopeNeoxIndirect { num_heads, head_dim, theta };
-                    let ptx = self.kernels.generate_ptx(&kernel_type);
-                    let module = self.compile_ptx(&ptx)?;
-                    self.modules.insert(rope_precise_q_indirect_key, module);
-                }
-                let rope_precise_k_indirect_key = format!("rope_precise_indirect_{}_{}", num_kv_heads, head_dim);
-                if !self.modules.contains_key(&rope_precise_k_indirect_key) {
-                    let kernel_type = KernelType::PreciseRopeNeoxIndirect { num_heads: num_kv_heads, head_dim, theta };
-                    let ptx = self.kernels.generate_ptx(&kernel_type);
-                    let module = self.compile_ptx(&ptx)?;
-                    self.modules.insert(rope_precise_k_indirect_key, module);
-                }
-            } else {
-                let rope_neox_q_indirect_key = format!("rope_neox_indirect_{}_{}", num_heads, head_dim);
-                if !self.modules.contains_key(&rope_neox_q_indirect_key) {
-                    let kernel_type = KernelType::RopeNeoxIndirect { num_heads, head_dim, theta };
-                    let ptx = self.kernels.generate_ptx(&kernel_type);
-                    let module = self.compile_ptx(&ptx)?;
-                    self.modules.insert(rope_neox_q_indirect_key, module);
-                }
-                let rope_neox_k_indirect_key = format!("rope_neox_indirect_{}_{}", num_kv_heads, head_dim);
-                if !self.modules.contains_key(&rope_neox_k_indirect_key) {
-                    let kernel_type = KernelType::RopeNeoxIndirect { num_heads: num_kv_heads, head_dim, theta };
-                    let ptx = self.kernels.generate_ptx(&kernel_type);
-                    let module = self.compile_ptx(&ptx)?;
-                    self.modules.insert(rope_neox_k_indirect_key, module);
-                }
-            }
-            let rope_neox_q_key = format!("rope_neox_{}_{}", num_heads, head_dim);
-            if !self.modules.contains_key(&rope_neox_q_key) {
-                let kernel_type = KernelType::RopeNeox { num_heads, head_dim, theta };
-                let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = self.compile_ptx(&ptx)?;
-                self.modules.insert(rope_neox_q_key, module);
-            }
-            let rope_neox_k_key = format!("rope_neox_{}_{}", num_kv_heads, head_dim);
-            if !self.modules.contains_key(&rope_neox_k_key) {
-                let kernel_type = KernelType::RopeNeox { num_heads: num_kv_heads, head_dim, theta };
-                let ptx = self.kernels.generate_ptx(&kernel_type);
-                let module = self.compile_ptx(&ptx)?;
-                self.modules.insert(rope_neox_k_key, module);
-            }
-        }
+        // 6. RoPE kernels — extracted to reduce cyclomatic complexity
+        self.preload_rope_modules(num_heads, num_kv_heads, head_dim, use_precise)?;
 
         // 7. SwiGLU kernel
         let swiglu_key = format!("fused_swiglu_{}", intermediate_dim);
@@ -152,7 +73,8 @@ impl CudaExecutor {
         }
 
         // 8. Residual add kernel
-        let residual_key = format!("residual_add_{}", hidden_dim);
+        // GH-129: PTX is n-independent, use constant cache key
+        let residual_key = "residual_add".to_string();
         if !self.modules.contains_key(&residual_key) {
             let kernel_type = KernelType::ResidualAdd { n: hidden_dim };
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -218,12 +140,150 @@ impl CudaExecutor {
             self.modules.insert(multi_warp_indirect_key, module);
         }
 
+        // 11. Batched prefill kernels (GH-129)
+        self.preload_batched_prefill_modules(hidden_dim, intermediate_dim)?;
+
         if verbose() {
             eprintln!(
                 "[PAR-054-FIX] Pre-loaded {} kernel modules for {} layers",
                 self.modules.len(), num_layers
             );
         }
+        Ok(())
+    }
+
+    /// Pre-load RoPE base + indirect kernel variants.
+    fn preload_rope_modules(
+        &mut self,
+        num_heads: u32,
+        num_kv_heads: u32,
+        head_dim: u32,
+        use_precise: bool,
+    ) -> Result<(), GpuError> {
+        let theta = self.rope_theta;
+
+        let rope_q_key = format!("rope_{}_{}", num_heads, head_dim);
+        if !self.modules.contains_key(&rope_q_key) {
+            let kernel_type = KernelType::Rope { num_heads, head_dim, theta };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(rope_q_key, module);
+        }
+        let rope_k_key = format!("rope_{}_{}", num_kv_heads, head_dim);
+        if !self.modules.contains_key(&rope_k_key) {
+            let kernel_type = KernelType::Rope { num_heads: num_kv_heads, head_dim, theta };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(rope_k_key, module);
+        }
+
+        let rope_q_indirect_key = format!("rope_indirect_{}_{}", num_heads, head_dim);
+        if !self.modules.contains_key(&rope_q_indirect_key) {
+            let kernel_type = KernelType::RopeIndirect { num_heads, head_dim, theta };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(rope_q_indirect_key, module);
+        }
+        let rope_k_indirect_key = format!("rope_indirect_{}_{}", num_kv_heads, head_dim);
+        if !self.modules.contains_key(&rope_k_indirect_key) {
+            let kernel_type = KernelType::RopeIndirect { num_heads: num_kv_heads, head_dim, theta };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(rope_k_indirect_key, module);
+        }
+
+        if self.rope_type == 2 {
+            self.preload_rope_neox_modules(num_heads, num_kv_heads, head_dim, use_precise)?;
+        }
+
+        Ok(())
+    }
+
+    /// Pre-load RoPE NEOX variants (Qwen2.5 rope_type=2).
+    fn preload_rope_neox_modules(
+        &mut self,
+        num_heads: u32,
+        num_kv_heads: u32,
+        head_dim: u32,
+        use_precise: bool,
+    ) -> Result<(), GpuError> {
+        let theta = self.rope_theta;
+
+        if use_precise {
+            let rope_precise_q_indirect_key = format!("rope_precise_indirect_{}_{}", num_heads, head_dim);
+            if !self.modules.contains_key(&rope_precise_q_indirect_key) {
+                let kernel_type = KernelType::PreciseRopeNeoxIndirect { num_heads, head_dim, theta };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(rope_precise_q_indirect_key, module);
+            }
+            let rope_precise_k_indirect_key = format!("rope_precise_indirect_{}_{}", num_kv_heads, head_dim);
+            if !self.modules.contains_key(&rope_precise_k_indirect_key) {
+                let kernel_type = KernelType::PreciseRopeNeoxIndirect { num_heads: num_kv_heads, head_dim, theta };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(rope_precise_k_indirect_key, module);
+            }
+        } else {
+            let rope_neox_q_indirect_key = format!("rope_neox_indirect_{}_{}", num_heads, head_dim);
+            if !self.modules.contains_key(&rope_neox_q_indirect_key) {
+                let kernel_type = KernelType::RopeNeoxIndirect { num_heads, head_dim, theta };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(rope_neox_q_indirect_key, module);
+            }
+            let rope_neox_k_indirect_key = format!("rope_neox_indirect_{}_{}", num_kv_heads, head_dim);
+            if !self.modules.contains_key(&rope_neox_k_indirect_key) {
+                let kernel_type = KernelType::RopeNeoxIndirect { num_heads: num_kv_heads, head_dim, theta };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(rope_neox_k_indirect_key, module);
+            }
+        }
+        let rope_neox_q_key = format!("rope_neox_{}_{}", num_heads, head_dim);
+        if !self.modules.contains_key(&rope_neox_q_key) {
+            let kernel_type = KernelType::RopeNeox { num_heads, head_dim, theta };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(rope_neox_q_key, module);
+        }
+        let rope_neox_k_key = format!("rope_neox_{}_{}", num_kv_heads, head_dim);
+        if !self.modules.contains_key(&rope_neox_k_key) {
+            let kernel_type = KernelType::RopeNeox { num_heads: num_kv_heads, head_dim, theta };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(rope_neox_k_key, module);
+        }
+
+        Ok(())
+    }
+
+    /// GH-129: Pre-load batched kernels used by batched prefill path.
+    ///
+    /// These kernels embed `n` as an immediate constant but NOT `batch_size`
+    /// (which only affects the grid dimension). Pre-loading prevents JIT
+    /// compilation on memory-constrained devices (Jetson unified memory).
+    fn preload_batched_prefill_modules(
+        &mut self,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+    ) -> Result<(), GpuError> {
+        let batched_residual_key = format!("batched_residual_add_{}", hidden_dim);
+        if !self.modules.contains_key(&batched_residual_key) {
+            let kernel_type = KernelType::BatchedResidualAdd { n: hidden_dim, batch_size: 1 };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(batched_residual_key, module);
+        }
+
+        let batched_swiglu_key = format!("batched_swiglu_{}", intermediate_dim);
+        if !self.modules.contains_key(&batched_swiglu_key) {
+            let kernel_type = KernelType::BatchedSwiglu { n: intermediate_dim, batch_size: 1 };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(batched_swiglu_key, module);
+        }
+
         Ok(())
     }
 }
