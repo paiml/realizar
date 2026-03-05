@@ -8,6 +8,12 @@ impl CudaExecutor {
         device_count().unwrap_or(0)
     }
 
+    /// Number of loaded kernel modules.
+    #[must_use]
+    pub fn module_count(&self) -> usize {
+        self.modules.len()
+    }
+
     /// Set the CUDA context as current for the calling thread
     ///
     /// CUDA contexts are thread-local. When using async/multi-threaded code

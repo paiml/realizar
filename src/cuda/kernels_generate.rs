@@ -18,7 +18,7 @@ fn generate_q8_dequant_ptx(_n: u32) -> String {
     // The kernel uses n_param from arguments for bounds checking
     r"
 .version 8.0
-.target sm_89
+.target sm_70
 .address_size 64
 
 .visible .entry q8_dequant(

@@ -182,7 +182,7 @@ fn test_parity_073b_ptx_generation() {
     // Check required PTX directives (trueno format)
     let required_directives = [
         ".version 8.0", // trueno uses 8.0
-        ".target sm_89",
+        ".target sm_70",
         ".address_size 64",
         ".visible .entry q4k_gemm_ggml", // trueno kernel name
     ];

@@ -413,7 +413,7 @@ fn test_parity043_multi_head_attention_ptx_generation() {
 
     // Verify PTX structure (now using trueno's FlashAttention kernel)
     assert!(ptx.contains(".version 8.0"));
-    assert!(ptx.contains(".target sm_89"));
+    assert!(ptx.contains(".target sm_70"));
     assert!(ptx.contains(".visible .entry flash_attention"));
     // trueno uses lowercase ptr names
     assert!(ptx.contains(".param .u64 q_ptr"));

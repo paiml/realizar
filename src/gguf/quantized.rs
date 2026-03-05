@@ -249,6 +249,27 @@ impl OwnedQKVWeights {
             OwnedQKVWeights::Separate { v, .. } => v.out_dim,
         }
     }
+
+    /// GH-129: Total size of owned weight data in bytes.
+    #[must_use]
+    pub fn data_bytes(&self) -> usize {
+        match self {
+            OwnedQKVWeights::Fused(t) => t.data.len(),
+            OwnedQKVWeights::Separate { q, k, v } => q.data.len() + k.data.len() + v.data.len(),
+        }
+    }
+
+    /// GH-129: Free owned weight data (replace with empty Vec).
+    pub fn free_data(&mut self) {
+        match self {
+            OwnedQKVWeights::Fused(t) => t.data = Vec::new(),
+            OwnedQKVWeights::Separate { q, k, v } => {
+                q.data = Vec::new();
+                k.data = Vec::new();
+                v.data = Vec::new();
+            },
+        }
+    }
 }
 
 // ============================================================================
@@ -295,6 +316,18 @@ pub struct OwnedQuantizedLayer {
 }
 
 impl OwnedQuantizedLayer {
+    /// GH-129: Free projection weight data (keep norms, biases).
+    /// After GPU preload, CPU copies are redundant on unified memory.
+    pub fn free_projection_weights(&mut self) {
+        self.qkv_weight.free_data();
+        self.attn_output_weight.data = Vec::new();
+        self.ffn_up_weight.data = Vec::new();
+        self.ffn_down_weight.data = Vec::new();
+        if let Some(ref mut gate) = self.ffn_gate_weight {
+            gate.data = Vec::new();
+        }
+    }
+
     /// Convert from borrowed layer with data reference and model config
     #[must_use]
     pub fn from_borrowed(
