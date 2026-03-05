@@ -233,22 +233,24 @@ pub fn dtype_to_ggml_qtype(dtype: &str) -> Option<u32> {
     // APR-native Q8/Q4 are NOT GGML — different binary layout — returns None.
     // F32/F16/BF16 are not quantized — returns None.
     crate::gguf::GgmlQuantType::from_str_lossy(dtype)
-        .filter(|qt| matches!(
-            qt,
-            crate::gguf::GgmlQuantType::Q4_0
-            | crate::gguf::GgmlQuantType::Q4_1
-            | crate::gguf::GgmlQuantType::Q5_0
-            | crate::gguf::GgmlQuantType::Q5_1
-            | crate::gguf::GgmlQuantType::Q8_0
-            | crate::gguf::GgmlQuantType::Q8_1
-            | crate::gguf::GgmlQuantType::Q2K
-            | crate::gguf::GgmlQuantType::Q3K
-            | crate::gguf::GgmlQuantType::Q4K
-            | crate::gguf::GgmlQuantType::Q5K
-            | crate::gguf::GgmlQuantType::Q6K
-            | crate::gguf::GgmlQuantType::IQ2XXS
-            | crate::gguf::GgmlQuantType::IQ2XS
-        ))
+        .filter(|qt| {
+            matches!(
+                qt,
+                crate::gguf::GgmlQuantType::Q4_0
+                    | crate::gguf::GgmlQuantType::Q4_1
+                    | crate::gguf::GgmlQuantType::Q5_0
+                    | crate::gguf::GgmlQuantType::Q5_1
+                    | crate::gguf::GgmlQuantType::Q8_0
+                    | crate::gguf::GgmlQuantType::Q8_1
+                    | crate::gguf::GgmlQuantType::Q2K
+                    | crate::gguf::GgmlQuantType::Q3K
+                    | crate::gguf::GgmlQuantType::Q4K
+                    | crate::gguf::GgmlQuantType::Q5K
+                    | crate::gguf::GgmlQuantType::Q6K
+                    | crate::gguf::GgmlQuantType::IQ2XXS
+                    | crate::gguf::GgmlQuantType::IQ2XS
+            )
+        })
         .map(crate::gguf::GgmlQuantType::as_id)
 }
 

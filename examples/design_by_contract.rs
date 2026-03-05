@@ -7,8 +7,8 @@
 //! Run: `cargo run --example design_by_contract`
 
 use realizar::gguf::{
-    ArchConstraints, GGUFConfig, NormType, Activation, MlpType,
-    PositionalEncoding, ValidatedModelConfig, WeightLayout,
+    Activation, ArchConstraints, GGUFConfig, MlpType, NormType, PositionalEncoding,
+    ValidatedModelConfig, WeightLayout,
 };
 
 fn main() {
@@ -35,9 +35,13 @@ fn main() {
 
     let validated = ValidatedModelConfig::validate(llama_config)
         .expect("LLaMA-7B config should pass validation");
-    println!("[PASS] LLaMA-7B: hidden={}, heads={}, kv_heads={}, head_dim={}",
-        validated.hidden_dim(), validated.num_heads(),
-        validated.num_kv_heads(), validated.head_dim());
+    println!(
+        "[PASS] LLaMA-7B: hidden={}, heads={}, kv_heads={}, head_dim={}",
+        validated.hidden_dim(),
+        validated.num_heads(),
+        validated.num_kv_heads(),
+        validated.head_dim()
+    );
 
     // -----------------------------------------------------------------------
     // 2. Invalid config: hidden_dim=0 is rejected immediately
@@ -60,8 +64,8 @@ fn main() {
         eos_token_id: None,
     };
 
-    let err = ValidatedModelConfig::validate(bad_config)
-        .expect_err("hidden_dim=0 must be rejected");
+    let err =
+        ValidatedModelConfig::validate(bad_config).expect_err("hidden_dim=0 must be rejected");
     println!("[REJECTED] hidden_dim=0: {err}");
 
     // -----------------------------------------------------------------------
@@ -95,14 +99,26 @@ fn main() {
     println!("\n--- ArchConstraints comparison ---");
 
     let qwen2 = ArchConstraints::from_architecture("qwen2");
-    println!("Qwen2:  norm={:?}, activation={:?}, pos={:?}, mlp={:?}, layout={:?}, bias={}",
-        qwen2.norm_type, qwen2.activation, qwen2.positional_encoding,
-        qwen2.mlp_type, qwen2.weight_layout, qwen2.has_bias);
+    println!(
+        "Qwen2:  norm={:?}, activation={:?}, pos={:?}, mlp={:?}, layout={:?}, bias={}",
+        qwen2.norm_type,
+        qwen2.activation,
+        qwen2.positional_encoding,
+        qwen2.mlp_type,
+        qwen2.weight_layout,
+        qwen2.has_bias
+    );
 
     let gpt2 = ArchConstraints::from_architecture("gpt2");
-    println!("GPT-2:  norm={:?}, activation={:?}, pos={:?}, mlp={:?}, layout={:?}, bias={}",
-        gpt2.norm_type, gpt2.activation, gpt2.positional_encoding,
-        gpt2.mlp_type, gpt2.weight_layout, gpt2.has_bias);
+    println!(
+        "GPT-2:  norm={:?}, activation={:?}, pos={:?}, mlp={:?}, layout={:?}, bias={}",
+        gpt2.norm_type,
+        gpt2.activation,
+        gpt2.positional_encoding,
+        gpt2.mlp_type,
+        gpt2.weight_layout,
+        gpt2.has_bias
+    );
 
     // Verify contract differences
     assert_eq!(qwen2.norm_type, NormType::RmsNorm);

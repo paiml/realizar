@@ -1143,7 +1143,7 @@ fn test_apr_transformer_config_serialization() {
         context_length: 2048,
         rope_theta: 10000.0,
         eps: 1e-5,
-    ..Default::default()
+        ..Default::default()
     };
     let json = serde_json::to_string(&config).unwrap();
     let parsed: AprTransformerConfig = serde_json::from_str(&json).unwrap();
@@ -1461,7 +1461,7 @@ fn test_generate_config_custom() {
         top_k: 50,
         repetition_penalty: 1.2,
         trace: false,
-    stop_tokens: vec![],
+        stop_tokens: vec![],
     };
     assert_eq!(config.max_tokens, 100);
     assert!((config.temperature - 0.7).abs() < 0.001);
@@ -2348,7 +2348,7 @@ fn test_apr_transformer_gqa_config() {
         context_length: 8192,
         rope_theta: 500000.0,
         eps: 1e-5,
-    ..Default::default()
+        ..Default::default()
     };
     let transformer = AprTransformer::new(config);
     assert_eq!(transformer.config().num_heads, 32);
@@ -2372,7 +2372,7 @@ fn test_apr_transformer_mha_config() {
         context_length: 1024,
         rope_theta: 10000.0,
         eps: 1e-5,
-    ..Default::default()
+        ..Default::default()
     };
     let transformer = AprTransformer::new(config);
     assert_eq!(
@@ -3622,7 +3622,7 @@ fn test_apr_transformer_config_clone() {
         context_length: 4096,
         rope_theta: 500000.0,
         eps: 1e-6,
-    ..Default::default()
+        ..Default::default()
     };
     // Clone trait test: use the cloned value in a function call to avoid redundant_clone lint
     fn verify_config(c: AprTransformerConfig) {

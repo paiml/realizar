@@ -357,8 +357,8 @@ impl OwnedQuantizedLayer {
                 // ffn_up is a fused gate_up tensor with out_dim = 2 * intermediate_dim.
                 // GH-309: Models with GELU activation (Phi-2, GPT-2) also have no gate
                 // weight but their ffn_up is NOT fused — it's just intermediate_dim.
-                let is_fused_gate_up = layer.ffn_gate_weight.is_none()
-                    && config.constraints.has_gate_ffn();
+                let is_fused_gate_up =
+                    layer.ffn_gate_weight.is_none() && config.constraints.has_gate_ffn();
                 let up_out_dim = if is_fused_gate_up {
                     intermediate_dim * 2
                 } else {

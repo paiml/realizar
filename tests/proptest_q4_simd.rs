@@ -303,7 +303,7 @@ fn test_scratch_from_config_creates_valid_buffers() {
         context_length: 256,
         rope_theta: 10000.0,
         eps: 1e-5,
-    ..Default::default()
+        ..Default::default()
     };
 
     let scratch = AprInferenceScratch::from_config(&config);
@@ -351,7 +351,7 @@ fn test_kv_cache_new_creates_valid_structure() {
         context_length: 128,
         rope_theta: 10000.0,
         eps: 1e-5,
-    ..Default::default()
+        ..Default::default()
     };
 
     let cache = AprKVCache::new(&config);
@@ -377,7 +377,7 @@ fn test_kv_cache_append_and_get() {
         context_length: 16,
         rope_theta: 10000.0,
         eps: 1e-5,
-    ..Default::default()
+        ..Default::default()
     };
 
     let mut cache = AprKVCache::new(&config);

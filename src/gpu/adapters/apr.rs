@@ -246,10 +246,7 @@ impl AprF32ToGpuAdapter {
             // a: [num_v_heads, hidden_dim] → transpose → [hidden_dim, num_v_heads]
             a_weight: transpose_matrix(a, num_v_heads, hidden_dim),
             // conv1d: [conv_dim, kernel_size] — no transpose needed (1D)
-            conv1d_weight: layer
-                .linear_attn_conv1d_weight
-                .clone()
-                .unwrap_or_default(),
+            conv1d_weight: layer.linear_attn_conv1d_weight.clone().unwrap_or_default(),
             // a_log: [num_v_heads] — scalar per head
             a_log: layer.linear_attn_a_log.clone().unwrap_or_default(),
             // dt_bias: [num_v_heads] — scalar per head

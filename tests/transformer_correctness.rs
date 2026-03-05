@@ -395,7 +395,7 @@ fn test_golden_tiny_transformer() {
         context_length: 16,
         rope_theta: 10000.0,
         eps: 1e-5,
-    ..Default::default()
+        ..Default::default()
     };
 
     let mut transformer = AprTransformer::new(config);

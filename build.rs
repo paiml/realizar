@@ -493,8 +493,11 @@ fn generate_arch_constraints_file() {
             "cargo:warning=[GH-323] arch-constraints-v1.yaml not found; \
              using fallback arch_constraints.rs"
         );
-        std::fs::write(&out_path, include_str!("src/gguf/arch_constraints_fallback.rs"))
-            .expect("Failed to write fallback arch_constraints_generated.rs");
+        std::fs::write(
+            &out_path,
+            include_str!("src/gguf/arch_constraints_fallback.rs"),
+        )
+        .expect("Failed to write fallback arch_constraints_generated.rs");
         return;
     }
 
@@ -505,8 +508,11 @@ fn generate_arch_constraints_file() {
                 "cargo:warning=[GH-323] Failed to read arch-constraints-v1.yaml: {e}; \
                  using fallback"
             );
-            std::fs::write(&out_path, include_str!("src/gguf/arch_constraints_fallback.rs"))
-                .expect("Failed to write fallback arch_constraints_generated.rs");
+            std::fs::write(
+                &out_path,
+                include_str!("src/gguf/arch_constraints_fallback.rs"),
+            )
+            .expect("Failed to write fallback arch_constraints_generated.rs");
             return;
         },
     };
@@ -518,15 +524,17 @@ fn generate_arch_constraints_file() {
                 "cargo:warning=[GH-323] Failed to parse arch-constraints-v1.yaml: {e}; \
                  using fallback"
             );
-            std::fs::write(&out_path, include_str!("src/gguf/arch_constraints_fallback.rs"))
-                .expect("Failed to write fallback arch_constraints_generated.rs");
+            std::fs::write(
+                &out_path,
+                include_str!("src/gguf/arch_constraints_fallback.rs"),
+            )
+            .expect("Failed to write fallback arch_constraints_generated.rs");
             return;
         },
     };
 
     let generated = generate_arch_constraints(&contract);
-    std::fs::write(&out_path, &generated)
-        .expect("Failed to write arch_constraints_generated.rs");
+    std::fs::write(&out_path, &generated).expect("Failed to write arch_constraints_generated.rs");
 
     println!(
         "cargo:warning=[GH-323] Generated arch_constraints from YAML ({} architectures)",

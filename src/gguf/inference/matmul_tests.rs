@@ -39,9 +39,9 @@ fn test_config(hidden_dim: usize, vocab_size: usize) -> GGUFConfig {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     }
 }
 
@@ -397,7 +397,11 @@ fn falsify_bf16_002_shape_preservation_multi_token() {
 
     let result = model.fused_matmul(&input, &weight);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().len(), 32 * 3, "Output shape must be out_dim * seq_len");
+    assert_eq!(
+        result.unwrap().len(),
+        32 * 3,
+        "Output shape must be out_dim * seq_len"
+    );
 }
 
 #[test]
@@ -409,7 +413,10 @@ fn falsify_bf16_003_zero_weights_produce_zero_output() {
 
     let output = model.fused_matmul(&input, &weight).unwrap();
     for (i, &v) in output.iter().enumerate() {
-        assert!(v == 0.0, "Zero weights must produce zero output, got {v} at index {i}");
+        assert!(
+            v == 0.0,
+            "Zero weights must produce zero output, got {v} at index {i}"
+        );
     }
 }
 
@@ -465,8 +472,16 @@ fn falsify_bf16_005_known_dot_product() {
 
     let output = model.fused_matmul(&input, &weight).unwrap();
     assert_eq!(output.len(), 2);
-    assert!((output[0] - 3.0).abs() < 1e-6, "Expected 3.0, got {}", output[0]);
-    assert!((output[1] - 7.0).abs() < 1e-6, "Expected 7.0, got {}", output[1]);
+    assert!(
+        (output[0] - 3.0).abs() < 1e-6,
+        "Expected 3.0, got {}",
+        output[0]
+    );
+    assert!(
+        (output[1] - 7.0).abs() < 1e-6,
+        "Expected 7.0, got {}",
+        output[1]
+    );
 }
 
 #[test]
@@ -719,10 +734,7 @@ fn falsify_em_003_embed_determinism() {
     let r1 = model.embed(&tokens);
     let r2 = model.embed(&tokens);
 
-    assert_eq!(
-        r1, r2,
-        "FALSIFIED EM-003: embed() is non-deterministic"
-    );
+    assert_eq!(r1, r2, "FALSIFIED EM-003: embed() is non-deterministic");
 }
 
 #[test]
@@ -796,10 +808,7 @@ fn falsify_emb_001_lookup_determinism() {
     for t in [0u32, 10, 25, 49] {
         let v1 = model.embed(&[t]);
         let v2 = model.embed(&[t]);
-        assert_eq!(
-            v1, v2,
-            "FALSIFIED EMB-001: embed({t}) non-deterministic"
-        );
+        assert_eq!(v1, v2, "FALSIFIED EMB-001: embed({t}) non-deterministic");
     }
 }
 
@@ -814,7 +823,9 @@ fn falsify_emb_002_shape_preservation() {
             output.len(),
             tokens.len() * hidden,
             "FALSIFIED EMB-002: hidden={hidden}, n_tokens={}, output len={} != {}",
-            tokens.len(), output.len(), tokens.len() * hidden
+            tokens.len(),
+            output.len(),
+            tokens.len() * hidden
         );
     }
 }
@@ -1742,7 +1753,8 @@ fn falsify_pipe_001_embed_lm_head_softmax_pipeline() {
         embedded.len(),
         tokens.len() * hidden_dim,
         "FALSIFIED PIPE-001/EM-001: embed len={} != {}*{hidden_dim}",
-        embedded.len(), tokens.len()
+        embedded.len(),
+        tokens.len()
     );
 
     // EM-004: all embed values finite
@@ -1795,10 +1807,18 @@ fn falsify_pipe_001_embed_lm_head_softmax_pipeline() {
     }
 
     // SM-003: argmax preserved
-    let logit_argmax = logits.iter().enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0;
-    let prob_argmax = probs.iter().enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0;
+    let logit_argmax = logits
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .unwrap()
+        .0;
+    let prob_argmax = probs
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .unwrap()
+        .0;
     assert_eq!(
         logit_argmax, prob_argmax,
         "FALSIFIED PIPE-001/SM-003: argmax changed {} → {}",

@@ -80,7 +80,12 @@ fn test_fixture_load_qwen_model() {
     assert_eq!(model.architecture(), Some("qwen2"));
     assert_eq!(model.num_kv_heads(), Some(4));
     // Qwen uses different RoPE theta
-    assert!(model.rope_freq_base().expect("test value should be present") > 100000.0);
+    assert!(
+        model
+            .rope_freq_base()
+            .expect("test value should be present")
+            > 100000.0
+    );
 }
 
 // =============================================================================
@@ -390,7 +395,12 @@ fn test_fixture_mha_vs_gqa() {
     assert_ne!(gqa_model.num_heads(), gqa_model.num_kv_heads());
 
     // GQA should have more Q heads than KV heads
-    assert!(gqa_model.num_heads().expect("test value should be present") > gqa_model.num_kv_heads().expect("test value should be present"));
+    assert!(
+        gqa_model.num_heads().expect("test value should be present")
+            > gqa_model
+                .num_kv_heads()
+                .expect("test value should be present")
+    );
 }
 
 // =============================================================================

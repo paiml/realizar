@@ -35,9 +35,9 @@ fn test_phase34_embed_single_token() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -62,9 +62,9 @@ fn test_phase34_embed_multiple_tokens() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -89,9 +89,9 @@ fn test_phase34_embed_out_of_vocab() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -118,9 +118,9 @@ fn test_phase34_embed_boundary_token() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -146,9 +146,9 @@ fn test_phase34_embed_empty() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -176,9 +176,9 @@ fn test_phase34_embed_into_single() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -206,9 +206,9 @@ fn test_phase34_embed_into_out_of_vocab() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -263,9 +263,9 @@ fn test_phase34_fused_matmul_q4_0_single_seq() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -302,9 +302,9 @@ fn test_phase34_fused_matmul_q4_0_multi_seq() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -369,9 +369,9 @@ fn test_phase34_fused_matmul_q8_0_single_seq() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -407,9 +407,9 @@ fn test_phase34_fused_matmul_q8_0_multi_seq() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -422,7 +422,10 @@ fn test_phase34_fused_matmul_q8_0_multi_seq() {
 
     let result = model.fused_matmul(&input, &weight);
     assert!(result.is_ok());
-    assert_eq!(result.expect("test value should be present").len(), out_dim * seq_len);
+    assert_eq!(
+        result.expect("test value should be present").len(),
+        out_dim * seq_len
+    );
 }
 
 // =============================================================================

@@ -275,7 +275,7 @@
 
         let model = ZeroModel;
         let mut pipeline = GenerationPipeline::new(model)
-            .add_processor(TokenSuppressor::new(vec![0])) // Suppress token 0
+            .add_processor(TokenSuppressor::new(vec![0])) // token 0 excluded from sampling
             .with_config(GenerationConfig::greedy().with_max_tokens(1));
 
         let result = pipeline.generate(&[1]).expect("test");

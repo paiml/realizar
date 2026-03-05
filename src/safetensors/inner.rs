@@ -247,56 +247,68 @@ fn validate_architecture_completeness(
     let arch = crate::gguf::ArchConstraints::from_architecture(&transformer.config.architecture);
 
     for (i, layer) in transformer.layers.iter().enumerate() {
-        // QK norm: required for Qwen3
-        if arch.has_qk_norm {
-            if layer.attn_q_norm_weight.is_none() {
-                return Err(ContractValidationError {
-                    tensor_name: format!("layers.{i}.attn_q_norm_weight"),
-                    rule_id: "PMAT-299-ARCH-COMPLETENESS".to_string(),
-                    message: format!(
-                        "Architecture '{}' requires QK norm (attn_q_norm_weight) but layer {i} \
-                         has None. This would produce garbage output during inference.",
-                        transformer.config.architecture
-                    ),
-                });
-            }
-            if layer.attn_k_norm_weight.is_none() {
-                return Err(ContractValidationError {
-                    tensor_name: format!("layers.{i}.attn_k_norm_weight"),
-                    rule_id: "PMAT-299-ARCH-COMPLETENESS".to_string(),
-                    message: format!(
-                        "Architecture '{}' requires QK norm (attn_k_norm_weight) but layer {i} \
-                         has None. This would produce garbage output during inference.",
-                        transformer.config.architecture
-                    ),
-                });
-            }
-        }
+        validate_layer_completeness(&arch, layer, i, &transformer.config.architecture)?;
+    }
 
-        // QKV bias: required for Qwen2/Phi
-        if arch.has_bias && layer.qkv_bias.is_none() {
+    Ok(())
+}
+
+/// Validate a single layer against architecture constraints.
+fn validate_layer_completeness(
+    arch: &crate::gguf::ArchConstraints,
+    layer: &crate::apr_transformer::AprTransformerLayer,
+    i: usize,
+    architecture: &str,
+) -> std::result::Result<(), ContractValidationError> {
+    // QK norm: required for Qwen3
+    if arch.has_qk_norm {
+        if layer.attn_q_norm_weight.is_none() {
             return Err(ContractValidationError {
-                tensor_name: format!("layers.{i}.qkv_bias"),
+                tensor_name: format!("layers.{i}.attn_q_norm_weight"),
                 rule_id: "PMAT-299-ARCH-COMPLETENESS".to_string(),
                 message: format!(
-                    "Architecture '{}' requires attention bias (qkv_bias) but layer {i} \
-                     has None. This would produce incorrect output during inference.",
-                    transformer.config.architecture
+                    "Architecture '{}' requires QK norm (attn_q_norm_weight) but layer {i} \
+                     has None. This would produce garbage output during inference.",
+                    architecture
                 ),
             });
         }
-
-        // FFN norm: required for all architectures
-        if layer.ffn_norm_weight.is_none() {
+        if layer.attn_k_norm_weight.is_none() {
             return Err(ContractValidationError {
-                tensor_name: format!("layers.{i}.ffn_norm_weight"),
+                tensor_name: format!("layers.{i}.attn_k_norm_weight"),
                 rule_id: "PMAT-299-ARCH-COMPLETENESS".to_string(),
                 message: format!(
-                    "Architecture '{}' requires ffn_norm_weight but layer {i} has None.",
-                    transformer.config.architecture
+                    "Architecture '{}' requires QK norm (attn_k_norm_weight) but layer {i} \
+                     has None. This would produce garbage output during inference.",
+                    architecture
                 ),
             });
         }
+    }
+
+    // QKV bias: required for Qwen2/Phi
+    if arch.has_bias && layer.qkv_bias.is_none() {
+        return Err(ContractValidationError {
+            tensor_name: format!("layers.{i}.qkv_bias"),
+            rule_id: "PMAT-299-ARCH-COMPLETENESS".to_string(),
+            message: format!(
+                "Architecture '{}' requires attention bias (qkv_bias) but layer {i} \
+                 has None. This would produce incorrect output during inference.",
+                architecture
+            ),
+        });
+    }
+
+    // FFN norm: required for all architectures
+    if layer.ffn_norm_weight.is_none() {
+        return Err(ContractValidationError {
+            tensor_name: format!("layers.{i}.ffn_norm_weight"),
+            rule_id: "PMAT-299-ARCH-COMPLETENESS".to_string(),
+            message: format!(
+                "Architecture '{}' requires ffn_norm_weight but layer {i} has None.",
+                architecture
+            ),
+        });
     }
 
     Ok(())

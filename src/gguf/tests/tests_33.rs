@@ -177,7 +177,7 @@ fn build_malformed_pygmy_empty_name() -> Vec<u8> {
 
     // Zero-length tensor name
     data.extend_from_slice(&0u64.to_le_bytes()); // name length = 0
-    // No name bytes
+                                                 // No name bytes
 
     data.extend_from_slice(&1u32.to_le_bytes()); // n_dims
     data.extend_from_slice(&4u64.to_le_bytes()); // dim[0]

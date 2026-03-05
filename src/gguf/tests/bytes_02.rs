@@ -232,7 +232,8 @@ fn test_transformer_token_embedding_size() {
     let data = build_minimal_llama_gguf(vocab, hidden, 64, 2, 2);
     let model = GGUFModel::from_bytes(&data).expect("test value should be present");
 
-    let transformer = GGUFTransformer::from_gguf(&model, &data).expect("test value should be present");
+    let transformer =
+        GGUFTransformer::from_gguf(&model, &data).expect("test value should be present");
     // Token embedding should be vocab_size * hidden_dim
     assert_eq!(transformer.token_embedding.len(), vocab * hidden);
 }

@@ -39,7 +39,7 @@ mod tests {
             context_length: 32,
             rope_theta: 10000.0,
             eps: 1e-5,
-        ..Default::default()
+            ..Default::default()
         };
 
         let token_embedding: Vec<f32> = (0..vocab_size * hidden_dim)

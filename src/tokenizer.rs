@@ -156,7 +156,11 @@ impl BPETokenizer {
     /// # Errors
     ///
     /// Returns error if vocabulary is empty or unknown token not found
-    pub fn new(vocab: Vec<String>, _merges: Vec<(String, String)>, unk_token: &str) -> Result<Self> {
+    pub fn new(
+        vocab: Vec<String>,
+        _merges: Vec<(String, String)>,
+        unk_token: &str,
+    ) -> Result<Self> {
         if vocab.is_empty() {
             return Err(RealizarError::UnsupportedOperation {
                 operation: "create_bpe_tokenizer".to_string(),
@@ -217,7 +221,10 @@ impl BPETokenizer {
             .iter()
             .filter(|(k, _)| {
                 (k.starts_with("<|") && k.ends_with("|>"))
-                    || (k.starts_with("<") && k.ends_with(">") && k.len() > 2 && !k.starts_with("<0x"))
+                    || (k.starts_with("<")
+                        && k.ends_with(">")
+                        && k.len() > 2
+                        && !k.starts_with("<0x"))
             })
             .map(|(k, v)| (k.clone(), *v))
             .collect();

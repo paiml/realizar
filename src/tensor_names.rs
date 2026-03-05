@@ -302,15 +302,18 @@ mod tests {
 
         // GPT-2 should NOT have separate Q/K/V templates
         let q_templates = layer_templates("gpt2", LayerTensorRole::QProjWeight);
-        assert!(q_templates.is_empty(), "GPT-2 should not have separate Q template");
+        assert!(
+            q_templates.is_empty(),
+            "GPT-2 should not have separate Q template"
+        );
     }
 
     // FALSIFY-TNAME-001: Architecture map includes all referenced keys
     #[test]
     fn test_architecture_map_completeness() {
         let known_archs = [
-            "llama", "qwen2", "qwen3", "mistral", "gemma", "phi", "phi2",
-            "deepseek", "gpt2", "gpt_neox", "bert", "openelm", "falcon", "stablelm",
+            "llama", "qwen2", "qwen3", "mistral", "gemma", "phi", "phi2", "deepseek", "gpt2",
+            "gpt_neox", "bert", "openelm", "falcon", "stablelm",
         ];
         for arch in known_archs {
             // Verify that at least one of the global roles has entries for this arch
@@ -337,7 +340,10 @@ mod tests {
 
         // Layer roles: attn_norm, q_proj, etc. must have fallbacks
         let fb = layer_fallback_templates(LayerTensorRole::AttnNormWeight);
-        assert!(!fb.is_empty(), "AttnNormWeight must have fallback templates");
+        assert!(
+            !fb.is_empty(),
+            "AttnNormWeight must have fallback templates"
+        );
 
         let fb = layer_fallback_templates(LayerTensorRole::FfnUpWeight);
         assert!(!fb.is_empty(), "FfnUpWeight must have fallback templates");
@@ -374,10 +380,7 @@ mod tests {
         );
 
         let gate = layer_templates("phi2", LayerTensorRole::FfnGateWeight);
-        assert!(
-            gate.is_empty(),
-            "Phi-2 should have no gate projection"
-        );
+        assert!(gate.is_empty(), "Phi-2 should have no gate projection");
     }
 
     // Verify Phi-2 output norm uses final_layernorm

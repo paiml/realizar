@@ -257,10 +257,14 @@ mod tests {
 
         let initial_count = scheduler.cached_weight_count();
         let weight = vec![1.0f32; 64 * 64];
-        scheduler.cache_weight("weight_1", &weight).expect("cache_weight");
+        scheduler
+            .cache_weight("weight_1", &weight)
+            .expect("cache_weight");
         assert_eq!(scheduler.cached_weight_count(), initial_count + 1);
 
-        scheduler.cache_weight("weight_2", &weight).expect("cache_weight");
+        scheduler
+            .cache_weight("weight_2", &weight)
+            .expect("cache_weight");
         assert_eq!(scheduler.cached_weight_count(), initial_count + 2);
     }
 
@@ -270,7 +274,9 @@ mod tests {
 
         // Cache a 64x32 weight matrix
         let weight: Vec<f32> = (0..2048).map(|i| (i as f32) * 0.001).collect();
-        scheduler.cache_weight("cached_test", &weight).expect("cache_weight");
+        scheduler
+            .cache_weight("cached_test", &weight)
+            .expect("cache_weight");
 
         // GEMV: 1x64 @ 64x32 = 1x32
         let input: Vec<f32> = (0..64).map(|i| (i as f32) * 0.1).collect();

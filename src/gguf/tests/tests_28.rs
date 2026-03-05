@@ -48,7 +48,9 @@ fn test_get_tensor_f32_q2_k_multi_block() {
         .add_q2_k_tensor("test.weight", &[n as u64], &create_q2_k_data(n))
         .build();
     let model = GGUFModel::from_bytes(&data).expect("test value should be present");
-    let values = model.get_tensor_f32("test.weight", &data).expect("test value should be present");
+    let values = model
+        .get_tensor_f32("test.weight", &data)
+        .expect("test value should be present");
     assert_eq!(values.len(), n);
 }
 
@@ -88,7 +90,9 @@ fn test_get_tensor_f32_f16_values_correct() {
         .add_f16_tensor("test.weight", &[n as u64], &create_f16_data(n))
         .build();
     let model = GGUFModel::from_bytes(&data).expect("test value should be present");
-    let values = model.get_tensor_f32("test.weight", &data).expect("test value should be present");
+    let values = model
+        .get_tensor_f32("test.weight", &data)
+        .expect("test value should be present");
     // Values should be approximately 0.0, 0.01, 0.02, 0.03
     assert!((values[0] - 0.0).abs() < 0.01);
     assert!((values[1] - 0.01).abs() < 0.01);
@@ -129,7 +133,9 @@ fn test_get_tensor_f32_q4_1_multi_block() {
         .add_q4_1_tensor("test.weight", &[n as u64], &create_q4_1_data(n))
         .build();
     let model = GGUFModel::from_bytes(&data).expect("test value should be present");
-    let values = model.get_tensor_f32("test.weight", &data).expect("test value should be present");
+    let values = model
+        .get_tensor_f32("test.weight", &data)
+        .expect("test value should be present");
     assert_eq!(values.len(), n);
 }
 
@@ -168,7 +174,9 @@ fn test_get_tensor_f32_q5_0_multi_block() {
         .add_q5_0_tensor("test.weight", &[n as u64], &create_q5_0_data(n))
         .build();
     let model = GGUFModel::from_bytes(&data).expect("test value should be present");
-    let values = model.get_tensor_f32("test.weight", &data).expect("test value should be present");
+    let values = model
+        .get_tensor_f32("test.weight", &data)
+        .expect("test value should be present");
     assert_eq!(values.len(), n);
 }
 
@@ -207,7 +215,9 @@ fn test_get_tensor_f32_q5_1_multi_block() {
         .add_q5_1_tensor("test.weight", &[n as u64], &create_q5_1_data(n))
         .build();
     let model = GGUFModel::from_bytes(&data).expect("test value should be present");
-    let values = model.get_tensor_f32("test.weight", &data).expect("test value should be present");
+    let values = model
+        .get_tensor_f32("test.weight", &data)
+        .expect("test value should be present");
     assert_eq!(values.len(), n);
 }
 

@@ -440,7 +440,11 @@ fn test_tensor_3d_dimensions() {
         .build();
 
     let model = GGUFModel::from_bytes(&data).expect("parse");
-    let tensor = model.tensors.iter().find(|t| t.name == "tensor3d").expect("test value should be present");
+    let tensor = model
+        .tensors
+        .iter()
+        .find(|t| t.name == "tensor3d")
+        .expect("test value should be present");
     // Dimensions are reversed for GGML order
     assert_eq!(tensor.dims.len(), 3);
 }
