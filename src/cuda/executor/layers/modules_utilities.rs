@@ -141,7 +141,9 @@ impl CudaExecutor {
         }
 
         // 11. Batched prefill kernels (GH-129)
-        self.preload_batched_prefill_modules(hidden_dim, intermediate_dim)?;
+        self.preload_batched_prefill_modules(
+            hidden_dim, intermediate_dim, num_heads, num_kv_heads, head_dim,
+        )?;
 
         if verbose() {
             eprintln!(
@@ -260,14 +262,50 @@ impl CudaExecutor {
 
     /// GH-129: Pre-load batched kernels used by batched prefill path.
     ///
-    /// These kernels embed `n` as an immediate constant but NOT `batch_size`
+    /// These kernels embed dimensional constants as immediates but NOT `batch_size`
     /// (which only affects the grid dimension). Pre-loading prevents JIT
     /// compilation on memory-constrained devices (Jetson unified memory).
+    #[allow(clippy::too_many_arguments)]
     fn preload_batched_prefill_modules(
         &mut self,
         hidden_dim: u32,
         intermediate_dim: u32,
+        num_heads: u32,
+        num_kv_heads: u32,
+        head_dim: u32,
     ) -> Result<(), GpuError> {
+        // Batched RMSNorm (called twice per layer: attn_norm + ffn_norm)
+        let batched_rmsnorm_key = format!("batched_rmsnorm_vectorized_{}", hidden_dim);
+        if !self.modules.contains_key(&batched_rmsnorm_key) {
+            let kernel_type = KernelType::BatchedVectorizedRmsNorm {
+                hidden_size: hidden_dim, batch_size: 1, epsilon: 1e-5,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(batched_rmsnorm_key, module);
+        }
+
+        // Batched RoPE (for non-NEOX rope_type; batch_size is grid-only)
+        let batched_rope_q_key = format!("batched_rope_{}_{}", num_heads, head_dim);
+        if !self.modules.contains_key(&batched_rope_q_key) {
+            let kernel_type = KernelType::BatchedRope {
+                num_heads, head_dim, batch_size: 1, theta: self.rope_theta,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(batched_rope_q_key, module);
+        }
+        let batched_rope_k_key = format!("batched_rope_{}_{}", num_kv_heads, head_dim);
+        if !self.modules.contains_key(&batched_rope_k_key) {
+            let kernel_type = KernelType::BatchedRope {
+                num_heads: num_kv_heads, head_dim, batch_size: 1, theta: self.rope_theta,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(batched_rope_k_key, module);
+        }
+
+        // Batched residual add
         let batched_residual_key = format!("batched_residual_add_{}", hidden_dim);
         if !self.modules.contains_key(&batched_residual_key) {
             let kernel_type = KernelType::BatchedResidualAdd { n: hidden_dim, batch_size: 1 };
@@ -276,6 +314,7 @@ impl CudaExecutor {
             self.modules.insert(batched_residual_key, module);
         }
 
+        // Batched SwiGLU
         let batched_swiglu_key = format!("batched_swiglu_{}", intermediate_dim);
         if !self.modules.contains_key(&batched_swiglu_key) {
             let kernel_type = KernelType::BatchedSwiglu { n: intermediate_dim, batch_size: 1 };
