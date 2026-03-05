@@ -87,6 +87,11 @@ impl CudaExecutor {
         k: u32,
     ) -> Result<(), GpuError> {
         validate_device_ptr(weight_ptr, "q6k_gemv_into")?;
+        // DP4A Q6K: vectorized dp4a.u32.s32 with Q8_1 activations
+        // Enable with DP4A_Q6K=1 env var. Requires k multiple of 256.
+        if std::env::var("DP4A_Q6K").is_ok() && k.is_multiple_of(256) {
+            return self.dp4a_q6k_gemv_into(weight_ptr, input, output, n, k);
+        }
         // GH-118: MWV Q6K kernel opt-in via MWV_Q6K=1 env var
         // Design by Contract: k must be multiple of 256 for Q6K super-blocks
         if std::env::var("MWV_Q6K").is_ok() && k.is_multiple_of(256) {
@@ -198,6 +203,88 @@ impl CudaExecutor {
                 ],
             )?;
         }
+
+        Ok(())
+    }
+
+    /// DP4A Q6_K GEMV with vectorized int32 loads and dp4a.u32.s32
+    ///
+    /// Two-step pipeline (same pattern as DP4A Q4K):
+    /// 1. Quantize f32 activations → Q8_1 format
+    /// 2. DP4A dot product: Q6K weights × Q8_1 activations → f32 output
+    ///
+    /// Enable with `DP4A_Q6K=1` env var.
+    pub fn dp4a_q6k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "dp4a_q6k_gemv_into")?;
+
+        // Borrow pre-allocated Q8 buffer from workspace
+        let q8_ptr = self
+            .workspace
+            .q8_activation_buf
+            .as_ref()
+            .expect("dp4a_q6k: workspace.q8_activation_buf not initialized")
+            .as_ptr();
+        let q8_len = self
+            .workspace
+            .q8_activation_buf
+            .as_ref()
+            .expect("q8_activation_buf must be initialized")
+            .len();
+
+        let q8_buf = unsafe { GpuBuffer::<u8>::from_raw_parts(q8_ptr, q8_len) };
+
+        // Step 1: Quantize activations to Q8_1
+        self.q8_quantize_into(input, &q8_buf, k)?;
+
+        // Step 2: Launch DP4A Q6K GEMV kernel
+        let num_warps = crate::cuda::kernels::mwv_warp_count();
+        let kernel_type = KernelType::Dp4aQ6KGemv { k, n, num_warps };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("dp4a_q6k_gemv_{}_{}_{}", k, n, num_warps);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let threads = num_warps * 32;
+        let config = LaunchConfig::grid_2d(n, 1, threads, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_q8 = q8_buf.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_q8) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        std::mem::forget(q8_buf);
 
         Ok(())
     }

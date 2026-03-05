@@ -26,9 +26,18 @@ impl CudaExecutor {
                 "null weight pointer in q6k_gemv_indexed_async".to_string(),
             ));
         }
+        // DP4A Q6K: vectorized dp4a.u32.s32 (highest priority, enable with DP4A_Q6K=1)
+        let use_dp4a_q6k = std::env::var("DP4A_Q6K").is_ok() && k.is_multiple_of(256);
         // GH-118: MWV Q6K kernel opt-in via MWV_Q6K=1 env var
         let use_mwv = std::env::var("MWV_Q6K").is_ok() && k.is_multiple_of(256);
         let num_warps = crate::cuda::kernels::mwv_warp_count();
+
+        // DP4A Q6K allocating path: pre-quantize + launch (same as q6k_gemv_into dispatch)
+        if use_dp4a_q6k {
+            let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+            self.dp4a_q6k_gemv_into(weight_ptr, input, &buf_output, n, k)?;
+            return Ok(buf_output);
+        }
 
         let (kernel_type, cache_key, config) = if use_mwv {
             let kt = KernelType::MwvQ6KGemv { k, n, num_warps };

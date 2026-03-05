@@ -241,6 +241,15 @@ pub enum KernelType {
         n: u32,
         num_warps: u32,
     },
+    /// DP4A Q6_K GEMV with vectorized int32 loads and dp4a.u32.s32
+    ///
+    /// ~4x instruction reduction vs MWV Q6K. Pre-quantizes activations to Q8_1.
+    /// Enable with `DP4A_Q6K=1` env var.
+    Dp4aQ6KGemv {
+        k: u32,
+        n: u32,
+        num_warps: u32,
+    },
     /// PAR-053: FP16 Q4_K GEMV - 2x bandwidth savings vs FP32
     Fp16Q4KGemv {
         k: u32,
