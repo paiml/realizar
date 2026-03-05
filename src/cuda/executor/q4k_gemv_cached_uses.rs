@@ -267,10 +267,22 @@ impl CudaExecutor {
             })?
             .as_ptr();
 
-        // Load kernel module
-        let kernel_type = KernelType::Q6KGemv { k, n };
+        // GH-118: MWV Q6K kernel opt-in via MWV_Q6K=1 env var
+        let use_mwv = std::env::var("MWV_Q6K").is_ok() && k.is_multiple_of(256);
+        let num_warps = crate::cuda::kernels::mwv_warp_count();
+
+        let (kernel_type, cache_key, config) = if use_mwv {
+            let kt = KernelType::MwvQ6KGemv { k, n, num_warps };
+            let ck = format!("mwv_q6k_gemv_{}_{}_{}", k, n, num_warps);
+            let cfg = LaunchConfig::grid_2d(n, 1, num_warps * 32, 1);
+            (kt, ck, cfg)
+        } else {
+            let kt = KernelType::Q6KGemv { k, n };
+            let ck = format!("q6k_gemv_{}_{}", k, n);
+            let cfg = LaunchConfig::grid_2d(n, 1, 32, 1);
+            (kt, ck, cfg)
+        };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("q6k_gemv_{}_{}", k, n);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -285,8 +297,6 @@ impl CudaExecutor {
 
         // Allocate output buffer
         let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
-
-        let config = LaunchConfig::grid_2d(n, 1, 32, 1);
 
         let mut ptr_output = buf_output.as_ptr();
         let mut ptr_weights = weight_ptr;
