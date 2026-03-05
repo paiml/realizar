@@ -229,6 +229,18 @@ pub enum KernelType {
         n: u32,
         m: u32,
     },
+    /// GH-118: Multi-warp Q6_K GEMV for Orin decode throughput (Design by Contract)
+    ///
+    /// Contracts:
+    /// - Precondition: k % 256 == 0 (Q6K super-block alignment)
+    /// - Precondition: num_warps in {1,2,3,4,6,8}
+    /// - Postcondition: output identical to Q6KGemv (parity contract)
+    /// - Invariant: PARITY-114 barrier safety (all threads reach bar.sync)
+    MwvQ6KGemv {
+        k: u32,
+        n: u32,
+        num_warps: u32,
+    },
     /// PAR-053: FP16 Q4_K GEMV - 2x bandwidth savings vs FP32
     Fp16Q4KGemv {
         k: u32,

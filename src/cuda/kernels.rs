@@ -32,6 +32,7 @@ use trueno_gpu::kernels::{
     LayerNormKernel, MultiWarpIncrementalAttentionKernel, MultiWarpVectorizedQ4KGemvKernel,
     MwvDp4aQ4KGemvKernel, PackedDp4aQ4KQ8Kernel, PerHeadRmsNormKernel, PreciseRmsNormKernel,
     PreciseRopeIndirectKernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel,
+    MultiWarpQ6KGemvKernel,
     Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
     Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
     RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel, SiluKernel, SoftmaxKernel,

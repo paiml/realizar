@@ -87,6 +87,11 @@ impl CudaExecutor {
         k: u32,
     ) -> Result<(), GpuError> {
         validate_device_ptr(weight_ptr, "q6k_gemv_into")?;
+        // GH-118: MWV Q6K kernel opt-in via MWV_Q6K=1 env var
+        // Design by Contract: k must be multiple of 256 for Q6K super-blocks
+        if std::env::var("MWV_Q6K").is_ok() && k.is_multiple_of(256) {
+            return self.mwv_q6k_gemv_into(weight_ptr, input, output, n, k);
+        }
         // Original Q6K kernel (CoalescedQ6K disabled due to CORRECTNESS-006)
         let kernel_type = KernelType::Q6KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
@@ -111,6 +116,74 @@ impl CudaExecutor {
         let mut n_val = n;
 
         // SAFETY: Memory safety ensured by bounds checking and alignment
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// GH-118: Multi-warp Q6K GEMV for Orin decode throughput (Design by Contract)
+    ///
+    /// Contracts:
+    /// - Precondition: k % 256 == 0 (Q6K super-block alignment)
+    /// - Precondition: weight_ptr != 0 (valid device pointer)
+    /// - Postcondition: output[i] == Q6KGemvKernel output[i] for all i (parity)
+    /// - Invariant: PARITY-114 barrier safety verified at PTX generation time
+    ///
+    /// Enable with `MWV_Q6K=1` env var. Uses MWV_WARPS for warp count (default: 3).
+    #[inline]
+    pub fn mwv_q6k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "mwv_q6k_gemv_into")?;
+        debug_assert!(
+            k.is_multiple_of(256),
+            "K must be multiple of 256 for Q6K super-blocks"
+        );
+        let num_warps = crate::cuda::kernels::mwv_warp_count();
+        let kernel_type = KernelType::MwvQ6KGemv { k, n, num_warps };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("mwv_q6k_gemv_{}_{}_{}", k, n, num_warps);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let threads = num_warps * 32;
+        let config = LaunchConfig::grid_2d(n, 1, threads, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        // SAFETY: All device pointers are allocated by CudaExecutor and valid for
+        // the kernel's grid dimensions. k_val and n_val are stack-local scalars.
         unsafe {
             self.stream.launch_kernel(
                 module,
