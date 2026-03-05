@@ -59,6 +59,29 @@ fn apply_rope(
     }
 }
 
+/// Embed token IDs into hidden states, validating bounds.
+fn embed_tokens(
+    token_ids: &[usize],
+    embedding_weights: &[f32],
+    hidden_dim: usize,
+    vocab_size: usize,
+) -> Result<Vec<f32>> {
+    let mut hidden = Vec::with_capacity(token_ids.len() * hidden_dim);
+    for &token_id in token_ids {
+        if token_id >= vocab_size {
+            return Err(RealizarError::InvalidShape {
+                reason: format!(
+                    "Token ID {} out of bounds (vocab_size={})",
+                    token_id, vocab_size
+                ),
+            });
+        }
+        let offset = token_id * hidden_dim;
+        hidden.extend_from_slice(&embedding_weights[offset..offset + hidden_dim]);
+    }
+    Ok(hidden)
+}
+
 /// Forward pass with KV cache population (IMP-031)
 pub fn forward_gpu_with_cache(
     model: &mut GpuModel,
@@ -75,19 +98,12 @@ pub fn forward_gpu_with_cache(
     let hidden_dim = model.config.hidden_dim;
 
     // Step 1: Embed tokens
-    let mut hidden = Vec::with_capacity(seq_len * hidden_dim);
-    for &token_id in token_ids {
-        if token_id >= model.config.vocab_size {
-            return Err(RealizarError::InvalidShape {
-                reason: format!(
-                    "Token ID {} out of bounds (vocab_size={})",
-                    token_id, model.config.vocab_size
-                ),
-            });
-        }
-        let offset = token_id * hidden_dim;
-        hidden.extend_from_slice(&model.embedding_weights[offset..offset + hidden_dim]);
-    }
+    let mut hidden = embed_tokens(
+        token_ids,
+        &model.embedding_weights,
+        hidden_dim,
+        model.config.vocab_size,
+    )?;
 
     // Step 2: Pass through transformer blocks with KV cache population
     // GH-278: Hybrid attention dispatch — linear layers use model.linear_attn_state,
@@ -117,6 +133,12 @@ pub fn forward_gpu_with_cache(
 
     // Step 4: LM head projection - only for final position
     let final_hidden = &hidden[(seq_len - 1) * hidden_dim..seq_len * hidden_dim];
+    lm_head_projection(model, final_hidden)
+}
+
+/// Project final hidden state through LM head to produce logits.
+fn lm_head_projection(model: &mut GpuModel, final_hidden: &[f32]) -> Result<Vec<f32>> {
+    let hidden_dim = model.config.hidden_dim;
     let lm_head_elements = hidden_dim * model.config.vocab_size;
     let output = if exceeds_gpu_buffer_limit(lm_head_elements) {
         cpu_matmul_transposed_simd(
@@ -140,7 +162,6 @@ pub fn forward_gpu_with_cache(
         }
         output
     };
-
     Ok(output)
 }
 

@@ -926,8 +926,8 @@ fn test_gguf_config_different_eps_values() {
             eps,
             rope_type: 0,
             bos_token_id: None,
-        eos_token_id: None,
-        explicit_head_dim: None,
+            eos_token_id: None,
+            explicit_head_dim: None,
         };
         assert!((config.eps - eps).abs() < 1e-10);
     }

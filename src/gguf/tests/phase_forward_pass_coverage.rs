@@ -29,9 +29,9 @@ fn test_phase33_forward_basic() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -62,16 +62,19 @@ fn test_phase33_forward_multi_token() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
     let result = model.forward(&[1, 2, 3, 4, 5]);
 
     assert!(result.is_ok());
-    assert_eq!(result.expect("test value should be present").len(), config.vocab_size);
+    assert_eq!(
+        result.expect("test value should be present").len(),
+        config.vocab_size
+    );
 }
 
 #[test]
@@ -90,9 +93,9 @@ fn test_phase33_forward_multi_layer() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -121,9 +124,9 @@ fn test_phase33_forward_cached_single() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -131,7 +134,10 @@ fn test_phase33_forward_cached_single() {
 
     let result = model.forward_cached(42, &mut cache, 0);
     assert!(result.is_ok());
-    assert_eq!(result.expect("test value should be present").len(), config.vocab_size);
+    assert_eq!(
+        result.expect("test value should be present").len(),
+        config.vocab_size
+    );
 }
 
 #[test]
@@ -150,9 +156,9 @@ fn test_phase33_forward_cached_sequence() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -185,9 +191,9 @@ fn test_phase33_forward_cached_multi_layer() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -219,9 +225,9 @@ fn test_phase33_forward_single_layer_single_head() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

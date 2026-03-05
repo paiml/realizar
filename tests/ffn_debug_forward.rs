@@ -204,11 +204,13 @@ fn test_weight_sanity() {
     eprintln!("  qtype: {}", model.lm_head_weight().qtype);
 
     assert_eq!(
-        model.lm_head_weight().in_dim, hidden_dim,
+        model.lm_head_weight().in_dim,
+        hidden_dim,
         "LM head in_dim should match hidden_dim"
     );
     assert_eq!(
-        model.lm_head_weight().out_dim, vocab_size,
+        model.lm_head_weight().out_dim,
+        vocab_size,
         "LM head out_dim should match vocab_size"
     );
 

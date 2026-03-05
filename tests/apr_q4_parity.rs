@@ -51,7 +51,7 @@ mod tests {
             context_length: 128,
             rope_theta: 10000.0,
             eps: 1e-5,
-        ..Default::default()
+            ..Default::default()
         };
 
         // Token embedding: identity-like (each token maps to itself scaled)

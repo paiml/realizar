@@ -177,18 +177,39 @@ pub fn infer_rope_type(arch: &str) -> u32 {
     // NEOX style (type 2): pairs offset by n_rot/2
     // This list matches llama.cpp's llama-model.cpp:7763-7811
     const NEOX_ARCHITECTURES: &[&str] = &[
-        "qwen", "qwen2", "qwen3", "qwen3_5", "qwen3.5",
-        "stablelm", "phi2", "phi3", "phi",
-        "gemma", "gemma2", "gemma3",
-        "starcoder2", "gptneox", "gpt_neox",
-        "falcon", "falcon_h1",
-        "codeshell", "orion",
-        "bert", "nomic-bert",
-        "dbrx", "olmo2", "olmoe",
-        "plamo", "plamo2",
-        "openelm", "exaone",
-        "minicpm3", "nemotron",
-        "internlm2", "deepseek", "deepseek2",
+        "qwen",
+        "qwen2",
+        "qwen3",
+        "qwen3_5",
+        "qwen3.5",
+        "stablelm",
+        "phi2",
+        "phi3",
+        "phi",
+        "gemma",
+        "gemma2",
+        "gemma3",
+        "starcoder2",
+        "gptneox",
+        "gpt_neox",
+        "falcon",
+        "falcon_h1",
+        "codeshell",
+        "orion",
+        "bert",
+        "nomic-bert",
+        "dbrx",
+        "olmo2",
+        "olmoe",
+        "plamo",
+        "plamo2",
+        "openelm",
+        "exaone",
+        "minicpm3",
+        "nemotron",
+        "internlm2",
+        "deepseek",
+        "deepseek2",
     ];
     for &neox_arch in NEOX_ARCHITECTURES {
         if arch_lower.contains(neox_arch) {
@@ -325,13 +346,11 @@ impl GGUFConfig {
     /// `num_layers`, `num_heads`, `intermediate_size`) are missing.
     pub fn from_apr(apr: &crate::apr::MappedAprModel, vocab_size: usize) -> Result<Self> {
         // C-01 (Meyer DbC): Architecture is required (determines rope_theta/eps defaults).
-        let architecture = apr
-            .metadata
-            .architecture
-            .clone()
-            .ok_or_else(|| RealizarError::InvalidConfiguration(
+        let architecture = apr.metadata.architecture.clone().ok_or_else(|| {
+            RealizarError::InvalidConfiguration(
                 "C-01: APR model missing 'architecture' metadata — cannot infer model type".into(),
-            ))?;
+            )
+        })?;
         // C-03 (Meyer DbC): Required model dimensions — no silent defaults.
         let hidden_dim = apr.metadata.hidden_size.ok_or_else(|| {
             RealizarError::InvalidConfiguration(
@@ -355,10 +374,7 @@ impl GGUFConfig {
             )
         })?;
         let constraints = ArchConstraints::from_architecture(&architecture);
-        let eps = apr
-            .metadata
-            .rms_norm_eps
-            .unwrap_or(constraints.default_eps);
+        let eps = apr.metadata.rms_norm_eps.unwrap_or(constraints.default_eps);
         // C-02: rope_theta from metadata, or architecture-specific default
         let rope_theta = apr
             .metadata
@@ -467,16 +483,24 @@ impl GGUFConfig {
         let extract_dim = |dims: &[u64]| -> usize {
             let d0 = dims.first().copied().unwrap_or(hidden_dim as u64 * 4) as usize;
             let d1 = dims.get(1).copied().unwrap_or(hidden_dim as u64) as usize;
-            if d1 == hidden_dim { d0 }
-            else if d0 == hidden_dim { d1 }
-            else { d0 }
+            if d1 == hidden_dim {
+                d0
+            } else if d0 == hidden_dim {
+                d1
+            } else {
+                d0
+            }
         };
 
-        model.tensors.iter()
+        model
+            .tensors
+            .iter()
             .find(|t| t.name == "blk.0.ffn_down.weight")
             .map(|t| extract_dim(&t.dims))
             .or_else(|| {
-                model.tensors.iter()
+                model
+                    .tensors
+                    .iter()
                     .find(|t| t.name == "blk.0.ffn_up.weight")
                     .map(|t| extract_dim(&t.dims))
             })
@@ -526,7 +550,8 @@ impl GGUFConfig {
         let context_length = model.context_length().unwrap_or(0);
 
         // C-02 (Meyer DbC): rope_theta from GGUF metadata, or architecture-specific default.
-        let rope_theta = model.rope_freq_base()
+        let rope_theta = model
+            .rope_freq_base()
             .unwrap_or_else(|| default_rope_theta_for_architecture(&architecture));
 
         // GH-278: Look up contract constraints for this architecture.
@@ -564,9 +589,9 @@ impl GGUFConfig {
         // GH-330: EOS token ID from GGUF metadata.
         // Design by Contract: this is the class invariant — the config carries
         // the model's own EOS token. No hardcoded fallback (Meyer 1992).
-        let eos_token_id = model.eos_token_id().or_else(|| {
-            default_eos_for_architecture(&architecture)
-        });
+        let eos_token_id = model
+            .eos_token_id()
+            .or_else(|| default_eos_for_architecture(&architecture));
 
         Ok(Self {
             architecture,
@@ -646,8 +671,7 @@ impl ValidatedModelConfig {
         // GH-305: When head_dim is explicitly set (from GGUF metadata), hidden_dim may not
         // equal num_heads * head_dim (e.g., Qwen3-0.6B: hidden=1024, heads=16, head_dim=128).
         // Only enforce divisibility when head_dim is NOT explicitly overridden.
-        if config.explicit_head_dim.is_none()
-            && !config.hidden_dim.is_multiple_of(config.num_heads)
+        if config.explicit_head_dim.is_none() && !config.hidden_dim.is_multiple_of(config.num_heads)
         {
             return Err(RealizarError::InvalidShape {
                 reason: format!(
@@ -715,19 +739,27 @@ impl ValidatedModelConfig {
     ///
     /// Returns an error if required fields are missing or invariants are violated.
     pub fn from_safetensors_config(config: &crate::SafetensorsConfig) -> Result<Self> {
-        let hidden_dim = config.hidden_size.ok_or_else(|| RealizarError::InvalidShape {
-            reason: "config.json missing hidden_size".to_string(),
-        })?;
-        let num_layers = config.num_hidden_layers.ok_or_else(|| RealizarError::InvalidShape {
-            reason: "config.json missing num_hidden_layers".to_string(),
-        })?;
-        let num_heads = config.num_attention_heads.ok_or_else(|| RealizarError::InvalidShape {
-            reason: "config.json missing num_attention_heads".to_string(),
-        })?;
+        let hidden_dim = config
+            .hidden_size
+            .ok_or_else(|| RealizarError::InvalidShape {
+                reason: "config.json missing hidden_size".to_string(),
+            })?;
+        let num_layers = config
+            .num_hidden_layers
+            .ok_or_else(|| RealizarError::InvalidShape {
+                reason: "config.json missing num_hidden_layers".to_string(),
+            })?;
+        let num_heads = config
+            .num_attention_heads
+            .ok_or_else(|| RealizarError::InvalidShape {
+                reason: "config.json missing num_attention_heads".to_string(),
+            })?;
         let num_kv_heads = config.num_kv_heads();
-        let vocab_size = config.vocab_size.ok_or_else(|| RealizarError::InvalidShape {
-            reason: "config.json missing vocab_size".to_string(),
-        })?;
+        let vocab_size = config
+            .vocab_size
+            .ok_or_else(|| RealizarError::InvalidShape {
+                reason: "config.json missing vocab_size".to_string(),
+            })?;
         let intermediate_dim = config.intermediate_size.unwrap_or(hidden_dim * 4);
         let context_length = config.max_position_embeddings.unwrap_or(0);
         let architecture = config.architecture();

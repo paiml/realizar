@@ -12,9 +12,9 @@
 
 use super::bsum_precompute::{fused_q4k_q8k_dot_with_bsums_simd, precompute_q8k_bsums};
 use super::format_trait::{Q5K, Q6K};
-use super::fused_k::{fused_q4k_dot_simd, fused_q4k_q8k_dot_simd};
 #[cfg(target_arch = "x86_64")]
 use super::fused_k::fused_q4k_q8k_dot_4rows_avx512vnni;
+use super::fused_k::{fused_q4k_dot_simd, fused_q4k_q8k_dot_simd};
 use super::fused_q5k_q6k::{fused_q5k_dot_simd, fused_q6k_dot_simd};
 use super::generic_matvec::{generic_parallel_matvec, generic_parallel_matvec_into};
 use super::types::QK_K;

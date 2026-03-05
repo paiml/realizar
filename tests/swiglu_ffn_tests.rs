@@ -348,7 +348,8 @@ fn test_ffn10_verify_output_layers() {
     );
     println!(
         "  lm_head_weight: ({}, {})",
-        model.lm_head_weight().in_dim, model.lm_head_weight().out_dim
+        model.lm_head_weight().in_dim,
+        model.lm_head_weight().out_dim
     );
 
     // First few values of output_norm

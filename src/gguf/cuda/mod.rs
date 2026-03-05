@@ -309,7 +309,10 @@ impl OwnedQuantizedModelCuda {
             let intermediate_dim = model.config.intermediate_dim as u32;
             let vocab_size = model.config.vocab_size as u32;
             match executor.preload_modules_for_capture(
-                num_layers, hidden_dim, intermediate_dim, vocab_size,
+                num_layers,
+                hidden_dim,
+                intermediate_dim,
+                vocab_size,
             ) {
                 Ok(()) => eprintln!(
                     "[GH-129] Early kernel preload: {} modules compiled",

@@ -392,7 +392,7 @@ mod tests {
     fn test_mock_backend_matmul_dimension_error_b() {
         let mut backend = MockBackend::new(0).expect("backend");
         let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]; // 2x3
-        // B should be 3x2 but we provide wrong size
+                                                    // B should be 3x2 but we provide wrong size
         let b = vec![7.0, 8.0]; // only 2 elements, not 6
 
         let result = backend.matmul(&a, &b, 2, 3, 2);
@@ -418,7 +418,9 @@ mod tests {
             .expect("expected value");
 
         let input = vec![1.0, 2.0, 3.0, 4.0];
-        let result = backend.q4k_gemv_cached("q4k_test", &input, 8, 4).expect("result");
+        let result = backend
+            .q4k_gemv_cached("q4k_test", &input, 8, 4)
+            .expect("result");
 
         assert_eq!(result.len(), 8);
     }
@@ -446,11 +448,21 @@ mod tests {
     fn test_mock_backend_load_multiple_weights() {
         let mut backend = MockBackend::new(0).expect("backend");
 
-        backend.load_weights("w1", &[1.0, 2.0]).expect("load_weights");
-        backend.load_weights("w2", &[3.0, 4.0]).expect("load_weights");
-        backend.load_weights("w3", &[5.0, 6.0]).expect("load_weights");
-        backend.load_quantized_weights("q1", &[0u8; 10], 2).expect("load_quantized_weights");
-        backend.load_quantized_weights("q2", &[0u8; 20], 3).expect("load_quantized_weights");
+        backend
+            .load_weights("w1", &[1.0, 2.0])
+            .expect("load_weights");
+        backend
+            .load_weights("w2", &[3.0, 4.0])
+            .expect("load_weights");
+        backend
+            .load_weights("w3", &[5.0, 6.0])
+            .expect("load_weights");
+        backend
+            .load_quantized_weights("q1", &[0u8; 10], 2)
+            .expect("load_quantized_weights");
+        backend
+            .load_quantized_weights("q2", &[0u8; 20], 3)
+            .expect("load_quantized_weights");
 
         assert_eq!(backend.cached_weight_count(), 5);
         assert!(backend.has_weights("w1"));

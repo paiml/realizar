@@ -36,9 +36,9 @@ fn test_imp_112a_cached_scheduler_initialization() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -101,9 +101,9 @@ fn test_imp_112b_cached_matches_uncached() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -160,9 +160,9 @@ fn test_parity_114_cuda_gemm_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -209,9 +209,9 @@ fn test_imp_112c_multiple_operations_same_scheduler() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -260,9 +260,9 @@ fn test_imp_112d_cached_attention_matches_uncached() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -326,9 +326,9 @@ fn test_imp_111a_online_softmax_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -388,9 +388,9 @@ fn test_imp_111b_tiled_attention_matches_standard() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

@@ -91,7 +91,7 @@ fn test_active_pygmy_embed() {
     let embedding = model.embed(&[0]);
 
     assert_eq!(embedding.len(), 32); // hidden_dim
-    // Verify embedding values are reasonable (not NaN/Inf)
+                                     // Verify embedding values are reasonable (not NaN/Inf)
     assert!(embedding.iter().all(|&v| v.is_finite()));
 }
 
@@ -305,8 +305,12 @@ fn test_active_pygmy_cache_isolation() {
     let mut cache2 = OwnedQuantizedKVCache::from_config(config, 32);
 
     // Run same token through both
-    let logits1 = model.forward_cached(1, &mut cache1, 0).expect("test value should be present");
-    let logits2 = model.forward_cached(1, &mut cache2, 0).expect("test value should be present");
+    let logits1 = model
+        .forward_cached(1, &mut cache1, 0)
+        .expect("test value should be present");
+    let logits2 = model
+        .forward_cached(1, &mut cache2, 0)
+        .expect("test value should be present");
 
     // Results should be identical (same input, same initial state)
     assert_eq!(logits1.len(), logits2.len());
@@ -333,9 +337,15 @@ fn test_active_pygmy_cache_accumulation() {
 
     // Same token at different positions should give different results
     // (due to RoPE position encoding and attention over previous tokens)
-    let logits0 = model.forward_cached(5, &mut cache, 0).expect("test value should be present");
-    let logits1 = model.forward_cached(5, &mut cache, 1).expect("test value should be present");
-    let logits2 = model.forward_cached(5, &mut cache, 2).expect("test value should be present");
+    let logits0 = model
+        .forward_cached(5, &mut cache, 0)
+        .expect("test value should be present");
+    let logits1 = model
+        .forward_cached(5, &mut cache, 1)
+        .expect("test value should be present");
+    let logits2 = model
+        .forward_cached(5, &mut cache, 2)
+        .expect("test value should be present");
 
     // Logits may or may not differ with position depending on weight values
     // With Q4_0 quantized weights that decode to similar values, differences

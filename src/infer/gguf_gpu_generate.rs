@@ -255,6 +255,29 @@ fn try_apr_cuda_inference(
     }))
 }
 
+/// Log model architecture and configuration details for APR CPU inference.
+fn log_apr_cpu_model_info(
+    verbose: bool,
+    validated: &crate::safetensors::validation::ValidatedAprTransformer,
+    load_ms: f64,
+) {
+    if !verbose {
+        return;
+    }
+    let arch = &validated.config.architecture;
+    let thread_count = rayon::current_num_threads();
+    eprintln!(
+        "Architecture: {} ({} layers, vocab_size={})",
+        arch, validated.config.num_layers, validated.config.vocab_size
+    );
+    eprintln!(
+        "Config: hidden_size={}, context_length={}, quant=F32 (dequantized), threads={}",
+        validated.config.hidden_dim, validated.config.context_length, thread_count
+    );
+    eprintln!("Model loaded in {:.1}ms", load_ms);
+    eprintln!("Backend: CPU (SIMD-accelerated)");
+}
+
 /// Run APR inference on CPU with KV-cache (PMAT-103)
 fn run_apr_cpu_inference(
     config: &InferenceConfig,
@@ -282,20 +305,7 @@ fn run_apr_cpu_inference(
     };
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
-    if config.verbose {
-        let arch = &validated.config.architecture;
-        let thread_count = rayon::current_num_threads();
-        eprintln!(
-            "Architecture: {} ({} layers, vocab_size={})",
-            arch, validated.config.num_layers, validated.config.vocab_size
-        );
-        eprintln!(
-            "Config: hidden_size={}, context_length={}, quant=F32 (dequantized), threads={}",
-            validated.config.hidden_dim, validated.config.context_length, thread_count
-        );
-        eprintln!("Model loaded in {:.1}ms", load_ms);
-        eprintln!("Backend: CPU (SIMD-accelerated)");
-    }
+    log_apr_cpu_model_info(config.verbose, &validated, load_ms);
 
     // GH-373: Resolve stop tokens from model config, caller, and sibling tokenizer
     let stop_tokens = resolve_apr_stop_tokens(
