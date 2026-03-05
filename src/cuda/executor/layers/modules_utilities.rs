@@ -325,4 +325,209 @@ impl CudaExecutor {
 
         Ok(())
     }
+
+    /// Pre-load RMSNorm kernel (precise or vectorized based on CORRECTNESS_MODE).
+    fn preload_rmsnorm_module(&mut self, hidden_dim: u32) -> Result<(), GpuError> {
+        static PRECISE_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let use_precise = *PRECISE_MODE.get_or_init(|| {
+            std::env::var("CORRECTNESS_MODE")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+
+        if use_precise {
+            let rmsnorm_key = format!("rmsnorm_precise_{}", hidden_dim);
+            if !self.modules.contains_key(&rmsnorm_key) {
+                let kernel_type = KernelType::PreciseRmsNorm {
+                    hidden_size: hidden_dim,
+                    epsilon: 1e-5,
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(rmsnorm_key, module);
+            }
+        } else {
+            let rmsnorm_key = format!("rmsnorm_vectorized_{}", hidden_dim);
+            if !self.modules.contains_key(&rmsnorm_key) {
+                let kernel_type = KernelType::VectorizedRmsNorm {
+                    hidden_size: hidden_dim,
+                    epsilon: 1e-5,
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(rmsnorm_key, module);
+            }
+        }
+        Ok(())
+    }
+
+    /// Pre-load all GEMV kernels: Q4K, Q5_0, Q6K, Q8_0 for Q/K/V, output, and FFN.
+    #[allow(clippy::too_many_lines)]
+    fn preload_gemv_modules(
+        &mut self,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        q_dim: u32,
+        kv_dim: u32,
+        nw: u32,
+    ) -> Result<(), GpuError> {
+        // MWV Q4K for Q and KV projections
+        let mwv_q4k_q_key = format!("mwv_q4k_gemv_{}_{}_{}", hidden_dim, q_dim, nw);
+        if !self.modules.contains_key(&mwv_q4k_q_key) {
+            let kernel_type = KernelType::MwvQ4KGemv {
+                k: hidden_dim, n: q_dim, num_warps: nw,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(mwv_q4k_q_key, module);
+        }
+        let mwv_q4k_kv_key = format!("mwv_q4k_gemv_{}_{}_{}", hidden_dim, kv_dim, nw);
+        if !self.modules.contains_key(&mwv_q4k_kv_key) {
+            let kernel_type = KernelType::MwvQ4KGemv {
+                k: hidden_dim, n: kv_dim, num_warps: nw,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(mwv_q4k_kv_key, module);
+        }
+
+        // Q5_0 GEMV (for Qwen 0.5B which uses Q5_0 for Q/K)
+        let q5_0_q_key = format!("q5_0_gemv_{}_{}", hidden_dim, q_dim);
+        if !self.modules.contains_key(&q5_0_q_key) {
+            let kernel_type = KernelType::Q5_0Gemv { k: hidden_dim, n: q_dim };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(q5_0_q_key, module);
+        }
+        let q5_0_kv_key = format!("q5_0_gemv_{}_{}", hidden_dim, kv_dim);
+        if !self.modules.contains_key(&q5_0_kv_key) {
+            let kernel_type = KernelType::Q5_0Gemv { k: hidden_dim, n: kv_dim };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(q5_0_kv_key, module);
+        }
+
+        // Q6K GEMV — original + coalesced variants
+        self.preload_q6k_gemv_pair(hidden_dim, q_dim)?;
+        self.preload_q6k_gemv_pair(hidden_dim, kv_dim)?;
+
+        // Q8_0 GEMV
+        let q8_0_q_key = format!("q8_0_gemv_{}_{}", hidden_dim, q_dim);
+        if !self.modules.contains_key(&q8_0_q_key) {
+            let kernel_type = KernelType::Q8_0Gemv { k: hidden_dim, n: q_dim };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(q8_0_q_key, module);
+        }
+        let q8_0_kv_key = format!("q8_0_gemv_{}_{}", hidden_dim, kv_dim);
+        if !self.modules.contains_key(&q8_0_kv_key) {
+            let kernel_type = KernelType::Q8_0Gemv { k: hidden_dim, n: kv_dim };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(q8_0_kv_key, module);
+        }
+
+        // Output projection (q_dim -> hidden_dim)
+        let mwv_q4k_o_key = format!("mwv_q4k_gemv_{}_{}_{}", q_dim, hidden_dim, nw);
+        if !self.modules.contains_key(&mwv_q4k_o_key) {
+            let kernel_type = KernelType::MwvQ4KGemv {
+                k: q_dim, n: hidden_dim, num_warps: nw,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(mwv_q4k_o_key, module);
+        }
+
+        // FFN gate/up (hidden->intermediate) and down (intermediate->hidden)
+        let mwv_q4k_up_key = format!("mwv_q4k_gemv_{}_{}_{}", hidden_dim, intermediate_dim, nw);
+        if !self.modules.contains_key(&mwv_q4k_up_key) {
+            let kernel_type = KernelType::MwvQ4KGemv {
+                k: hidden_dim, n: intermediate_dim, num_warps: nw,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(mwv_q4k_up_key, module);
+        }
+        let mwv_q4k_down_key = format!("mwv_q4k_gemv_{}_{}_{}", intermediate_dim, hidden_dim, nw);
+        if !self.modules.contains_key(&mwv_q4k_down_key) {
+            let kernel_type = KernelType::MwvQ4KGemv {
+                k: intermediate_dim, n: hidden_dim, num_warps: nw,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(mwv_q4k_down_key, module);
+        }
+
+        // Q6K FFN down + coalesced variant
+        self.preload_q6k_gemv_pair(intermediate_dim, hidden_dim)?;
+
+        Ok(())
+    }
+
+    /// Pre-load Q6K GEMV (original + coalesced if K is 256-aligned) for given dimensions.
+    fn preload_q6k_gemv_pair(&mut self, k: u32, n: u32) -> Result<(), GpuError> {
+        let q6k_key = format!("q6k_gemv_{}_{}", k, n);
+        if !self.modules.contains_key(&q6k_key) {
+            let kernel_type = KernelType::Q6KGemv { k, n };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(q6k_key, module);
+        }
+        if k.is_multiple_of(256) {
+            let coalesced_key = format!("coalesced_q6k_gemv_{}_{}", k, n);
+            if !self.modules.contains_key(&coalesced_key) {
+                let kernel_type = KernelType::CoalescedQ6KGemv { k, n };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(coalesced_key, module);
+            }
+        }
+        Ok(())
+    }
+
+    /// GH-129: Pre-load DP4A Q6K + Q8 quantize kernels when DP4A_Q6K=1.
+    ///
+    /// Prevents JIT compilation during inference on memory-constrained devices.
+    fn preload_dp4a_q6k_modules(
+        &mut self,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        vocab_size: u32,
+        num_warps: u32,
+    ) -> Result<(), GpuError> {
+        if std::env::var("DP4A_Q6K").is_err() {
+            return Ok(());
+        }
+        // Q8 quantize for GEMV input dimensions
+        for &q8_n in &[hidden_dim, intermediate_dim] {
+            let q8_key = format!("q8_quantize_{}", q8_n);
+            if !self.modules.contains_key(&q8_key) {
+                let kernel_type = KernelType::Q8Quantize { n: q8_n };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(q8_key, module);
+            }
+        }
+        // DP4A Q6K for FFN down (k=intermediate, n=hidden)
+        let dp4a_down_key = format!("dp4a_q6k_gemv_{}_{}_{}", intermediate_dim, hidden_dim, num_warps);
+        if !self.modules.contains_key(&dp4a_down_key) {
+            let kernel_type = KernelType::Dp4aQ6KGemv {
+                k: intermediate_dim, n: hidden_dim, num_warps,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(dp4a_down_key, module);
+        }
+        // DP4A Q6K for LM head (k=hidden, n=vocab)
+        let dp4a_lm_key = format!("dp4a_q6k_gemv_{}_{}_{}", hidden_dim, vocab_size, num_warps);
+        if !self.modules.contains_key(&dp4a_lm_key) {
+            let kernel_type = KernelType::Dp4aQ6KGemv {
+                k: hidden_dim, n: vocab_size, num_warps,
+            };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(dp4a_lm_key, module);
+        }
+        Ok(())
+    }
 }
