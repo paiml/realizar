@@ -1,8 +1,20 @@
 # cargo-deny configuration
-# Enforces dependency policy: licenses, security, sources
+# Deployed from paiml/infra — do not edit manually.
+# Spec: docs/specifications/unified-ci-pipeline.md
+
+[graph]
+targets = []
+all-features = false
+no-default-features = false
+
+[advisories]
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "deny"
+notice = "warn"
+ignore = []
 
 [licenses]
-unlicensed = "deny"
 allow = [
     "MIT",
     "Apache-2.0",
@@ -10,38 +22,24 @@ allow = [
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
+    "Unicode-3.0",
     "Unicode-DFS-2016",
+    "Zlib",
+    "BSL-1.0",
+    "OpenSSL",
+    "0BSD",
+    "CC0-1.0",
+    "MPL-2.0",
 ]
-deny = []
-copyleft = "deny"
-allow-osi-fsf-free = "neither"
-default = "deny"
 confidence-threshold = 0.8
-
-[[licenses.clarify]]
-name = "ring"
-version = "*"
-expression = "MIT AND ISC AND OpenSSL"
-license-files = [
-    { path = "LICENSE", hash = 0xbd0eed23 }
-]
 
 [bans]
 multiple-versions = "warn"
-wildcards = "allow"
+wildcards = "deny"
 highlight = "all"
-workspace-default-features = "allow"
-external-default-features = "allow"
-allow = []
-deny = []
-skip = []
-skip-tree = []
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
-
-[sources.allow-org]
-github = ["paiml"]
