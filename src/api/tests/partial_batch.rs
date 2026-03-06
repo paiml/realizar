@@ -234,8 +234,8 @@
             }
         });
 
-        // Simulate slow processing
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        // Simulate slow processing (wide gap vs 5ms timeout for CI robustness)
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         // Client has already timed out, receiver dropped
         let response = ContinuousBatchResponse::single(vec![1], 1, 100.0);
