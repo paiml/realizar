@@ -28,6 +28,9 @@ fn test_imp_1008b_zero_clone_forward_block() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let model = GpuModel::new_with_cuda(config.clone()).expect("Failed to create CUDA model");
@@ -104,6 +107,9 @@ fn test_imp_1008c_generate_throughput_refcell() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -170,6 +176,9 @@ fn test_imp_1008d_compare_clone_vs_refcell() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut clone_model =
@@ -247,6 +256,9 @@ fn test_imp_1009a_main_generate_uses_refcell() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -316,6 +328,9 @@ fn test_imp_1009b_generate_parity_with_refcell() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut clone_model = GpuModel::new_with_cuda(config.clone()).expect("Failed to create model");

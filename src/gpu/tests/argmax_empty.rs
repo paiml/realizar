@@ -270,6 +270,9 @@ fn test_simplified_attention_single_token() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let seq_len = 1;
@@ -319,6 +322,9 @@ fn test_simplified_attention_two_tokens() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let seq_len = 2;
@@ -393,6 +399,9 @@ fn test_simplified_attention_causal_mask() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let seq_len = 3;

@@ -28,6 +28,7 @@ impl GpuModel {
                 ffn_gate_weight: None, // No SwiGLU in test models
                 // GH-278: No linear attention in test models
                 linear_attn: None,
+                moe_experts: None,
             });
         }
 
@@ -93,6 +94,7 @@ impl GpuModel {
                 ffn_gate_weight: None, // No SwiGLU in test models
                 // GH-278: No linear attention in test models
                 linear_attn: None,
+                moe_experts: None,
             });
         }
 

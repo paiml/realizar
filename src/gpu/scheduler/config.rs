@@ -36,6 +36,9 @@ fn minimal_config() -> GpuModelConfig {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     }
 }
 
@@ -57,6 +60,9 @@ fn gqa_config() -> GpuModelConfig {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     }
 }
 
@@ -78,6 +84,9 @@ fn swiglu_config() -> GpuModelConfig {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     }
 }
 

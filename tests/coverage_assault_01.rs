@@ -179,6 +179,9 @@ fn test_simplified_attention_single_token() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     // Single token, seq_len=1
@@ -218,6 +221,9 @@ fn test_simplified_attention_two_tokens() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     // Two tokens, seq_len=2
@@ -261,6 +267,9 @@ fn test_gpu_model_config_helpers() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     // Test head_dim
@@ -296,6 +305,9 @@ fn test_gpu_model_config_mha() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     // Test is_gqa returns false for MHA
