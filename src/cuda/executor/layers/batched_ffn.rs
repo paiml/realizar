@@ -138,12 +138,14 @@ impl CudaExecutor {
         self.batched_swiglu_into(ffn_gate_buf, ffn_up_buf, ffn_act_buf, intermediate_dim, m)?;
 
         // ========== 10. FFN Down (cuBLAS GEMM or BATCHED GEMV) ==========
-        // PMAT-024: Use cuBLAS GEMM for Q4K during prefill (M > threshold)
+        // PMAT-024/026: Use cuBLAS GEMM for Q4K/Q6K during prefill (M >= threshold)
         let use_cublas_down = m >= 4
-            && layer_weights.ffn_down_qtype == WeightQuantType::Q4K
+            && (layer_weights.ffn_down_qtype == WeightQuantType::Q4K
+                || layer_weights.ffn_down_qtype == WeightQuantType::Q6K)
             && std::env::var("CUBLAS_PREFILL").as_deref() != Ok("0");
         if use_cublas_down {
             self.cublas_prefill_gemm(
+                layer_weights.ffn_down_qtype,
                 layer_weights.ffn_down_ptr,
                 ffn_act_ptr,
                 hidden_buf1_ptr,

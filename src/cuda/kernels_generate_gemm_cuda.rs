@@ -27,6 +27,7 @@ impl CudaKernels {
                 TensorCoreQ4KGemmKernel::new(*m, *k, *n).emit_ptx()
             },
             KernelType::Q4KDequant { k, n } => Q4KDequantKernel::new(*k, *n).emit_ptx(),
+            KernelType::Q6KDequant { k, n } => Q6KDequantKernel::new(*k, *n).emit_ptx(),
             _ => return None,
         };
         Some(ptx)
