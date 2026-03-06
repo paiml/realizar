@@ -14,7 +14,7 @@ impl CudaExecutor {
     ) -> Result<(), GpuError> {
         validate_device_ptr(weight_ptr, "mwv_q4k_gemv_into")?;
         // PAR-082-V3: Configurable warp count via MWV_WARPS env var (default: 2)
-        let num_warps = crate::cuda::kernels::mwv_warp_count();
+        let num_warps = self.gpu_profile.mwv_warps;
         let kernel_type = KernelType::MwvQ4KGemv { k, n, num_warps };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("mwv_q4k_gemv_{}_{}_{}", k, n, num_warps);
@@ -104,7 +104,7 @@ impl CudaExecutor {
         self.q8_quantize_into(input, &q8_buf, k)?;
 
         // Step 2: Launch DP4A GEMV kernel
-        let num_warps = crate::cuda::kernels::mwv_warp_count();
+        let num_warps = self.gpu_profile.mwv_warps;
         let kernel_type = KernelType::MwvDp4aQ4KGemv { k, n, num_warps };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("mwv_dp4a_q4k_gemv_{}_{}_{}", k, n, num_warps);
@@ -194,7 +194,7 @@ impl CudaExecutor {
         self.q8_quantize_into(input, &q8_buf, k)?;
 
         // Step 2: Launch half-warp DP4A GEMV kernel
-        let num_warps = crate::cuda::kernels::mwv_warp_count();
+        let num_warps = self.gpu_profile.mwv_warps;
         let kernel_type = KernelType::HwDp4aQ4KGemv { k, n, num_warps };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("hw_dp4a_q4k_gemv_{}_{}_{}", k, n, num_warps);
