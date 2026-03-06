@@ -396,8 +396,8 @@ mod kv_contract_tests {
         let test_cases = vec![
             // (layers, max_pos, heads, head_dim)
             (1, 1, 1, 1),
-            (32, 2048, 32, 128),   // 7B model
-            (40, 4096, 40, 128),   // 13B model
+            (32, 2048, 32, 128), // 7B model
+            (40, 4096, 40, 128), // 13B model
             (1, 512, 8, 64),
         ];
 

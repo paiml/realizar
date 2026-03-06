@@ -57,7 +57,11 @@ impl AprKVCache {
         let head_dim = config.hidden_dim / config.num_heads;
         // N-03 (Meyer DbC): context_length may be 0 if metadata is missing.
         // Apply a safe minimum for KV cache allocation.
-        let capacity = if config.context_length > 0 { config.context_length } else { 2048 };
+        let capacity = if config.context_length > 0 {
+            config.context_length
+        } else {
+            2048
+        };
 
         // Pre-allocate full capacity for each layer
         let kv_size = capacity * num_kv_heads * head_dim;

@@ -118,7 +118,7 @@ impl GgufToAprConverter {
             rope_theta: gguf.config.rope_theta,
             eps: gguf.config.eps,
             eos_token_id: gguf.config.eos_token_id,
-        ..Default::default()
+            ..Default::default()
         };
 
         let layers = gguf

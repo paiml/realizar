@@ -163,8 +163,16 @@ fn sse_event(value: &impl serde::Serialize) -> Option<Result<Event, Infallible>>
 /// Decode a token and optionally clean the output, returning the text if non-empty.
 fn decode_token(tokenizer: &BPETokenizer, token_id: u32, clean: bool) -> Option<String> {
     let text = tokenizer.decode(&[token_id]).ok()?;
-    let text = if clean { clean_chat_output(&text) } else { text };
-    if text.is_empty() { None } else { Some(text) }
+    let text = if clean {
+        clean_chat_output(&text)
+    } else {
+        text
+    };
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 /// Build a pre-generated SSE streaming response (all tokens already generated).
@@ -287,7 +295,8 @@ fn try_gpu_backend(
         };
     let prompt_tokens = prompt_ids.len();
     let prompt_usize: Vec<usize> = prompt_ids.iter().map(|&x| x as usize).collect();
-    let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer, state.model_eos_token_id());
+    let (max_tokens, temperature, eos_token_id) =
+        chat_gen_params(request, &tokenizer, state.model_eos_token_id());
 
     let gpu_config = GpuGenerateConfig {
         max_tokens,
@@ -375,7 +384,8 @@ fn try_cached_backend(
             Err(r) => return Some(r),
         };
     let prompt_tokens = prompt_ids.len();
-    let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer, state.model_eos_token_id());
+    let (max_tokens, temperature, eos_token_id) =
+        chat_gen_params(request, &tokenizer, state.model_eos_token_id());
 
     let q_config = QuantizedGenerateConfig {
         max_tokens,

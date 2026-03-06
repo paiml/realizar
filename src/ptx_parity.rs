@@ -671,7 +671,9 @@ mod tests {
         let ptx = ".version 8.0\n.entry test {\nst.shared.f32 [%rd1], val;\n}";
         let result = check_u64_shared_mem(ptx);
         assert!(result.is_some());
-        assert!(result.expect("result").contains("u64 shared memory addressing"));
+        assert!(result
+            .expect("result")
+            .contains("u64 shared memory addressing"));
     }
 
     #[cfg(feature = "cuda")]

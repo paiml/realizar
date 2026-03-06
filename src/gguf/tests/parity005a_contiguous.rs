@@ -306,9 +306,9 @@ fn test_parity006a_batch_generate_exists() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
     let cached = OwnedQuantizedModelCached::new(model);
@@ -361,9 +361,9 @@ fn test_parity006b_single_prompt_optimization() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
     let model = create_test_model_with_config(&config);
 

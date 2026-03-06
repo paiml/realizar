@@ -92,7 +92,7 @@ fn create_minimal_apr_transformer(
         context_length: 512,
         rope_theta: 10000.0,
         eps: 1e-5,
-    ..Default::default()
+        ..Default::default()
     };
 
     let layers: Vec<AprTransformerLayer> = (0..num_layers)
@@ -788,7 +788,7 @@ fn test_conversion_with_bias_weights() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
-    ..Default::default()
+        ..Default::default()
     };
 
     let layer = AprTransformerLayer {
@@ -983,7 +983,7 @@ fn test_roundtrip_with_different_architectures() {
             context_length: 64,
             rope_theta: 10000.0,
             eps: 1e-5,
-        ..Default::default()
+            ..Default::default()
         };
 
         let apr = AprTransformer {
@@ -1666,7 +1666,7 @@ fn test_roundtrip_with_special_rope_theta() {
         context_length: 64,
         rope_theta: 1000000.0, // Llama 3 style high theta
         eps: 1e-6,
-    ..Default::default()
+        ..Default::default()
     };
 
     let apr = AprTransformer {
@@ -1726,7 +1726,7 @@ fn test_roundtrip_with_long_context() {
         context_length: 131072, // 128K context
         rope_theta: 10000.0,
         eps: 1e-5,
-    ..Default::default()
+        ..Default::default()
     };
 
     let apr = AprTransformer {
@@ -2570,7 +2570,7 @@ fn test_roundtrip_empty_architecture() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
-    ..Default::default()
+        ..Default::default()
     };
 
     let apr = AprTransformer {
@@ -2688,7 +2688,7 @@ fn test_roundtrip_single_head() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
-    ..Default::default()
+        ..Default::default()
     };
 
     let apr = AprTransformer {
@@ -2936,7 +2936,7 @@ fn test_metadata_preservation_all_fields() {
         context_length: 4096,
         rope_theta: 500000.0,
         eps: 1e-6,
-    ..Default::default()
+        ..Default::default()
     };
 
     let apr = AprTransformer {
@@ -3007,7 +3007,7 @@ fn test_metadata_unicode_architecture() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
-    ..Default::default()
+        ..Default::default()
     };
 
     let apr = AprTransformer {
@@ -3222,7 +3222,7 @@ fn test_apr_roundtrip_weight_values_exact() {
         context_length: 32,
         rope_theta: 10000.0,
         eps: 1e-5,
-    ..Default::default()
+        ..Default::default()
     };
 
     // Use specific weight values
@@ -3520,7 +3520,7 @@ fn test_apr_with_all_optional_fields_none() {
             context_length: 16,
             rope_theta: 10000.0,
             eps: 1e-5,
-        ..Default::default()
+            ..Default::default()
         },
         token_embedding: vec![0.1; 5 * 4],
         layers: vec![AprTransformerLayer {
@@ -3581,7 +3581,7 @@ fn test_apr_with_all_optional_fields_some() {
             context_length: 16,
             rope_theta: 10000.0,
             eps: 1e-5,
-        ..Default::default()
+            ..Default::default()
         },
         token_embedding: vec![0.1; 5 * 4],
         layers: vec![AprTransformerLayer {

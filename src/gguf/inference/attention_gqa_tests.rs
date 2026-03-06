@@ -67,9 +67,9 @@ fn create_gqa_model(
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     // GQA dimensions
@@ -203,9 +203,12 @@ fn test_qkv_weights_dimension_consistency_gqa() {
 
     let weights = OwnedQKVWeights::Fused(create_q4k_test_tensor(hidden_dim, qkv_out_dim));
 
-    let computed_q = weights.q_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads);
-    let computed_k = weights.k_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads);
-    let computed_v = weights.v_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads);
+    let computed_q =
+        weights.q_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads);
+    let computed_k =
+        weights.k_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads);
+    let computed_v =
+        weights.v_dim_for_config(num_heads, num_kv_heads, hidden_dim, hidden_dim / num_heads);
 
     assert_eq!(
         computed_q + computed_k + computed_v,

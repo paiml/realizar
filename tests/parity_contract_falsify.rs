@@ -53,9 +53,7 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 fn falsify_parity_001_identical_vectors_cosine_one() {
     // Simulate a single token's hidden state (hidden_dim = 896 for 0.5B, 3584 for 7B)
     for hidden_dim in [128, 896, 2048, 3584] {
-        let cpu_output: Vec<f32> = (0..hidden_dim)
-            .map(|i| ((i as f32) * 0.01).sin())
-            .collect();
+        let cpu_output: Vec<f32> = (0..hidden_dim).map(|i| ((i as f32) * 0.01).sin()).collect();
         let gpu_output = cpu_output.clone();
 
         let cosine = cosine_similarity(&cpu_output, &gpu_output);
@@ -84,9 +82,7 @@ fn falsify_parity_001b_multi_token_identical_cosine() {
 
     for seq_len in seq_lengths {
         let total_dim = hidden_dim * seq_len;
-        let cpu_output: Vec<f32> = (0..total_dim)
-            .map(|i| ((i as f32) * 0.007).cos())
-            .collect();
+        let cpu_output: Vec<f32> = (0..total_dim).map(|i| ((i as f32) * 0.007).cos()).collect();
         let gpu_output = cpu_output.clone();
 
         let cosine = cosine_similarity(&cpu_output, &gpu_output);
@@ -112,9 +108,7 @@ fn falsify_parity_001b_multi_token_identical_cosine() {
 #[test]
 fn falsify_parity_002_quantization_noise_within_tolerance() {
     let hidden_dim = 3584; // 7B hidden dim
-    let cpu_output: Vec<f32> = (0..hidden_dim)
-        .map(|i| ((i as f32) * 0.01).sin())
-        .collect();
+    let cpu_output: Vec<f32> = (0..hidden_dim).map(|i| ((i as f32) * 0.01).sin()).collect();
 
     // Simulate quantization noise: deterministic +-1e-4 perturbation
     let gpu_output: Vec<f32> = cpu_output
@@ -208,9 +202,7 @@ fn falsify_parity_003_mixed_quant_types_identical() {
 #[test]
 fn falsify_parity_004_corrupted_weight_breaks_parity() {
     let hidden_dim = 3584;
-    let cpu_output: Vec<f32> = (0..hidden_dim)
-        .map(|i| ((i as f32) * 0.01).sin())
-        .collect();
+    let cpu_output: Vec<f32> = (0..hidden_dim).map(|i| ((i as f32) * 0.01).sin()).collect();
 
     // Corrupt 20% of elements by flipping their sign
     let corruption_fraction = 0.20;

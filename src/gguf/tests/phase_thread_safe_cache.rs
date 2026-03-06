@@ -33,9 +33,9 @@ fn test_phase34_cached_sync_new() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -62,9 +62,9 @@ fn test_phase34_cached_sync_model_accessor() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -96,9 +96,9 @@ fn test_phase34_cached_sync_concurrent_model_access() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -118,7 +118,10 @@ fn test_phase34_cached_sync_concurrent_model_access() {
     }
 
     // Wait for all threads and verify they completed
-    let results: Vec<_> = handles.into_iter().map(|h| h.join().expect("thread join failed")).collect();
+    let results: Vec<_> = handles
+        .into_iter()
+        .map(|h| h.join().expect("thread join failed"))
+        .collect();
     assert_eq!(results, vec![0, 10, 20, 30]);
 }
 
@@ -140,9 +143,9 @@ fn test_phase34_cached_sync_send_sync_bounds() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -223,9 +226,9 @@ fn test_phase34_cached_sync_no_gpu_feature() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let _model = create_test_model_with_config(&config);
@@ -252,9 +255,9 @@ fn test_phase34_cached_sync_rapid_access() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -285,9 +288,9 @@ fn test_phase34_cached_sync_thread_stress() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

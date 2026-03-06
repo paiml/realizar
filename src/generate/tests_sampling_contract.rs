@@ -150,8 +150,7 @@ fn falsify_sa_004b_temperature_scaling() {
 
     for &temp in &[0.5_f32, 2.0, 0.1, 10.0] {
         let result = apply_temperature(&logits, temp).expect("should succeed");
-        for (j, (&original, &scaled)) in
-            logits.data().iter().zip(result.data().iter()).enumerate()
+        for (j, (&original, &scaled)) in logits.data().iter().zip(result.data().iter()).enumerate()
         {
             let expected = original / temp;
             let diff = (scaled - expected).abs();

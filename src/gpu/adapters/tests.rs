@@ -139,8 +139,8 @@ fn test_config_to_gpu_all_fields() {
         context_length: 4096,
         rope_theta: 500000.0,
         eps: 1e-6,
-            eos_token_id: None,
-    ..Default::default()
+        eos_token_id: None,
+        ..Default::default()
     };
 
     let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);
@@ -169,8 +169,8 @@ fn test_config_to_gpu_gqa() {
         context_length: 32768,
         rope_theta: 10000.0,
         eps: 1e-5,
-            eos_token_id: None,
-    ..Default::default()
+        eos_token_id: None,
+        ..Default::default()
     };
 
     let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);
@@ -194,8 +194,8 @@ fn test_config_to_gpu_mha() {
         context_length: 1024,
         rope_theta: 10000.0,
         eps: 1e-5,
-            eos_token_id: None,
-    ..Default::default()
+        eos_token_id: None,
+        ..Default::default()
     };
 
     let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);
@@ -216,8 +216,8 @@ fn test_config_to_gpu_tiny_model() {
         context_length: 64,
         rope_theta: 10000.0,
         eps: 1e-5,
-            eos_token_id: None,
-    ..Default::default()
+        eos_token_id: None,
+        ..Default::default()
     };
 
     let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);

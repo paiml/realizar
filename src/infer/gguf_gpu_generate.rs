@@ -255,6 +255,48 @@ fn try_apr_cuda_inference(
     }))
 }
 
+/// Log model architecture and configuration details for APR CPU inference.
+fn log_apr_cpu_model_info(
+    verbose: bool,
+    validated: &crate::safetensors::validation::ValidatedAprTransformer,
+    load_ms: f64,
+) {
+    if !verbose {
+        return;
+    }
+    let arch = &validated.config.architecture;
+    let thread_count = rayon::current_num_threads();
+    eprintln!(
+        "Architecture: {} ({} layers, vocab_size={})",
+        arch, validated.config.num_layers, validated.config.vocab_size
+    );
+    eprintln!(
+        "Config: hidden_size={}, context_length={}, quant=F32 (dequantized), threads={}",
+        validated.config.hidden_dim, validated.config.context_length, thread_count
+    );
+    eprintln!("Model loaded in {:.1}ms", load_ms);
+    eprintln!("Backend: CPU (SIMD-accelerated)");
+}
+
+/// Try loading an APR model as LLaMA-style. Returns None if the model
+/// needs the quantized path (GPT-2, load failure, etc.).
+fn try_load_llama_style(
+    model_path: &std::path::Path,
+) -> Option<crate::safetensors::validation::ValidatedAprTransformer> {
+    
+    match crate::apr_transformer::AprTransformer::from_apr_file_validated(model_path) {
+        Ok(t) => {
+            let arch = t.config.architecture.to_lowercase();
+            if arch.contains("gpt2") || arch.contains("gpt-2") {
+                None
+            } else {
+                Some(t)
+            }
+        }
+        Err(_) => None,
+    }
+}
+
 /// Run APR inference on CPU with KV-cache (PMAT-103)
 fn run_apr_cpu_inference(
     config: &InferenceConfig,
@@ -262,40 +304,16 @@ fn run_apr_cpu_inference(
     input_token_count: usize,
     load_start: Instant,
 ) -> Result<InferenceResult> {
-    use crate::apr_transformer::AprTransformer;
-
     // GH-278: AprTransformer only supports LLaMA-style models (RoPE + SwiGLU).
     // For GPT-2 and other architectures, use OwnedQuantizedModel which supports
     // learned position embeddings, LayerNorm, GELU, etc.
-    let validated = match AprTransformer::from_apr_file_validated(&config.model_path) {
-        Ok(t) => {
-            // Check if architecture needs OwnedQuantizedModel (GPT-2, etc.)
-            let arch = t.config.architecture.to_lowercase();
-            if arch.contains("gpt2") || arch.contains("gpt-2") {
-                return run_apr_quantized_cpu_inference(config, input_tokens, input_token_count, load_start);
-            }
-            t
-        },
-        Err(_) => {
-            return run_apr_quantized_cpu_inference(config, input_tokens, input_token_count, load_start);
-        }
+    let validated = match try_load_llama_style(&config.model_path) {
+        Some(t) => t,
+        None => return run_apr_quantized_cpu_inference(config, input_tokens, input_token_count, load_start),
     };
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
-    if config.verbose {
-        let arch = &validated.config.architecture;
-        let thread_count = rayon::current_num_threads();
-        eprintln!(
-            "Architecture: {} ({} layers, vocab_size={})",
-            arch, validated.config.num_layers, validated.config.vocab_size
-        );
-        eprintln!(
-            "Config: hidden_size={}, context_length={}, quant=F32 (dequantized), threads={}",
-            validated.config.hidden_dim, validated.config.context_length, thread_count
-        );
-        eprintln!("Model loaded in {:.1}ms", load_ms);
-        eprintln!("Backend: CPU (SIMD-accelerated)");
-    }
+    log_apr_cpu_model_info(config.verbose, &validated, load_ms);
 
     // GH-373: Resolve stop tokens from model config, caller, and sibling tokenizer
     let stop_tokens = resolve_apr_stop_tokens(

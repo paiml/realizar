@@ -231,8 +231,8 @@ fn create_test_gguf_transformer(
         eps: 1e-5,
         rope_type: 0, // NORM (adjacent pairs)
         bos_token_id: None,
-    eos_token_id: None,
-    explicit_head_dim: None,
+        eos_token_id: None,
+        explicit_head_dim: None,
     };
 
     let layers: Vec<GGUFTransformerLayer> = (0..num_layers)

@@ -511,7 +511,7 @@ fn test_generate_config_clone() {
         top_k: 20,
         repetition_penalty: 1.2,
         trace: false,
-    stop_tokens: vec![],
+        stop_tokens: vec![],
     };
     let cloned = config.clone();
     assert_eq!(config.max_tokens, cloned.max_tokens);

@@ -962,7 +962,10 @@ fn test_cov_owned_model_clone() {
 
     assert_eq!(model.config().architecture, cloned.config().architecture);
     assert_eq!(model.layers().len(), cloned.layers().len());
-    assert_eq!(model.token_embedding().len(), cloned.token_embedding().len());
+    assert_eq!(
+        model.token_embedding().len(),
+        cloned.token_embedding().len()
+    );
 }
 
 #[test]

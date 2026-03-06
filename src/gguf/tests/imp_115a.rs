@@ -27,9 +27,9 @@ fn test_imp_115a_fused_single_head_attention_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -92,9 +92,9 @@ fn test_imp_115b_fused_multihead_attention_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -155,9 +155,9 @@ fn test_imp_115c_fused_attention_no_intermediate_allocation() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -211,9 +211,9 @@ fn test_imp_115d_fused_causal_mask_correctness() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);
@@ -402,9 +402,9 @@ fn test_imp_117f_generate_with_token_buffer() {
         rope_theta: 10000.0,
         eps: 1e-5,
         rope_type: 0,
-            explicit_head_dim: None,
+        explicit_head_dim: None,
         bos_token_id: None,
-            eos_token_id: None,
+        eos_token_id: None,
     };
 
     let model = create_test_model_with_config(&config);

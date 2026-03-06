@@ -459,7 +459,7 @@ impl BoundLayerWeights {
 // =============================================================================
 //
 // The problem: IndexedLayerWeights uses (0, 0) as both "optional field" and
-// "loader bug". The type system cannot distinguish them.
+// "missing required field". The type system cannot distinguish them.
 //
 // The solution: ValidatedLayerWeights wraps IndexedLayerWeights with a private
 // inner field. The ONLY constructor (`validate()`) checks every architecture-

@@ -383,7 +383,11 @@ fn test_data_storm_tensor_dimensions_2d() {
     let model = GGUFModel::from_bytes(&gguf_data).expect("parse");
 
     // Verify dimensions are parsed correctly
-    let tensor = model.tensors.iter().find(|t| t.name == "matrix").expect("test value should be present");
+    let tensor = model
+        .tensors
+        .iter()
+        .find(|t| t.name == "matrix")
+        .expect("test value should be present");
     assert_eq!(tensor.n_dims, 2);
     // Dimensions reversed from GGML format
     assert!(tensor.dims.contains(&32) && tensor.dims.contains(&64));
@@ -424,7 +428,7 @@ fn test_data_storm_dimension_overflow() {
     // Tensor info with huge dimensions
     data.extend(build_string("huge_tensor"));
     data.extend_from_slice(&2u32.to_le_bytes()); // 2 dims
-    // Dimensions that would overflow when multiplied: u64::MAX / 2 * 3
+                                                 // Dimensions that would overflow when multiplied: u64::MAX / 2 * 3
     data.extend_from_slice(&(u64::MAX / 2).to_le_bytes());
     data.extend_from_slice(&3u64.to_le_bytes());
     data.extend_from_slice(&GGUF_TYPE_F32.to_le_bytes());

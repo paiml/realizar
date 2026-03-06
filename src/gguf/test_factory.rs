@@ -88,49 +88,73 @@ impl GGUFBuilder {
     /// Set hidden dimension (embedding length)
     #[must_use]
     pub fn hidden_dim(self, arch: &str, dim: u32) -> Self {
-        self.add_u32(&super::keys::arch_key(arch, super::keys::EMBEDDING_LENGTH), dim)
+        self.add_u32(
+            &super::keys::arch_key(arch, super::keys::EMBEDDING_LENGTH),
+            dim,
+        )
     }
 
     /// Set number of layers (block count)
     #[must_use]
     pub fn num_layers(self, arch: &str, count: u32) -> Self {
-        self.add_u32(&super::keys::arch_key(arch, super::keys::BLOCK_COUNT), count)
+        self.add_u32(
+            &super::keys::arch_key(arch, super::keys::BLOCK_COUNT),
+            count,
+        )
     }
 
     /// Set number of attention heads
     #[must_use]
     pub fn num_heads(self, arch: &str, count: u32) -> Self {
-        self.add_u32(&super::keys::arch_key(arch, super::keys::ATTENTION_HEAD_COUNT), count)
+        self.add_u32(
+            &super::keys::arch_key(arch, super::keys::ATTENTION_HEAD_COUNT),
+            count,
+        )
     }
 
     /// Set number of KV heads (for GQA)
     #[must_use]
     pub fn num_kv_heads(self, arch: &str, count: u32) -> Self {
-        self.add_u32(&super::keys::arch_key(arch, super::keys::ATTENTION_HEAD_COUNT_KV), count)
+        self.add_u32(
+            &super::keys::arch_key(arch, super::keys::ATTENTION_HEAD_COUNT_KV),
+            count,
+        )
     }
 
     /// Set context length
     #[must_use]
     pub fn context_length(self, arch: &str, len: u32) -> Self {
-        self.add_u32(&super::keys::arch_key(arch, super::keys::CONTEXT_LENGTH), len)
+        self.add_u32(
+            &super::keys::arch_key(arch, super::keys::CONTEXT_LENGTH),
+            len,
+        )
     }
 
     /// Set RoPE frequency base
     #[must_use]
     pub fn rope_freq_base(self, arch: &str, base: f32) -> Self {
-        self.add_f32(&super::keys::arch_key(arch, super::keys::ROPE_FREQ_BASE), base)
+        self.add_f32(
+            &super::keys::arch_key(arch, super::keys::ROPE_FREQ_BASE),
+            base,
+        )
     }
 
     /// Set RMS epsilon
     #[must_use]
     pub fn rms_epsilon(self, arch: &str, eps: f32) -> Self {
-        self.add_f32(&super::keys::arch_key(arch, super::keys::ATTENTION_LAYER_NORM_RMS_EPSILON), eps)
+        self.add_f32(
+            &super::keys::arch_key(arch, super::keys::ATTENTION_LAYER_NORM_RMS_EPSILON),
+            eps,
+        )
     }
 
     /// Set feed-forward hidden dimension
     #[must_use]
     pub fn ffn_hidden_dim(self, arch: &str, dim: u32) -> Self {
-        self.add_u32(&super::keys::arch_key(arch, super::keys::FEED_FORWARD_LENGTH), dim)
+        self.add_u32(
+            &super::keys::arch_key(arch, super::keys::FEED_FORWARD_LENGTH),
+            dim,
+        )
     }
 
     /// Set vocab size (for completeness)

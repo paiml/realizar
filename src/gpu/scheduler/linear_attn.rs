@@ -360,6 +360,29 @@ pub fn forward_linear_block_incremental(
     Ok(residual1)
 }
 
+/// Expand Q and K from key_heads to value_heads via repeat_interleave.
+fn repeat_interleave_qk(
+    q_raw: &[f32],
+    k_raw: &[f32],
+    num_k_heads: usize,
+    num_v_heads: usize,
+    kd: usize,
+    heads_ratio: usize,
+) -> (Vec<f32>, Vec<f32>) {
+    let mut q = vec![0.0f32; num_v_heads * kd];
+    let mut k = vec![0.0f32; num_v_heads * kd];
+    for kh in 0..num_k_heads {
+        let src_q = &q_raw[kh * kd..(kh + 1) * kd];
+        let src_k = &k_raw[kh * kd..(kh + 1) * kd];
+        for r in 0..heads_ratio {
+            let vh = kh * heads_ratio + r;
+            q[vh * kd..(vh + 1) * kd].copy_from_slice(src_q);
+            k[vh * kd..(vh + 1) * kd].copy_from_slice(src_k);
+        }
+    }
+    (q, k)
+}
+
 // =============================================================================
 // Forward Pass — Prefill (Full Sequence)
 // =============================================================================
@@ -452,18 +475,7 @@ pub fn forward_linear_block_with_cache(
         let a_pos = &a_all[pos * num_v_heads..(pos + 1) * num_v_heads];
 
         // Repeat_interleave Q, K from key_heads to value_heads
-        let mut q = vec![0.0f32; num_v_heads * kd];
-        let mut k = vec![0.0f32; num_v_heads * kd];
-
-        for kh in 0..num_k_heads {
-            let src_q = &q_raw[kh * kd..(kh + 1) * kd];
-            let src_k = &k_raw[kh * kd..(kh + 1) * kd];
-            for r in 0..heads_ratio {
-                let vh = kh * heads_ratio + r;
-                q[vh * kd..(vh + 1) * kd].copy_from_slice(src_q);
-                k[vh * kd..(vh + 1) * kd].copy_from_slice(src_k);
-            }
-        }
+        let (q, k) = repeat_interleave_qk(q_raw, k_raw, num_k_heads, num_v_heads, kd, heads_ratio);
 
         // Compute decay and beta for this position
         let mut g = vec![0.0f32; num_v_heads];
@@ -643,55 +655,67 @@ fn gated_delta_rule_step(
         let q_h = &q[h * kd..(h + 1) * kd];
         let k_h = &k[h * kd..(h + 1) * kd];
         let v_h = &v[h * vd..(h + 1) * vd];
-
-        // L2-normalize Q and K (use_qk_l2norm_in_kernel=True)
-        let q_norm = l2_normalize(q_h);
-        let k_norm = l2_normalize(k_h);
-
-        // GDN-1a: Decay — S_h ← exp(g_h) · S_h
-        let decay = g[h].exp();
-        for s in state_h.iter_mut() {
-            *s *= decay;
-        }
-
-        // Read from state — mem = S^T k (state is [kd, vd] row-major)
-        // mem[j] = Σ_i state[i, j] · k[i]
-        let mut mem = vec![0.0f32; vd];
-        for i in 0..kd {
-            let k_i = k_norm[i];
-            if k_i.abs() > f32::EPSILON {
-                let row_start = i * vd;
-                for j in 0..vd {
-                    mem[j] += state_h[row_start + j] * k_i;
-                }
-            }
-        }
-
-        // GDN-2: Delta — δ = β · (v − mem)
-        let beta_h = beta[h];
-
-        // GDN-1b: Write — S ← S + k ⊗ δ
-        for i in 0..kd {
-            let k_i = k_norm[i];
-            if k_i.abs() > f32::EPSILON {
-                let row_start = i * vd;
-                for j in 0..vd {
-                    let delta_j = beta_h * (v_h[j] - mem[j]);
-                    state_h[row_start + j] += k_i * delta_j;
-                }
-            }
-        }
-
-        // GDN-3: Output — o = S^T q
         let out_h = &mut output[h * vd..(h + 1) * vd];
-        out_h.fill(0.0);
-        for i in 0..kd {
-            let q_i = q_norm[i];
-            if q_i.abs() > f32::EPSILON {
-                let row_start = i * vd;
-                for j in 0..vd {
-                    out_h[j] += state_h[row_start + j] * q_i;
-                }
+
+        gated_delta_rule_head(q_h, k_h, v_h, g[h], beta[h], state_h, out_h, kd, vd);
+    }
+}
+
+/// Single-head gated delta rule recurrence (GDN-1/2/3).
+fn gated_delta_rule_head(
+    q_h: &[f32],
+    k_h: &[f32],
+    v_h: &[f32],
+    g_h: f32,
+    beta_h: f32,
+    state_h: &mut [f32],
+    out_h: &mut [f32],
+    kd: usize,
+    vd: usize,
+) {
+    // L2-normalize Q and K (use_qk_l2norm_in_kernel=True)
+    let q_norm = l2_normalize(q_h);
+    let k_norm = l2_normalize(k_h);
+
+    // GDN-1a: Decay — S_h ← exp(g_h) · S_h
+    let decay = g_h.exp();
+    for s in state_h.iter_mut() {
+        *s *= decay;
+    }
+
+    // Read from state — mem = S^T k (state is [kd, vd] row-major)
+    // mem[j] = Σ_i state[i, j] · k[i]
+    let mut mem = vec![0.0f32; vd];
+    for i in 0..kd {
+        let k_i = k_norm[i];
+        if k_i.abs() > f32::EPSILON {
+            let row_start = i * vd;
+            for j in 0..vd {
+                mem[j] += state_h[row_start + j] * k_i;
+            }
+        }
+    }
+
+    // GDN-1b: Write — S ← S + k ⊗ δ (GDN-2: δ = β · (v − mem))
+    for i in 0..kd {
+        let k_i = k_norm[i];
+        if k_i.abs() > f32::EPSILON {
+            let row_start = i * vd;
+            for j in 0..vd {
+                let delta_j = beta_h * (v_h[j] - mem[j]);
+                state_h[row_start + j] += k_i * delta_j;
+            }
+        }
+    }
+
+    // GDN-3: Output — o = S^T q
+    out_h.fill(0.0);
+    for i in 0..kd {
+        let q_i = q_norm[i];
+        if q_i.abs() > f32::EPSILON {
+            let row_start = i * vd;
+            for j in 0..vd {
+                out_h[j] += state_h[row_start + j] * q_i;
             }
         }
     }

@@ -435,8 +435,7 @@ mod rmsnorm_contract_tests {
         for (idx, x) in test_vectors.iter().enumerate() {
             let y = rms_norm(x, &weight, eps);
 
-            let rms_out: f32 =
-                (y.iter().map(|&v| v * v).sum::<f32>() / y.len() as f32).sqrt();
+            let rms_out: f32 = (y.iter().map(|&v| v * v).sum::<f32>() / y.len() as f32).sqrt();
 
             assert!(
                 (rms_out - 1.0).abs() < 0.01,
@@ -856,16 +855,25 @@ mod silu_contract_tests {
     fn falsify_si_001_zero_preservation() {
         let mut input = vec![0.0];
         silu(&mut input);
-        assert!(input[0].abs() < 1e-7, "FALSIFIED SI-001: SiLU(0) = {}", input[0]);
+        assert!(
+            input[0].abs() < 1e-7,
+            "FALSIFIED SI-001: SiLU(0) = {}",
+            input[0]
+        );
     }
 
     /// FALSIFY-SI-002: Global lower bound — SiLU(x) > -0.279 for all x
     #[test]
     fn falsify_si_002_global_lower_bound() {
-        let mut input = vec![-100.0, -50.0, -10.0, -5.0, -2.0, -1.278, -1.0, -0.5, 0.0, 0.5, 1.0, 5.0, 100.0];
+        let mut input = vec![
+            -100.0, -50.0, -10.0, -5.0, -2.0, -1.278, -1.0, -0.5, 0.0, 0.5, 1.0, 5.0, 100.0,
+        ];
         silu(&mut input);
         for (i, &val) in input.iter().enumerate() {
-            assert!(val > -0.28, "FALSIFIED SI-002: SiLU[{i}] = {val}, expected > -0.279");
+            assert!(
+                val > -0.28,
+                "FALSIFIED SI-002: SiLU[{i}] = {val}, expected > -0.279"
+            );
         }
     }
 
@@ -878,7 +886,9 @@ mod silu_contract_tests {
             assert!(
                 input[i] > input[i - 1],
                 "FALSIFIED SI-003: SiLU not monotonic: [{i}]={} not > [{}]={}",
-                input[i], i - 1, input[i - 1]
+                input[i],
+                i - 1,
+                input[i - 1]
             );
         }
     }
@@ -904,7 +914,10 @@ mod silu_contract_tests {
         let mut input = vec![-10.0, -20.0, -50.0, -100.0, -500.0];
         silu(&mut input);
         for (i, &val) in input.iter().enumerate() {
-            assert!(val.abs() < 0.01, "FALSIFIED SI-006: SiLU(neg)[{i}] = {val}, expected ≈ 0");
+            assert!(
+                val.abs() < 0.01,
+                "FALSIFIED SI-006: SiLU(neg)[{i}] = {val}, expected ≈ 0"
+            );
         }
     }
 
@@ -973,7 +986,10 @@ mod gelu_contract_tests {
         let mut input = vec![0.001, 0.1, 1.0, 5.0, 10.0, 100.0];
         gelu(&mut input);
         for (i, &val) in input.iter().enumerate() {
-            assert!(val >= 0.0, "FALSIFIED GE-001: gelu(positive)[{i}] = {val} < 0");
+            assert!(
+                val >= 0.0,
+                "FALSIFIED GE-001: gelu(positive)[{i}] = {val} < 0"
+            );
         }
     }
 
@@ -986,7 +1002,9 @@ mod gelu_contract_tests {
             assert!(
                 input[i] > input[i - 1],
                 "FALSIFIED GE-002: gelu not monotonic: [{i}]={} not > [{}]={}",
-                input[i], i - 1, input[i - 1]
+                input[i],
+                i - 1,
+                input[i - 1]
             );
         }
     }
@@ -996,7 +1014,11 @@ mod gelu_contract_tests {
     fn falsify_ge_003_zero_preservation() {
         let mut input = vec![0.0];
         gelu(&mut input);
-        assert!(input[0].abs() < 1e-7, "FALSIFIED GE-003: gelu(0) = {}", input[0]);
+        assert!(
+            input[0].abs() < 1e-7,
+            "FALSIFIED GE-003: gelu(0) = {}",
+            input[0]
+        );
     }
 
     /// FALSIFY-GE-006: Large input stability
@@ -1014,7 +1036,10 @@ mod gelu_contract_tests {
             );
         }
         for (i, &val) in neg.iter().enumerate() {
-            assert!(val.abs() < 0.01, "FALSIFIED GE-006: gelu(neg)[{i}] = {val}, expected ≈ 0");
+            assert!(
+                val.abs() < 0.01,
+                "FALSIFIED GE-006: gelu(neg)[{i}] = {val}, expected ≈ 0"
+            );
         }
     }
 
@@ -1124,7 +1149,11 @@ mod swiglu_contract_tests {
             let up_vec = vec![up];
             silu(&mut gate);
             gate[0] *= up_vec[0];
-            assert!(gate[0].abs() < 1e-7, "FALSIFIED SG-001: SwiGLU(0, {up}) = {}", gate[0]);
+            assert!(
+                gate[0].abs() < 1e-7,
+                "FALSIFIED SG-001: SwiGLU(0, {up}) = {}",
+                gate[0]
+            );
         }
     }
 
@@ -1132,7 +1161,11 @@ mod swiglu_contract_tests {
     #[test]
     fn falsify_sg_002_fused_equivalence() {
         let cases: Vec<(f32, f32)> = vec![
-            (1.0, 1.0), (-2.0, 3.0), (5.0, -1.0), (0.5, 0.5), (100.0, 0.0),
+            (1.0, 1.0),
+            (-2.0, 3.0),
+            (5.0, -1.0),
+            (0.5, 0.5),
+            (100.0, 0.0),
         ];
         for &(g, u) in &cases {
             let expected = swiglu_ref(g, u);
@@ -1175,7 +1208,10 @@ mod swiglu_contract_tests {
     fn falsify_sg_005_empty_input() {
         let mut gate: Vec<f32> = vec![];
         silu(&mut gate);
-        assert!(gate.is_empty(), "FALSIFIED SG-005: empty SiLU produced non-empty");
+        assert!(
+            gate.is_empty(),
+            "FALSIFIED SG-005: empty SiLU produced non-empty"
+        );
     }
 
     /// FALSIFY-SG-006: Monotonicity of gate — for positive x and positive gates
@@ -1188,7 +1224,10 @@ mod swiglu_contract_tests {
             assert!(
                 results[i] > results[i - 1],
                 "FALSIFIED SG-006: SwiGLU({},{up}) = {} not > SwiGLU({},{up}) = {}",
-                gate_values[i], results[i], gate_values[i-1], results[i-1]
+                gate_values[i],
+                results[i],
+                gate_values[i - 1],
+                results[i - 1]
             );
         }
     }
