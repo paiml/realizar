@@ -210,6 +210,9 @@ mod tests {
             linear_num_key_heads: Some(16),
             linear_num_value_heads: Some(48),
             linear_conv_kernel_dim: Some(4),
+            num_experts: None,
+            num_experts_per_tok: None,
+            expert_intermediate_size: None,
         };
 
         let gpu_config = AprToGpuAdapter::config_to_gpu(&apr_config);
