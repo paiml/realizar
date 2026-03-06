@@ -65,6 +65,13 @@ fn create_test_transformer(
                 linear_attn_a_log: None,
                 linear_attn_dt_bias: None,
                 linear_attn_norm_weight: None,
+                moe_gate_weight: None,
+                moe_expert_gate_up: None,
+                moe_expert_down: None,
+                moe_shared_gate: None,
+                moe_shared_up: None,
+                moe_shared_down: None,
+                moe_shared_expert_gate_weight: None,
             })
             .collect(),
         output_norm_weight: vec![1.0; hidden_dim],
@@ -243,6 +250,13 @@ fn test_layer_num_parameters_minimal() {
         linear_attn_a_log: None,
         linear_attn_dt_bias: None,
         linear_attn_norm_weight: None,
+        moe_gate_weight: None,
+        moe_expert_gate_up: None,
+        moe_expert_down: None,
+        moe_shared_gate: None,
+        moe_shared_up: None,
+        moe_shared_down: None,
+        moe_shared_expert_gate_weight: None,
     };
     let params = layer.num_parameters();
     assert!(params > 0);
@@ -274,6 +288,13 @@ fn test_layer_num_parameters_with_all_biases() {
         linear_attn_a_log: None,
         linear_attn_dt_bias: None,
         linear_attn_norm_weight: None,
+        moe_gate_weight: None,
+        moe_expert_gate_up: None,
+        moe_expert_down: None,
+        moe_shared_gate: None,
+        moe_shared_up: None,
+        moe_shared_down: None,
+        moe_shared_expert_gate_weight: None,
     };
     let params = layer.num_parameters();
     // Should include all weights and biases

@@ -281,6 +281,15 @@ pub struct AprTransformerConfig {
     /// GH-278: Conv1D kernel size for linear attention (Qwen3.5: 4)
     #[serde(default)]
     pub linear_conv_kernel_dim: Option<usize>,
+    /// ALB-010: Number of MoE experts (Qwen3.5-35B-A3B: 256)
+    #[serde(default)]
+    pub num_experts: Option<usize>,
+    /// ALB-010: Number of experts selected per token (Qwen3.5-35B-A3B: 8)
+    #[serde(default)]
+    pub num_experts_per_tok: Option<usize>,
+    /// ALB-010: MoE expert intermediate/FFN dimension (Qwen3.5-35B-A3B: 512)
+    #[serde(default)]
+    pub expert_intermediate_size: Option<usize>,
 }
 
 impl Default for AprTransformerConfig {
@@ -304,6 +313,9 @@ impl Default for AprTransformerConfig {
             linear_num_key_heads: None,
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
+            num_experts: None,
+            num_experts_per_tok: None,
+            expert_intermediate_size: None,
         }
     }
 }
@@ -371,6 +383,30 @@ pub struct AprTransformerLayer {
     /// Gated RMSNorm weight: [value_dim]
     #[serde(default)]
     pub linear_attn_norm_weight: Option<Vec<f32>>,
+    // =========================================================================
+    // ALB-010: MoE expert weights (Qwen3.5-35B-A3B)
+    // =========================================================================
+    /// ALB-010: Router gate weight [num_experts, hidden_dim]
+    #[serde(default)]
+    pub moe_gate_weight: Option<Vec<f32>>,
+    /// ALB-010: Packed expert gate+up projections [num_experts, 2*intermediate, hidden_dim]
+    #[serde(default)]
+    pub moe_expert_gate_up: Option<Vec<f32>>,
+    /// ALB-010: Packed expert down projections [num_experts, hidden_dim, intermediate]
+    #[serde(default)]
+    pub moe_expert_down: Option<Vec<f32>>,
+    /// ALB-010: Shared expert gate projection [intermediate, hidden_dim]
+    #[serde(default)]
+    pub moe_shared_gate: Option<Vec<f32>>,
+    /// ALB-010: Shared expert up projection [intermediate, hidden_dim]
+    #[serde(default)]
+    pub moe_shared_up: Option<Vec<f32>>,
+    /// ALB-010: Shared expert down projection [hidden_dim, intermediate]
+    #[serde(default)]
+    pub moe_shared_down: Option<Vec<f32>>,
+    /// ALB-010: Shared expert gate weight [1, hidden_dim] for sigmoid scaling
+    #[serde(default)]
+    pub moe_shared_expert_gate_weight: Option<Vec<f32>>,
 }
 
 impl AprTransformerLayer {
@@ -400,6 +436,13 @@ impl AprTransformerLayer {
             linear_attn_a_log: None,
             linear_attn_dt_bias: None,
             linear_attn_norm_weight: None,
+            moe_gate_weight: None,
+            moe_expert_gate_up: None,
+            moe_expert_down: None,
+            moe_shared_gate: None,
+            moe_shared_up: None,
+            moe_shared_down: None,
+            moe_shared_expert_gate_weight: None,
         }
     }
 
@@ -445,6 +488,13 @@ impl AprTransformerLayer {
             linear_attn_a_log: None,
             linear_attn_dt_bias: None,
             linear_attn_norm_weight: None,
+            moe_gate_weight: None,
+            moe_expert_gate_up: None,
+            moe_expert_down: None,
+            moe_shared_gate: None,
+            moe_shared_up: None,
+            moe_shared_down: None,
+            moe_shared_expert_gate_weight: None,
         }
     }
 
