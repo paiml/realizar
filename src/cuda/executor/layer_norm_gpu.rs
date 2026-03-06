@@ -316,7 +316,9 @@ impl CudaExecutor {
             epsilon,
         };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("batched_rmsnorm_vectorized_{}_{}", hidden_size, batch_size);
+        // GH-129: PTX depends on hidden_size + epsilon (immediates) but NOT batch_size (grid dim only).
+        // Remove batch_size from cache key to prevent JIT recompilation per prompt length.
+        let cache_key = format!("batched_rmsnorm_vectorized_{}", hidden_size);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
@@ -405,7 +407,9 @@ impl CudaExecutor {
             theta,
         };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
-        let cache_key = format!("batched_rope_{}_{}_{}", num_heads, head_dim, batch_size);
+        // GH-129: PTX depends on num_heads, head_dim, theta (immediates) but NOT batch_size (grid dim).
+        // Remove batch_size from cache key to prevent JIT recompilation per prompt length.
+        let cache_key = format!("batched_rope_{}_{}", num_heads, head_dim);
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);

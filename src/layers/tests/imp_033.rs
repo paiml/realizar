@@ -25,6 +25,9 @@ fn test_imp_033_generate_with_cache() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut model = GpuModel::from_gguf_config(config).expect("IMP-033: Should create model");
@@ -121,6 +124,9 @@ fn test_imp_034_preallocated_attention() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     // Test 1: AttentionBuffers can be created from config
@@ -192,6 +198,9 @@ fn test_imp_035_batched_multihead() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut model = GpuModel::with_attention_buffers(config.clone(), 256)
@@ -254,6 +263,9 @@ fn test_imp_036_optimized_kv_access() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut model = GpuModel::with_attention_buffers(config.clone(), 256)
@@ -336,6 +348,9 @@ fn test_imp_037_fused_qkv() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut model = GpuModel::with_attention_buffers(config.clone(), 256)

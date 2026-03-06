@@ -101,8 +101,8 @@ impl CudaExecutor {
             }
         }
 
-        // ========== 5. Output Projection (BATCHED GEMV) ==========
-        self.batched_gemv_with_fallback(
+        // ========== 5. Output Projection (BATCHED GEMV or cuBLAS GEMM) ==========
+        self.batched_gemv_or_gemm(
             layer_weights.attn_output_qtype, layer_weights.attn_output_ptr,
             attn_out_buf, hidden_buf1, attn_out_ptr, hidden_buf1_ptr,
             m, hidden_dim, q_dim,
@@ -122,13 +122,13 @@ impl CudaExecutor {
             epsilon,
         )?;
 
-        // ========== 8. FFN Gate/Up (BATCHED GEMV) ==========
-        self.batched_gemv_with_fallback(
+        // ========== 8. FFN Gate/Up (BATCHED GEMV or cuBLAS GEMM) ==========
+        self.batched_gemv_or_gemm(
             layer_weights.ffn_gate_qtype, layer_weights.ffn_gate_ptr,
             hidden_buf1, ffn_gate_buf, hidden_buf1_ptr, ffn_gate_ptr,
             m, intermediate_dim, hidden_dim,
         )?;
-        self.batched_gemv_with_fallback(
+        self.batched_gemv_or_gemm(
             layer_weights.ffn_up_qtype, layer_weights.ffn_up_ptr,
             hidden_buf1, ffn_up_buf, hidden_buf1_ptr, ffn_up_ptr,
             m, intermediate_dim, hidden_dim,
@@ -137,9 +137,23 @@ impl CudaExecutor {
         // ========== 9. SwiGLU (PAR-114: BATCHED) ==========
         self.batched_swiglu_into(ffn_gate_buf, ffn_up_buf, ffn_act_buf, intermediate_dim, m)?;
 
-        // ========== 10. FFN Down (BATCHED GEMV) ==========
-        // PAR-130: Use batched kernels for both Q4K and Q6K
-        if layer_weights.ffn_down_qtype == WeightQuantType::Q4K {
+        // ========== 10. FFN Down (cuBLAS GEMM or BATCHED GEMV) ==========
+        // PMAT-024/026: Use cuBLAS GEMM for Q4K/Q6K during prefill (M >= threshold)
+        let use_cublas_down = m >= 4
+            && (layer_weights.ffn_down_qtype == WeightQuantType::Q4K
+                || layer_weights.ffn_down_qtype == WeightQuantType::Q6K)
+            && std::env::var("CUBLAS_PREFILL").as_deref() != Ok("0");
+        if use_cublas_down {
+            self.cublas_prefill_gemm(
+                layer_weights.ffn_down_qtype,
+                layer_weights.ffn_down_ptr,
+                ffn_act_ptr,
+                hidden_buf1_ptr,
+                m,
+                hidden_dim,
+                intermediate_dim,
+            )?;
+        } else if layer_weights.ffn_down_qtype == WeightQuantType::Q4K {
             self.batched_q4k_gemv_into(
                 layer_weights.ffn_down_ptr,
                 ffn_act_buf, hidden_buf1, m, hidden_dim, intermediate_dim,

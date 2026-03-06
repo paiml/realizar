@@ -186,73 +186,77 @@ impl GpuModel {
             eps,
         );
 
-        // FFN: SwiGLU when gate weight exists, otherwise GELU
-        let fc1_activated: Vec<f32> = if let Some(ref gate_weight) =
-            self.block_weights[block_idx].ffn_gate_weight
-        {
-            // SwiGLU: silu(gate(x)) * up(x)
-            // Up projection
-            let up_out = self.matmul_refcell(
-                &ffn_normed,
-                &self.block_weights[block_idx].ffn_fc1_weight,
-                1,
-                hidden_dim,
-                intermediate_dim,
-            )?;
-
-            // Gate projection
-            let gate_out =
-                self.matmul_refcell(&ffn_normed, gate_weight, 1, hidden_dim, intermediate_dim)?;
-
-            // SwiGLU: silu(gate) * up
-            // silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
-            up_out
+        // FFN: MoE dispatch when experts present, SwiGLU/GELU otherwise
+        let output: Vec<f32> = if let Some(ref moe) = self.block_weights[block_idx].moe_experts {
+            // ALB-010: MoE forward — route to top-k experts + shared expert
+            let moe_out = super::moe_dispatch::moe_forward_token(&ffn_normed, moe, hidden_dim);
+            // Residual connection (MoE has no separate bias)
+            post_attn
                 .iter()
-                .zip(gate_out.iter())
-                .map(|(&u, &g)| {
-                    let silu_g = g / (1.0 + (-g).exp());
-                    silu_g * u
-                })
+                .zip(moe_out.iter())
+                .map(|(&h, &m)| h + m)
                 .collect()
         } else {
-            // Standard GELU FFN
-            let fc1_out = self.matmul_refcell(
-                &ffn_normed,
-                &self.block_weights[block_idx].ffn_fc1_weight,
+            // Dense FFN: SwiGLU when gate weight exists, otherwise GELU
+            let fc1_activated: Vec<f32> = if let Some(ref gate_weight) =
+                self.block_weights[block_idx].ffn_gate_weight
+            {
+                // SwiGLU: silu(gate(x)) * up(x)
+                let up_out = self.matmul_refcell(
+                    &ffn_normed,
+                    &self.block_weights[block_idx].ffn_fc1_weight,
+                    1,
+                    hidden_dim,
+                    intermediate_dim,
+                )?;
+                let gate_out =
+                    self.matmul_refcell(&ffn_normed, gate_weight, 1, hidden_dim, intermediate_dim)?;
+                up_out
+                    .iter()
+                    .zip(gate_out.iter())
+                    .map(|(&u, &g)| {
+                        let silu_g = g / (1.0 + (-g).exp());
+                        silu_g * u
+                    })
+                    .collect()
+            } else {
+                // Standard GELU FFN
+                let fc1_out = self.matmul_refcell(
+                    &ffn_normed,
+                    &self.block_weights[block_idx].ffn_fc1_weight,
+                    1,
+                    hidden_dim,
+                    intermediate_dim,
+                )?;
+                let ffn_fc1_bias = &self.block_weights[block_idx].ffn_fc1_bias;
+                fc1_out
+                    .iter()
+                    .zip(ffn_fc1_bias.iter())
+                    .map(|(&x, &b)| {
+                        let x_b = x + b;
+                        x_b * 0.5 + x_b * 0.5 * (0.797_884_6 * (x_b + 0.044_715 * x_b.powi(3))).tanh()
+                    })
+                    .collect()
+            };
+
+            // FFN FC2 (down projection) - NO CLONE!
+            let fc2_out = self.matmul_refcell(
+                &fc1_activated,
+                &self.block_weights[block_idx].ffn_fc2_weight,
                 1,
-                hidden_dim,
                 intermediate_dim,
+                hidden_dim,
             )?;
 
-            // Add bias and GELU activation
-            let ffn_fc1_bias = &self.block_weights[block_idx].ffn_fc1_bias;
-            fc1_out
+            // Add bias and residual
+            let ffn_fc2_bias = &self.block_weights[block_idx].ffn_fc2_bias;
+            post_attn
                 .iter()
-                .zip(ffn_fc1_bias.iter())
-                .map(|(&x, &b)| {
-                    let x_b = x + b;
-                    x_b * 0.5 + x_b * 0.5 * (0.797_884_6 * (x_b + 0.044_715 * x_b.powi(3))).tanh()
-                })
+                .zip(fc2_out.iter())
+                .zip(ffn_fc2_bias.iter())
+                .map(|((&h, &f), &b)| h + f + b)
                 .collect()
         };
-
-        // FFN FC2 (down projection) - NO CLONE!
-        let fc2_out = self.matmul_refcell(
-            &fc1_activated,
-            &self.block_weights[block_idx].ffn_fc2_weight,
-            1,
-            intermediate_dim,
-            hidden_dim,
-        )?;
-
-        // Add bias and residual
-        let ffn_fc2_bias = &self.block_weights[block_idx].ffn_fc2_bias;
-        let output: Vec<f32> = post_attn
-            .iter()
-            .zip(fc2_out.iter())
-            .zip(ffn_fc2_bias.iter())
-            .map(|((&h, &f), &b)| h + f + b)
-            .collect();
 
         if debug_this_call {
             eprintln!(

@@ -36,6 +36,9 @@ fn create_large_vocab_greedy_config() -> GpuModelConfig {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     }
 }
 
@@ -58,6 +61,9 @@ fn create_cpu_fallback_config() -> GpuModelConfig {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     }
 }
 
@@ -80,6 +86,9 @@ fn create_small_config() -> GpuModelConfig {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     }
 }
 
@@ -102,6 +111,9 @@ fn create_gqa_4_to_1_config() -> GpuModelConfig {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     }
 }
 
@@ -410,6 +422,7 @@ fn test_block_weights_swiglu_gate_construction() {
         ffn_fc2_bias: vec![0.0; 32],
         ffn_gate_weight: Some(vec![0.01; 32 * 64]),
         linear_attn: None,
+    moe_experts: None,
     };
     assert!(weights.ffn_gate_weight.is_some());
     assert_eq!(weights.ffn_gate_weight.as_ref().expect("test value should be present").len(), 32 * 64);

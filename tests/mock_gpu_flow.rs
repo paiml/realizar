@@ -214,6 +214,9 @@ fn test_gpu_model_config() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     assert_eq!(config.head_dim(), 64); // 2048/32
@@ -241,6 +244,9 @@ fn test_gpu_model_config_mha() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     assert!(!config.is_gqa());
@@ -309,6 +315,9 @@ fn test_attention_buffers_creation() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let buffers = AttentionBuffers::new(&config, 512);
@@ -340,6 +349,9 @@ fn test_attention_buffers_reset() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut buffers = AttentionBuffers::new(&config, 128);
@@ -383,6 +395,7 @@ fn test_block_weights_structure() {
         ffn_fc2_bias: vec![0.0; hidden_dim],
         ffn_gate_weight: None,
         linear_attn: None,
+    moe_experts: None,
     };
 
     assert_eq!(block.attn_norm_weight.len(), hidden_dim);
@@ -411,6 +424,7 @@ fn test_block_weights_with_gate() {
         ffn_fc2_bias: vec![0.0; hidden_dim],
         ffn_gate_weight: Some(vec![0.01; hidden_dim * intermediate_dim]), // SwiGLU
         linear_attn: None,
+    moe_experts: None,
     };
 
     assert!(block.ffn_gate_weight.is_some());
@@ -443,6 +457,9 @@ fn test_gpu_model_creation() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let model = GpuModel::new(config);
@@ -660,6 +677,9 @@ fn test_gpu_model_with_test_executor() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();
@@ -695,6 +715,9 @@ fn test_gpu_model_do_matmul_with_mock() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();
@@ -733,6 +756,9 @@ fn test_gpu_model_clear_test_executor() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();
@@ -766,6 +792,9 @@ fn test_gpu_model_mock_failure() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut model = GpuModel::new(config).unwrap();

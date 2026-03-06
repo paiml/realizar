@@ -115,6 +115,10 @@ impl CudaExecutor {
             kv_cache_q8_v: HashMap::new(),
             kv_cache_q8_k_scales: HashMap::new(),
             kv_cache_q8_v_scales: HashMap::new(),
+            // PMAT-024: cuBLAS handle for prefill GEMM (lazy init on first prefill)
+            cublas_handle: None,
+            dequant_scratch: None,
+            dequant_scratch_size: 0,
             // QWEN-010: Auto-tune tile size based on GPU
             // RTX 4090 (sm_89) has 72MB L2 cache - use 64x64 tiles
             // Default: 32x32 tiles for other GPUs

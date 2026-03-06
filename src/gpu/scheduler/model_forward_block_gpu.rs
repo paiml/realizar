@@ -113,56 +113,55 @@ impl GpuModel {
             eps,
         );
 
-        // FFN: SwiGLU when gate weight exists, otherwise GELU
-        // IMP-1006: Use do_matmul to route to CudaScheduler when available
-        let fc1_activated: Vec<f32> = if let Some(ref gate_weight) =
-            self.block_weights[block_idx].ffn_gate_weight
-        {
-            // SwiGLU: silu(gate(x)) * up(x)
-            let fc1_weight = self.block_weights[block_idx].ffn_fc1_weight.clone();
-            let gate_weight = gate_weight.clone();
-
-            let up_out =
-                self.do_matmul(&ffn_normed, &fc1_weight, 1, hidden_dim, intermediate_dim)?;
-            let gate_out =
-                self.do_matmul(&ffn_normed, &gate_weight, 1, hidden_dim, intermediate_dim)?;
-
-            // SwiGLU: silu(gate) * up
-            up_out
-                .iter()
-                .zip(gate_out.iter())
-                .map(|(&u, &g)| {
-                    let silu_g = g / (1.0 + (-g).exp());
-                    silu_g * u
-                })
-                .collect()
+        // FFN: MoE dispatch when experts present, SwiGLU/GELU otherwise
+        if let Some(ref moe) = self.block_weights[block_idx].moe_experts {
+            // ALB-010: MoE forward — route to top-k experts + shared expert
+            let moe_out = super::moe_dispatch::moe_forward_token(&ffn_normed, moe, hidden_dim);
+            for i in 0..hidden_dim {
+                post_attn[i] += moe_out[i];
+            }
         } else {
-            // Standard GELU FFN
-            let fc1_weight = self.block_weights[block_idx].ffn_fc1_weight.clone();
-            let fc1_out =
-                self.do_matmul(&ffn_normed, &fc1_weight, 1, hidden_dim, intermediate_dim)?;
+            // Dense FFN: SwiGLU when gate weight exists, otherwise GELU
+            // IMP-1006: Use do_matmul to route to CudaScheduler when available
+            let fc1_activated: Vec<f32> = if let Some(ref gate_weight) =
+                self.block_weights[block_idx].ffn_gate_weight
+            {
+                let fc1_weight = self.block_weights[block_idx].ffn_fc1_weight.clone();
+                let gate_weight = gate_weight.clone();
+                let up_out =
+                    self.do_matmul(&ffn_normed, &fc1_weight, 1, hidden_dim, intermediate_dim)?;
+                let gate_out =
+                    self.do_matmul(&ffn_normed, &gate_weight, 1, hidden_dim, intermediate_dim)?;
+                up_out
+                    .iter()
+                    .zip(gate_out.iter())
+                    .map(|(&u, &g)| {
+                        let silu_g = g / (1.0 + (-g).exp());
+                        silu_g * u
+                    })
+                    .collect()
+            } else {
+                let fc1_weight = self.block_weights[block_idx].ffn_fc1_weight.clone();
+                let fc1_out =
+                    self.do_matmul(&ffn_normed, &fc1_weight, 1, hidden_dim, intermediate_dim)?;
+                let ffn_fc1_bias = &self.block_weights[block_idx].ffn_fc1_bias;
+                fc1_out
+                    .iter()
+                    .zip(ffn_fc1_bias.iter())
+                    .map(|(&x, &b)| {
+                        let x_b = x + b;
+                        x_b * 0.5 + x_b * 0.5 * (0.797_884_6 * (x_b + 0.044_715 * x_b.powi(3))).tanh()
+                    })
+                    .collect()
+            };
 
-            let ffn_fc1_bias = &self.block_weights[block_idx].ffn_fc1_bias;
-            fc1_out
-                .iter()
-                .zip(ffn_fc1_bias.iter())
-                .map(|(&x, &b)| {
-                    let x_b = x + b;
-                    x_b * 0.5 + x_b * 0.5 * (0.797_884_6 * (x_b + 0.044_715 * x_b.powi(3))).tanh()
-                })
-                .collect()
-        };
-
-        // FFN FC2 (down projection)
-        // IMP-1006: Use do_matmul to route to CudaScheduler when available
-        let fc2_weight = self.block_weights[block_idx].ffn_fc2_weight.clone();
-        let fc2_out =
-            self.do_matmul(&fc1_activated, &fc2_weight, 1, intermediate_dim, hidden_dim)?;
-
-        // Add residual and bias
-        let ffn_fc2_bias = &self.block_weights[block_idx].ffn_fc2_bias;
-        for i in 0..hidden_dim {
-            post_attn[i] += fc2_out[i] + ffn_fc2_bias[i];
+            let fc2_weight = self.block_weights[block_idx].ffn_fc2_weight.clone();
+            let fc2_out =
+                self.do_matmul(&fc1_activated, &fc2_weight, 1, intermediate_dim, hidden_dim)?;
+            let ffn_fc2_bias = &self.block_weights[block_idx].ffn_fc2_bias;
+            for i in 0..hidden_dim {
+                post_attn[i] += fc2_out[i] + ffn_fc2_bias[i];
+            }
         }
 
         Ok(post_attn)
