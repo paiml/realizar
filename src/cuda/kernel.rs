@@ -65,6 +65,7 @@ impl CudaKernels {
             KernelType::VectorizedQ4KGemv { .. } => "vectorized_q4k_gemv",
             KernelType::MwvQ4KGemv { .. } => "mwv_q4k_gemv",
             KernelType::MwvDp4aQ4KGemv { .. } => "mwv_dp4a_q4k_gemv",
+            KernelType::HwDp4aQ4KGemv { .. } => "hw_dp4a_q4k_gemv",
             KernelType::Dp4aQ4KGemv { .. } => "dp4a_q4k_gemv",
             KernelType::Dp4aSIMDQ4KGemv { .. } => "dp4a_simd_q4k_gemv",
             KernelType::TrueDp4aQ4KGemv { .. } => "true_dp4a_q4k_gemv",

@@ -83,6 +83,11 @@ impl CudaKernels {
                 kernel.num_warps = *num_warps;
                 kernel.emit_ptx()
             },
+            KernelType::HwDp4aQ4KGemv { k, n, num_warps } => {
+                let mut kernel = HalfWarpDp4aQ4KGemvKernel::new(*k, *n);
+                kernel.num_warps = *num_warps;
+                kernel.emit_ptx()
+            },
             KernelType::Dp4aQ4KGemv { k, n } => Dp4aQ4KGemvKernel::new(*k, *n).emit_ptx(),
             KernelType::Dp4aSIMDQ4KGemv { k, n } => Dp4aQ4KGemvKernel::new(*k, *n).emit_ptx(),
             KernelType::TrueDp4aQ4KGemv { k, n } => TrueDp4aQ4KGemvKernel::new(*k, *n).emit_ptx(),

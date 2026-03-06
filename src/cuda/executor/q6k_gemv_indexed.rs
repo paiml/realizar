@@ -109,6 +109,7 @@ impl CudaExecutor {
             Q4kVariant::Wide => self.wide_q4k_gemv_into(weight_ptr, input, output, n, k),
             Q4kVariant::Vectorized => self.vectorized_q4k_gemv_into(weight_ptr, input, output, n, k),
             Q4kVariant::Dp4a => self.mwv_dp4a_q4k_gemv_into(weight_ptr, input, output, n, k),
+            Q4kVariant::HwDp4a => self.hw_dp4a_q4k_gemv_into(weight_ptr, input, output, n, k),
             Q4kVariant::Mwv => self.mwv_q4k_gemv_into(weight_ptr, input, output, n, k),
         }
     }
@@ -397,6 +398,7 @@ impl CudaExecutor {
             if std::env::var("WIDE_Q4K_DISABLE").is_ok() { return Q4kVariant::Legacy; }
             if std::env::var("WIDE_Q4K").is_ok() { return Q4kVariant::Wide; }
             if std::env::var("VECTORIZED_Q4K").is_ok() { return Q4kVariant::Vectorized; }
+            if std::env::var("HW_DP4A_Q4K").is_ok() { return Q4kVariant::HwDp4a; }
             if std::env::var("DP4A_Q4K").is_ok() { return Q4kVariant::Dp4a; }
             Q4kVariant::Mwv
         })
@@ -409,5 +411,6 @@ enum Q4kVariant {
     Wide,
     Vectorized,
     Dp4a,
+    HwDp4a,
     Mwv,
 }
