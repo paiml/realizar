@@ -237,9 +237,14 @@ impl OwnedQuantizedModelCuda {
         self.model.embed_into(token_id, &mut self.embed_buf);
         let t1 = t0.map(|_| std::time::Instant::now());
 
+        // C-GDP-001: When profiling is enabled, always use eager path with per-brick
+        // instrumentation. CUDA graph replay executes all kernels in one opaque launch,
+        // hiding brick-level timing. Contract: gpu-decode-profiling-v1 FALSIFY-GDP-001.
+        let profiling_enabled = self.executor.is_profiling_enabled();
+
         // 2. Check if CUDA graph is captured; if not, use regular path first
         // The graphed path needs to be initialized via forward_all_layers_gpu_to_logits_graphed
-        if !self.executor.has_decode_graph() {
+        if profiling_enabled || !self.executor.has_decode_graph() {
             // First call - need to capture graph, use regular path
             let mut logits = vec![0.0f32; vocab_size];
             self.executor
