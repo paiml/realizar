@@ -95,80 +95,79 @@ impl GpuModel {
             self.config.eps,
         );
 
-        // IMP-1005: Clone weights to avoid borrow conflict
-        let ffn_fc1_weight = self.block_weights[block_idx].ffn_fc1_weight.clone();
-        let ffn_fc1_bias = self.block_weights[block_idx].ffn_fc1_bias.clone();
-        let ffn_gate_weight = self.block_weights[block_idx].ffn_gate_weight.clone();
-
-        // FFN: SwiGLU when gate weight exists, otherwise GELU
-        let activated: Vec<f32> = if let Some(gate_weight) = ffn_gate_weight {
-            // SwiGLU: silu(gate(x)) * up(x)
-            let up_out = self.do_matmul(
-                &ffn_normed,
-                &ffn_fc1_weight,
-                seq_len,
-                hidden_dim,
-                intermediate_dim,
-            )?;
-            let gate_out = self.do_matmul(
-                &ffn_normed,
-                &gate_weight,
-                seq_len,
-                hidden_dim,
-                intermediate_dim,
-            )?;
-
-            // SwiGLU: silu(gate) * up
-            up_out
-                .iter()
-                .zip(gate_out.iter())
-                .map(|(&u, &g)| {
-                    let silu_g = g / (1.0 + (-g).exp());
-                    silu_g * u
-                })
-                .collect()
+        // FFN: MoE dispatch when experts present, SwiGLU/GELU otherwise
+        if let Some(ref moe) = self.block_weights[block_idx].moe_experts {
+            // ALB-010: MoE forward — route per token, accumulate into residual
+            for t in 0..seq_len {
+                let token_hidden = &ffn_normed[t * hidden_dim..(t + 1) * hidden_dim];
+                let moe_out = super::moe_dispatch::moe_forward_token(token_hidden, moe, hidden_dim);
+                for j in 0..hidden_dim {
+                    residual1[t * hidden_dim + j] += moe_out[j];
+                }
+            }
         } else {
-            // Standard GELU FFN
-            let fc1_out = self.do_matmul(
-                &ffn_normed,
-                &ffn_fc1_weight,
+            // IMP-1005: Clone weights to avoid borrow conflict
+            let ffn_fc1_weight = self.block_weights[block_idx].ffn_fc1_weight.clone();
+            let ffn_fc1_bias = self.block_weights[block_idx].ffn_fc1_bias.clone();
+            let ffn_gate_weight = self.block_weights[block_idx].ffn_gate_weight.clone();
+
+            let activated: Vec<f32> = if let Some(gate_weight) = ffn_gate_weight {
+                let up_out = self.do_matmul(
+                    &ffn_normed,
+                    &ffn_fc1_weight,
+                    seq_len,
+                    hidden_dim,
+                    intermediate_dim,
+                )?;
+                let gate_out = self.do_matmul(
+                    &ffn_normed,
+                    &gate_weight,
+                    seq_len,
+                    hidden_dim,
+                    intermediate_dim,
+                )?;
+                up_out
+                    .iter()
+                    .zip(gate_out.iter())
+                    .map(|(&u, &g)| {
+                        let silu_g = g / (1.0 + (-g).exp());
+                        silu_g * u
+                    })
+                    .collect()
+            } else {
+                let fc1_out = self.do_matmul(
+                    &ffn_normed,
+                    &ffn_fc1_weight,
+                    seq_len,
+                    hidden_dim,
+                    intermediate_dim,
+                )?;
+                fc1_out
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &x)| {
+                        let x = x + ffn_fc1_bias[i % intermediate_dim];
+                        0.5 * x
+                            * (1.0
+                                + ((2.0f32 / std::f32::consts::PI).sqrt()
+                                    * (x + 0.044_715 * x.powi(3)))
+                                .tanh())
+                    })
+                    .collect()
+            };
+
+            let ffn_fc2_weight = self.block_weights[block_idx].ffn_fc2_weight.clone();
+            let ffn_fc2_bias = self.block_weights[block_idx].ffn_fc2_bias.clone();
+            let fc2_out = self.do_matmul(
+                &activated,
+                &ffn_fc2_weight,
                 seq_len,
-                hidden_dim,
                 intermediate_dim,
+                hidden_dim,
             )?;
-
-            // GELU activation + bias (vectorized)
-            fc1_out
-                .iter()
-                .enumerate()
-                .map(|(i, &x)| {
-                    let x = x + ffn_fc1_bias[i % intermediate_dim];
-                    // GELU approximation
-                    0.5 * x
-                        * (1.0
-                            + ((2.0f32 / std::f32::consts::PI).sqrt()
-                                * (x + 0.044_715 * x.powi(3)))
-                            .tanh())
-                })
-                .collect()
-        };
-
-        // IMP-1005: Clone weights to avoid borrow conflict
-        let ffn_fc2_weight = self.block_weights[block_idx].ffn_fc2_weight.clone();
-        let ffn_fc2_bias = self.block_weights[block_idx].ffn_fc2_bias.clone();
-
-        // FFN: fc2 (IMP-1005: use do_matmul for CUDA)
-        let fc2_out = self.do_matmul(
-            &activated,
-            &ffn_fc2_weight,
-            seq_len,
-            intermediate_dim,
-            hidden_dim,
-        )?;
-
-        // Residual 2 (vectorized, in-place)
-        for (i, x) in residual1.iter_mut().enumerate() {
-            *x += fc2_out[i] + ffn_fc2_bias[i % hidden_dim];
+            for (i, x) in residual1.iter_mut().enumerate() {
+                *x += fc2_out[i] + ffn_fc2_bias[i % hidden_dim];
+            }
         }
 
         Ok(residual1)
