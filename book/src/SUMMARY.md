@@ -138,6 +138,7 @@
 - [CUDA PTX Generation](./gpu/cuda-ptx.md)
 - [SIMD Optimization](./gpu/simd.md)
 - [GPU Dispatch Strategy](./gpu/dispatch-strategy.md)
+- [BrickProfiler Decode Profiling](./gpu/brick-profiler-decode.md)
 - [Memory Management](./gpu/memory-management.md)
 - [CUDA Context Safety](./gpu/cuda-context-safety.md)
 - [Simulation Research Findings](./gpu/simulation-research.md)
