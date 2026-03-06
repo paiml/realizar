@@ -138,7 +138,7 @@
 
     #[test]
     fn test_processor_chain_applies_in_order() {
-        // Suppress token 0, then apply temp scaling
+        // Token 0 suppression followed by temperature scaling
         let chain = LogitProcessorChain::new()
             .with_processor(TokenSuppressor::new(vec![0]))
             .with_processor(TemperatureScaler::new(2.0));

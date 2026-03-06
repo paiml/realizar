@@ -138,6 +138,33 @@ pub(crate) fn generate_with_cache(
     Ok(output)
 }
 
+/// Single-token forward pass with optional trace logging.
+fn forward_with_trace(
+    model: &AprTransformer,
+    token: u32,
+    cache: &mut AprKVCache,
+    pos: usize,
+    step: usize,
+    trace: bool,
+) -> Result<Vec<f32>> {
+    let start = std::time::Instant::now();
+    let logits = model.forward_with_cache(token, cache, pos)?;
+    if trace {
+        eprintln!("[TRACE] Gen token {} (pos {}): {:?}", step, pos, start.elapsed());
+    }
+    Ok(logits)
+}
+
+/// Log streaming generation completion.
+fn trace_generation_complete(trace: bool, total_tokens: usize) {
+    if trace {
+        eprintln!(
+            "[TRACE] Streaming generation complete. Total output tokens: {}",
+            total_tokens
+        );
+    }
+}
+
 /// Generate tokens with streaming callback (GH-284)
 ///
 /// Same as `generate_with_cache` but calls `on_token` after each generated
@@ -195,25 +222,11 @@ where
         }
 
         if i < config.max_tokens - 1 {
-            let start = std::time::Instant::now();
-            logits = model.forward_with_cache(next_token, &mut cache, output.len() - 1)?;
-            if trace {
-                eprintln!(
-                    "[TRACE] Gen token {} (pos {}): {:?}",
-                    i,
-                    output.len() - 1,
-                    start.elapsed()
-                );
-            }
+            logits = forward_with_trace(model, next_token, &mut cache, output.len() - 1, i, trace)?;
         }
     }
 
-    if trace {
-        eprintln!(
-            "[TRACE] Streaming generation complete. Total output tokens: {}",
-            output.len()
-        );
-    }
+    trace_generation_complete(trace, output.len());
 
     Ok(output)
 }

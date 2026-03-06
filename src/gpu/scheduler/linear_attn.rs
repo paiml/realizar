@@ -360,6 +360,29 @@ pub fn forward_linear_block_incremental(
     Ok(residual1)
 }
 
+/// Expand Q and K from key_heads to value_heads via repeat_interleave.
+fn repeat_interleave_qk(
+    q_raw: &[f32],
+    k_raw: &[f32],
+    num_k_heads: usize,
+    num_v_heads: usize,
+    kd: usize,
+    heads_ratio: usize,
+) -> (Vec<f32>, Vec<f32>) {
+    let mut q = vec![0.0f32; num_v_heads * kd];
+    let mut k = vec![0.0f32; num_v_heads * kd];
+    for kh in 0..num_k_heads {
+        let src_q = &q_raw[kh * kd..(kh + 1) * kd];
+        let src_k = &k_raw[kh * kd..(kh + 1) * kd];
+        for r in 0..heads_ratio {
+            let vh = kh * heads_ratio + r;
+            q[vh * kd..(vh + 1) * kd].copy_from_slice(src_q);
+            k[vh * kd..(vh + 1) * kd].copy_from_slice(src_k);
+        }
+    }
+    (q, k)
+}
+
 // =============================================================================
 // Forward Pass — Prefill (Full Sequence)
 // =============================================================================
@@ -452,18 +475,7 @@ pub fn forward_linear_block_with_cache(
         let a_pos = &a_all[pos * num_v_heads..(pos + 1) * num_v_heads];
 
         // Repeat_interleave Q, K from key_heads to value_heads
-        let mut q = vec![0.0f32; num_v_heads * kd];
-        let mut k = vec![0.0f32; num_v_heads * kd];
-
-        for kh in 0..num_k_heads {
-            let src_q = &q_raw[kh * kd..(kh + 1) * kd];
-            let src_k = &k_raw[kh * kd..(kh + 1) * kd];
-            for r in 0..heads_ratio {
-                let vh = kh * heads_ratio + r;
-                q[vh * kd..(vh + 1) * kd].copy_from_slice(src_q);
-                k[vh * kd..(vh + 1) * kd].copy_from_slice(src_k);
-            }
-        }
+        let (q, k) = repeat_interleave_qk(q_raw, k_raw, num_k_heads, num_v_heads, kd, heads_ratio);
 
         // Compute decay and beta for this position
         let mut g = vec![0.0f32; num_v_heads];
