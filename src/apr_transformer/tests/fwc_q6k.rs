@@ -117,6 +117,13 @@ fn test_fwc_partial_q4k_f32_fallback_with_trace() {
         linear_attn_a_log: None,
         linear_attn_dt_bias: None,
         linear_attn_norm_weight: None,
+        moe_gate_weight: None,
+        moe_expert_gate_up: None,
+        moe_expert_down: None,
+        moe_shared_gate: None,
+        moe_shared_up: None,
+        moe_shared_down: None,
+        moe_shared_expert_gate_weight: None,
     };
 
     // Partial Q4K: only Q and K populated, everything else None
@@ -230,6 +237,13 @@ fn test_fwc_gelu_f32_no_q4k_with_trace() {
         linear_attn_a_log: None,
         linear_attn_dt_bias: None,
         linear_attn_norm_weight: None,
+        moe_gate_weight: None,
+        moe_expert_gate_up: None,
+        moe_expert_down: None,
+        moe_shared_gate: None,
+        moe_shared_up: None,
+        moe_shared_down: None,
+        moe_shared_expert_gate_weight: None,
     };
 
     let apr = AprTransformer {
@@ -306,6 +320,13 @@ fn test_forward_batch_gelu_with_trace() {
         linear_attn_a_log: None,
         linear_attn_dt_bias: None,
         linear_attn_norm_weight: None,
+        moe_gate_weight: None,
+        moe_expert_gate_up: None,
+        moe_expert_down: None,
+        moe_shared_gate: None,
+        moe_shared_up: None,
+        moe_shared_down: None,
+        moe_shared_expert_gate_weight: None,
     };
 
     let apr = AprTransformer {
@@ -389,6 +410,13 @@ fn test_forward_batch_partial_q4k_with_trace() {
         linear_attn_a_log: None,
         linear_attn_dt_bias: None,
         linear_attn_norm_weight: None,
+        moe_gate_weight: None,
+        moe_expert_gate_up: None,
+        moe_expert_down: None,
+        moe_shared_gate: None,
+        moe_shared_up: None,
+        moe_shared_down: None,
+        moe_shared_expert_gate_weight: None,
     };
 
     // Only attn_output Q4K populated — all others fall through to F32

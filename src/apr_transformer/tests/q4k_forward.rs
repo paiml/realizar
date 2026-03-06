@@ -119,6 +119,13 @@ fn make_pygmy_model_with_q4k_swiglu() -> AprTransformer {
         linear_attn_a_log: None,
         linear_attn_dt_bias: None,
         linear_attn_norm_weight: None,
+        moe_gate_weight: None,
+        moe_expert_gate_up: None,
+        moe_expert_down: None,
+        moe_shared_gate: None,
+        moe_shared_up: None,
+        moe_shared_down: None,
+        moe_shared_expert_gate_weight: None,
     };
 
     let lm_head_weight: Vec<f32> = (0..hidden_dim * vocab_size)
@@ -226,6 +233,13 @@ fn make_pygmy_model_with_q4k_gelu() -> AprTransformer {
         linear_attn_a_log: None,
         linear_attn_dt_bias: None,
         linear_attn_norm_weight: None,
+        moe_gate_weight: None,
+        moe_expert_gate_up: None,
+        moe_expert_down: None,
+        moe_shared_gate: None,
+        moe_shared_up: None,
+        moe_shared_down: None,
+        moe_shared_expert_gate_weight: None,
     };
 
     let lm_head_weight: Vec<f32> = (0..hidden_dim * vocab_size)

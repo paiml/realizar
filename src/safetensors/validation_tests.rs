@@ -110,6 +110,13 @@ fn make_valid_transformer(num_layers: usize) -> AprTransformer {
                 linear_attn_a_log: None,
                 linear_attn_dt_bias: None,
                 linear_attn_norm_weight: None,
+                moe_gate_weight: None,
+                moe_expert_gate_up: None,
+                moe_expert_down: None,
+                moe_shared_gate: None,
+                moe_shared_up: None,
+                moe_shared_down: None,
+                moe_shared_expert_gate_weight: None,
             })
             .collect(),
         output_norm_weight: vec![1.0; hidden_dim],

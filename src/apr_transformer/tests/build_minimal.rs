@@ -245,6 +245,13 @@ fn test_forward_two_layer_model() {
         linear_attn_a_log: None,
         linear_attn_dt_bias: None,
         linear_attn_norm_weight: None,
+        moe_gate_weight: None,
+        moe_expert_gate_up: None,
+        moe_expert_down: None,
+        moe_shared_gate: None,
+        moe_shared_up: None,
+        moe_shared_down: None,
+        moe_shared_expert_gate_weight: None,
     };
 
     let mut token_embedding = vec![0.0f32; vocab_size * hidden_dim];

@@ -58,6 +58,13 @@ fn build_apr_with_q4k_fused(
         linear_attn_a_log: None,
         linear_attn_dt_bias: None,
         linear_attn_norm_weight: None,
+        moe_gate_weight: None,
+        moe_expert_gate_up: None,
+        moe_expert_down: None,
+        moe_shared_gate: None,
+        moe_shared_up: None,
+        moe_shared_down: None,
+        moe_shared_expert_gate_weight: None,
     };
 
     // Q4K layer with separate weights for fused kernel dispatch
@@ -133,6 +140,13 @@ fn build_apr_with_q6k_variants(hidden: usize, intermediate: usize, vocab: usize)
         linear_attn_a_log: None,
         linear_attn_dt_bias: None,
         linear_attn_norm_weight: None,
+        moe_gate_weight: None,
+        moe_expert_gate_up: None,
+        moe_expert_down: None,
+        moe_shared_gate: None,
+        moe_shared_up: None,
+        moe_shared_down: None,
+        moe_shared_expert_gate_weight: None,
     };
 
     // Q4K layer with Q6K fallback variants

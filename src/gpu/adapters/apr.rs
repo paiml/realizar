@@ -23,7 +23,7 @@ use crate::apr_transformer::{
 use crate::error::Result;
 use crate::gpu::scheduler::{
     BlockWeights, GpuModel, GpuModelConfig, LinearAttnWeights, LmHeadWeight,
-    LmHeadWeightTransposed, ValidatedGpuWeights,
+    LmHeadWeightTransposed, MoeExpertWeights, ValidatedGpuWeights,
 };
 use crate::quantize::dequantize_q4_0;
 use thiserror::Error;
@@ -220,8 +220,32 @@ impl AprF32ToGpuAdapter {
             // SwiGLU gate weight - critical for Qwen/LLaMA models
             ffn_gate_weight: gate_weight_t,
             linear_attn,
-            moe_experts: None,
+            moe_experts: Self::build_moe_weights(layer, config),
         }
+    }
+
+    /// ALB-010: Build MoeExpertWeights from AprTransformerLayer fields
+    fn build_moe_weights(
+        layer: &AprTransformerLayer,
+        config: &GpuModelConfig,
+    ) -> Option<MoeExpertWeights> {
+        let gate_weight = layer.moe_gate_weight.as_ref()?;
+        let num_experts = config.num_experts?;
+        let num_experts_per_tok = config.num_experts_per_tok?;
+        let expert_intermediate = config.expert_intermediate_size?;
+
+        Some(MoeExpertWeights {
+            gate_weight: gate_weight.clone(),
+            expert_gate_up: layer.moe_expert_gate_up.clone().unwrap_or_default(),
+            expert_down: layer.moe_expert_down.clone().unwrap_or_default(),
+            shared_gate: layer.moe_shared_gate.clone().unwrap_or_default(),
+            shared_up: layer.moe_shared_up.clone().unwrap_or_default(),
+            shared_down: layer.moe_shared_down.clone().unwrap_or_default(),
+            shared_expert_gate_weight: layer.moe_shared_expert_gate_weight.clone().unwrap_or_default(),
+            num_experts,
+            num_experts_per_tok,
+            expert_intermediate,
+        })
     }
 
     /// GH-278: Build LinearAttnWeights from AprTransformerLayer fields
@@ -283,9 +307,10 @@ impl AprToGpuAdapter {
             linear_num_value_heads: apr_config.linear_num_value_heads,
             linear_conv_kernel_dim: apr_config.linear_conv_kernel_dim,
             constraints: None,
-            num_experts: None,
-            num_experts_per_tok: None,
-            expert_intermediate_size: None,
+            // ALB-010: MoE fields
+            num_experts: apr_config.num_experts,
+            num_experts_per_tok: apr_config.num_experts_per_tok,
+            expert_intermediate_size: apr_config.expert_intermediate_size,
         }
     }
 

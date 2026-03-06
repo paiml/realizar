@@ -129,19 +129,29 @@ impl SafetensorsToAprConverter {
             linear_num_key_heads: config.linear_num_key_heads,
             linear_num_value_heads: config.linear_num_value_heads,
             linear_conv_kernel_dim: config.linear_conv_kernel_dim,
+            // ALB-010: MoE fields
+            num_experts: config.num_experts,
+            num_experts_per_tok: config.num_experts_per_tok,
+            expert_intermediate_size: config.moe_intermediate_size,
         };
 
-        // Extract embeddings (HuggingFace: model.embed_tokens.weight, GGUF: token_embd.weight)
+        // ALB-010: Detect ConditionalGeneration wrapper prefix
+        let model_prefix = Self::detect_model_prefix(source);
+        let is_moe = config.num_experts.is_some();
+
+        // Extract embeddings — use detected prefix for ConditionalGeneration wrapper
+        let embed_name = format!("{model_prefix}.embed_tokens.weight");
         let token_embedding = Self::get_tensor_with_fallback_generic(
             source,
-            "model.embed_tokens.weight",
+            &embed_name,
             "token_embd.weight",
         )?;
 
-        // Extract output norm (HuggingFace: model.norm.weight, GGUF: output_norm.weight)
+        // Extract output norm
+        let norm_name = format!("{model_prefix}.norm.weight");
         let output_norm_weight = Self::get_tensor_with_fallback_generic(
             source,
-            "model.norm.weight",
+            &norm_name,
             "output_norm.weight",
         )?;
 
@@ -172,7 +182,7 @@ impl SafetensorsToAprConverter {
                 .and_then(|lt| lt.get(i))
                 .is_some_and(|t| t == "linear" || t == "linear_attention");
 
-            let layer = if is_linear {
+            let mut layer = if is_linear {
                 Self::extract_linear_layer_generic(
                     source,
                     i,
@@ -181,15 +191,22 @@ impl SafetensorsToAprConverter {
                     config,
                 )?
             } else {
-                Self::extract_layer_generic(
+                Self::extract_layer_generic_with_prefix(
                     source,
                     i,
                     hidden_dim,
                     num_heads,
                     num_kv_heads,
                     intermediate_dim,
+                    &model_prefix,
                 )?
             };
+
+            // ALB-010: Load MoE weights if this is an MoE model
+            if is_moe {
+                Self::load_moe_weights(source, i, &model_prefix, config, hidden_dim, &mut layer)?;
+            }
+
             layers.push(layer);
         }
 
@@ -345,6 +362,14 @@ impl SafetensorsToAprConverter {
             linear_attn_a_log: None,
             linear_attn_dt_bias: None,
             linear_attn_norm_weight: None,
+            // ALB-010: MoE weights loaded separately via load_moe_weights
+            moe_gate_weight: None,
+            moe_expert_gate_up: None,
+            moe_expert_down: None,
+            moe_shared_gate: None,
+            moe_shared_up: None,
+            moe_shared_down: None,
+            moe_shared_expert_gate_weight: None,
         })
     }
 
@@ -496,7 +521,230 @@ impl SafetensorsToAprConverter {
             linear_attn_a_log: Some(a_log),
             linear_attn_dt_bias: Some(dt_bias),
             linear_attn_norm_weight: Some(norm_weight),
+            // ALB-010: MoE weights loaded separately via load_moe_weights
+            moe_gate_weight: None,
+            moe_expert_gate_up: None,
+            moe_expert_down: None,
+            moe_shared_gate: None,
+            moe_shared_up: None,
+            moe_shared_down: None,
+            moe_shared_expert_gate_weight: None,
         })
+    }
+
+    /// ALB-010: Detect model prefix for ConditionalGeneration wrappers
+    ///
+    /// Qwen3.5-35B-A3B stores tensors under `model.language_model.layers.*`
+    /// instead of the standard `model.layers.*`. This detects the prefix
+    /// by inspecting available tensor names.
+    fn detect_model_prefix<S: TensorSource>(source: &S) -> String {
+        let names = source.tensor_names();
+        for name in &names {
+            if name.starts_with("model.language_model.") {
+                return "model.language_model".to_string();
+            }
+        }
+        "model".to_string()
+    }
+
+    /// ALB-010: Extract a transformer layer with configurable model prefix
+    ///
+    /// Same as `extract_layer_generic` but uses the detected prefix instead of
+    /// hardcoded `model.layers.{i}`. For MoE layers where `mlp.gate_proj`
+    /// doesn't exist, FFN weights are zeroed (MoE replaces dense FFN).
+    fn extract_layer_generic_with_prefix<S: TensorSource>(
+        source: &S,
+        layer_idx: usize,
+        hidden_dim: usize,
+        num_heads: usize,
+        num_kv_heads: usize,
+        intermediate_dim: usize,
+        model_prefix: &str,
+    ) -> Result<AprTransformerLayer> {
+        let hf_prefix = format!("{model_prefix}.layers.{layer_idx}");
+        let gguf_prefix = format!("blk.{layer_idx}");
+
+        let attn_norm_weight = Self::get_tensor_with_fallback_generic(
+            source,
+            &format!("{hf_prefix}.input_layernorm.weight"),
+            &format!("{gguf_prefix}.attn_norm.weight"),
+        )?;
+
+        let q_weight = Self::get_tensor_with_fallback_generic(
+            source,
+            &format!("{hf_prefix}.self_attn.q_proj.weight"),
+            &format!("{gguf_prefix}.attn_q.weight"),
+        )?;
+        let k_weight = Self::get_tensor_with_fallback_generic(
+            source,
+            &format!("{hf_prefix}.self_attn.k_proj.weight"),
+            &format!("{gguf_prefix}.attn_k.weight"),
+        )?;
+        let v_weight = Self::get_tensor_with_fallback_generic(
+            source,
+            &format!("{hf_prefix}.self_attn.v_proj.weight"),
+            &format!("{gguf_prefix}.attn_v.weight"),
+        )?;
+
+        let head_dim = hidden_dim / num_heads;
+        let kv_dim = head_dim * num_kv_heads;
+        let qkv_weight =
+            Self::concat_qkv_transposed(&q_weight, &k_weight, &v_weight, hidden_dim, kv_dim);
+
+        let qkv_bias = Self::try_concat_qkv_bias_dual_generic(
+            source,
+            &hf_prefix,
+            &gguf_prefix,
+            hidden_dim,
+            kv_dim,
+        );
+
+        let attn_output_raw = Self::get_tensor_with_fallback_generic(
+            source,
+            &format!("{hf_prefix}.self_attn.o_proj.weight"),
+            &format!("{gguf_prefix}.attn_output.weight"),
+        )?;
+        let attn_output_weight = Self::transpose_weight(&attn_output_raw, hidden_dim, hidden_dim);
+
+        let ffn_norm_weight = Self::get_tensor_with_fallback_generic(
+            source,
+            &format!("{hf_prefix}.post_attention_layernorm.weight"),
+            &format!("{gguf_prefix}.ffn_norm.weight"),
+        )?;
+
+        // MoE layers may not have dense FFN — try to load, fallback to zeros
+        let has_dense_ffn = source.has_tensor(&format!("{hf_prefix}.mlp.gate_proj.weight"))
+            || source.has_tensor(&format!("{gguf_prefix}.ffn_gate.weight"));
+
+        let (ffn_gate_weight, ffn_up_weight, ffn_down_weight) = if has_dense_ffn {
+            let gate_raw = Self::get_tensor_with_fallback_generic(
+                source,
+                &format!("{hf_prefix}.mlp.gate_proj.weight"),
+                &format!("{gguf_prefix}.ffn_gate.weight"),
+            )?;
+            let up_raw = Self::get_tensor_with_fallback_generic(
+                source,
+                &format!("{hf_prefix}.mlp.up_proj.weight"),
+                &format!("{gguf_prefix}.ffn_up.weight"),
+            )?;
+            let down_raw = Self::get_tensor_with_fallback_generic(
+                source,
+                &format!("{hf_prefix}.mlp.down_proj.weight"),
+                &format!("{gguf_prefix}.ffn_down.weight"),
+            )?;
+            (
+                Some(Self::transpose_weight(&gate_raw, intermediate_dim, hidden_dim)),
+                Self::transpose_weight(&up_raw, intermediate_dim, hidden_dim),
+                Self::transpose_weight(&down_raw, hidden_dim, intermediate_dim),
+            )
+        } else {
+            // MoE layer: no dense FFN, use empty placeholders
+            (None, vec![0.0; intermediate_dim * hidden_dim], vec![0.0; hidden_dim * intermediate_dim])
+        };
+
+        Ok(AprTransformerLayer {
+            attn_norm_weight,
+            attn_norm_bias: None,
+            qkv_weight,
+            qkv_bias,
+            attn_output_weight,
+            attn_output_bias: None,
+            ffn_gate_weight,
+            ffn_gate_bias: None,
+            ffn_up_weight,
+            ffn_up_bias: None,
+            ffn_down_weight,
+            ffn_down_bias: None,
+            ffn_norm_weight: Some(ffn_norm_weight),
+            ffn_norm_bias: None,
+            attn_q_norm_weight: source
+                .get_tensor_auto(&format!("{hf_prefix}.self_attn.q_norm.weight"))
+                .or_else(|_| source.get_tensor_auto(&format!("{gguf_prefix}.attn_q_norm.weight")))
+                .ok(),
+            attn_k_norm_weight: source
+                .get_tensor_auto(&format!("{hf_prefix}.self_attn.k_norm.weight"))
+                .or_else(|_| source.get_tensor_auto(&format!("{gguf_prefix}.attn_k_norm.weight")))
+                .ok(),
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
+            moe_gate_weight: None,
+            moe_expert_gate_up: None,
+            moe_expert_down: None,
+            moe_shared_gate: None,
+            moe_shared_up: None,
+            moe_shared_down: None,
+            moe_shared_expert_gate_weight: None,
+        })
+    }
+
+    /// ALB-010: Load MoE expert weights into an existing layer
+    ///
+    /// Qwen3.5-35B-A3B MoE layout per layer:
+    /// - Router gate: `mlp.gate.weight` [num_experts, hidden_dim]
+    /// - Packed experts: `mlp.experts.gate_up_proj` [num_experts, intermediate_dim*2, hidden_dim]
+    /// - Packed experts: `mlp.experts.down_proj` [num_experts, hidden_dim, intermediate_dim]
+    /// - Shared expert: `mlp.shared_expert.{gate,up,down}_proj.weight`
+    /// - Shared expert gate: `mlp.shared_expert_gate.weight` [1, hidden_dim]
+    fn load_moe_weights<S: TensorSource>(
+        source: &S,
+        layer_idx: usize,
+        model_prefix: &str,
+        config: &SafetensorsConfig,
+        _hidden_dim: usize,
+        layer: &mut AprTransformerLayer,
+    ) -> Result<()> {
+        let prefix = format!("{model_prefix}.layers.{layer_idx}");
+
+        // Router gate weight: [num_experts, hidden_dim]
+        let gate_name = format!("{prefix}.mlp.gate.weight");
+        if let Ok(gate) = source.get_tensor_auto(&gate_name) {
+            layer.moe_gate_weight = Some(gate);
+        }
+
+        // Packed expert tensors (no .weight suffix in Qwen3.5):
+        // gate_up_proj: [num_experts, 2*moe_intermediate_size, hidden_dim]
+        let gate_up_name = format!("{prefix}.mlp.experts.gate_up_proj");
+        if let Ok(gate_up) = source.get_tensor_auto(&gate_up_name) {
+            layer.moe_expert_gate_up = Some(gate_up);
+        }
+
+        // down_proj: [num_experts, hidden_dim, moe_intermediate_size]
+        let down_name = format!("{prefix}.mlp.experts.down_proj");
+        if let Ok(down) = source.get_tensor_auto(&down_name) {
+            layer.moe_expert_down = Some(down);
+        }
+
+        // Shared expert FFN (standard SwiGLU projections with .weight suffix)
+        let shared_intermediate = config.shared_expert_intermediate_size
+            .or(config.moe_intermediate_size)
+            .unwrap_or(0);
+        if shared_intermediate > 0 {
+            let shared_gate_name = format!("{prefix}.mlp.shared_expert.gate_proj.weight");
+            if let Ok(g) = source.get_tensor_auto(&shared_gate_name) {
+                layer.moe_shared_gate = Some(g);
+            }
+            let shared_up_name = format!("{prefix}.mlp.shared_expert.up_proj.weight");
+            if let Ok(u) = source.get_tensor_auto(&shared_up_name) {
+                layer.moe_shared_up = Some(u);
+            }
+            let shared_down_name = format!("{prefix}.mlp.shared_expert.down_proj.weight");
+            if let Ok(d) = source.get_tensor_auto(&shared_down_name) {
+                layer.moe_shared_down = Some(d);
+            }
+        }
+
+        // Shared expert gate: sigmoid scaling weight [1, hidden_dim]
+        let shared_gate_name = format!("{prefix}.mlp.shared_expert_gate.weight");
+        if let Ok(sg) = source.get_tensor_auto(&shared_gate_name) {
+            layer.moe_shared_expert_gate_weight = Some(sg);
+        }
+
+        Ok(())
     }
 
     /// Pass through weight in matvec-optimal [out_dim, in_dim] format
