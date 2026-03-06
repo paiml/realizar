@@ -189,6 +189,7 @@ impl SafetensorsToAprConverter {
                     hidden_dim,
                     intermediate_dim,
                     config,
+                    &model_prefix,
                 )?
             } else {
                 Self::extract_layer_generic_with_prefix(
@@ -373,21 +374,20 @@ impl SafetensorsToAprConverter {
         })
     }
 
-    /// GH-278: Extract a single Gated Delta Net (linear attention) transformer layer
+    /// GH-278 + ALB-010: Extract a single Gated Delta Net (linear attention) transformer layer
     ///
-    /// Qwen3.5 linear layers have combined projections different from standard attention:
-    /// - `in_proj_qkvz`: Combined Q+K+V+Z → split into qkv_weight + z_weight
-    /// - `in_proj_ba`: Combined Beta+Alpha → split into b_weight + a_weight
-    /// - `out_proj`: Output projection (not `o_proj`)
-    /// - `conv1d`, `A_log`, `dt_bias`, `norm`: GDN-specific parameters
+    /// Supports two naming conventions:
+    /// 1. Qwen3.5 non-MoE: `self_attn.in_proj_qkvz` (combined QKVZ) + `self_attn.in_proj_ba` (combined BA)
+    /// 2. Qwen3.5-35B-A3B MoE: `linear_attn.in_proj_qkv` + separate `in_proj_z`, `in_proj_a`, `in_proj_b`
     fn extract_linear_layer_generic<S: TensorSource>(
         source: &S,
         layer_idx: usize,
         hidden_dim: usize,
         intermediate_dim: usize,
         config: &SafetensorsConfig,
+        model_prefix: &str,
     ) -> Result<AprTransformerLayer> {
-        let hf_prefix = format!("model.layers.{layer_idx}");
+        let hf_prefix = format!("{model_prefix}.layers.{layer_idx}");
 
         // --- Attention layer norm (same as standard layers) ---
         let attn_norm_weight = Self::get_tensor_with_fallback_generic(
@@ -396,11 +396,6 @@ impl SafetensorsToAprConverter {
             &format!("blk.{layer_idx}.attn_norm.weight"),
         )?;
 
-        // --- GDN combined projections ---
-        // in_proj_qkvz: [q_dim + k_dim + v_dim + z_dim, hidden_dim]
-        let in_proj_qkvz = source
-            .get_tensor_auto(&format!("{hf_prefix}.self_attn.in_proj_qkvz.weight"))?;
-
         // Compute split dimensions from config
         let key_head_dim = config.linear_key_head_dim.unwrap_or(128);
         let value_head_dim = config.linear_value_head_dim.unwrap_or(128);
@@ -408,93 +403,119 @@ impl SafetensorsToAprConverter {
         let num_value_heads = config.linear_num_value_heads.unwrap_or(32);
         let key_dim = num_key_heads * key_head_dim;
         let value_dim = num_value_heads * value_head_dim;
-        // in_proj_qkvz layout: [Q(key_dim) | K(key_dim) | V(value_dim) | Z(value_dim), hidden_dim]
-        let qkvz_out_dim = 2 * key_dim + 2 * value_dim;
 
-        // Validate combined projection size
-        let expected_qkvz = qkvz_out_dim * hidden_dim;
-        if in_proj_qkvz.len() != expected_qkvz {
-            return Err(RealizarError::FormatError {
-                reason: format!(
-                    "GH-278: in_proj_qkvz size mismatch at layer {layer_idx}: \
-                     expected {expected_qkvz} (qkvz_out={qkvz_out_dim} * hidden={hidden_dim}), \
-                     got {}",
-                    in_proj_qkvz.len()
-                ),
-            });
-        }
+        // --- GDN projections: try both naming conventions ---
+        // Convention 1: combined `self_attn.in_proj_qkvz` + `self_attn.in_proj_ba`
+        // Convention 2: separate `linear_attn.in_proj_qkv` + `linear_attn.in_proj_z/a/b`
+        let combined_qkvz_name = format!("{hf_prefix}.self_attn.in_proj_qkvz.weight");
+        let separate_qkv_name = format!("{hf_prefix}.linear_attn.in_proj_qkv.weight");
 
-        // Split QKVZ along the output dimension (row-major: each row is hidden_dim)
-        let q_end = key_dim * hidden_dim;
-        let k_end = q_end + key_dim * hidden_dim;
-        let v_end = k_end + value_dim * hidden_dim;
-        // z occupies the rest: [v_end .. qkvz_out_dim * hidden_dim]
-        let q_weight = &in_proj_qkvz[..q_end];
-        let k_weight = &in_proj_qkvz[q_end..k_end];
-        let v_weight = &in_proj_qkvz[k_end..v_end];
-        let z_weight = in_proj_qkvz[v_end..].to_vec();
+        let (qkv_weight, z_weight, b_weight, a_weight, attn_sub) =
+            if source.has_tensor(&combined_qkvz_name) {
+                // Convention 1: combined QKVZ + combined BA
+                let in_proj_qkvz = source.get_tensor_auto(&combined_qkvz_name)?;
+                let qkvz_out_dim = 2 * key_dim + 2 * value_dim;
+                let expected_qkvz = qkvz_out_dim * hidden_dim;
+                if in_proj_qkvz.len() != expected_qkvz {
+                    return Err(RealizarError::FormatError {
+                        reason: format!(
+                            "GH-278: in_proj_qkvz size mismatch at layer {layer_idx}: \
+                             expected {expected_qkvz}, got {}",
+                            in_proj_qkvz.len()
+                        ),
+                    });
+                }
+                let q_end = key_dim * hidden_dim;
+                let k_end = q_end + key_dim * hidden_dim;
+                let v_end = k_end + value_dim * hidden_dim;
+                let qkv = Self::concat_qkv(&in_proj_qkvz[..q_end], &in_proj_qkvz[q_end..k_end], &in_proj_qkvz[k_end..v_end]);
+                let z = in_proj_qkvz[v_end..].to_vec();
 
-        // Concatenate Q+K+V into qkv_weight (same format as standard layers)
-        let qkv_weight = Self::concat_qkv(q_weight, k_weight, v_weight);
+                let in_proj_ba = source.get_tensor_auto(&format!("{hf_prefix}.self_attn.in_proj_ba.weight"))?;
+                let ba_split = num_value_heads * hidden_dim;
+                let b = in_proj_ba[..ba_split].to_vec();
+                let a = in_proj_ba[ba_split..].to_vec();
 
-        // in_proj_ba: [num_v_heads + num_v_heads, hidden_dim] = [2*num_v_heads, hidden_dim]
-        let in_proj_ba = source
-            .get_tensor_auto(&format!("{hf_prefix}.self_attn.in_proj_ba.weight"))?;
+                (qkv, z, b, a, "self_attn")
+            } else {
+                // Convention 2: separate projections (Qwen3.5-35B-A3B)
+                let in_proj_qkv = source.get_tensor_auto(&separate_qkv_name)?;
+                // in_proj_qkv: [Q(key_dim) + K(key_dim) + V(value_dim), hidden_dim]
+                let qkv_out_dim = 2 * key_dim + value_dim;
+                let expected_qkv = qkv_out_dim * hidden_dim;
+                if in_proj_qkv.len() != expected_qkv {
+                    return Err(RealizarError::FormatError {
+                        reason: format!(
+                            "ALB-010: in_proj_qkv size mismatch at layer {layer_idx}: \
+                             expected {expected_qkv}, got {}",
+                            in_proj_qkv.len()
+                        ),
+                    });
+                }
+                let qkv = in_proj_qkv;
+                let z = source.get_tensor_auto(&format!("{hf_prefix}.linear_attn.in_proj_z.weight"))?;
+                let b = source.get_tensor_auto(&format!("{hf_prefix}.linear_attn.in_proj_b.weight"))?;
+                let a = source.get_tensor_auto(&format!("{hf_prefix}.linear_attn.in_proj_a.weight"))?;
 
-        let ba_split = num_value_heads * hidden_dim;
-        let b_weight = in_proj_ba[..ba_split].to_vec();
-        let a_weight = in_proj_ba[ba_split..].to_vec();
+                (qkv, z, b, a, "linear_attn")
+            };
 
         // out_proj: [hidden_dim, value_dim] — GDN uses out_proj, not o_proj
         let out_proj_raw = source
-            .get_tensor_auto(&format!("{hf_prefix}.self_attn.out_proj.weight"))?;
+            .get_tensor_auto(&format!("{hf_prefix}.{attn_sub}.out_proj.weight"))?;
         let attn_output_weight = Self::transpose_weight(&out_proj_raw, hidden_dim, value_dim);
 
         // Conv1D weight: HF stores as [conv_dim, 1, kernel_size], squeeze middle dim
-        let conv1d_raw = source
-            .get_tensor_auto(&format!("{hf_prefix}.self_attn.conv1d.weight"))?;
-        // Already flattened to [conv_dim * kernel_size] by get_tensor_auto
-        let conv1d_weight = conv1d_raw;
+        let conv1d_weight = source
+            .get_tensor_auto(&format!("{hf_prefix}.{attn_sub}.conv1d.weight"))?;
 
         // A_log: [num_v_heads] — parameter, no .weight suffix
         let a_log = source
-            .get_tensor_auto(&format!("{hf_prefix}.self_attn.A_log"))?;
+            .get_tensor_auto(&format!("{hf_prefix}.{attn_sub}.A_log"))?;
 
         // dt_bias: [num_v_heads] — parameter, no .weight suffix
         let dt_bias = source
-            .get_tensor_auto(&format!("{hf_prefix}.self_attn.dt_bias"))?;
+            .get_tensor_auto(&format!("{hf_prefix}.{attn_sub}.dt_bias"))?;
 
         // Gated RMSNorm weight
         let norm_weight = source
-            .get_tensor_auto(&format!("{hf_prefix}.self_attn.norm.weight"))?;
+            .get_tensor_auto(&format!("{hf_prefix}.{attn_sub}.norm.weight"))?;
 
-        // --- FFN weights (same as standard layers: SwiGLU MLP) ---
+        // --- FFN weights: MoE layers may not have dense FFN ---
         let ffn_norm_weight = Self::get_tensor_with_fallback_generic(
             source,
             &format!("{hf_prefix}.post_attention_layernorm.weight"),
             &format!("blk.{layer_idx}.ffn_norm.weight"),
         )?;
 
-        let ffn_gate_raw = Self::get_tensor_with_fallback_generic(
-            source,
-            &format!("{hf_prefix}.mlp.gate_proj.weight"),
-            &format!("blk.{layer_idx}.ffn_gate.weight"),
-        )?;
-        let ffn_gate_weight = Self::transpose_weight(&ffn_gate_raw, intermediate_dim, hidden_dim);
+        let has_dense_ffn = source.has_tensor(&format!("{hf_prefix}.mlp.gate_proj.weight"))
+            || source.has_tensor(&format!("blk.{layer_idx}.ffn_gate.weight"));
 
-        let ffn_up_raw = Self::get_tensor_with_fallback_generic(
-            source,
-            &format!("{hf_prefix}.mlp.up_proj.weight"),
-            &format!("blk.{layer_idx}.ffn_up.weight"),
-        )?;
-        let ffn_up_weight = Self::transpose_weight(&ffn_up_raw, intermediate_dim, hidden_dim);
-
-        let ffn_down_raw = Self::get_tensor_with_fallback_generic(
-            source,
-            &format!("{hf_prefix}.mlp.down_proj.weight"),
-            &format!("blk.{layer_idx}.ffn_down.weight"),
-        )?;
-        let ffn_down_weight = Self::transpose_weight(&ffn_down_raw, hidden_dim, intermediate_dim);
+        let (ffn_gate_weight, ffn_up_weight, ffn_down_weight) = if has_dense_ffn {
+            let gate_raw = Self::get_tensor_with_fallback_generic(
+                source,
+                &format!("{hf_prefix}.mlp.gate_proj.weight"),
+                &format!("blk.{layer_idx}.ffn_gate.weight"),
+            )?;
+            let up_raw = Self::get_tensor_with_fallback_generic(
+                source,
+                &format!("{hf_prefix}.mlp.up_proj.weight"),
+                &format!("blk.{layer_idx}.ffn_up.weight"),
+            )?;
+            let down_raw = Self::get_tensor_with_fallback_generic(
+                source,
+                &format!("{hf_prefix}.mlp.down_proj.weight"),
+                &format!("blk.{layer_idx}.ffn_down.weight"),
+            )?;
+            (
+                Some(Self::transpose_weight(&gate_raw, intermediate_dim, hidden_dim)),
+                Self::transpose_weight(&up_raw, intermediate_dim, hidden_dim),
+                Self::transpose_weight(&down_raw, hidden_dim, intermediate_dim),
+            )
+        } else {
+            // MoE layer: no dense FFN
+            (None, vec![0.0; intermediate_dim * hidden_dim], vec![0.0; hidden_dim * intermediate_dim])
+        };
 
         Ok(AprTransformerLayer {
             attn_norm_weight,
@@ -503,7 +524,7 @@ impl SafetensorsToAprConverter {
             qkv_bias: None,
             attn_output_weight,
             attn_output_bias: None,
-            ffn_gate_weight: Some(ffn_gate_weight),
+            ffn_gate_weight,
             ffn_gate_bias: None,
             ffn_up_weight,
             ffn_up_bias: None,
