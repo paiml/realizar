@@ -70,6 +70,7 @@ impl CudaKernels {
             KernelType::TrueDp4aQ4KGemv { .. } => "true_dp4a_q4k_gemv",
             KernelType::BatchedQ4KGemv { .. }
             | KernelType::MultiWarpBatchedQ4KGemv { .. } => "batched_q4k_gemv_warp_reduce",
+            KernelType::Q4KDequant { .. } => "q4k_dequant_to_f32",
             _ => return None,
         };
         Some(name)

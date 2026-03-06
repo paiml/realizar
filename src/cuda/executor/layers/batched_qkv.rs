@@ -1,7 +1,7 @@
 impl CudaExecutor {
     /// Batched QKV projection dispatch: Q4K → batched kernel, others → sequential fallback.
     #[allow(clippy::too_many_arguments)]
-    fn batched_gemv_with_fallback(
+    pub(crate) fn batched_gemv_with_fallback(
         &mut self,
         qtype: WeightQuantType,
         weight_ptr: u64,
@@ -76,18 +76,20 @@ impl CudaExecutor {
             epsilon,
         )?;
 
-        // ========== 2. Q/K/V Projections (BATCHED GEMV) ==========
-        self.batched_gemv_with_fallback(
+        // ========== 2. Q/K/V Projections (BATCHED GEMV or cuBLAS GEMM) ==========
+        // PMAT-024: During prefill (M > threshold), use cuBLAS GEMM for Q4K weights.
+        // This reads weights once instead of M/8 times, closing the 86x prefill gap.
+        self.batched_gemv_or_gemm(
             layer_weights.attn_q_qtype, layer_weights.attn_q_ptr,
             hidden_buf1, q_buf, hidden_buf1_ptr, q_buf_ptr,
             m, q_dim, hidden_dim,
         )?;
-        self.batched_gemv_with_fallback(
+        self.batched_gemv_or_gemm(
             layer_weights.attn_k_qtype, layer_weights.attn_k_ptr,
             hidden_buf1, k_buf, hidden_buf1_ptr, k_buf_ptr,
             m, kv_dim, hidden_dim,
         )?;
-        self.batched_gemv_with_fallback(
+        self.batched_gemv_or_gemm(
             layer_weights.attn_v_qtype, layer_weights.attn_v_ptr,
             hidden_buf1, v_buf, hidden_buf1_ptr, v_buf_ptr,
             m, kv_dim, hidden_dim,

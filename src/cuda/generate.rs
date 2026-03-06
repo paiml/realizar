@@ -82,6 +82,7 @@ impl CudaKernels {
             KernelType::MultiWarpBatchedQ4KGemv { k, n, warps } => {
                 BatchedQ4KGemvKernel::new(*k, *n, *warps * 8).emit_ptx()
             },
+            KernelType::Q4KDequant { k, n } => Q4KDequantKernel::new(*k, *n).emit_ptx(),
             _ => return None,
         };
         Some(ptx)
