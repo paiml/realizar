@@ -495,7 +495,7 @@ impl CudaExecutor {
         vocab_size: u32,
         num_warps: u32,
     ) -> Result<(), GpuError> {
-        if std::env::var("DP4A_Q6K").is_err() {
+        if self.gpu_profile.q6k != crate::cuda::gpu_profile::Q6kVariant::Dp4a {
             return Ok(());
         }
         // Q8 quantize for GEMV input dimensions

@@ -26,20 +26,19 @@ impl CudaExecutor {
                 "null weight pointer in q6k_gemv_indexed_async".to_string(),
             ));
         }
-        // DP4A Q6K: vectorized dp4a.u32.s32 (highest priority, enable with DP4A_Q6K=1)
-        let use_dp4a_q6k = std::env::var("DP4A_Q6K").is_ok() && k.is_multiple_of(256);
-        // GH-118: MWV Q6K kernel opt-in via MWV_Q6K=1 env var
-        let use_mwv = std::env::var("MWV_Q6K").is_ok() && k.is_multiple_of(256);
-        let num_warps = crate::cuda::kernels::mwv_warp_count();
+        use crate::cuda::gpu_profile::Q6kVariant;
+        let num_warps = self.gpu_profile.mwv_warps;
 
-        // DP4A Q6K allocating path: pre-quantize + launch (same as q6k_gemv_into dispatch)
-        if use_dp4a_q6k {
+        // Dispatch Q6K variant from GpuProfile (auto-detected or env var override)
+        let can_use_advanced = k.is_multiple_of(256);
+
+        if can_use_advanced && self.gpu_profile.q6k == Q6kVariant::Dp4a {
             let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
             self.dp4a_q6k_gemv_into(weight_ptr, input, &buf_output, n, k)?;
             return Ok(buf_output);
         }
 
-        let (kernel_type, cache_key, config) = if use_mwv {
+        let (kernel_type, cache_key, config) = if can_use_advanced && self.gpu_profile.q6k == Q6kVariant::Mwv {
             let kt = KernelType::MwvQ6KGemv { k, n, num_warps };
             let ck = format!("mwv_q6k_gemv_{}_{}_{}", k, n, num_warps);
             let cfg = LaunchConfig::grid_2d(n, 1, num_warps * 32, 1);
@@ -93,8 +92,9 @@ impl CudaExecutor {
 
     /// PAR-044: Execute Q4_K GEMV into existing buffer (zero-allocation, async)
     ///
-    /// Dispatches to optimal kernel variant based on env vars.
-    /// Default: MWV (multi-warp vectorized). See PAR-082 for empirical results.
+    /// Dispatches to optimal kernel variant from auto-detected GpuProfile.
+    /// Default: HwDp4a on sm_75+ (Turing/Ampere/Ada/Hopper), Mwv otherwise.
+    /// Override with env vars (HW_DP4A_Q4K, DP4A_Q4K, etc.) for experimentation.
     #[inline]
     pub fn q4k_gemv_into(
         &mut self,
@@ -104,11 +104,12 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        match Self::q4k_variant() {
+        use crate::cuda::gpu_profile::Q4kVariant;
+        match self.gpu_profile.q4k {
             Q4kVariant::Legacy => self.q4k_gemv_into_legacy(weight_ptr, input, output, n, k),
             Q4kVariant::Wide => self.wide_q4k_gemv_into(weight_ptr, input, output, n, k),
             Q4kVariant::Vectorized => self.vectorized_q4k_gemv_into(weight_ptr, input, output, n, k),
-            Q4kVariant::Dp4a => self.mwv_dp4a_q4k_gemv_into(weight_ptr, input, output, n, k),
+            Q4kVariant::MwvDp4a => self.mwv_dp4a_q4k_gemv_into(weight_ptr, input, output, n, k),
             Q4kVariant::HwDp4a => self.hw_dp4a_q4k_gemv_into(weight_ptr, input, output, n, k),
             Q4kVariant::Mwv => self.mwv_q4k_gemv_into(weight_ptr, input, output, n, k),
         }
@@ -391,26 +392,4 @@ impl CudaExecutor {
         Ok(())
     }
 
-    /// Select Q4K kernel variant from env vars (cached after first call)
-    fn q4k_variant() -> Q4kVariant {
-        static VARIANT: std::sync::OnceLock<Q4kVariant> = std::sync::OnceLock::new();
-        *VARIANT.get_or_init(|| {
-            if std::env::var("WIDE_Q4K_DISABLE").is_ok() { return Q4kVariant::Legacy; }
-            if std::env::var("WIDE_Q4K").is_ok() { return Q4kVariant::Wide; }
-            if std::env::var("VECTORIZED_Q4K").is_ok() { return Q4kVariant::Vectorized; }
-            if std::env::var("HW_DP4A_Q4K").is_ok() { return Q4kVariant::HwDp4a; }
-            if std::env::var("DP4A_Q4K").is_ok() { return Q4kVariant::Dp4a; }
-            Q4kVariant::Mwv
-        })
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Q4kVariant {
-    Legacy,
-    Wide,
-    Vectorized,
-    Dp4a,
-    HwDp4a,
-    Mwv,
 }

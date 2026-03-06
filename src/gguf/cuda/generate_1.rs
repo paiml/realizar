@@ -78,11 +78,11 @@ impl OwnedQuantizedModelCuda {
 
         let mut tokens = prompt.to_vec();
 
-        // Serial prefill is the default path. Set BATCHED_PREFILL=1 to opt-in
-        // to batched prefill for profiling.
+        // Batched prefill is the default (9x TTFT improvement, PMAT-023).
+        // Set BATCHED_PREFILL=0 for serial fallback.
         let use_batched_prefill = std::env::var("BATCHED_PREFILL")
-            .map(|v| v == "1")
-            .unwrap_or(false);
+            .map(|v| v != "0")
+            .unwrap_or(true);
         let prefill_count = prompt.len() - 1;
         if prefill_count > 0 && !use_batched_prefill {
             // Serial prefill: process tokens one at a time (correct output)

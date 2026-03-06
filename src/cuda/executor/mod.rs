@@ -207,6 +207,7 @@ use trueno_gpu::kernels::{
 };
 use trueno_gpu::GpuError;
 
+use crate::cuda::gpu_profile::GpuProfile;
 use crate::cuda::kernels::{CudaKernels, KernelType};
 use crate::cuda::memory::{
     GpuMemoryPool, PinnedHostBuffer, PoolStats, StagingBufferPool, StagingPoolStats,
@@ -489,6 +490,8 @@ pub struct CudaExecutor {
     // PAR-073: BrickProfiler for real per-brick timing
     // Uses std::time::Instant + CUDA sync for accurate GPU timing
     profiler: trueno::BrickProfiler,
+    // Auto-detected GPU kernel configuration (replaces env var tuning)
+    gpu_profile: GpuProfile,
     // CUDA context — declared last so all GPU resources above drop first
     // (they need the context alive for cuMemFree etc.).
     //

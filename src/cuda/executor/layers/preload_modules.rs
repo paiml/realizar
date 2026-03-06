@@ -26,7 +26,7 @@ impl CudaExecutor {
         let max_len = self.kv_cache_max_len as u32;
         let q_dim = num_heads * head_dim;
         let kv_dim = num_kv_heads * head_dim;
-        let nw = crate::cuda::kernels::mwv_warp_count();
+        let nw = self.gpu_profile.mwv_warps;
 
         // 1. RMSNorm kernel (used for attn_norm, ffn_norm, output_norm)
         self.preload_rmsnorm_module(hidden_dim)?;

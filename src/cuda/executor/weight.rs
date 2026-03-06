@@ -87,14 +87,12 @@ impl CudaExecutor {
         k: u32,
     ) -> Result<(), GpuError> {
         validate_device_ptr(weight_ptr, "q6k_gemv_into")?;
-        // DP4A Q6K: vectorized dp4a.u32.s32 with Q8_1 activations
-        // Enable with DP4A_Q6K=1 env var. Requires k multiple of 256.
-        if std::env::var("DP4A_Q6K").is_ok() && k.is_multiple_of(256) {
+        use crate::cuda::gpu_profile::Q6kVariant;
+        let can_use_advanced = k.is_multiple_of(256);
+        if can_use_advanced && self.gpu_profile.q6k == Q6kVariant::Dp4a {
             return self.dp4a_q6k_gemv_into(weight_ptr, input, output, n, k);
         }
-        // GH-118: MWV Q6K kernel opt-in via MWV_Q6K=1 env var
-        // Design by Contract: k must be multiple of 256 for Q6K super-blocks
-        if std::env::var("MWV_Q6K").is_ok() && k.is_multiple_of(256) {
+        if can_use_advanced && self.gpu_profile.q6k == Q6kVariant::Mwv {
             return self.mwv_q6k_gemv_into(weight_ptr, input, output, n, k);
         }
         // Original Q6K kernel (CoalescedQ6K disabled due to CORRECTNESS-006)
@@ -147,7 +145,7 @@ impl CudaExecutor {
     /// - Postcondition: output[i] == Q6KGemvKernel output[i] for all i (parity)
     /// - Invariant: PARITY-114 barrier safety verified at PTX generation time
     ///
-    /// Enable with `MWV_Q6K=1` env var. Uses MWV_WARPS for warp count (default: 3).
+    /// Auto-selected by GpuProfile on sm < 7.5 (no DP4A). Uses gpu_profile.mwv_warps.
     #[inline]
     pub fn mwv_q6k_gemv_into(
         &mut self,
@@ -162,7 +160,7 @@ impl CudaExecutor {
             k.is_multiple_of(256),
             "K must be multiple of 256 for Q6K super-blocks"
         );
-        let num_warps = crate::cuda::kernels::mwv_warp_count();
+        let num_warps = self.gpu_profile.mwv_warps;
         let kernel_type = KernelType::MwvQ6KGemv { k, n, num_warps };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("mwv_q6k_gemv_{}_{}_{}", k, n, num_warps);
@@ -244,7 +242,7 @@ impl CudaExecutor {
         self.q8_quantize_into(input, &q8_buf, k)?;
 
         // Step 2: Launch DP4A Q6K GEMV kernel
-        let num_warps = crate::cuda::kernels::mwv_warp_count();
+        let num_warps = self.gpu_profile.mwv_warps;
         let kernel_type = KernelType::Dp4aQ6KGemv { k, n, num_warps };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("dp4a_q6k_gemv_{}_{}_{}", k, n, num_warps);

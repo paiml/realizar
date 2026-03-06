@@ -126,6 +126,8 @@ impl CudaExecutor {
             // PAR-073: BrickProfiler (disabled by default for zero overhead)
             // Enable with executor.enable_profiling() for per-brick timing
             profiler: trueno::BrickProfiler::new(),
+            // Auto-detect kernel variants from GPU hardware (replaces env var tuning)
+            gpu_profile: GpuProfile::detect(&context),
             context: std::mem::ManuallyDrop::new(context), // Last field — ManuallyDrop skips cuDevicePrimaryCtxRelease - dropped last
         })
     }

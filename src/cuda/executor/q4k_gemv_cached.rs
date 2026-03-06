@@ -267,9 +267,8 @@ impl CudaExecutor {
             })?
             .as_ptr();
 
-        // GH-118: MWV Q6K kernel opt-in via MWV_Q6K=1 env var
-        let use_mwv = std::env::var("MWV_Q6K").is_ok() && k.is_multiple_of(256);
-        let num_warps = crate::cuda::kernels::mwv_warp_count();
+        let use_mwv = self.gpu_profile.q6k != crate::cuda::gpu_profile::Q6kVariant::Legacy && k.is_multiple_of(256);
+        let num_warps = self.gpu_profile.mwv_warps;
 
         let (kernel_type, cache_key, config) = if use_mwv {
             let kt = KernelType::MwvQ6KGemv { k, n, num_warps };
@@ -355,7 +354,7 @@ impl CudaExecutor {
         let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
 
         // PAR-082-V2: Use MwvQ4KGemv with configurable warp count
-        let num_warps = crate::cuda::kernels::mwv_warp_count();
+        let num_warps = self.gpu_profile.mwv_warps;
         let kernel_type = KernelType::MwvQ4KGemv { k, n, num_warps };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
         let cache_key = format!("mwv_q4k_gemv_{}_{}_{}", k, n, num_warps);
