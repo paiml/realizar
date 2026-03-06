@@ -157,6 +157,90 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// GH-176: Half-warp DP4A Q4_K GEMV (16 threads/SB, 1.77x fewer thread-insn)
+    ///
+    /// Same two-step pipeline as MWV DP4A but uses half-warp kernel:
+    /// 1. Quantize f32 activations → Q8_1 format
+    /// 2. Half-warp DP4A dot product: Q4K × Q8_1 → f32
+    ///
+    /// Enable with `HW_DP4A_Q4K=1` env var.
+    pub fn hw_dp4a_q4k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "hw_dp4a_q4k_gemv_into")?;
+
+        let q8_ptr = self
+            .workspace
+            .q8_activation_buf
+            .as_ref()
+            .expect("hw_dp4a: workspace.q8_activation_buf not initialized")
+            .as_ptr();
+        let q8_len = self
+            .workspace
+            .q8_activation_buf
+            .as_ref()
+            .expect("q8_activation_buf must be initialized")
+            .len();
+
+        // SAFETY: q8_activation_buf is pre-allocated in init_workspace and valid for this scope
+        let q8_buf = unsafe { GpuBuffer::<u8>::from_raw_parts(q8_ptr, q8_len) };
+
+        // Step 1: Quantize activations to Q8_1
+        self.q8_quantize_into(input, &q8_buf, k)?;
+
+        // Step 2: Launch half-warp DP4A GEMV kernel
+        let num_warps = crate::cuda::kernels::mwv_warp_count();
+        let kernel_type = KernelType::HwDp4aQ4KGemv { k, n, num_warps };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("hw_dp4a_q4k_gemv_{}_{}_{}", k, n, num_warps);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let threads = num_warps * 32;
+        let grid_x = n.min(256);
+        let config = LaunchConfig::grid_2d(grid_x, 1, threads, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_q8 = q8_buf.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        // SAFETY: All device pointers are allocated by CudaExecutor and valid.
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_q8) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        std::mem::forget(q8_buf);
+
+        Ok(())
+    }
+
     /// PAR-063: Execute DP4A Q4_K GEMV into existing buffer
     ///
     /// Uses DP4A SIMD instruction for 4x instruction reduction.

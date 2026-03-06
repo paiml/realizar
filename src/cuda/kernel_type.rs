@@ -161,6 +161,12 @@ pub enum KernelType {
         n: u32,
         num_warps: u32,
     },
+    /// GH-176: Half-warp DP4A Q4_K GEMV (16 threads/SB, 1.77x fewer thread-insn)
+    HwDp4aQ4KGemv {
+        k: u32,
+        n: u32,
+        num_warps: u32,
+    },
     /// PAR-063: DP4A-based Q4_K GEMV with 4x instruction reduction
     Dp4aQ4KGemv {
         k: u32,
