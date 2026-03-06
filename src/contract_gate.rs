@@ -213,19 +213,20 @@ pub fn gate_error(e: ModelLoadError) -> RealizarError {
 // Individual Gates
 // ============================================================================
 
+/// Return a dimension_plausibility error if a required field is zero.
+fn require_nonzero(field_name: &str, value: usize) -> std::result::Result<(), ModelLoadError> {
+    if value == 0 {
+        return Err(ModelLoadError {
+            gate: "dimension_plausibility",
+            reason: format!("{field_name} is 0"),
+        });
+    }
+    Ok(())
+}
+
 fn validate_dimensions(config: &ModelLoadConfig) -> std::result::Result<(), ModelLoadError> {
-    if config.hidden_dim == 0 {
-        return Err(ModelLoadError {
-            gate: "dimension_plausibility",
-            reason: "hidden_dim is 0".to_string(),
-        });
-    }
-    if config.num_heads == 0 {
-        return Err(ModelLoadError {
-            gate: "dimension_plausibility",
-            reason: "num_heads is 0".to_string(),
-        });
-    }
+    require_nonzero("hidden_dim", config.hidden_dim)?;
+    require_nonzero("num_heads", config.num_heads)?;
     if !config.hidden_dim.is_multiple_of(config.num_heads) {
         return Err(ModelLoadError {
             gate: "dimension_plausibility",
@@ -235,18 +236,8 @@ fn validate_dimensions(config: &ModelLoadConfig) -> std::result::Result<(), Mode
             ),
         });
     }
-    if config.vocab_size == 0 {
-        return Err(ModelLoadError {
-            gate: "dimension_plausibility",
-            reason: "vocab_size is 0".to_string(),
-        });
-    }
-    if config.num_kv_heads == 0 {
-        return Err(ModelLoadError {
-            gate: "dimension_plausibility",
-            reason: "num_kv_heads is 0".to_string(),
-        });
-    }
+    require_nonzero("vocab_size", config.vocab_size)?;
+    require_nonzero("num_kv_heads", config.num_kv_heads)?;
     if config.num_kv_heads > config.num_heads {
         return Err(ModelLoadError {
             gate: "dimension_plausibility",
@@ -256,18 +247,8 @@ fn validate_dimensions(config: &ModelLoadConfig) -> std::result::Result<(), Mode
             ),
         });
     }
-    if config.intermediate_dim == 0 {
-        return Err(ModelLoadError {
-            gate: "dimension_plausibility",
-            reason: "intermediate_dim is 0".to_string(),
-        });
-    }
-    if config.num_layers == 0 {
-        return Err(ModelLoadError {
-            gate: "dimension_plausibility",
-            reason: "num_layers is 0".to_string(),
-        });
-    }
+    require_nonzero("intermediate_dim", config.intermediate_dim)?;
+    require_nonzero("num_layers", config.num_layers)?;
     Ok(())
 }
 

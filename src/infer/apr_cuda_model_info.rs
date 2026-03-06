@@ -250,6 +250,28 @@ fn try_apr_cuda_inference(
     }))
 }
 
+/// Log APR model info when verbose mode is enabled.
+fn log_apr_model_info(
+    verbose: bool,
+    validated: &crate::apr_transformer::AprTransformer,
+    load_ms: f64,
+) {
+    if verbose {
+        let arch = &validated.config.architecture;
+        let thread_count = rayon::current_num_threads();
+        eprintln!(
+            "Architecture: {} ({} layers, vocab_size={})",
+            arch, validated.config.num_layers, validated.config.vocab_size
+        );
+        eprintln!(
+            "Config: hidden_size={}, context_length={}, quant=F32 (dequantized), threads={}",
+            validated.config.hidden_dim, validated.config.context_length, thread_count
+        );
+        eprintln!("Model loaded in {:.1}ms", load_ms);
+        eprintln!("Backend: CPU (SIMD-accelerated)");
+    }
+}
+
 /// Run APR inference on CPU with KV-cache (PMAT-103)
 fn run_apr_cpu_inference(
     config: &InferenceConfig,
@@ -277,20 +299,7 @@ fn run_apr_cpu_inference(
     };
     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
 
-    if config.verbose {
-        let arch = &validated.config.architecture;
-        let thread_count = rayon::current_num_threads();
-        eprintln!(
-            "Architecture: {} ({} layers, vocab_size={})",
-            arch, validated.config.num_layers, validated.config.vocab_size
-        );
-        eprintln!(
-            "Config: hidden_size={}, context_length={}, quant=F32 (dequantized), threads={}",
-            validated.config.hidden_dim, validated.config.context_length, thread_count
-        );
-        eprintln!("Model loaded in {:.1}ms", load_ms);
-        eprintln!("Backend: CPU (SIMD-accelerated)");
-    }
+    log_apr_model_info(config.verbose, &validated, load_ms);
 
     let infer_start = Instant::now();
     let mut all_tokens = input_tokens.to_vec();
