@@ -270,52 +270,56 @@ pub fn forward_block_single(
     let ffn_fc1_weight = &model.block_weights[block_idx].ffn_fc1_weight;
     let ffn_fc1_bias = &model.block_weights[block_idx].ffn_fc1_bias;
 
-    // FFN: SwiGLU when gate weight exists, otherwise GELU
-    let activated: Vec<f32> = if let Some(ref gate_weight) =
-        model.block_weights[block_idx].ffn_gate_weight
-    {
-        // SwiGLU: silu(gate(x)) * up(x)
-        let up_out = cpu_matmul(&ffn_normed, ffn_fc1_weight, 1, hidden_dim, intermediate_dim);
-        let gate_out = cpu_matmul(&ffn_normed, gate_weight, 1, hidden_dim, intermediate_dim);
-
-        // SwiGLU: silu(gate) * up
-        up_out
+    // FFN: MoE dispatch when experts present, SwiGLU/GELU otherwise
+    let output: Vec<f32> = if let Some(ref moe) = model.block_weights[block_idx].moe_experts {
+        // ALB-010: MoE forward — route to top-k experts + shared expert
+        let moe_out = super::moe_dispatch::moe_forward_token(&ffn_normed, moe, hidden_dim);
+        residual1
             .iter()
-            .zip(gate_out.iter())
-            .map(|(&u, &g)| {
-                let silu_g = g / (1.0 + (-g).exp());
-                silu_g * u
-            })
+            .zip(moe_out.iter())
+            .map(|(&r, &m)| r + m)
             .collect()
     } else {
-        // Standard GELU FFN
-        let fc1_out = cpu_matmul(&ffn_normed, ffn_fc1_weight, 1, hidden_dim, intermediate_dim);
-
-        fc1_out
-            .iter()
-            .enumerate()
-            .map(|(i, &x)| {
-                let x = x + ffn_fc1_bias[i];
-                0.5 * x
-                    * (1.0
-                        + ((2.0f32 / std::f32::consts::PI).sqrt() * (x + 0.044_715 * x.powi(3)))
+        // Dense FFN: SwiGLU when gate weight exists, otherwise GELU
+        let activated: Vec<f32> = if let Some(ref gate_weight) =
+            model.block_weights[block_idx].ffn_gate_weight
+        {
+            let up_out = cpu_matmul(&ffn_normed, ffn_fc1_weight, 1, hidden_dim, intermediate_dim);
+            let gate_out = cpu_matmul(&ffn_normed, gate_weight, 1, hidden_dim, intermediate_dim);
+            up_out
+                .iter()
+                .zip(gate_out.iter())
+                .map(|(&u, &g)| {
+                    let silu_g = g / (1.0 + (-g).exp());
+                    silu_g * u
+                })
+                .collect()
+        } else {
+            let fc1_out = cpu_matmul(&ffn_normed, ffn_fc1_weight, 1, hidden_dim, intermediate_dim);
+            fc1_out
+                .iter()
+                .enumerate()
+                .map(|(i, &x)| {
+                    let x = x + ffn_fc1_bias[i];
+                    0.5 * x
+                        * (1.0
+                            + ((2.0f32 / std::f32::consts::PI).sqrt()
+                                * (x + 0.044_715 * x.powi(3)))
                             .tanh())
-            })
+                })
+                .collect()
+        };
+
+        let ffn_fc2_weight = &model.block_weights[block_idx].ffn_fc2_weight;
+        let ffn_fc2_bias = &model.block_weights[block_idx].ffn_fc2_bias;
+        let fc2_out = cpu_matmul(&activated, ffn_fc2_weight, 1, intermediate_dim, hidden_dim);
+        residual1
+            .iter()
+            .zip(fc2_out.iter())
+            .enumerate()
+            .map(|(i, (&r, &fc))| r + fc + ffn_fc2_bias[i])
             .collect()
     };
-
-    // FFN fc2 (CPU - m=1)
-    let ffn_fc2_weight = &model.block_weights[block_idx].ffn_fc2_weight;
-    let ffn_fc2_bias = &model.block_weights[block_idx].ffn_fc2_bias;
-    let fc2_out = cpu_matmul(&activated, ffn_fc2_weight, 1, intermediate_dim, hidden_dim);
-
-    // Residual 2
-    let output: Vec<f32> = residual1
-        .iter()
-        .zip(fc2_out.iter())
-        .enumerate()
-        .map(|(i, (&r, &fc))| r + fc + ffn_fc2_bias[i])
-        .collect();
 
     Ok(output)
 }

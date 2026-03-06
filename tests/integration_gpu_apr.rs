@@ -258,6 +258,7 @@ fn test_block_weights_creation() {
         ffn_fc2_bias: vec![0.0; hidden_dim],
         ffn_gate_weight: None, // No SwiGLU gate for this test
         linear_attn: None,
+    moe_experts: None,
     };
 
     assert_eq!(block.attn_norm_weight.len(), hidden_dim);
@@ -288,6 +289,9 @@ fn test_gpu_model_config_derived() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     // Test derived dimensions
@@ -315,6 +319,9 @@ fn test_gpu_model_config_mha() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     assert_eq!(config.head_dim(), 64);

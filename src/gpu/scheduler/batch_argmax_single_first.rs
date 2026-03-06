@@ -157,6 +157,9 @@ mod tests {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
         };
 
         // Single position: QKV for seq_len=1
@@ -199,6 +202,9 @@ mod tests {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
         };
 
         // Two positions: position 1 attends to both 0 and 1
@@ -239,6 +245,9 @@ mod tests {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
         };
 
         // Single position with 2 heads (head_dim = 2)
@@ -273,6 +282,9 @@ mod tests {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
         };
 
         // kv_dim = head_dim * num_kv_heads = (4096/32) * 8 = 128 * 8 = 1024
@@ -298,6 +310,9 @@ mod tests {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
         };
 
         // qkv_dim = hidden_dim + 2 * kv_dim = 4096 + 2 * 1024 = 6144
@@ -323,6 +338,9 @@ mod tests {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
         };
 
         // head_dim = hidden_dim / num_heads = 4096 / 32 = 128
@@ -348,6 +366,9 @@ mod tests {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
         };
 
         // heads_per_kv = num_heads / num_kv_heads = 32 / 4 = 8
@@ -375,6 +396,9 @@ mod tests {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
         };
 
         let heads_per_kv = config.num_heads / config.num_kv_heads;

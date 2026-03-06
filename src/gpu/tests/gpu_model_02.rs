@@ -442,6 +442,7 @@ fn test_block_weights_structure() {
         ffn_fc2_bias: vec![0.0; hidden_dim],
         ffn_gate_weight: None,
         linear_attn: None,
+    moe_experts: None,
     };
 
     assert_eq!(block.attn_norm_weight.len(), hidden_dim);

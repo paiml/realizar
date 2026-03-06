@@ -476,6 +476,12 @@ pub struct CudaExecutor {
     // One scale per 32 consecutive values (matches Q8_0 block size)
     kv_cache_q8_k_scales: HashMap<String, GpuBuffer<f32>>,
     kv_cache_q8_v_scales: HashMap<String, GpuBuffer<f32>>,
+    // PMAT-024: cuBLAS handle for prefill GEMM (dequant Q4K → dense → cuBLAS)
+    cublas_handle: Option<trueno_gpu::driver::CublasHandle>,
+    // PMAT-024: Scratch buffer for dequantized Q4K weights (reused across GEMM calls)
+    // Size: largest weight matrix N×K × 4 bytes (FP32)
+    dequant_scratch: Option<GpuBuffer<f32>>,
+    dequant_scratch_size: usize,
     // QWEN-010: Optimal tile size for GEMM operations
     // RTX 4090 (sm_89, 72MB L2): 64x64 tiles for better L2 utilization
     // Other GPUs (sm_80 and earlier): 32x32 tiles (default)

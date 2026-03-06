@@ -454,4 +454,14 @@ pub enum KernelType {
     Q8Dequant {
         n: u32,
     },
+    /// PMAT-024: Q4K dequantization kernel for cuBLAS GEMM prefill
+    Q4KDequant {
+        k: u32,
+        n: u32,
+    },
+    /// PMAT-026: Q6K dequantization kernel for cuBLAS GEMM prefill
+    Q6KDequant {
+        k: u32,
+        n: u32,
+    },
 }

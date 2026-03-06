@@ -48,6 +48,9 @@ pub(super) fn load_weights_from_gguf(mapped: &crate::gguf::MappedGGUFModel) -> R
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: Some(gguf_config.constraints),
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let data = mapped.data();
@@ -173,6 +176,7 @@ fn load_block_weights(
             ffn_gate_weight,
             // GH-278: No linear attention in GGUF loader
             linear_attn: None,
+            moe_experts: None,
         });
     }
 

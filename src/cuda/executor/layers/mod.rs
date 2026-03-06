@@ -4,6 +4,7 @@
 //! performance through #[inline(always)] on critical paths.
 
 mod batched;
+mod cublas_prefill;
 mod ffn;
 mod forward;
 mod graphed;

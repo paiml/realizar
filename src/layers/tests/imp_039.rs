@@ -24,6 +24,9 @@ fn test_imp_039_fused_attn_proj() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut model = GpuModel::with_attention_buffers(config.clone(), 256)
@@ -105,6 +108,9 @@ fn test_imp_040_contiguous_attention() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let max_seq_len = 256;
@@ -254,6 +260,9 @@ fn test_imp_042_fused_output_residual() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut model = GpuModel::with_attention_buffers(config.clone(), 256)
@@ -349,6 +358,9 @@ fn test_imp_043_batch_embedding() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     // Create embedding table

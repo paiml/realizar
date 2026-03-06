@@ -37,6 +37,9 @@ fn create_kv_test_config() -> GpuModelConfig {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     }
 }
 
@@ -58,6 +61,9 @@ fn create_kv_gqa_config() -> GpuModelConfig {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     }
 }
 
@@ -79,6 +85,9 @@ fn create_kv_single_layer_config() -> GpuModelConfig {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     }
 }
 
@@ -100,6 +109,9 @@ fn create_kv_deep_config() -> GpuModelConfig {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     }
 }
 

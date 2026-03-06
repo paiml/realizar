@@ -49,6 +49,14 @@ pub struct BlockWeights {
     ///
     /// Contract: `linear_attn.is_some()` ⟺ `config.is_linear_layer(block_idx)`
     pub linear_attn: Option<LinearAttnWeights>,
+    /// ALB-010: MoE expert weights for Mixture-of-Experts layers (Qwen3.5-35B-A3B)
+    ///
+    /// When `Some`, this block uses MoE dispatch instead of dense FFN.
+    /// The router selects top-k experts per token, runs SwiGLU on each,
+    /// and combines with weighted sum + shared expert.
+    ///
+    /// Contract: `moe_experts.is_some()` ⟺ `config.num_experts.is_some()`
+    pub moe_experts: Option<MoeExpertWeights>,
 }
 
 // =============================================================================
@@ -91,6 +99,46 @@ pub struct LinearAttnWeights {
     /// Gated RMSNorm weight: [head_v_dim]
     /// Applied as: RMSNorm(output) * SiLU(z)
     pub norm_weight: Vec<f32>,
+}
+
+// =============================================================================
+// ALB-010: MoE Expert Types (Qwen3.5-35B-A3B)
+// =============================================================================
+
+/// Weights for Mixture-of-Experts dispatch (ALB-010)
+///
+/// Implements the MoE forward pass for Qwen3.5-35B-A3B:
+/// 1. Router: `hidden_states @ gate_weight.T` → softmax → top-k → renormalize
+/// 2. Per expert: `down(SiLU(gate(x)) * up(x))` (SwiGLU)
+/// 3. Weighted sum of routed expert outputs + shared expert output
+///
+/// Contract: `moe-router-v1.yaml`, `moe-expert-dispatch-v1.yaml`
+#[derive(Debug, Clone)]
+pub struct MoeExpertWeights {
+    /// Router gate weight: [num_experts, hidden_dim]
+    /// Projects hidden states to expert scores for softmax routing.
+    pub gate_weight: Vec<f32>,
+    /// Fused gate+up projection for all routed experts: [num_experts, 2*intermediate, hidden_dim]
+    /// Unfuse per expert: gate = [0:intermediate, :], up = [intermediate:2*intermediate, :]
+    pub expert_gate_up: Vec<f32>,
+    /// Down projection for all routed experts: [num_experts, hidden_dim, intermediate]
+    pub expert_down: Vec<f32>,
+    /// Shared expert gate projection: [intermediate, hidden_dim]
+    /// Always-active expert (not gated by router).
+    pub shared_gate: Vec<f32>,
+    /// Shared expert up projection: [intermediate, hidden_dim]
+    pub shared_up: Vec<f32>,
+    /// Shared expert down projection: [hidden_dim, intermediate]
+    pub shared_down: Vec<f32>,
+    /// Shared expert gate: [1, hidden_dim] linear that scales shared expert output.
+    /// Qwen3.5 applies sigmoid(gate(x)) * shared_expert(x). Empty = no gating.
+    pub shared_expert_gate_weight: Vec<f32>,
+    /// Number of experts (e.g., 256 for Qwen3.5-35B-A3B)
+    pub num_experts: usize,
+    /// Number of experts selected per token (e.g., 8)
+    pub num_experts_per_tok: usize,
+    /// Expert FFN intermediate dimension (e.g., 512)
+    pub expert_intermediate: usize,
 }
 
 // =============================================================================
@@ -193,6 +241,15 @@ pub struct GpuModelConfig {
     pub linear_conv_kernel_dim: Option<usize>,
     /// GH-279: Architecture constraints for weight validation
     pub constraints: Option<crate::gguf::ArchConstraints>,
+    /// ALB-010: Number of MoE experts per layer (None = dense FFN)
+    /// Qwen3.5-35B-A3B: 256 experts
+    pub num_experts: Option<usize>,
+    /// ALB-010: Number of experts selected per token
+    /// Qwen3.5-35B-A3B: 8 (top-8 routing)
+    pub num_experts_per_tok: Option<usize>,
+    /// ALB-010: Expert FFN intermediate dimension
+    /// Qwen3.5-35B-A3B: 512 (vs 2048 for dense intermediate_dim)
+    pub expert_intermediate_size: Option<usize>,
 }
 
 impl GpuModelConfig {
@@ -250,6 +307,12 @@ impl GpuModelConfig {
     #[inline]
     pub fn linear_conv_dim(&self) -> usize {
         2 * self.linear_key_dim() + self.linear_value_dim()
+    }
+
+    /// ALB-010: Whether this model uses Mixture-of-Experts
+    #[inline]
+    pub fn is_moe(&self) -> bool {
+        self.num_experts.is_some_and(|n| n > 1)
     }
 }
 

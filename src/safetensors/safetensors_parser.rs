@@ -401,6 +401,14 @@ pub struct SafetensorsConfig {
     pub linear_num_key_heads: Option<usize>,
     /// GH-278: Number of value heads for linear attention (Qwen3.5 default: 32)
     pub linear_num_value_heads: Option<usize>,
+    /// ALB-010: Number of MoE experts (Qwen3.5-35B-A3B: 256)
+    pub num_experts: Option<usize>,
+    /// ALB-010: Number of experts selected per token (Qwen3.5-35B-A3B: 8)
+    pub num_experts_per_tok: Option<usize>,
+    /// ALB-010: MoE expert intermediate/FFN dimension (Qwen3.5-35B-A3B: 512)
+    pub moe_intermediate_size: Option<usize>,
+    /// ALB-010: Shared expert intermediate size (Qwen3.5-35B-A3B: 512)
+    pub shared_expert_intermediate_size: Option<usize>,
 }
 
 impl SafetensorsConfig {

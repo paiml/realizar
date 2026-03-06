@@ -28,6 +28,9 @@ fn test_imp_1001d_gpu_model_with_cuda_backend() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     // Create model
@@ -284,6 +287,9 @@ fn test_imp_1003a_gpu_model_with_cuda_scheduler() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     // Create model with CUDA scheduler
@@ -328,6 +334,9 @@ fn test_imp_1003b_cuda_scheduler_used_for_forward() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");
@@ -371,6 +380,9 @@ fn test_imp_1003c_cuda_scheduler_vs_hybrid_single_token() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     // Create both models
@@ -439,6 +451,9 @@ fn test_imp_1003d_cuda_scheduler_matmul_dispatch() {
             linear_num_value_heads: None,
             linear_conv_kernel_dim: None,
             constraints: None,
+    num_experts: None,
+    num_experts_per_tok: None,
+    expert_intermediate_size: None,
     };
 
     let mut model = GpuModel::new_with_cuda(config).expect("Failed to create CUDA model");

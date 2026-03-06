@@ -169,6 +169,18 @@ fn from_architecture_generated(arch: &str) -> ArchConstraints {
             has_qk_norm: false,
             default_eps: 1e-6,
         },
+        // ALB-010: Qwen3.5-35B-A3B MoE
+        "qwen3_moe" | "qwen3_5_moe" => ArchConstraints {
+            norm_type: NormType::RmsNorm,
+            activation: Activation::Silu,
+            positional_encoding: PositionalEncoding::Rope,
+            mlp_type: MlpType::SwiGlu,
+            weight_layout: WeightLayout::Linear,
+            has_bias: false,
+            tied_embeddings: false,
+            has_qk_norm: false,
+            default_eps: 1e-6,
+        },
         // falcon_h1.yaml
         "falcon_h1" | "falcon-h1" => ArchConstraints {
             norm_type: NormType::RmsNorm,

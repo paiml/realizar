@@ -220,6 +220,7 @@ impl AprF32ToGpuAdapter {
             // SwiGLU gate weight - critical for Qwen/LLaMA models
             ffn_gate_weight: gate_weight_t,
             linear_attn,
+            moe_experts: None,
         }
     }
 
@@ -282,6 +283,9 @@ impl AprToGpuAdapter {
             linear_num_value_heads: apr_config.linear_num_value_heads,
             linear_conv_kernel_dim: apr_config.linear_conv_kernel_dim,
             constraints: None,
+            num_experts: None,
+            num_experts_per_tok: None,
+            expert_intermediate_size: None,
         }
     }
 
@@ -447,6 +451,7 @@ impl AprToGpuAdapter {
                 ffn_gate_weight: gate_weight_t,
                 // GH-278: Q4 linear attention support deferred (SafeTensors F32 path only)
                 linear_attn: None,
+                moe_experts: None,
             });
         }
 
