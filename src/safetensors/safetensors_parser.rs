@@ -405,9 +405,10 @@ pub struct SafetensorsConfig {
     pub num_experts: Option<usize>,
     /// ALB-010: Number of experts selected per token (Qwen3.5-35B-A3B: 8)
     pub num_experts_per_tok: Option<usize>,
-    /// ALB-010: Expert intermediate/FFN dimension (Qwen3.5-35B-A3B: 512)
-    /// Distinct from `intermediate_size` which is the shared expert intermediate dim
-    pub expert_intermediate_size: Option<usize>,
+    /// ALB-010: MoE expert intermediate/FFN dimension (Qwen3.5-35B-A3B: 512)
+    pub moe_intermediate_size: Option<usize>,
+    /// ALB-010: Shared expert intermediate size (Qwen3.5-35B-A3B: 512)
+    pub shared_expert_intermediate_size: Option<usize>,
 }
 
 impl SafetensorsConfig {

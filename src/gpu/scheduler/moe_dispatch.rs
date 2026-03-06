@@ -203,9 +203,22 @@ pub fn moe_forward_token(
         intermediate,
     );
 
-    // Step 4: moe_out = routed_out + shared_out
-    for i in 0..hidden_dim {
-        routed_out[i] += shared_out[i];
+    // Step 4: moe_out = routed_out + gated_shared_out
+    // Qwen3.5: shared_expert_gate is a [1, hidden_dim] linear → sigmoid scalar gate
+    if !moe.shared_expert_gate_weight.is_empty() {
+        let mut gate_logit = 0.0f32;
+        for j in 0..hidden_dim {
+            gate_logit += moe.shared_expert_gate_weight[j] * hidden_state[j];
+        }
+        let gate_scale = 1.0 / (1.0 + (-gate_logit).exp()); // sigmoid
+        for i in 0..hidden_dim {
+            routed_out[i] += gate_scale * shared_out[i];
+        }
+    } else {
+        // No shared expert gate — add directly (dense model or ungated shared expert)
+        for i in 0..hidden_dim {
+            routed_out[i] += shared_out[i];
+        }
     }
 
     routed_out
@@ -289,6 +302,7 @@ mod tests {
             shared_gate: vec![0.0f32; intermediate * hidden_dim], // zero shared
             shared_up: vec![0.0f32; intermediate * hidden_dim],
             shared_down: vec![0.0f32; hidden_dim * intermediate],
+            shared_expert_gate_weight: vec![],
             num_experts,
             num_experts_per_tok: k,
             expert_intermediate: intermediate,
@@ -319,6 +333,7 @@ mod tests {
             shared_gate: vec![0.1f32; intermediate * hidden_dim],
             shared_up: vec![0.1f32; intermediate * hidden_dim],
             shared_down: vec![0.1f32; hidden_dim * intermediate],
+            shared_expert_gate_weight: vec![],
             num_experts,
             num_experts_per_tok: k,
             expert_intermediate: intermediate,
@@ -359,5 +374,44 @@ mod tests {
                 result.weights[i]
             );
         }
+    }
+
+    // FALSIFY-MOE-DISPATCH-005: Shared expert gate scales output via sigmoid
+    #[test]
+    fn test_shared_expert_gate_scales_output() {
+        let hidden_dim = 4;
+        let intermediate = 2;
+        let num_experts = 4;
+        let k = 2;
+
+        // All routed expert weights zero, shared expert non-zero
+        let base_moe = MoeExpertWeights {
+            gate_weight: vec![0.0f32; num_experts * hidden_dim],
+            expert_gate_up: vec![0.0f32; num_experts * 2 * intermediate * hidden_dim],
+            expert_down: vec![0.0f32; num_experts * hidden_dim * intermediate],
+            shared_gate: vec![0.1f32; intermediate * hidden_dim],
+            shared_up: vec![0.1f32; intermediate * hidden_dim],
+            shared_down: vec![0.1f32; hidden_dim * intermediate],
+            shared_expert_gate_weight: vec![], // no gate
+            num_experts,
+            num_experts_per_tok: k,
+            expert_intermediate: intermediate,
+        };
+
+        let x = vec![1.0f32; hidden_dim];
+        let ungated = moe_forward_token(&x, &base_moe, hidden_dim);
+
+        // Now with a large negative gate → sigmoid ≈ 0 → shared expert nearly suppressed
+        let mut gated_moe = base_moe.clone();
+        gated_moe.shared_expert_gate_weight = vec![-10.0f32; hidden_dim];
+        let gated = moe_forward_token(&x, &gated_moe, hidden_dim);
+
+        // Gated output should have much smaller shared component
+        let ungated_norm: f32 = ungated.iter().map(|v| v * v).sum::<f32>().sqrt();
+        let gated_norm: f32 = gated.iter().map(|v| v * v).sum::<f32>().sqrt();
+        assert!(
+            gated_norm < ungated_norm * 0.1,
+            "shared expert gate should suppress output: ungated={ungated_norm}, gated={gated_norm}"
+        );
     }
 }

@@ -130,6 +130,9 @@ pub struct MoeExpertWeights {
     pub shared_up: Vec<f32>,
     /// Shared expert down projection: [hidden_dim, intermediate]
     pub shared_down: Vec<f32>,
+    /// Shared expert gate: [1, hidden_dim] linear that scales shared expert output.
+    /// Qwen3.5 applies sigmoid(gate(x)) * shared_expert(x). Empty = no gating.
+    pub shared_expert_gate_weight: Vec<f32>,
     /// Number of experts (e.g., 256 for Qwen3.5-35B-A3B)
     pub num_experts: usize,
     /// Number of experts selected per token (e.g., 8)
