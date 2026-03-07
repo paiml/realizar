@@ -439,12 +439,11 @@ pub struct CudaExecutor {
     argmax_result: Option<GpuBuffer<u32>>,
     // Number of blocks (based on vocab_size)
     argmax_num_blocks: u32,
-    // PAR-118: Graph capture failure flag — prevents futile retry that crashes CUDA
-    // Root cause: flash_decoding_graphed calls stream.synchronize() which is
-    // forbidden during graph capture (error 901). After first failure, skip capture.
+    // PAR-118: Graph capture failure flag — prevents futile retry that crashes CUDA.
+    // After first failure, skip capture and use eager path.
     graph_capture_failed: bool,
-    // PAR-118: True while inside try_graph_capture — Flash Decoding dispatch is
-    // suppressed (uses multi-warp instead) to avoid forbidden synchronize() calls.
+    // PAR-118: True while inside try_graph_capture — Flash Decoding uses
+    // seq_len_buf (already populated) instead of copy_from_host.
     is_capturing: bool,
     // GH-94: True during batched prefill — Flash Decoding dispatch is suppressed
     // because sequential attention processes tiny seq_lens (1,2,3...) where flash

@@ -145,6 +145,12 @@ impl CudaExecutor {
             hidden_dim, intermediate_dim, num_heads, num_kv_heads, head_dim,
         )?;
 
+        // 12. Flash Decoding chunk + reduce kernels (PAR-118)
+        // Pre-load to avoid PTX compilation during graph capture (error 901).
+        if self.flash_decode_enabled {
+            self.preload_flash_decoding_modules(max_len, head_dim, num_heads, num_kv_heads)?;
+        }
+
         if verbose() {
             eprintln!(
                 "[PAR-054-FIX] Pre-loaded {} kernel modules for {} layers",
@@ -528,6 +534,42 @@ impl CudaExecutor {
             let module = self.compile_ptx(&ptx)?;
             self.modules.insert(dp4a_lm_key, module);
         }
+        Ok(())
+    }
+
+    /// PAR-118: Pre-load Flash Decoding chunk + reduce kernels for graph capture.
+    ///
+    /// Module keys must match those in flash_decoding_graphed.rs exactly.
+    fn preload_flash_decoding_modules(
+        &mut self,
+        max_len: u32,
+        head_dim: u32,
+        num_heads: u32,
+        num_kv_heads: u32,
+    ) -> Result<(), GpuError> {
+        use trueno_gpu::kernels::{FlashDecodingChunkKernel, FlashDecodingReduceKernel, Kernel};
+
+        let chunk_module_key = format!(
+            "flash_decode_chunk_{}_{}_{}_{}",
+            max_len, head_dim, num_heads, num_kv_heads
+        );
+        if !self.modules.contains_key(&chunk_module_key) {
+            let chunk_kernel = FlashDecodingChunkKernel::new(
+                max_len, head_dim, num_heads, num_kv_heads, 1,
+            );
+            let ptx = chunk_kernel.emit_ptx();
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(chunk_module_key, module);
+        }
+
+        let reduce_module_key = format!("flash_decode_reduce_{}_{}", head_dim, num_heads);
+        if !self.modules.contains_key(&reduce_module_key) {
+            let reduce_kernel = FlashDecodingReduceKernel::new(head_dim, num_heads, 1);
+            let ptx = reduce_kernel.emit_ptx();
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(reduce_module_key, module);
+        }
+
         Ok(())
     }
 }
