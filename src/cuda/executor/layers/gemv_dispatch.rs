@@ -1,5 +1,28 @@
 
 impl CudaExecutor {
+    /// PAR-058: Debug helper — sync stream, copy GPU buffer to host, check for NaN.
+    /// Extracted to reduce cyclomatic/cognitive complexity in layer functions.
+    fn debug_check_buf(
+        &mut self,
+        buf: &GpuBuffer<f32>,
+        label: &str,
+        layer_idx: usize,
+    ) -> Result<(), GpuError> {
+        self.stream.synchronize()?;
+        let mut host = vec![0.0f32; buf.len()];
+        buf.copy_to_host(&mut host)?;
+        let nan_count = host.iter().filter(|x| x.is_nan()).count();
+        if nan_count > 0 {
+            eprintln!("[PAR-058-L{}] {} has {} NaN", layer_idx, label, nan_count);
+        } else {
+            eprintln!(
+                "[PAR-058-L{}] {} OK, first 3: {:?}",
+                layer_idx, label, &host[..3.min(host.len())]
+            );
+        }
+        Ok(())
+    }
+
     /// Dispatch a GEMV operation based on weight quantization type.
     ///
     /// PMAT-232 CONTRACT: Exhaustive dispatch — no catch-all.

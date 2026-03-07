@@ -100,8 +100,11 @@ impl CudaExecutor {
         // SAFETY: q8_activation_buf is pre-allocated in init_workspace and valid for this scope
         let q8_buf = unsafe { GpuBuffer::<u8>::from_raw_parts(q8_ptr, q8_len) };
 
-        // Step 1: Quantize activations to Q8_1 (into pre-allocated buffer)
-        self.q8_quantize_into(input, &q8_buf, k)?;
+        // Step 1: Quantize activations to Q8_1 (skip if already valid — PMAT-027)
+        if !self.q8_activation_valid {
+            self.q8_quantize_into(input, &q8_buf, k)?;
+            self.q8_activation_valid = true;
+        }
 
         // Step 2: Launch DP4A GEMV kernel
         let num_warps = self.gpu_profile.mwv_warps;
@@ -190,8 +193,11 @@ impl CudaExecutor {
         // SAFETY: q8_activation_buf is pre-allocated in init_workspace and valid for this scope
         let q8_buf = unsafe { GpuBuffer::<u8>::from_raw_parts(q8_ptr, q8_len) };
 
-        // Step 1: Quantize activations to Q8_1
-        self.q8_quantize_into(input, &q8_buf, k)?;
+        // Step 1: Quantize activations to Q8_1 (skip if already valid — PMAT-027)
+        if !self.q8_activation_valid {
+            self.q8_quantize_into(input, &q8_buf, k)?;
+            self.q8_activation_valid = true;
+        }
 
         // Step 2: Launch half-warp DP4A GEMV kernel
         let num_warps = self.gpu_profile.mwv_warps;

@@ -37,7 +37,7 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check after RMSNorm (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
+        if !skip_debug && layer_idx < 4 {
             self.stream.synchronize()?;
             let mut rmsnorm_out = vec![0.0f32; hidden_buf1.len()];
             hidden_buf1.copy_to_host(&mut rmsnorm_out)?;
@@ -81,6 +81,10 @@ impl CudaExecutor {
                 layer_weights.attn_q_ptr, layer_weights.attn_q_len
             );
         }
+
+        // PMAT-027: Invalidate Q8 cache — hidden_buf1 was just written by RMSNorm.
+        // Q, K, V all read the same hidden_buf1; first GEMV quantizes, rest reuse.
+        self.q8_activation_valid = false;
 
         // Q projection
         self.gemv_dispatch(

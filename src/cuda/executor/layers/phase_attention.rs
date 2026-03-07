@@ -41,57 +41,14 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check attention output (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
-            // PAR-058: Must sync on compute_stream since attention kernel runs there
+        // Note: attention runs on compute_stream, so sync that first
+        if !skip_debug && layer_idx < 4 {
             self.compute_stream.synchronize()?;
-            let mut attn_out = vec![0.0f32; attn_out_buf.len()];
-            attn_out_buf.copy_to_host(&mut attn_out)?;
-            let nan_indices: Vec<usize> = attn_out
-                .iter()
-                .enumerate()
-                .filter(|(_, v)| v.is_nan())
-                .map(|(i, _)| i)
-                .collect();
-            if !nan_indices.is_empty() {
-                // Analyze pattern by head (each head has 128 elements)
-                let head_dim = 128;
-                let mut heads_with_nan: Vec<usize> = Vec::new();
-                for head in 0..12 {
-                    let start = head * head_dim;
-                    let end = start + head_dim;
-                    let nan_in_head = nan_indices
-                        .iter()
-                        .filter(|&&i| i >= start && i < end)
-                        .count();
-                    if nan_in_head > 0 {
-                        heads_with_nan.push(head);
-                    }
-                }
-                eprintln!(
-                    "[PAR-058-L{}] Attn output has {} NaN, heads with NaN: {:?}",
-                    layer_idx,
-                    nan_indices.len(),
-                    heads_with_nan
-                );
-                eprintln!(
-                    "[PAR-058-L{}] First 10 NaN indices: {:?}",
-                    layer_idx,
-                    &nan_indices[..10.min(nan_indices.len())]
-                );
-                if let Some((idx, val)) = attn_out.iter().enumerate().find(|(_, v)| !v.is_nan()) {
-                    eprintln!(
-                        "[PAR-058-L{}] First OK value at idx {}: {}",
-                        layer_idx, idx, val
-                    );
-                }
-            } else {
-                eprintln!(
-                    "[PAR-058-L{}] Attn OK, first 3: {:?}",
-                    layer_idx,
-                    &attn_out[..3.min(attn_out.len())]
-                );
-            }
+            self.debug_check_buf(attn_out_buf, "Attn", layer_idx)?;
         }
+
+        // PMAT-027: Invalidate Q8 cache — input is now attn_out_buf (different from QKV's hidden_buf1).
+        self.q8_activation_valid = false;
 
         // 4. Output projection: attn_out_buf -> hidden_buf1 (reuse, normed no longer needed)
         let timer_oproj = if profiling {
@@ -109,23 +66,8 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check output projection (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
-            self.stream.synchronize()?;
-            let mut out_proj = vec![0.0f32; hidden_buf1.len()];
-            hidden_buf1.copy_to_host(&mut out_proj)?;
-            let nan_count = out_proj.iter().filter(|x| x.is_nan()).count();
-            if nan_count > 0 {
-                eprintln!(
-                    "[PAR-058-L{}] Output projection has {} NaN",
-                    layer_idx, nan_count
-                );
-            } else {
-                eprintln!(
-                    "[PAR-058-L{}] Output proj OK, first 3: {:?}",
-                    layer_idx,
-                    &out_proj[..3.min(out_proj.len())]
-                );
-            }
+        if !skip_debug && layer_idx < 4 {
+            self.debug_check_buf(hidden_buf1, "Output proj", layer_idx)?;
         }
 
         // 5. First residual: input + projected -> input_staging (PAR-044 FIX)
@@ -143,20 +85,8 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check residual1 output (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
-            self.stream.synchronize()?;
-            let mut resid1 = vec![0.0f32; input_staging.len()];
-            input_staging.copy_to_host(&mut resid1)?;
-            let nan_count = resid1.iter().filter(|x| x.is_nan()).count();
-            if nan_count > 0 {
-                eprintln!("[PAR-058-L{}] Residual1 has {} NaN", layer_idx, nan_count);
-            } else {
-                eprintln!(
-                    "[PAR-058-L{}] Residual1 OK, first 3: {:?}",
-                    layer_idx,
-                    &resid1[..3.min(resid1.len())]
-                );
-            }
+        if !skip_debug && layer_idx < 4 {
+            self.debug_check_buf(input_staging, "Residual1", layer_idx)?;
         }
 
         Ok(())
