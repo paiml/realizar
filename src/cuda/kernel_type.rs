@@ -256,6 +256,12 @@ pub enum KernelType {
         n: u32,
         num_warps: u32,
     },
+    /// PMAT-030: Half-warp DP4A Q6K GEMV — 16 threads/SB, direct scale loads
+    HwDp4aQ6KGemv {
+        k: u32,
+        n: u32,
+        num_warps: u32,
+    },
     /// PAR-053: FP16 Q4_K GEMV - 2x bandwidth savings vs FP32
     Fp16Q4KGemv {
         k: u32,

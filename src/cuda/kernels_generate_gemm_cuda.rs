@@ -50,6 +50,9 @@ impl CudaKernels {
             KernelType::Dp4aQ6KGemv { k, n, num_warps } => {
                 Dp4aQ6KGemvKernel::with_warps(*k, *n, *num_warps).emit_ptx()
             },
+            KernelType::HwDp4aQ6KGemv { k, n, num_warps: _ } => {
+                HalfWarpDp4aQ6KGemvKernel::new(*k, *n).emit_ptx()
+            },
             KernelType::Fp16Q4KGemv { k, n } => Fp16Q4KGemvKernel::new(*k, *n).emit_ptx(),
             KernelType::Q8_0Gemv { k, n } => Q8_0GemvKernel::new(*k, *n).emit_ptx(),
             KernelType::Q5_0Gemv { k, n } => generate_q5_0_candle_ptx(*k, *n),

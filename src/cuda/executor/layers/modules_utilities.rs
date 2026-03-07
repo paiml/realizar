@@ -501,10 +501,12 @@ impl CudaExecutor {
         vocab_size: u32,
         num_warps: u32,
     ) -> Result<(), GpuError> {
-        if self.gpu_profile.q6k != crate::cuda::gpu_profile::Q6kVariant::Dp4a {
+        use crate::cuda::gpu_profile::Q6kVariant;
+        let variant = self.gpu_profile.q6k;
+        if variant != Q6kVariant::Dp4a && variant != Q6kVariant::HwDp4a {
             return Ok(());
         }
-        // Q8 quantize for GEMV input dimensions
+        // Q8 quantize for GEMV input dimensions (shared by both DP4A variants)
         for &q8_n in &[hidden_dim, intermediate_dim] {
             let q8_key = format!("q8_quantize_{}", q8_n);
             if !self.modules.contains_key(&q8_key) {
@@ -514,25 +516,24 @@ impl CudaExecutor {
                 self.modules.insert(q8_key, module);
             }
         }
-        // DP4A Q6K for FFN down (k=intermediate, n=hidden)
-        let dp4a_down_key = format!("dp4a_q6k_gemv_{}_{}_{}", intermediate_dim, hidden_dim, num_warps);
-        if !self.modules.contains_key(&dp4a_down_key) {
-            let kernel_type = KernelType::Dp4aQ6KGemv {
-                k: intermediate_dim, n: hidden_dim, num_warps,
+        // Preload variant-specific Q6K GEMV kernels for FFN down + LM head
+        let dims = [(intermediate_dim, hidden_dim), (hidden_dim, vocab_size)];
+        for &(k_dim, n_dim) in &dims {
+            let (key, kernel_type) = match variant {
+                Q6kVariant::HwDp4a => (
+                    format!("hw_dp4a_q6k_gemv_{}_{}_{}", k_dim, n_dim, num_warps),
+                    KernelType::HwDp4aQ6KGemv { k: k_dim, n: n_dim, num_warps },
+                ),
+                _ => (
+                    format!("dp4a_q6k_gemv_{}_{}_{}", k_dim, n_dim, num_warps),
+                    KernelType::Dp4aQ6KGemv { k: k_dim, n: n_dim, num_warps },
+                ),
             };
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(dp4a_down_key, module);
-        }
-        // DP4A Q6K for LM head (k=hidden, n=vocab)
-        let dp4a_lm_key = format!("dp4a_q6k_gemv_{}_{}_{}", hidden_dim, vocab_size, num_warps);
-        if !self.modules.contains_key(&dp4a_lm_key) {
-            let kernel_type = KernelType::Dp4aQ6KGemv {
-                k: hidden_dim, n: vocab_size, num_warps,
-            };
-            let ptx = self.kernels.generate_ptx(&kernel_type);
-            let module = self.compile_ptx(&ptx)?;
-            self.modules.insert(dp4a_lm_key, module);
+            if !self.modules.contains_key(&key) {
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(key, module);
+            }
         }
         Ok(())
     }

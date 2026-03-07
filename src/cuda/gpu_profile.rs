@@ -34,6 +34,8 @@ pub enum Q6kVariant {
     Mwv,
     /// DP4A Q6K with Q8 pre-quantization.
     Dp4a,
+    /// Half-warp DP4A Q6K: 16 threads/SB, direct scale loads (PMAT-030).
+    HwDp4a,
 }
 
 /// Auto-detected GPU profile for kernel dispatch.
@@ -99,13 +101,14 @@ impl GpuProfile {
         }
     }
 
-    /// Q6K variant: env var override, else Dp4a on sm_75+, else Mwv.
+    /// Q6K variant: env var override, else HwDp4a on sm_75+, else Mwv.
     fn detect_q6k(has_dp4a: bool) -> Q6kVariant {
+        if std::env::var("HW_DP4A_Q6K").is_ok() { return Q6kVariant::HwDp4a; }
         if std::env::var("DP4A_Q6K").is_ok() { return Q6kVariant::Dp4a; }
         if std::env::var("MWV_Q6K").is_ok() { return Q6kVariant::Mwv; }
 
         if has_dp4a {
-            Q6kVariant::Dp4a
+            Q6kVariant::HwDp4a
         } else {
             Q6kVariant::Mwv
         }
