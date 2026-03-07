@@ -124,9 +124,9 @@ impl CudaExecutor {
             .expect("module just inserted");
 
         let threads = num_warps * 32;
-        // Scale grid to GPU size: enough blocks per SM for memory latency hiding.
-        // Jetson (8 SMs) → 32 blocks, 4090 (128 SMs) → 512 blocks.
-        let grid_x = n.min(self.num_sms * 4);
+        // Scale grid to fill SM warp slots: 48 warps/SM ÷ 3 warps/block = 16 blocks/SM.
+        // Jetson (8 SMs) → 128 blocks, 4090 (128 SMs) → 2048 blocks.
+        let grid_x = n.min(self.num_sms * 16);
         let config = LaunchConfig::grid_2d(grid_x, 1, threads, 1);
 
         let mut ptr_output = output.as_ptr();
@@ -217,7 +217,7 @@ impl CudaExecutor {
             .expect("module just inserted");
 
         let threads = num_warps * 32;
-        let grid_x = n.min(self.num_sms * 4);
+        let grid_x = n.min(self.num_sms * 16);
         let config = LaunchConfig::grid_2d(grid_x, 1, threads, 1);
 
         let mut ptr_output = output.as_ptr();
@@ -448,7 +448,7 @@ impl CudaExecutor {
             .expect("module just inserted");
 
         let threads = num_warps * 32;
-        let grid_x = n.min(self.num_sms * 4);
+        let grid_x = n.min(self.num_sms * 16);
         let config = LaunchConfig::grid_2d(grid_x, 1, threads, 1);
 
         let mut ptr_output = output.as_ptr();
