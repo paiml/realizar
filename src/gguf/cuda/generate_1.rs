@@ -84,7 +84,6 @@ impl OwnedQuantizedModelCuda {
         ttft_mark!("kv_cache_alloc");
 
         // Reset GPU KV cache positions and clear stale graph state
-        // PMAT-PREFILL-FIX: Must clear position_buf to avoid indirect scatter using stale position
         self.executor.reset_kv_cache_gpu();
         self.executor.clear_decode_graph();
         ttft_mark!("reset_gpu");
