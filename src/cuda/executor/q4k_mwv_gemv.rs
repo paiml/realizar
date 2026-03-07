@@ -392,6 +392,94 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// PMAT-034: Execute Fused Gate+Up+SwiGLU HW DP4A Q4_K GEMV
+    ///
+    /// Computes `result[i] = silu(dot(W_gate[i], x)) * dot(W_up[i], x)` in a single
+    /// kernel pass. Eliminates gate_out/up_out intermediate buffers and SwiGLU kernel.
+    ///
+    /// Uses Q8-quantized activations (shared between gate and up dot products).
+    #[inline]
+    pub fn fused_gate_up_swiglu_hw_dp4a_q4k_gemv_into(
+        &mut self,
+        gate_weight_ptr: u64,
+        up_weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        k: u32,
+        n: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(gate_weight_ptr, "fused_gate_up_swiglu(gate)")?;
+        validate_device_ptr(up_weight_ptr, "fused_gate_up_swiglu(up)")?;
+
+        // Q8 quantize activations (skip if already valid — PMAT-027 cache)
+        let q8_ptr = self
+            .workspace
+            .q8_activation_buf
+            .as_ref()
+            .expect("q8_activation_buf must be initialized")
+            .as_ptr();
+        let q8_len = self
+            .workspace
+            .q8_activation_buf
+            .as_ref()
+            .expect("q8_activation_buf must be initialized")
+            .len();
+        let q8_buf = unsafe { GpuBuffer::<u8>::from_raw_parts(q8_ptr, q8_len) };
+
+        if !self.q8_activation_valid {
+            self.q8_quantize_into(input, &q8_buf, k)?;
+            self.q8_activation_valid = true;
+        }
+
+        let num_warps = self.gpu_profile.mwv_warps;
+        let kernel_type = KernelType::FusedGateUpSwigluHwDp4aQ4KGemv { k, n };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("fused_gate_up_swiglu_hw_dp4a_q4k_{}_{}", k, n);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let threads = num_warps * 32;
+        let grid_x = n.min(self.num_sms * 4);
+        let config = LaunchConfig::grid_2d(grid_x, 1, threads, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_gate_weights = gate_weight_ptr;
+        let mut ptr_up_weights = up_weight_ptr;
+        let mut ptr_q8 = q8_buf.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        // SAFETY: All device pointers are allocated by CudaExecutor and valid.
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_gate_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_up_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_q8) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        std::mem::forget(q8_buf);
+
+        Ok(())
+    }
+
     /// PAR-077: Execute Fused Gate+Up Q4_K GEMV into existing buffers
     ///
     /// Computes both gate and up projections in a single kernel pass:

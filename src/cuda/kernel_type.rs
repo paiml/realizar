@@ -382,6 +382,13 @@ pub enum KernelType {
         n: u32,
     },
 
+    /// PMAT-034: Fused gate + up + SwiGLU HW DP4A Q4K GEMV kernel
+    /// Eliminates 2 kernel launches + 4 intermediate buffer passes
+    FusedGateUpSwigluHwDp4aQ4KGemv {
+        k: u32,
+        n: u32,
+    },
+
     /// QWEN-009: 3-way fused kernel: RMSNorm → Gate/Up Q4K GEMV → SwiGLU
     FusedRmsNormGateUpSwigluQ4K {
         k: u32,
