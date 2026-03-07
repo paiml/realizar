@@ -156,13 +156,7 @@ pub fn moe_forward_token(
     let k = moe.num_experts_per_tok;
 
     // Step 1: Route
-    let route = moe_route(
-        hidden_state,
-        &moe.gate_weight,
-        num_experts,
-        k,
-        hidden_dim,
-    );
+    let route = moe_route(hidden_state, &moe.gate_weight, num_experts, k, hidden_dim);
 
     // Step 2: Run selected experts and accumulate weighted sum
     let mut routed_out = vec![0.0f32; hidden_dim];
@@ -170,9 +164,10 @@ pub fn moe_forward_token(
     for (idx, &expert_id) in route.indices.iter().enumerate() {
         // Unfuse gate_up: expert_gate_up layout [num_experts, 2*intermediate, hidden_dim]
         let expert_offset = expert_id * 2 * intermediate * hidden_dim;
-        let gate_proj = &moe.expert_gate_up[expert_offset..expert_offset + intermediate * hidden_dim];
-        let up_proj = &moe.expert_gate_up
-            [expert_offset + intermediate * hidden_dim..expert_offset + 2 * intermediate * hidden_dim];
+        let gate_proj =
+            &moe.expert_gate_up[expert_offset..expert_offset + intermediate * hidden_dim];
+        let up_proj = &moe.expert_gate_up[expert_offset + intermediate * hidden_dim
+            ..expert_offset + 2 * intermediate * hidden_dim];
 
         // expert_down layout [num_experts, hidden_dim, intermediate]
         let down_offset = expert_id * hidden_dim * intermediate;

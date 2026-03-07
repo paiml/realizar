@@ -1408,9 +1408,9 @@ fn test_gpu_model_config_derived_values() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     assert_eq!(config.head_dim(), 128);
@@ -1440,9 +1440,9 @@ fn test_gpu_model_config_non_gqa() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     assert!(!config.is_gqa());
@@ -3059,9 +3059,9 @@ fn test_gpu_model_config_small_model() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     assert_eq!(config.head_dim(), 64); // 256/4
@@ -3090,9 +3090,9 @@ fn test_gpu_model_config_gqa_ratios() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     assert!(config2to1.is_gqa());
@@ -3145,9 +3145,9 @@ fn test_gpu_model_creation() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let model = realizar::gpu::GpuModel::new(config);
@@ -3173,9 +3173,9 @@ fn test_gpu_model_config_accessor() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3661,9 +3661,9 @@ fn test_attention_buffers_creation() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let buffers = realizar::gpu::AttentionBuffers::new(&config, 512);
@@ -3695,9 +3695,9 @@ fn test_attention_buffers_reset() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let mut buffers = realizar::gpu::AttentionBuffers::new(&config, 256);
@@ -3739,9 +3739,9 @@ fn test_attention_buffers_debug() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let buffers = realizar::gpu::AttentionBuffers::new(&config, 64);
@@ -3772,9 +3772,9 @@ fn test_gpu_model_with_attention_buffers() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let model = realizar::gpu::GpuModel::with_attention_buffers(config, 128).unwrap();
@@ -3800,9 +3800,9 @@ fn test_gpu_model_without_attention_buffers() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3832,9 +3832,9 @@ fn test_gpu_model_forward_gpu_single_token() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3864,9 +3864,9 @@ fn test_gpu_model_forward_gpu_multiple_tokens() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3897,9 +3897,9 @@ fn test_gpu_model_forward_gpu_empty_input_error() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3927,9 +3927,9 @@ fn test_gpu_model_forward_gpu_out_of_bounds_token() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3957,9 +3957,9 @@ fn test_gpu_model_has_gpu() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -3986,9 +3986,9 @@ fn test_gpu_model_from_gguf_config() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let model = realizar::gpu::GpuModel::from_gguf_config(config);
@@ -4018,9 +4018,9 @@ fn test_gpu_model_generate_with_cache() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -4052,9 +4052,9 @@ fn test_gpu_model_generate_with_cache_empty_prompt_error() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -4084,9 +4084,9 @@ fn test_gpu_model_generate_optimized() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let mut model = realizar::gpu::GpuModel::with_attention_buffers(config, 128).unwrap();
@@ -4116,9 +4116,9 @@ fn test_gpu_model_generate_optimized_empty_prompt_error() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let mut model = realizar::gpu::GpuModel::with_attention_buffers(config, 128).unwrap();
@@ -4148,9 +4148,9 @@ fn test_gpu_model_generate_with_stop_token() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     let mut model = realizar::gpu::GpuModel::new(config).unwrap();
@@ -4393,9 +4393,9 @@ fn test_gpu_model_config_mha() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     assert!(!config.is_gqa());
@@ -4423,9 +4423,9 @@ fn test_gpu_model_config_gqa_4to1() {
         linear_num_value_heads: None,
         linear_conv_kernel_dim: None,
         constraints: None,
-    num_experts: None,
-    num_experts_per_tok: None,
-    expert_intermediate_size: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
 
     assert!(config.is_gqa());

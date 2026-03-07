@@ -8,8 +8,8 @@ mod core;
 mod kv;
 pub mod linear_attn;
 mod loading;
-pub mod moe_dispatch;
 mod model;
+pub mod moe_dispatch;
 mod ops;
 mod types;
 
@@ -18,8 +18,8 @@ pub use core::CudaScheduler;
 pub use model::GpuModel;
 pub use types::{
     AttentionBuffers, BlockWeights, GpuGenerateConfig, GpuModelConfig, GpuWeightError,
-    LinearAttnWeights, LmHeadWeight, LmHeadWeightTransposed, MoeExpertWeights,
-    ValidatedGpuWeights, WeightType,
+    LinearAttnWeights, LmHeadWeight, LmHeadWeightTransposed, MoeExpertWeights, ValidatedGpuWeights,
+    WeightType,
 };
 
 // Re-export linear attention state

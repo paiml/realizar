@@ -5275,7 +5275,7 @@ dependencies = [
 
 [[package]]
 name = "trueno-gpu"
-version = "0.4.28"
+version = "0.4.29"
 dependencies = [
  "batuta-common",
  "libloading",

@@ -150,7 +150,12 @@ fn forward_with_trace(
     let start = std::time::Instant::now();
     let logits = model.forward_with_cache(token, cache, pos)?;
     if trace {
-        eprintln!("[TRACE] Gen token {} (pos {}): {:?}", step, pos, start.elapsed());
+        eprintln!(
+            "[TRACE] Gen token {} (pos {}): {:?}",
+            step,
+            pos,
+            start.elapsed()
+        );
     }
     Ok(logits)
 }

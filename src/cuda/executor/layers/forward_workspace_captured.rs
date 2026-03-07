@@ -218,80 +218,14 @@ impl CudaExecutor {
             );
         }
 
-        match lm_head_qtype {
-            WeightQuantType::Q6K => {
-                self.q6k_gemv_into(
-                    self.lm_head_ptr,
-                    &normed_input,
-                    &logits_output,
-                    vocab_size,
-                    hidden_dim,
-                )?;
-            },
-            WeightQuantType::Q5K => {
-                self.q5k_gemv_into(
-                    self.lm_head_ptr,
-                    &normed_input,
-                    &logits_output,
-                    vocab_size,
-                    hidden_dim,
-                )?;
-            },
-            WeightQuantType::Q8_0 => {
-                self.q8_0_gemv_into(
-                    self.lm_head_ptr,
-                    &normed_input,
-                    &logits_output,
-                    vocab_size,
-                    hidden_dim,
-                )?;
-            },
-            WeightQuantType::Q5_0 => {
-                self.q5_0_gemv_into(
-                    self.lm_head_ptr,
-                    &normed_input,
-                    &logits_output,
-                    vocab_size,
-                    hidden_dim,
-                )?;
-            },
-            WeightQuantType::Q4_0 => {
-                self.q4_0_gemv_into(
-                    self.lm_head_ptr,
-                    &normed_input,
-                    &logits_output,
-                    vocab_size,
-                    hidden_dim,
-                )?;
-            },
-            WeightQuantType::Q4_1 => {
-                self.q4_1_gemv_into(
-                    self.lm_head_ptr,
-                    &normed_input,
-                    &logits_output,
-                    vocab_size,
-                    hidden_dim,
-                )?;
-            },
-            WeightQuantType::Q4K => {
-                self.q4k_gemv_into(
-                    self.lm_head_ptr,
-                    &normed_input,
-                    &logits_output,
-                    vocab_size,
-                    hidden_dim,
-                )?;
-            },
-            WeightQuantType::F32 => {
-                self.f32_gemv_into(
-                    self.lm_head_ptr,
-                    &normed_input,
-                    &logits_output,
-                    vocab_size,
-                    hidden_dim,
-                )?;
-            },
-        }
+        self.gemv_dispatch(
+            lm_head_qtype,
+            self.lm_head_ptr,
+            &normed_input,
+            &logits_output,
+            vocab_size,
+            hidden_dim,
+        )?;
 
         // PAR-064-FIX: Add LM head bias after GEMV (if present)
         // Without this, GPU inference produces incorrect token predictions

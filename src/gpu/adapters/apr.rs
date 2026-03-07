@@ -241,7 +241,10 @@ impl AprF32ToGpuAdapter {
             shared_gate: layer.moe_shared_gate.clone().unwrap_or_default(),
             shared_up: layer.moe_shared_up.clone().unwrap_or_default(),
             shared_down: layer.moe_shared_down.clone().unwrap_or_default(),
-            shared_expert_gate_weight: layer.moe_shared_expert_gate_weight.clone().unwrap_or_default(),
+            shared_expert_gate_weight: layer
+                .moe_shared_expert_gate_weight
+                .clone()
+                .unwrap_or_default(),
             num_experts,
             num_experts_per_tok,
             expert_intermediate,
