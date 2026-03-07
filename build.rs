@@ -253,7 +253,7 @@ fn emit_contract_bindings() {
         .join("..")
         .join("provable-contracts")
         .join("contracts")
-        .join("aprender")
+        .join("realizar")
         .join("binding.yaml");
 
     // Always tell Cargo to re-run if the file appears or changes
