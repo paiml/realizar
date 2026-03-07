@@ -385,15 +385,9 @@ impl OwnedQuantizedModelCuda {
         // Without this, cache positions accumulate across generate calls causing degradation
         self.executor.reset_kv_cache_gpu();
 
-        // GH-94: Batched prefill (default) must clear decode graph because it uses
-        // DIRECT position mode, but stale position_buf triggers INDIRECT mode.
-        // Serial prefill preserves graph (position updated via replay).
-        let use_batched = std::env::var("BATCHED_PREFILL")
-            .map(|v| v != "0")
-            .unwrap_or(true);
-        if use_batched {
-            self.executor.clear_decode_graph();
-        }
+        // GH-94: Clear decode graph so first decode can re-capture.
+        // Workspace buffers may be reallocated by prefill, invalidating graph pointers.
+        self.executor.clear_decode_graph();
 
         let mut tokens = prompt.to_vec();
 
