@@ -69,7 +69,7 @@ pub use types::{
 // - executor/forward.rs: Forward pass methods
 // - executor/graph.rs: CUDA graph capture and replay
 // - executor/kv_cache.rs: KV cache management
-pub mod gpu_profile;
 mod executor;
+pub mod gpu_profile;
 pub use executor::CudaExecutor;
 pub use gpu_profile::GpuProfile;

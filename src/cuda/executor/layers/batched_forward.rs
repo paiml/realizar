@@ -313,6 +313,14 @@ impl CudaExecutor {
             len_buf.copy_from_host(&seq_lens)?;
         }
 
+        // PMAT-037: Pre-populate FP16 weight cache + warm cuBLAS before graph capture.
+        // Graph capture doesn't allow dynamic allocation, so FP16 weights and cuBLAS
+        // workspace must be allocated beforehand.
+        if self.gpu_profile.hgemm_decode {
+            self.ensure_cublas()?;
+            self.warmup_hgemm_cache(num_layers, hidden_dim, intermediate_dim, vocab_size)?;
+        }
+
         // Try to capture graph
         let capture_result = self.try_batched_graph_capture(
             m,

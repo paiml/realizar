@@ -12,7 +12,14 @@ use super::super::*;
 
 /// Minimum M (batch/sequence length) to use cuBLAS GEMM instead of batched GEMV.
 /// Below this threshold, batched GEMV is faster due to lower overhead.
-const CUBLAS_PREFILL_THRESHOLD: u32 = 4;
+///
+/// Override with CUBLAS_GEMM_THRESHOLD env var (e.g., =1 for HGEMM decode on high-BW GPUs).
+pub(crate) fn cublas_gemm_threshold() -> u32 {
+    std::env::var("CUBLAS_GEMM_THRESHOLD")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4)
+}
 
 /// PMAT-031: Inline PTX for FP32→FP16 element-wise conversion.
 /// Block size 256, one element per thread. Trivially memory-bound (~1μs for 160K elements).
@@ -140,7 +147,10 @@ impl CudaExecutor {
             self.modules.insert(cache_key.clone(), module);
         }
 
-        let module = self.modules.get_mut(&cache_key).expect("module just inserted");
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
         let config = LaunchConfig::grid_2d(n, num_sb, 32, 1);
 
         let mut ptr_out = output_ptr;
@@ -183,7 +193,10 @@ impl CudaExecutor {
             self.modules.insert(cache_key.clone(), module);
         }
 
-        let module = self.modules.get_mut(&cache_key).expect("module just inserted");
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
         let config = LaunchConfig::grid_2d(n, num_sb, 32, 1);
 
         let mut ptr_out = output_ptr;
@@ -210,12 +223,7 @@ impl CudaExecutor {
     }
 
     /// Dequantize Q4K weights on GPU into FP32 scratch buffer
-    fn dequant_q4k_to_scratch(
-        &mut self,
-        weight_ptr: u64,
-        n: u32,
-        k: u32,
-    ) -> Result<u64, GpuError> {
+    fn dequant_q4k_to_scratch(&mut self, weight_ptr: u64, n: u32, k: u32) -> Result<u64, GpuError> {
         self.ensure_dequant_scratch(n, k)?;
         let scratch_ptr = self
             .dequant_scratch
@@ -227,12 +235,7 @@ impl CudaExecutor {
     }
 
     /// PMAT-026: Dequantize Q6K weights on GPU into FP32 scratch buffer
-    fn dequant_q6k_to_scratch(
-        &mut self,
-        weight_ptr: u64,
-        n: u32,
-        k: u32,
-    ) -> Result<u64, GpuError> {
+    fn dequant_q6k_to_scratch(&mut self, weight_ptr: u64, n: u32, k: u32) -> Result<u64, GpuError> {
         self.ensure_dequant_scratch(n, k)?;
         let scratch_ptr = self
             .dequant_scratch
@@ -267,7 +270,7 @@ impl CudaExecutor {
                     "get_or_cache_fp16_weight: unsupported qtype {:?}",
                     qtype
                 )))
-            }
+            },
         };
 
         // Allocate persistent FP16 buffer [N × K]
@@ -369,7 +372,7 @@ impl CudaExecutor {
                     "cublas_prefill_gemm: unsupported qtype {:?}",
                     qtype
                 )))
-            }
+            },
         };
 
         let handle = self.cublas_handle.as_ref().expect("cublas initialized");
@@ -621,7 +624,11 @@ DONE_NORM:
                     // SAFETY: Both buffers valid until stream sync, stream_handle is valid
                     unsafe {
                         k_cache.copy_from_buffer_at_async_raw(
-                            &src_view, dst_offset, 0, head_dim, stream_handle,
+                            &src_view,
+                            dst_offset,
+                            0,
+                            head_dim,
+                            stream_handle,
                         )?;
                     }
                     std::mem::forget(src_view);
@@ -648,7 +655,11 @@ DONE_NORM:
                     // SAFETY: Both buffers valid until stream sync, stream_handle is valid
                     unsafe {
                         v_cache.copy_from_buffer_at_async_raw(
-                            &src_view, dst_offset, 0, head_dim, stream_handle,
+                            &src_view,
+                            dst_offset,
+                            0,
+                            head_dim,
+                            stream_handle,
                         )?;
                     }
                     std::mem::forget(src_view);
@@ -740,38 +751,39 @@ DONE_NORM:
         // For each KV group, launch strided batched GEMM
         for kv_group in 0..num_kv_heads {
             let first_q_head = kv_group * heads_per_kv;
-            let k_head_ptr = k_cache_ptr
-                + (kv_group * max_len * head_dim * std::mem::size_of::<f32>()) as u64;
-            let q_head_ptr = q_buf_ptr
-                + (first_q_head * head_dim * std::mem::size_of::<f32>()) as u64;
+            let k_head_ptr =
+                k_cache_ptr + (kv_group * max_len * head_dim * std::mem::size_of::<f32>()) as u64;
+            let q_head_ptr =
+                q_buf_ptr + (first_q_head * head_dim * std::mem::size_of::<f32>()) as u64;
             let s_head_ptr = score_ptr
                 + (first_q_head * m as usize * total_len * std::mem::size_of::<f32>()) as u64;
 
             handle.gemm_f32_strided_batched(
-                trueno_gpu::driver::GemmOp::Trans,    // K^T
-                trueno_gpu::driver::GemmOp::NoTrans,  // Q
-                total_len as i32,                     // m (rows of C)
-                m as i32,                             // n (cols of C)
-                head_dim as i32,                      // k
-                scale,                                // alpha = 1/sqrt(d)
-                k_head_ptr,                           // A = K cache for this kv_head
-                head_dim as i32,                      // lda
-                0,                                    // stride_a = 0 (shared K for all q heads in group)
-                q_head_ptr,                           // B = Q for first head in group
-                q_dim as i32,                         // ldb = q_dim (stride between token rows)
-                head_dim as i64,                         // stride_b = head_dim (next head)
-                0.0,                                  // beta
-                s_head_ptr,                           // C = score buffer
-                total_len as i32,                     // ldc
-                (m as usize * total_len) as i64,      // stride_c = M * total_len (per head)
-                heads_per_kv as i32,                  // batch = heads per kv group
+                trueno_gpu::driver::GemmOp::Trans,   // K^T
+                trueno_gpu::driver::GemmOp::NoTrans, // Q
+                total_len as i32,                    // m (rows of C)
+                m as i32,                            // n (cols of C)
+                head_dim as i32,                     // k
+                scale,                               // alpha = 1/sqrt(d)
+                k_head_ptr,                          // A = K cache for this kv_head
+                head_dim as i32,                     // lda
+                0,                               // stride_a = 0 (shared K for all q heads in group)
+                q_head_ptr,                      // B = Q for first head in group
+                q_dim as i32,                    // ldb = q_dim (stride between token rows)
+                head_dim as i64,                 // stride_b = head_dim (next head)
+                0.0,                             // beta
+                s_head_ptr,                      // C = score buffer
+                total_len as i32,                // ldc
+                (m as usize * total_len) as i64, // stride_c = M * total_len (per head)
+                heads_per_kv as i32,             // batch = heads per kv group
             )?;
         }
 
         // 4. Causal mask + softmax (single kernel launch)
         if !self.modules.contains_key("causal_mask_softmax") {
             let module = self.compile_ptx(Self::CAUSAL_MASK_SOFTMAX_PTX)?;
-            self.modules.insert("causal_mask_softmax".to_string(), module);
+            self.modules
+                .insert("causal_mask_softmax".to_string(), module);
         }
 
         {
@@ -824,31 +836,31 @@ DONE_NORM:
 
         for kv_group in 0..num_kv_heads {
             let first_q_head = kv_group * heads_per_kv;
-            let v_head_ptr = v_cache_ptr
-                + (kv_group * max_len * head_dim * std::mem::size_of::<f32>()) as u64;
+            let v_head_ptr =
+                v_cache_ptr + (kv_group * max_len * head_dim * std::mem::size_of::<f32>()) as u64;
             let p_head_ptr = score_ptr
                 + (first_q_head * m as usize * total_len * std::mem::size_of::<f32>()) as u64;
-            let o_head_ptr = attn_out_ptr
-                + (first_q_head * head_dim * std::mem::size_of::<f32>()) as u64;
+            let o_head_ptr =
+                attn_out_ptr + (first_q_head * head_dim * std::mem::size_of::<f32>()) as u64;
 
             handle.gemm_f32_strided_batched(
-                trueno_gpu::driver::GemmOp::NoTrans,  // V (already in correct layout)
-                trueno_gpu::driver::GemmOp::NoTrans,  // P
-                head_dim as i32,                      // m (rows of C = head_dim)
-                m as i32,                             // n (cols of C = M)
-                total_len as i32,                     // k (inner dim = total_len)
-                1.0,                                  // alpha
-                v_head_ptr,                           // A = V cache
-                head_dim as i32,                      // lda = head_dim
-                0,                                    // stride_a = 0 (shared V)
-                p_head_ptr,                           // B = P (softmax output)
-                total_len as i32,                     // ldb = total_len
-                (m as usize * total_len) as i64,      // stride_b = M * total_len
-                0.0,                                  // beta
-                o_head_ptr,                           // C = output
-                q_dim as i32,                         // ldc = q_dim (packed output stride)
-                (head_dim) as i64,                    // stride_c = head_dim (next head)
-                heads_per_kv as i32,                  // batch
+                trueno_gpu::driver::GemmOp::NoTrans, // V (already in correct layout)
+                trueno_gpu::driver::GemmOp::NoTrans, // P
+                head_dim as i32,                     // m (rows of C = head_dim)
+                m as i32,                            // n (cols of C = M)
+                total_len as i32,                    // k (inner dim = total_len)
+                1.0,                                 // alpha
+                v_head_ptr,                          // A = V cache
+                head_dim as i32,                     // lda = head_dim
+                0,                                   // stride_a = 0 (shared V)
+                p_head_ptr,                          // B = P (softmax output)
+                total_len as i32,                    // ldb = total_len
+                (m as usize * total_len) as i64,     // stride_b = M * total_len
+                0.0,                                 // beta
+                o_head_ptr,                          // C = output
+                q_dim as i32,                        // ldc = q_dim (packed output stride)
+                (head_dim) as i64,                   // stride_c = head_dim (next head)
+                heads_per_kv as i32,                 // batch
             )?;
         }
 
@@ -872,7 +884,7 @@ DONE_NORM:
         n_per_seq: u32,
         k_per_seq: u32,
     ) -> Result<(), GpuError> {
-        let use_cublas = m >= CUBLAS_PREFILL_THRESHOLD
+        let use_cublas = m >= cublas_gemm_threshold()
             && (qtype == WeightQuantType::Q4K || qtype == WeightQuantType::Q6K)
             && std::env::var("CUBLAS_PREFILL").as_deref() != Ok("0");
 
@@ -899,5 +911,121 @@ DONE_NORM:
                 k_per_seq,
             )
         }
+    }
+
+    /// PMAT-037: Pre-populate FP16 weight cache for HGEMM decode.
+    ///
+    /// Must be called BEFORE CUDA graph capture, because graph capture doesn't
+    /// allow dynamic GPU memory allocation. Also warms up cuBLAS workspace.
+    pub(crate) fn warmup_hgemm_cache(
+        &mut self,
+        num_layers: usize,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        vocab_size: u32,
+    ) -> Result<(), GpuError> {
+        let start = std::time::Instant::now();
+        let mut cached = 0usize;
+
+        let q_dim = (self.kv_num_heads * self.kv_head_dim) as u32;
+        let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
+
+        for layer_idx in 0..num_layers {
+            if layer_idx >= self.indexed_layer_weights.len() {
+                break;
+            }
+            let lw = self.get_indexed_layer(layer_idx).clone();
+
+            // Cache all 7 weight matrices per layer
+            let weights = [
+                (lw.attn_q_qtype, lw.attn_q_ptr, q_dim, hidden_dim), // Q: [q_dim, hidden]
+                (lw.attn_k_qtype, lw.attn_k_ptr, kv_dim, hidden_dim), // K: [kv_dim, hidden]
+                (lw.attn_v_qtype, lw.attn_v_ptr, kv_dim, hidden_dim), // V: [kv_dim, hidden]
+                (lw.attn_output_qtype, lw.attn_output_ptr, hidden_dim, q_dim), // O: [hidden, q_dim]
+                (
+                    lw.ffn_gate_qtype,
+                    lw.ffn_gate_ptr,
+                    intermediate_dim,
+                    hidden_dim,
+                ), // gate
+                (lw.ffn_up_qtype, lw.ffn_up_ptr, intermediate_dim, hidden_dim), // up
+                (
+                    lw.ffn_down_qtype,
+                    lw.ffn_down_ptr,
+                    hidden_dim,
+                    intermediate_dim,
+                ), // down
+            ];
+
+            for (qtype, ptr, n, k) in weights {
+                if ptr != 0 && (qtype == WeightQuantType::Q4K || qtype == WeightQuantType::Q6K) {
+                    if self.fp16_weight_cache.get(&ptr).is_none() {
+                        self.get_or_cache_fp16_weight(qtype, ptr, n, k)?;
+                        cached += 1;
+                    }
+                }
+            }
+        }
+
+        // Also cache LM head
+        if self.lm_head_ptr != 0
+            && (self.lm_head_qtype == WeightQuantType::Q4K
+                || self.lm_head_qtype == WeightQuantType::Q6K)
+        {
+            let lm_ptr = self.lm_head_ptr;
+            let lm_qtype = self.lm_head_qtype;
+            if self.fp16_weight_cache.get(&lm_ptr).is_none() {
+                self.get_or_cache_fp16_weight(lm_qtype, lm_ptr, vocab_size, hidden_dim)?;
+                cached += 1;
+            }
+        }
+
+        // Warm up cuBLAS workspace with a tiny GEMM to force internal allocation
+        if cached > 0 {
+            self.ensure_fp16_activation_scratch(hidden_dim as usize)?;
+            let dummy_out = GpuBuffer::<f32>::new(&self.context, hidden_dim as usize)?;
+            // Find any cached FP16 weight to run a dummy GEMM
+            if let Some((&_ptr, fp16_buf)) = self.fp16_weight_cache.iter().next() {
+                let input_fp16_ptr = self
+                    .fp16_activation_scratch
+                    .as_ref()
+                    .expect("scratch just allocated")
+                    .as_ptr();
+                let handle = self.cublas_handle.as_ref().expect("cublas initialized");
+                // Tiny 1×1 GEMM to force cuBLAS workspace allocation
+                let _ = handle.gemm_f16_to_f32(
+                    trueno_gpu::driver::GemmOp::Trans,
+                    trueno_gpu::driver::GemmOp::NoTrans,
+                    1,
+                    1,
+                    1,
+                    0.0, // alpha=0 so output doesn't matter
+                    fp16_buf.as_ptr(),
+                    1,
+                    input_fp16_ptr,
+                    1,
+                    0.0,
+                    dummy_out.as_ptr(),
+                    1,
+                );
+            }
+            self.stream.synchronize()?;
+        }
+
+        let elapsed = start.elapsed();
+        let cache_mb = self
+            .fp16_weight_cache
+            .values()
+            .map(|b| b.len() * 2)
+            .sum::<usize>() as f64
+            / 1_048_576.0;
+        eprintln!(
+            "[PMAT-037] FP16 weight cache: {} matrices cached ({:.1} MB) in {:.1}ms",
+            cached,
+            cache_mb,
+            elapsed.as_secs_f64() * 1000.0,
+        );
+
+        Ok(())
     }
 }

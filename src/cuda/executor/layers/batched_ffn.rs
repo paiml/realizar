@@ -108,7 +108,7 @@ impl CudaExecutor {
 
         // ========== 10. FFN Down (cuBLAS GEMM or BATCHED GEMV) ==========
         // PMAT-024/026: Use cuBLAS GEMM for Q4K/Q6K during prefill (M >= threshold)
-        let use_cublas_down = m >= 4
+        let use_cublas_down = m >= super::cublas_prefill::cublas_gemm_threshold()
             && (layer_weights.ffn_down_qtype == WeightQuantType::Q4K
                 || layer_weights.ffn_down_qtype == WeightQuantType::Q6K)
             && std::env::var("CUBLAS_PREFILL").as_deref() != Ok("0");
