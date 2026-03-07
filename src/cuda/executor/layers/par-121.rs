@@ -220,48 +220,17 @@ impl CudaExecutor {
         let normed_hidden_buf_wrapper =
             unsafe { GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_len) };
 
-        if lm_head_qtype == WeightQuantType::Q4K {
-            self.batched_q4k_gemv_into(
-                lm_head_ptr,
-                &normed_hidden_buf_wrapper,
-                &logits_buf,
-                m as u32,
-                vocab_size,
-                hidden_dim,
-            )?;
-        } else {
-            // Fall back to sequential for non-Q4K
-            for seq_idx in 0..m {
-                let h_offset = seq_idx * hidden_dim as usize;
-                let v_offset = seq_idx * vocab_size as usize;
-
-                // SAFETY: Unsafe operation with validated invariants
-                let input_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        normed_hidden_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
-                        hidden_dim as usize,
-                    )
-                };
-                // SAFETY: Unsafe operation with validated invariants
-                let output_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        logits_buf_ptr + (v_offset * std::mem::size_of::<f32>()) as u64,
-                        vocab_size as usize,
-                    )
-                };
-
-                self.q4k_gemv_into(
-                    lm_head_ptr,
-                    &input_view,
-                    &output_view,
-                    vocab_size,
-                    hidden_dim,
-                )?;
-
-                std::mem::forget(input_view);
-                std::mem::forget(output_view);
-            }
-        }
+        self.batched_gemv_with_fallback(
+            lm_head_qtype,
+            lm_head_ptr,
+            &normed_hidden_buf_wrapper,
+            &logits_buf,
+            normed_hidden_ptr,
+            logits_buf_ptr,
+            m as u32,
+            vocab_size,
+            hidden_dim,
+        )?;
 
         std::mem::forget(normed_hidden_buf_wrapper);
         std::mem::forget(logits_buf);

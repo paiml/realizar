@@ -122,14 +122,25 @@ impl CudaExecutor {
             }
         }
 
-        // 3. Output norm (PAR-115: Batched - single launch for M sequences)
+        self.batched_output_norm_lm_head_argmax(m, hidden_dim, vocab_size, epsilon)
+    }
+
+    /// Output norm → LM head projection → argmax for batched forward paths
+    #[allow(clippy::too_many_arguments)]
+    fn batched_output_norm_lm_head_argmax(
+        &mut self,
+        m: usize,
+        hidden_dim: u32,
+        vocab_size: u32,
+        epsilon: f32,
+    ) -> Result<Vec<u32>, GpuError> {
+        // Output norm (PAR-115: Batched - single launch for M sequences)
         let output_norm_buf = self.rmsnorm_cache.get("output_norm.gamma").ok_or_else(|| {
             GpuError::InvalidLaunchConfig("PAR-111: output_norm not cached".to_string())
         })?;
         let output_norm_ptr = output_norm_buf.as_ptr();
         let output_norm_len = hidden_dim as usize;
 
-        // Get buffer pointers to avoid borrow conflicts
         let hidden_buf2_ptr = self
             .workspace
             .hidden_buf2
@@ -149,14 +160,9 @@ impl CudaExecutor {
             .as_ptr();
         let normed_hidden_len = m * hidden_dim as usize;
 
-        // PAR-115: Use batched RMSNorm (M sequences in single kernel launch)
-        // SAFETY: Buffers are valid for the lifetime of this function
-        // SAFETY: Pointer valid from allocation, length verified, used within scope
         // SAFETY: Pointer valid from allocation, length verified, used within scope
         let hidden_buf2 =
             unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) };
-        // SAFETY: Raw pointer from valid allocation, length verified by caller
-        // SAFETY: Pointer valid from allocation, length verified, used within scope
         // SAFETY: Pointer valid from allocation, length verified, used within scope
         let normed_hidden_buf =
             unsafe { GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_len) };
@@ -174,7 +180,7 @@ impl CudaExecutor {
         std::mem::forget(hidden_buf2);
         std::mem::forget(normed_hidden_buf);
 
-        // 4. LM head projection (BATCHED GEMV)
+        // LM head projection
         if self.lm_head_ptr == 0 {
             return Err(GpuError::InvalidLaunchConfig(
                 "PAR-111: LM head not indexed".to_string(),
@@ -183,10 +189,8 @@ impl CudaExecutor {
         let lm_head_ptr = self.lm_head_ptr;
         let lm_head_qtype = self.lm_head_qtype;
 
-        // Allocate logits buffer (M × vocab_size)
         let logits_buf = GpuBuffer::new(&self.context, m * vocab_size as usize)?;
 
-        // Get normed_hidden buffer pointer to avoid borrow conflict
         let normed_hidden_buf_len = self
             .workspace
             .normed_hidden_buf
@@ -195,59 +199,25 @@ impl CudaExecutor {
                 GpuError::InvalidLaunchConfig("PAR-111: normed_hidden_buf missing".to_string())
             })?
             .len();
-        // SAFETY: normed_hidden_buf is valid for the lifetime of this function
-        // SAFETY: Pointer valid from allocation, length verified, used within scope
         // SAFETY: Pointer valid from allocation, length verified, used within scope
         let normed_hidden_buf_wrapper =
             unsafe { GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_buf_len) };
 
-        if lm_head_qtype == WeightQuantType::Q4K {
-            self.batched_q4k_gemv_into(
-                lm_head_ptr,
-                &normed_hidden_buf_wrapper,
-                &logits_buf,
-                m as u32,
-                vocab_size,
-                hidden_dim,
-            )?;
-        } else {
-            // Fall back to sequential for non-Q4K
-            for seq_idx in 0..m {
-                let h_offset = seq_idx * hidden_dim as usize;
-                let v_offset = seq_idx * vocab_size as usize;
+        self.batched_gemv_with_fallback(
+            lm_head_qtype,
+            lm_head_ptr,
+            &normed_hidden_buf_wrapper,
+            &logits_buf,
+            normed_hidden_ptr,
+            logits_buf.as_ptr(),
+            m as u32,
+            vocab_size,
+            hidden_dim,
+        )?;
 
-                // SAFETY: Unsafe operation with validated invariants
-                let input_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        normed_hidden_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
-                        hidden_dim as usize,
-                    )
-                };
-                // SAFETY: Unsafe operation with validated invariants
-                let output_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        logits_buf.as_ptr() + (v_offset * std::mem::size_of::<f32>()) as u64,
-                        vocab_size as usize,
-                    )
-                };
-
-                self.q4k_gemv_into(
-                    lm_head_ptr,
-                    &input_view,
-                    &output_view,
-                    vocab_size,
-                    hidden_dim,
-                )?;
-
-                std::mem::forget(input_view);
-                std::mem::forget(output_view);
-            }
-        }
-
-        // Prevent drop of borrowed buffer
         std::mem::forget(normed_hidden_buf_wrapper);
 
-        // 5. Batched argmax (M sequential GPU argmax calls)
+        // Batched argmax
         self.stream.synchronize()?;
 
         let mut token_ids = Vec::with_capacity(m);
