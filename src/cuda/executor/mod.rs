@@ -494,6 +494,11 @@ pub struct CudaExecutor {
     // Number of SMs on this GPU (e.g. 8 for Jetson Orin, 128 for RTX 4090).
     // Used to scale GEMV grid dimensions for optimal occupancy.
     num_sms: u32,
+    // PMAT-027: Q8 activation cache — skip redundant Q8 quantization when
+    // multiple DP4A GEMVs share the same input (QKV phase, FFN gate+up).
+    // Set to true after q8_quantize_into; callers invalidate (set false)
+    // when the input buffer content changes (e.g. after RMSNorm write).
+    q8_activation_valid: bool,
     // CUDA context — declared last so all GPU resources above drop first
     // (they need the context alive for cuMemFree etc.).
     //

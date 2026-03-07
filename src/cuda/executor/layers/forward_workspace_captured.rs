@@ -201,6 +201,9 @@ impl CudaExecutor {
         // SAFETY: Pointer valid from allocation, length verified, used within scope
         let normed_input = unsafe { GpuBuffer::<f32>::from_raw_parts(normed_ptr, normed_len) };
 
+        // PMAT-027: Invalidate Q8 cache — LM head input is normed_input (different from layer GEMVs).
+        self.q8_activation_valid = false;
+
         // PAR-058: Dispatch to correct kernel based on LM head quant type
         // Validate qtype against actual size - GGUF metadata can lie!
         let lm_head_qtype =

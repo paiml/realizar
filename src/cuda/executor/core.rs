@@ -130,6 +130,8 @@ impl CudaExecutor {
             gpu_profile: GpuProfile::detect(&context),
             // SM count for grid scaling (fallback 8 = Jetson Orin Nano)
             num_sms: context.multiprocessor_count().unwrap_or(8) as u32,
+            // PMAT-027: Q8 activation cache starts invalid
+            q8_activation_valid: false,
             context: std::mem::ManuallyDrop::new(context), // Last field — ManuallyDrop skips cuDevicePrimaryCtxRelease - dropped last
         })
     }

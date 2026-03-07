@@ -72,6 +72,9 @@ impl CudaExecutor {
         // Allocate logits buffer
         let logits_gpu = GpuBuffer::<f32>::new(&self.context, vocab_size as usize)?;
 
+        // PMAT-027: Invalidate Q8 cache — LM head input is normed_hidden (different from layer GEMVs).
+        self.q8_activation_valid = false;
+
         // PAR-058: Dispatch to correct kernel based on detected quantization type
         self.dispatch_lm_head_kernel(
             lm_head_qtype, lm_head_ptr,

@@ -43,6 +43,10 @@ impl CudaExecutor {
             None
         };
 
+        // PMAT-027: Invalidate Q8 cache — hidden_buf1 was just written by FFN RMSNorm.
+        // Gate and Up both read the same hidden_buf1; first quantizes, second reuses.
+        self.q8_activation_valid = false;
+
         // Gate projection
         self.gemv_dispatch(
             layer_weights.ffn_gate_qtype,
@@ -62,32 +66,9 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check FFN gate/up outputs (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
-            self.stream.synchronize()?;
-            let mut gate_out = vec![0.0f32; ffn_gate_buf.len()];
-            ffn_gate_buf.copy_to_host(&mut gate_out)?;
-            let gate_nan = gate_out.iter().filter(|x| x.is_nan()).count();
-            if gate_nan > 0 {
-                eprintln!("[PAR-058-L{}] FFN gate has {} NaN", layer_idx, gate_nan);
-            } else {
-                eprintln!(
-                    "[PAR-058-L{}] FFN gate OK, first 3: {:?}",
-                    layer_idx,
-                    &gate_out[..3.min(gate_out.len())]
-                );
-            }
-            let mut up_out = vec![0.0f32; ffn_up_buf.len()];
-            ffn_up_buf.copy_to_host(&mut up_out)?;
-            let up_nan = up_out.iter().filter(|x| x.is_nan()).count();
-            if up_nan > 0 {
-                eprintln!("[PAR-058-L{}] FFN up has {} NaN", layer_idx, up_nan);
-            } else {
-                eprintln!(
-                    "[PAR-058-L{}] FFN up OK, first 3: {:?}",
-                    layer_idx,
-                    &up_out[..3.min(up_out.len())]
-                );
-            }
+        if !skip_debug && layer_idx < 4 {
+            self.debug_check_buf(ffn_gate_buf, "FFN gate", layer_idx)?;
+            self.debug_check_buf(ffn_up_buf, "FFN up", layer_idx)?;
         }
 
         // 8. SwiGLU activation: gate * silu(up) -> ffn_act_buf
@@ -102,42 +83,8 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check SwiGLU output (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
-            self.stream.synchronize()?;
-            let mut swiglu_out = vec![0.0f32; ffn_act_buf.len()];
-            ffn_act_buf.copy_to_host(&mut swiglu_out)?;
-            let swiglu_nan = swiglu_out.iter().filter(|x| x.is_nan()).count();
-            if swiglu_nan > 0 {
-                eprintln!("[PAR-058-L{}] SwiGLU has {} NaN", layer_idx, swiglu_nan);
-            } else {
-                eprintln!(
-                    "[PAR-058-L{}] SwiGLU OK, first 3: {:?}",
-                    layer_idx,
-                    &swiglu_out[..3.min(swiglu_out.len())]
-                );
-            }
-        }
-
-        // PAR-058-DEBUG: Check FFN down weight info (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
-            eprintln!(
-                "[PAR-058-L{}] FFN down weight ptr={:#x}, len={}, qtype={:?}",
-                layer_idx,
-                layer_weights.ffn_down_ptr,
-                layer_weights.ffn_down_len,
-                layer_weights.ffn_down_qtype
-            );
-            eprintln!(
-                "[PAR-058-L{}] FFN down call: n={}, k={}",
-                layer_idx, hidden_dim, intermediate_dim
-            );
-            let n_super_blocks = (intermediate_dim as usize + 255) / 256;
-            let expected_q4k = hidden_dim as usize * n_super_blocks * 144;
-            let expected_q5k = hidden_dim as usize * n_super_blocks * 176;
-            eprintln!(
-                "[PAR-058-L{}] Expected sizes: Q4K={}, Q5K={} (n_sb={})",
-                layer_idx, expected_q4k, expected_q5k, n_super_blocks
-            );
+        if !skip_debug && layer_idx < 4 {
+            self.debug_check_buf(ffn_act_buf, "SwiGLU", layer_idx)?;
         }
 
         // 9. FFN down projection: ffn_act -> hidden_buf1 (reuse, ffn_normed no longer needed)
@@ -160,48 +107,8 @@ impl CudaExecutor {
             .unwrap_or(metadata_qtype)
         };
 
-        // Log if we overrode the type
-        if !skip_debug && ffn_down_qtype != layer_weights.ffn_down_qtype && layer_idx == 0 {
-            eprintln!(
-                "[PAR-058] FFN down qtype override: {:?} -> {:?} (size-based detection)",
-                layer_weights.ffn_down_qtype, ffn_down_qtype
-            );
-        }
-
-        // CORRECTNESS-002: Debug actual qtype being used
-        if !skip_debug && layer_idx == 2 {
-            eprintln!(
-                "[CORRECTNESS-002] L2 FFN down: metadata_qtype={:?}, detected_qtype={:?}",
-                layer_weights.ffn_down_qtype, ffn_down_qtype
-            );
-        }
-
-        // CORRECTNESS-002: Debug first super-block of Layer 2 FFN down weights (Q4K only)
-        if !skip_debug && layer_idx == 2 && ffn_down_qtype == WeightQuantType::Q4K {
-            self.stream.synchronize()?;
-            eprintln!(
-                "[CORRECTNESS-002] L2 FFN down: ptr={:#x}, n={}, k={}",
-                layer_weights.ffn_down_ptr, hidden_dim, intermediate_dim
-            );
-            let mut host_data = vec![0u8; 144];
-            let debug_buf =
-                // SAFETY: Memory safety ensured by bounds checking and alignment
-                unsafe { GpuBuffer::<u8>::from_raw_parts(layer_weights.ffn_down_ptr, 144) };
-            debug_buf.copy_to_host(&mut host_data)?;
-            std::mem::forget(debug_buf);
-            let d_bytes = [host_data[0], host_data[1]];
-            let dmin_bytes = [host_data[2], host_data[3]];
-            let d_f16 = half::f16::from_le_bytes(d_bytes);
-            let dmin_f16 = half::f16::from_le_bytes(dmin_bytes);
-            eprintln!(
-                "[CORRECTNESS-002] L2 FFN down sb0: d_f16={:?} ({:.6}), dmin_f16={:?} ({:.6})",
-                d_f16, d_f16.to_f32(), dmin_f16, dmin_f16.to_f32()
-            );
-            eprintln!(
-                "[CORRECTNESS-002] L2 FFN down sb0 first 20 bytes: {:?}",
-                host_data.get(..20).unwrap_or(&[])
-            );
-        }
+        // PMAT-027: Invalidate Q8 cache — input is now ffn_act_buf (different from gate/up).
+        self.q8_activation_valid = false;
 
         let timer_ffn_down = if profiling {
             self.start_brick_id(trueno::BrickId::DownProjection)
@@ -218,25 +125,8 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check FFN down output (skip during graph capture)
-        if !skip_debug && (layer_idx == 0 || layer_idx == 1 || layer_idx == 2 || layer_idx == 3) {
-            self.stream.synchronize()?;
-            let mut ffn_down = vec![0.0f32; hidden_buf1.len()];
-            hidden_buf1.copy_to_host(&mut ffn_down)?;
-            let nan_count = ffn_down.iter().filter(|x| x.is_nan()).count();
-            if nan_count > 0 {
-                eprintln!(
-                    "[PAR-058-L{}] FFN down has {} NaN, first 10: {:?}",
-                    layer_idx,
-                    nan_count,
-                    &ffn_down[..10.min(ffn_down.len())]
-                );
-            } else {
-                eprintln!(
-                    "[PAR-058-L{}] FFN down OK, first 3: {:?}",
-                    layer_idx,
-                    &ffn_down[..3.min(ffn_down.len())]
-                );
-            }
+        if !skip_debug && layer_idx < 4 {
+            self.debug_check_buf(hidden_buf1, "FFN down", layer_idx)?;
         }
 
         // 10. Second residual: residual1 (input_staging) + ffn_out (hidden_buf1) -> hidden_buf2
@@ -253,22 +143,7 @@ impl CudaExecutor {
 
         // PAR-058-DEBUG: Check layer output (skip during graph capture)
         if !skip_debug && layer_idx < 10 {
-            self.stream.synchronize()?;
-            let mut layer_out = vec![0.0f32; hidden_buf2.len()];
-            hidden_buf2.copy_to_host(&mut layer_out)?;
-            let nan_count = layer_out.iter().filter(|x| x.is_nan()).count();
-            if nan_count > 0 {
-                eprintln!(
-                    "[PAR-058-L{}] Layer output has {} NaN (qtype: {:?})",
-                    layer_idx, nan_count, layer_weights.ffn_down_qtype
-                );
-            } else {
-                eprintln!(
-                    "[PAR-058-L{}] Layer output OK, first 3: {:?}",
-                    layer_idx,
-                    &layer_out[..3.min(layer_out.len())]
-                );
-            }
+            self.debug_check_buf(hidden_buf2, "Layer output", layer_idx)?;
         }
 
         Ok(())
