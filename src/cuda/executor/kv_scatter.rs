@@ -509,14 +509,10 @@ impl CudaExecutor {
         });
 
         if flash_enabled
-            && !self.is_capturing
             && !self.is_prefilling
             && self.flash_decode_enabled
             && self.flash_decode_k_ptrs.contains_key(&layer_idx)
         {
-            // PAR-118: Flash Decoding for non-capture path.
-            // Skipped during graph capture (error 901) and during batched prefill
-            // (GH-94: small seq_lens during prefill cause split-K chunking errors).
             return self
                 .flash_decoding_graphed(layer_idx, q_gpu, out_gpu, use_graph_mode, new_len as u32)
                 .map(|()| new_len);

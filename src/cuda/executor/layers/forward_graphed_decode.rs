@@ -105,8 +105,8 @@ impl CudaExecutor {
         self.prepare_capture_buffers(input, position, hidden_dim, vocab_size)?;
         self.preload_modules_for_capture(num_layers, hidden_dim, intermediate_dim, vocab_size)?;
 
-        // PAR-118: Set is_capturing flag so incremental_attention_into_inner skips
-        // Flash Decoding (which calls stream.synchronize(), forbidden during capture)
+        // PAR-118: Set is_capturing flag so Flash Decoding uses seq_len_buf
+        // (already populated by prepare_capture_buffers) instead of copy_from_host.
         self.is_capturing = true;
         let capture_result = self.try_graph_capture(
             num_layers, hidden_dim, intermediate_dim, vocab_size, epsilon,

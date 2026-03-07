@@ -80,13 +80,20 @@ impl CudaExecutor {
         let mut partials_ptr = partials_buf.as_ptr();
         let mut max_chunks_val = max_chunks as u32;
 
-        // PAR-118: ALWAYS use flash_decode_seq_lens_buf (persistent buffer) for seq_len.
-        // CRITICAL: Do NOT use seq_len_buf here. When CUDA graph capture fails (error 901),
-        // the system falls back to non-graphed path, but seq_len_buf still exists with stale
-        // values. Using seq_len_buf in that case reads wrong seq_len → garbage output.
-        // flash_decode_seq_lens_buf is explicitly updated with the correct seq_len on every call.
-        // For future graph compatibility: add flash_decode_seq_lens_buf update to graph replay.
-        let mut seq_lens_ptr = {
+        // PAR-118: seq_len pointer selection depends on capture vs eager mode.
+        let mut seq_lens_ptr = if self.is_capturing {
+            // During graph capture: use seq_len_buf (already populated by prepare_capture_buffers).
+            // No copy_from_host — forbidden during capture. During graph replay, seq_len_buf
+            // is updated via async copy before graph launch, so captured kernels read fresh values.
+            self.seq_len_buf.as_ref().ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(
+                    "PAR-118: seq_len_buf not initialized for graph capture".to_string(),
+                )
+            })?.as_ptr()
+        } else {
+            // Eager path: use dedicated flash_decode_seq_lens_buf with explicit copy.
+            // CRITICAL: Do NOT use seq_len_buf here — may have stale values after graph
+            // capture failure (error 901 fallback).
             let buf = self.flash_decode_seq_lens_buf.as_mut().ok_or_else(|| {
                 GpuError::InvalidLaunchConfig(
                     "PAR-118: flash_decode_seq_lens_buf not initialized".to_string(),
@@ -121,12 +128,10 @@ impl CudaExecutor {
             }
         }
 
-        // PAR-118: Sync between chunk and reduce kernels.
-        // Required: chunk kernel writes partials that reduce kernel reads.
-        // Even though both are on self.stream, the CUDA driver needs an explicit
-        // barrier to ensure all chunk blocks complete before reduce starts reading.
-        // Without this sync, reduce reads stale/partial data → garbage output.
-        self.stream.synchronize()?;
+        // PAR-118-FIX: No synchronize needed between chunk and reduce kernels.
+        // CUDA stream semantics guarantee all blocks from kernel A complete before
+        // kernel B starts on the same stream. The previous sync was a CPU-GPU
+        // round-trip (~10µs) × 28 layers = ~280µs/token of pure overhead.
 
         // Reduce kernel: one block per head, reduces across chunks
         let reduce_kernel = FlashDecodingReduceKernel::new(
