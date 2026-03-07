@@ -121,9 +121,9 @@ impl CudaExecutor {
             .expect("module just inserted");
 
         let threads = num_warps * 32;
-        // GH-174: Cap grid size for grid-stride loop. Kernel processes
-        // remaining rows via loop. 256 blocks is sufficient for 8 SMs.
-        let grid_x = n.min(256);
+        // Scale grid to GPU size: enough blocks per SM for memory latency hiding.
+        // Jetson (8 SMs) → 32 blocks, 4090 (128 SMs) → 512 blocks.
+        let grid_x = n.min(self.num_sms * 4);
         let config = LaunchConfig::grid_2d(grid_x, 1, threads, 1);
 
         let mut ptr_output = output.as_ptr();
@@ -211,7 +211,7 @@ impl CudaExecutor {
             .expect("module just inserted");
 
         let threads = num_warps * 32;
-        let grid_x = n.min(256);
+        let grid_x = n.min(self.num_sms * 4);
         let config = LaunchConfig::grid_2d(grid_x, 1, threads, 1);
 
         let mut ptr_output = output.as_ptr();
