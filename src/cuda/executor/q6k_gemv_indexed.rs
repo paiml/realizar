@@ -32,6 +32,12 @@ impl CudaExecutor {
         // Dispatch Q6K variant from GpuProfile (auto-detected or env var override)
         let can_use_advanced = k.is_multiple_of(256);
 
+        if can_use_advanced && self.gpu_profile.q6k == Q6kVariant::HwDp4a {
+            let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
+            self.hw_dp4a_q6k_gemv_into(weight_ptr, input, &buf_output, n, k)?;
+            return Ok(buf_output);
+        }
+
         if can_use_advanced && self.gpu_profile.q6k == Q6kVariant::Dp4a {
             let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
             self.dp4a_q6k_gemv_into(weight_ptr, input, &buf_output, n, k)?;

@@ -89,6 +89,9 @@ impl CudaExecutor {
         validate_device_ptr(weight_ptr, "q6k_gemv_into")?;
         use crate::cuda::gpu_profile::Q6kVariant;
         let can_use_advanced = k.is_multiple_of(256);
+        if can_use_advanced && self.gpu_profile.q6k == Q6kVariant::HwDp4a {
+            return self.hw_dp4a_q6k_gemv_into(weight_ptr, input, output, n, k);
+        }
         if can_use_advanced && self.gpu_profile.q6k == Q6kVariant::Dp4a {
             return self.dp4a_q6k_gemv_into(weight_ptr, input, output, n, k);
         }
@@ -264,6 +267,84 @@ impl CudaExecutor {
         let threads = num_warps * 32;
         // Scale grid to GPU size for memory latency hiding.
         // Grid-stride loop in kernel handles the remainder.
+        let grid_x = n.min(self.num_sms * 4);
+        let config = LaunchConfig::grid_2d(grid_x, 1, threads, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_q8 = q8_buf.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_q8) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        std::mem::forget(q8_buf);
+
+        Ok(())
+    }
+
+    /// PMAT-030: Half-warp DP4A Q6K GEMV — 16 threads/SB, direct scale loads.
+    #[inline]
+    pub fn hw_dp4a_q6k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "hw_dp4a_q6k_gemv_into")?;
+
+        let q8_ptr = self
+            .workspace
+            .q8_activation_buf
+            .as_ref()
+            .expect("hw_dp4a_q6k: workspace.q8_activation_buf not initialized")
+            .as_ptr();
+        let q8_len = self
+            .workspace
+            .q8_activation_buf
+            .as_ref()
+            .expect("q8_activation_buf must be initialized")
+            .len();
+
+        let q8_buf = unsafe { GpuBuffer::<u8>::from_raw_parts(q8_ptr, q8_len) };
+
+        if !self.q8_activation_valid {
+            self.q8_quantize_into(input, &q8_buf, k)?;
+            self.q8_activation_valid = true;
+        }
+
+        let num_warps = self.gpu_profile.mwv_warps;
+        let kernel_type = KernelType::HwDp4aQ6KGemv { k, n, num_warps };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("hw_dp4a_q6k_gemv_{}_{}_{}", k, n, num_warps);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let threads = num_warps * 32;
         let grid_x = n.min(self.num_sms * 4);
         let config = LaunchConfig::grid_2d(grid_x, 1, threads, 1);
 
