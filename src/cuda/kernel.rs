@@ -135,6 +135,7 @@ impl CudaKernels {
             KernelType::FusedQKV { .. } => "fused_qkv_gemv",
             KernelType::FusedGateUp { .. } => "fused_gate_up_swiglu",
             KernelType::FusedGateUpQ4KGemv { .. } => "fused_gate_up_q4k_gemv",
+            KernelType::FusedGateUpSwigluHwDp4aQ4KGemv { .. } => "fused_gate_up_swiglu_hw_dp4a_q4k_gemv",
             KernelType::ResidualAdd { .. } => "residual_add",
             KernelType::BatchedResidualAdd { .. } => "batched_residual_add",
             KernelType::BatchedSwiglu { .. } => "batched_swiglu",

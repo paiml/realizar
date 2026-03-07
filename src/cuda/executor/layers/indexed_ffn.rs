@@ -35,54 +35,29 @@ impl CudaExecutor {
             self.stop_brick_id(timer_rmsnorm2, 1);
         }
 
-        // 7. FFN gate/up projections -> workspace buffers
-        // PAR-077: Fused kernel BLOCKED - 3x slower due to shared memory + barrier overhead
-        let timer_ffn_gate_up = if profiling {
-            self.start_brick_id(trueno::BrickId::GateProjection)
-        } else {
-            None
-        };
-
+        // 7+8. FFN gate/up projections + SwiGLU
         // PMAT-027: Invalidate Q8 cache — hidden_buf1 was just written by FFN RMSNorm.
-        // Gate and Up both read the same hidden_buf1; first quantizes, second reuses.
         self.q8_activation_valid = false;
 
-        // Gate projection
-        self.gemv_dispatch(
-            layer_weights.ffn_gate_qtype,
-            layer_weights.ffn_gate_ptr,
-            hidden_buf1, ffn_gate_buf, intermediate_dim, hidden_dim,
-        )?;
+        // PMAT-034: Fused gate+up+SwiGLU when both weights are Q4K and HW DP4A available
+        let use_fused = self.gpu_profile.q4k == Q4kVariant::HwDp4a
+            && layer_weights.ffn_gate_qtype == WeightQuantType::Q4K
+            && layer_weights.ffn_up_qtype == WeightQuantType::Q4K
+            && std::env::var("FUSED_GATE_UP").map(|v| v != "0").unwrap_or(false);
 
-        // Up projection
-        self.gemv_dispatch(
-            layer_weights.ffn_up_qtype,
-            layer_weights.ffn_up_ptr,
-            hidden_buf1, ffn_up_buf, intermediate_dim, hidden_dim,
-        )?;
-
-        if profiling {
-            self.stop_brick_id(timer_ffn_gate_up, 1);
-        }
-
-        // PAR-058-DEBUG: Check FFN gate/up outputs (skip during graph capture)
-        if !skip_debug && layer_idx < 4 {
-            self.debug_check_buf(ffn_gate_buf, "FFN gate", layer_idx)?;
-            self.debug_check_buf(ffn_up_buf, "FFN up", layer_idx)?;
-        }
-
-        // 8. SwiGLU activation: gate * silu(up) -> ffn_act_buf
-        let timer_swiglu = if profiling {
-            self.start_brick_id(trueno::BrickId::Activation)
+        if use_fused {
+            self.fused_gate_up_swiglu_hw_dp4a_q4k_gemv_into(
+                layer_weights.ffn_gate_ptr,
+                layer_weights.ffn_up_ptr,
+                hidden_buf1, ffn_act_buf, hidden_dim, intermediate_dim,
+            )?;
         } else {
-            None
-        };
-        self.fused_swiglu_into(ffn_gate_buf, ffn_up_buf, ffn_act_buf, intermediate_dim)?;
-        if profiling {
-            self.stop_brick_id(timer_swiglu, 1);
+            self.workspace_ffn_gate_up_swiglu_separate(
+                hidden_buf1, ffn_gate_buf, ffn_up_buf, ffn_act_buf,
+                layer_weights, intermediate_dim, hidden_dim, profiling,
+            )?;
         }
 
-        // PAR-058-DEBUG: Check SwiGLU output (skip during graph capture)
         if !skip_debug && layer_idx < 4 {
             self.debug_check_buf(ffn_act_buf, "SwiGLU", layer_idx)?;
         }
@@ -146,6 +121,45 @@ impl CudaExecutor {
             self.debug_check_buf(hidden_buf2, "Layer output", layer_idx)?;
         }
 
+        Ok(())
+    }
+
+    /// Separate gate + up + SwiGLU path (default when fused kernel not available)
+    #[allow(clippy::too_many_arguments)]
+    fn workspace_ffn_gate_up_swiglu_separate(
+        &mut self,
+        hidden_buf1: &GpuBuffer<f32>,
+        ffn_gate_buf: &GpuBuffer<f32>,
+        ffn_up_buf: &GpuBuffer<f32>,
+        ffn_act_buf: &GpuBuffer<f32>,
+        layer_weights: &ValidatedLayerWeights,
+        intermediate_dim: u32,
+        hidden_dim: u32,
+        profiling: bool,
+    ) -> Result<(), GpuError> {
+        let timer = if profiling {
+            self.start_brick_id(trueno::BrickId::GateProjection)
+        } else {
+            None
+        };
+
+        self.gemv_dispatch(
+            layer_weights.ffn_gate_qtype,
+            layer_weights.ffn_gate_ptr,
+            hidden_buf1, ffn_gate_buf, intermediate_dim, hidden_dim,
+        )?;
+
+        self.gemv_dispatch(
+            layer_weights.ffn_up_qtype,
+            layer_weights.ffn_up_ptr,
+            hidden_buf1, ffn_up_buf, intermediate_dim, hidden_dim,
+        )?;
+
+        if profiling {
+            self.stop_brick_id(timer, 1);
+        }
+
+        self.fused_swiglu_into(ffn_gate_buf, ffn_up_buf, ffn_act_buf, intermediate_dim)?;
         Ok(())
     }
 }

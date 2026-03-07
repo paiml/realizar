@@ -194,6 +194,7 @@ use trueno_gpu::kernels::{
     BatchedVectorizedRmsNormKernel, BiasActivationKernel, ChunkedTiledQ4KGemvKernel,
     CoalescedGemvKernel, CoalescedQ4KGemvKernel, CoalescedQ6KGemvKernel, Dp4aQ4KGemvKernel,
     ElementwiseMulKernel, Fp16Q4KGemvKernel, FusedGateUpKernel, FusedGateUpQ4KGemvKernel,
+    FusedGateUpSwigluHwDp4aQ4KGemvKernel,
     FusedQKVKernel, FusedResidualRmsNormKernel, FusedRmsNormQ4KGemvKernel, FusedSwigluKernel,
     GeluKernel, GemmKernel, GemvKernel, IncrementalAttentionKernel, Kernel,
     KvCacheScatterIndirectKernel, KvCacheScatterKernel, LayerNormKernel,
@@ -207,7 +208,7 @@ use trueno_gpu::kernels::{
 };
 use trueno_gpu::GpuError;
 
-use crate::cuda::gpu_profile::GpuProfile;
+use crate::cuda::gpu_profile::{GpuProfile, Q4kVariant};
 use crate::cuda::kernels::{CudaKernels, KernelType};
 use crate::cuda::memory::{
     GpuMemoryPool, PinnedHostBuffer, PoolStats, StagingBufferPool, StagingPoolStats,
