@@ -83,9 +83,8 @@ impl OwnedQuantizedModelCuda {
         );
         ttft_mark!("kv_cache_alloc");
 
-        // Reset GPU KV cache positions and clear stale graph state
+        // Reset GPU KV cache positions (lengths → 0, graph preserved for reuse)
         self.executor.reset_kv_cache_gpu();
-        self.executor.clear_decode_graph();
         ttft_mark!("reset_gpu");
 
         let mut tokens = prompt.to_vec();

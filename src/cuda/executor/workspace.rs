@@ -30,11 +30,11 @@ impl CudaExecutor {
         hidden_dim: usize,
         intermediate_dim: usize,
     ) -> Result<(), GpuError> {
-        // PAR-200: Skip reallocation if decode workspace already initialized with matching dims.
-        // This avoids GPU malloc churn when generate_gpu_resident is called repeatedly.
-        // Only reuse when batch_size == 1 (decode-only workspace, not leftover from batched prefill).
+        // PAR-200: Skip reallocation if workspace already initialized with matching dims.
+        // Prefill workspace (batch_size >= 1) is always large enough for decode (batch_size=1).
+        // Reusing prefill buffers preserves GPU pointers, enabling CUDA graph reuse across requests.
         if self.workspace.initialized
-            && self.workspace.batch_size == 1
+            && self.workspace.batch_size >= 1
             && self.workspace.hidden_dim == hidden_dim
             && self.workspace.intermediate_dim == intermediate_dim
         {

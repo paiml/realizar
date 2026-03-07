@@ -305,7 +305,9 @@ impl OwnedQuantizedModelCuda {
                 operation: "init_workspace".to_string(),
                 reason: format!("Workspace restore failed: {e}"),
             })?;
-        self.executor.clear_decode_graph();
+        // PMAT-032: Keep decode graph alive — workspace pointers are stable
+        // (init_workspace reuses prefill buffers when dims match).
+        // Graph's position_buf/seq_len_buf are updated before each replay.
 
         if trace {
             eprintln!(
@@ -385,9 +387,7 @@ impl OwnedQuantizedModelCuda {
         // Without this, cache positions accumulate across generate calls causing degradation
         self.executor.reset_kv_cache_gpu();
 
-        // GH-94: Clear decode graph so first decode can re-capture.
-        // Workspace buffers may be reallocated by prefill, invalidating graph pointers.
-        self.executor.clear_decode_graph();
+        // PMAT-032: Graph preserved — workspace pointers stable across requests.
 
         let mut tokens = prompt.to_vec();
 
