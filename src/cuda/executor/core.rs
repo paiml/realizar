@@ -128,6 +128,8 @@ impl CudaExecutor {
             profiler: trueno::BrickProfiler::new(),
             // Auto-detect kernel variants from GPU hardware (replaces env var tuning)
             gpu_profile: GpuProfile::detect(&context),
+            // SM count for grid scaling (fallback 8 = Jetson Orin Nano)
+            num_sms: context.multiprocessor_count().unwrap_or(8) as u32,
             context: std::mem::ManuallyDrop::new(context), // Last field — ManuallyDrop skips cuDevicePrimaryCtxRelease - dropped last
         })
     }

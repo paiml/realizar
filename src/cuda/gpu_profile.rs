@@ -64,6 +64,7 @@ impl GpuProfile {
         let (major, minor) = context.compute_capability().unwrap_or((7, 0));
         let sm_target = format!("sm_{major}{minor}");
         let has_dp4a = major > 7 || (major == 7 && minor >= 5); // sm_75+ (Turing)
+        let num_sms = context.multiprocessor_count().unwrap_or(8);
 
         let q4k = Self::detect_q4k(has_dp4a);
         let q6k = Self::detect_q6k(has_dp4a);
@@ -73,8 +74,9 @@ impl GpuProfile {
         let profile = Self { q4k, q6k, mwv_warps, batched_prefill, sm_target };
 
         eprintln!(
-            "[GpuProfile] {}: q4k={:?}, q6k={:?}, warps={}, batched_prefill={}",
-            profile.sm_target, profile.q4k, profile.q6k, profile.mwv_warps, profile.batched_prefill,
+            "[GpuProfile] {}: q4k={:?}, q6k={:?}, warps={}, batched_prefill={}, sms={}",
+            profile.sm_target, profile.q4k, profile.q6k, profile.mwv_warps,
+            profile.batched_prefill, num_sms,
         );
 
         profile

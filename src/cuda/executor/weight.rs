@@ -259,10 +259,9 @@ impl CudaExecutor {
             .expect("module just inserted");
 
         let threads = num_warps * 32;
-        // GH-174: Cap grid size for large N (e.g., LM head n=151936).
+        // Scale grid to GPU size for memory latency hiding.
         // Grid-stride loop in kernel handles the remainder.
-        // 256 blocks × 8 SMs = good occupancy on Orin without excessive launch overhead.
-        let grid_x = n.min(256);
+        let grid_x = n.min(self.num_sms * 4);
         let config = LaunchConfig::grid_2d(grid_x, 1, threads, 1);
 
         let mut ptr_output = output.as_ptr();
