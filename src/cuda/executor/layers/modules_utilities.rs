@@ -467,6 +467,65 @@ impl CudaExecutor {
         // Q6K FFN down + coalesced variant
         self.preload_q6k_gemv_pair(intermediate_dim, hidden_dim)?;
 
+        // PMAT-038: HW DP4A Q4K + Q8 quantize preloading for CUDA graph capture.
+        if self.gpu_profile.q4k == crate::cuda::gpu_profile::Q4kVariant::HwDp4a {
+            self.preload_hw_dp4a_modules(hidden_dim, intermediate_dim, q_dim, kv_dim, nw)?;
+        }
+
+        Ok(())
+    }
+
+    /// PMAT-038: Pre-load HW DP4A Q4K GEMV + Q8 quantize + fused gate+up+SwiGLU.
+    ///
+    /// Without this, graph capture fails (error 901) because JIT compile allocates during capture.
+    #[allow(clippy::too_many_arguments)]
+    fn preload_hw_dp4a_modules(
+        &mut self,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        q_dim: u32,
+        kv_dim: u32,
+        nw: u32,
+    ) -> Result<(), GpuError> {
+        // Q8 quantize for all GEMV input dimensions
+        for &q8_n in &[hidden_dim, q_dim, intermediate_dim] {
+            let q8_key = format!("q8_quantize_{}", q8_n);
+            if !self.modules.contains_key(&q8_key) {
+                let kernel_type = KernelType::Q8Quantize { n: q8_n };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(q8_key, module);
+            }
+        }
+        // HW DP4A Q4K for all dimension pairs
+        let hw_dims: [(u32, u32); 5] = [
+            (hidden_dim, q_dim),           // Q projection
+            (hidden_dim, kv_dim),          // K/V projection
+            (q_dim, hidden_dim),           // output projection
+            (hidden_dim, intermediate_dim), // FFN gate/up
+            (intermediate_dim, hidden_dim), // FFN down
+        ];
+        for &(k, n) in &hw_dims {
+            let key = format!("hw_dp4a_q4k_gemv_{}_{}_{}", k, n, nw);
+            if !self.modules.contains_key(&key) {
+                let kernel_type = KernelType::HwDp4aQ4KGemv { k, n, num_warps: nw };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(key, module);
+            }
+        }
+        // Fused gate+up+SwiGLU kernel (PMAT-034)
+        if self.gpu_profile.fused_gate_up {
+            let fused_key = format!("fused_gate_up_swiglu_hw_dp4a_q4k_{}_{}", hidden_dim, intermediate_dim);
+            if !self.modules.contains_key(&fused_key) {
+                let kernel_type = KernelType::FusedGateUpSwigluHwDp4aQ4KGemv {
+                    k: hidden_dim, n: intermediate_dim,
+                };
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(fused_key, module);
+            }
+        }
         Ok(())
     }
 
