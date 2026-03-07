@@ -37,6 +37,16 @@ impl OwnedQuantizedModelCuda {
             return Ok(Vec::new());
         }
 
+        let ttft_trace = std::env::var("TTFT_TRACE").is_ok();
+        let t_start = if ttft_trace { Some(std::time::Instant::now()) } else { None };
+        macro_rules! ttft_mark {
+            ($label:expr) => {
+                if let Some(t0) = t_start {
+                    eprintln!("[TTFT] {:>20}: {:>7.2}ms", $label, t0.elapsed().as_secs_f64() * 1000.0);
+                }
+            };
+        }
+
         // GH-167: Check context length BEFORE GPU dispatch to return clean error
         if prompt.len() > self.model.config.context_length {
             return Err(RealizarError::ContextLimitExceeded {
@@ -52,6 +62,7 @@ impl OwnedQuantizedModelCuda {
                 operation: "cuda_make_current".to_string(),
                 reason: format!("Failed to set CUDA context current: {e}"),
             })?;
+        ttft_mark!("make_current");
 
         // Check architecture support
         if !self.supports_gpu_resident() {
@@ -70,66 +81,21 @@ impl OwnedQuantizedModelCuda {
             kv_dim,
             prompt.len() + config.max_tokens,
         );
+        ttft_mark!("kv_cache_alloc");
 
         // Reset GPU KV cache positions and clear stale graph state
         // PMAT-PREFILL-FIX: Must clear position_buf to avoid indirect scatter using stale position
         self.executor.reset_kv_cache_gpu();
         self.executor.clear_decode_graph();
+        ttft_mark!("reset_gpu");
 
         let mut tokens = prompt.to_vec();
 
-        // Batched prefill is the default (9x TTFT improvement, PMAT-023).
-        // Set BATCHED_PREFILL=0 for serial fallback.
-        let use_batched_prefill = std::env::var("BATCHED_PREFILL")
-            .map(|v| v != "0")
-            .unwrap_or(true);
+        // PMAT-023: Batched prefill (default, 9x TTFT improvement).
         let prefill_count = prompt.len() - 1;
-        if prefill_count > 0 && !use_batched_prefill {
-            // Serial prefill: process tokens one at a time (correct output)
-            for (pos, &token_id) in prompt.iter().enumerate() {
-                if pos < prompt.len() - 1 {
-                    let _ = self.forward_gpu_resident(token_id, &mut cache, pos)?;
-                }
-            }
-        } else if prefill_count > 0 {
-            let prefill_tokens = &prompt[..prefill_count];
-            let hidden_dim = self.model.config.hidden_dim;
-            let intermediate_dim = self.model.layers[0].ffn_up_weight.out_dim;
-            let num_layers = self.model.config.num_layers;
-            let eps = self.model.config.eps;
-
-            let embeddings = self.model.embed(prefill_tokens);
-            let positions: Vec<u32> = (0..prefill_count as u32).collect();
-
-            self.executor
-                .init_prefill_workspace(prefill_count, hidden_dim, intermediate_dim)
-                .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "init_prefill_workspace".to_string(),
-                    reason: format!("Prefill workspace init failed: {e}"),
-                })?;
-
-            self.executor
-                .prefill_all_layers_gpu(
-                    &embeddings,
-                    &positions,
-                    num_layers,
-                    hidden_dim as u32,
-                    intermediate_dim as u32,
-                    eps,
-                )
-                .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "prefill_all_layers_gpu".to_string(),
-                    reason: format!("Batched prefill failed: {e}"),
-                })?;
-
-            self.executor
-                .init_workspace(hidden_dim, intermediate_dim)
-                .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "init_workspace".to_string(),
-                    reason: format!("Workspace restore failed: {e}"),
-                })?;
-
-            self.executor.clear_decode_graph();
+        if prefill_count > 0 {
+            self.run_prefill(prompt, &mut cache, prefill_count, ttft_trace)?;
+            ttft_mark!("prefill");
         }
 
         // Generate from last prompt token
@@ -138,7 +104,9 @@ impl OwnedQuantizedModelCuda {
 
         for _token_num in 0..config.max_tokens {
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
-                self.forward_gpu_resident_to_token_id(last_token, &mut cache, position)?
+                let tok = self.forward_gpu_resident_to_token_id(last_token, &mut cache, position)?;
+                if _token_num == 0 { ttft_mark!("first_decode"); }
+                tok
             } else {
                 let logits = self.forward_gpu_resident(last_token, &mut cache, position)?;
                 OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)

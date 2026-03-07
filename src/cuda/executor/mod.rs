@@ -482,6 +482,17 @@ pub struct CudaExecutor {
     // Size: largest weight matrix N×K × 4 bytes (FP32)
     dequant_scratch: Option<GpuBuffer<f32>>,
     dequant_scratch_size: usize,
+    // PMAT-031: Cached FP16 dequantized weights for HGEMM prefill
+    // Key: quantized weight GPU pointer → persistent FP16 buffer [N×K]
+    // Populated lazily on first prefill, eliminates per-request dequant
+    fp16_weight_cache: HashMap<u64, GpuBuffer<u16>>,
+    // PMAT-031: FP16 activation scratch for HGEMM input conversion
+    fp16_activation_scratch: Option<GpuBuffer<u16>>,
+    fp16_activation_scratch_size: usize,
+    // PMAT-032: Attention score scratch for prefill parallel attention
+    // [num_heads × M × total_len] FP32 — stores QK^T scores and softmax output
+    prefill_attn_scores: Option<GpuBuffer<f32>>,
+    prefill_attn_scores_size: usize,
     // QWEN-010: Optimal tile size for GEMM operations
     // RTX 4090 (sm_89, 72MB L2): 64x64 tiles for better L2 utilization
     // Other GPUs (sm_80 and earlier): 32x32 tiles (default)

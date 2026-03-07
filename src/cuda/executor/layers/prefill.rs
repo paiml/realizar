@@ -155,6 +155,12 @@ impl CudaExecutor {
             })?
             .len();
 
+        // PMAT-032: Initialize cuBLAS for parallel prefill attention
+        // Must be done before layer loop so batched_attn_ffn_phase can use it
+        if std::env::var("CUBLAS_PREFILL").as_deref() != Ok("0") {
+            self.ensure_cublas()?;
+        }
+
         // GH-94: Suppress flash decoding during prefill (small seq_lens cause errors)
         self.is_prefilling = true;
 

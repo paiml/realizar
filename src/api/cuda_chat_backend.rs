@@ -10,6 +10,9 @@ fn try_cuda_backend(
 ) -> Option<Response> {
     use crate::gguf::QuantizedGenerateConfig;
 
+    let ttft_trace = std::env::var("TTFT_TRACE").is_ok();
+    let t0 = if ttft_trace { Some(std::time::Instant::now()) } else { None };
+
     let cuda_model_lock = state.cuda_model()?;
     let tokenizer = match require_tokenizer(state) {
         Ok(t) => t,
@@ -22,6 +25,9 @@ fn try_cuda_backend(
             Ok(ids) => ids,
             Err(r) => return Some(r),
         };
+    if let Some(t) = t0 {
+        eprintln!("[TTFT] {:>20}: {:>7.2}ms ({}tok)", "tokenize", t.elapsed().as_secs_f64() * 1000.0, prompt_ids.len());
+    }
     let prompt_tokens = prompt_ids.len();
     let (max_tokens, temperature, eos_token_id) = chat_gen_params(request, &tokenizer, state.model_eos_token_id());
 
