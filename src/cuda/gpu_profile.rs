@@ -56,6 +56,10 @@ pub struct GpuProfile {
     /// Auto-detected: true on sm_75+ with >=32 SMs (desktop/server class).
     /// Override: HGEMM_DECODE=1/0 or CUBLAS_GEMM_THRESHOLD=1.
     pub hgemm_decode: bool,
+    /// Whether to use fused gate+up+SwiGLU kernel (PMAT-034).
+    /// Saves 11% instructions + eliminates SwiGLU kernel + 4 buffer passes.
+    /// Auto-detected: true when q4k=HwDp4a. Override: FUSED_GATE_UP=0/1.
+    pub fused_gate_up: bool,
     /// SM version for logging (e.g., "sm_89").
     pub sm_target: String,
 }
@@ -77,6 +81,7 @@ impl GpuProfile {
         let mwv_warps = Self::detect_mwv_warps();
         let batched_prefill = Self::detect_batched_prefill();
         let hgemm_decode = Self::detect_hgemm_decode(has_dp4a, num_sms);
+        let fused_gate_up = Self::detect_fused_gate_up(&q4k);
 
         let profile = Self {
             q4k,
@@ -84,13 +89,14 @@ impl GpuProfile {
             mwv_warps,
             batched_prefill,
             hgemm_decode,
+            fused_gate_up,
             sm_target,
         };
 
         eprintln!(
-            "[GpuProfile] {}: q4k={:?}, q6k={:?}, warps={}, batched_prefill={}, hgemm_decode={}, sms={}",
+            "[GpuProfile] {}: q4k={:?}, q6k={:?}, warps={}, batched_prefill={}, hgemm_decode={}, fused_gate_up={}, sms={}",
             profile.sm_target, profile.q4k, profile.q6k, profile.mwv_warps,
-            profile.batched_prefill, profile.hgemm_decode, num_sms,
+            profile.batched_prefill, profile.hgemm_decode, profile.fused_gate_up, num_sms,
         );
 
         profile
@@ -156,6 +162,16 @@ impl GpuProfile {
         std::env::var("BATCHED_PREFILL")
             .map(|v| v != "0")
             .unwrap_or(true)
+    }
+
+    /// Fused gate+up+SwiGLU: enabled when HW DP4A Q4K is active.
+    /// Saves 11% instructions + eliminates SwiGLU kernel + 4 intermediate buffer passes.
+    fn detect_fused_gate_up(q4k: &Q4kVariant) -> bool {
+        if let Ok(v) = std::env::var("FUSED_GATE_UP") {
+            return v != "0";
+        }
+        // Auto-enable when using HW DP4A Q4K (the fused kernel is HW DP4A only)
+        *q4k == Q4kVariant::HwDp4a
     }
 
     /// HGEMM decode: use cuBLAS HGEMM (cached FP16 weights) for M=1 decode.

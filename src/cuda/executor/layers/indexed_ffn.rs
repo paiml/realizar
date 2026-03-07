@@ -40,10 +40,9 @@ impl CudaExecutor {
         self.q8_activation_valid = false;
 
         // PMAT-034: Fused gate+up+SwiGLU when both weights are Q4K and HW DP4A available
-        let use_fused = self.gpu_profile.q4k == Q4kVariant::HwDp4a
+        let use_fused = self.gpu_profile.fused_gate_up
             && layer_weights.ffn_gate_qtype == WeightQuantType::Q4K
-            && layer_weights.ffn_up_qtype == WeightQuantType::Q4K
-            && std::env::var("FUSED_GATE_UP").map(|v| v != "0").unwrap_or(false);
+            && layer_weights.ffn_up_qtype == WeightQuantType::Q4K;
 
         if use_fused {
             self.fused_gate_up_swiglu_hw_dp4a_q4k_gemv_into(
