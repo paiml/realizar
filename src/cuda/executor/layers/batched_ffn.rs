@@ -54,51 +54,20 @@ impl CudaExecutor {
                     m as usize, positions,
                 )?;
             }
+        } else if self.is_prefilling && m > 1 && self.cublas_handle.is_some() {
+            // PMAT-032: Parallel prefill attention via cuBLAS strided batched GEMM
+            // Replaces M sequential attention calls with bulk scatter + batched GEMM
+            self.prefill_attention_cublas(
+                layer_idx, q_buf, k_buf, v_buf, attn_out_buf,
+                q_buf_ptr, k_buf_ptr, v_buf_ptr, attn_out_ptr,
+                m, q_dim, kv_dim,
+            )?;
         } else {
             // Sequential attention fallback (shared KV cache)
-            for seq_idx in 0..m as usize {
-                let q_offset = seq_idx * q_dim as usize;
-                let kv_offset = seq_idx * kv_dim as usize;
-                let attn_offset = seq_idx * q_dim as usize;
-
-                // SAFETY: q/k/v/attn_out buf ptrs are valid GPU allocs, offsets bounded by seq_idx * dim
-                let q_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        q_buf_ptr + (q_offset * std::mem::size_of::<f32>()) as u64,
-                        q_dim as usize,
-                    )
-                };
-                // SAFETY: k_buf_ptr is valid GPU alloc, kv_offset bounded by seq_idx * kv_dim
-                let k_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        k_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
-                        kv_dim as usize,
-                    )
-                };
-                // SAFETY: v_buf_ptr is valid GPU alloc, kv_offset bounded by seq_idx * kv_dim
-                let v_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        v_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
-                        kv_dim as usize,
-                    )
-                };
-                // SAFETY: attn_out_ptr is valid GPU alloc, attn_offset bounded by seq_idx * q_dim
-                let attn_out_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        attn_out_ptr + (attn_offset * std::mem::size_of::<f32>()) as u64,
-                        q_dim as usize,
-                    )
-                };
-
-                self.incremental_attention_into_for_capture(
-                    layer_idx, &q_view, &k_view, &v_view, &attn_out_view,
-                )?;
-
-                std::mem::forget(q_view);
-                std::mem::forget(k_view);
-                std::mem::forget(v_view);
-                std::mem::forget(attn_out_view);
-            }
+            self.sequential_attention_loop(
+                layer_idx, q_buf_ptr, k_buf_ptr, v_buf_ptr, attn_out_ptr,
+                m, q_dim, kv_dim,
+            )?;
         }
 
         // ========== 5. Output Projection (BATCHED GEMV or cuBLAS GEMM) ==========
@@ -194,6 +163,63 @@ impl CudaExecutor {
         // ========== 11. Second Residual (PAR-114: BATCHED) ==========
         self.batched_residual_add_into(input_staging, hidden_buf1, hidden_buf2, hidden_dim, m)?;
 
+        Ok(())
+    }
+
+    /// Sequential attention: process M tokens one at a time through incremental attention.
+    /// Extracted from `batched_attn_ffn_phase` for complexity reduction.
+    #[allow(clippy::too_many_arguments)]
+    fn sequential_attention_loop(
+        &mut self,
+        layer_idx: usize,
+        q_buf_ptr: u64,
+        k_buf_ptr: u64,
+        v_buf_ptr: u64,
+        attn_out_ptr: u64,
+        m: u32,
+        q_dim: u32,
+        kv_dim: u32,
+    ) -> Result<(), GpuError> {
+        for seq_idx in 0..m as usize {
+            let q_offset = seq_idx * q_dim as usize;
+            let kv_offset = seq_idx * kv_dim as usize;
+            let attn_offset = seq_idx * q_dim as usize;
+
+            // SAFETY: q/k/v/attn_out buf ptrs are valid GPU allocs, offsets bounded by seq_idx * dim
+            let q_view = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    q_buf_ptr + (q_offset * std::mem::size_of::<f32>()) as u64,
+                    q_dim as usize,
+                )
+            };
+            let k_view = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    k_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
+                    kv_dim as usize,
+                )
+            };
+            let v_view = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    v_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
+                    kv_dim as usize,
+                )
+            };
+            let attn_out_view = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(
+                    attn_out_ptr + (attn_offset * std::mem::size_of::<f32>()) as u64,
+                    q_dim as usize,
+                )
+            };
+
+            self.incremental_attention_into_for_capture(
+                layer_idx, &q_view, &k_view, &v_view, &attn_out_view,
+            )?;
+
+            std::mem::forget(q_view);
+            std::mem::forget(k_view);
+            std::mem::forget(v_view);
+            std::mem::forget(attn_out_view);
+        }
         Ok(())
     }
 }

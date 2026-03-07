@@ -4469,3 +4469,19 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: PMAT-030
+  github_issue: null
+  item_type: task
+  title: 'New task: PMAT-030'
+  status: inprogress
+  priority: medium
+  assigned_to: null
+  created: 2026-03-07T13:47:30.292678104+00:00
+  updated: 2026-03-07T13:47:30.292678104+00:00
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null

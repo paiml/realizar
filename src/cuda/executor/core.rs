@@ -119,6 +119,13 @@ impl CudaExecutor {
             cublas_handle: None,
             dequant_scratch: None,
             dequant_scratch_size: 0,
+            // PMAT-031: FP16 weight cache for HGEMM prefill
+            fp16_weight_cache: HashMap::new(),
+            fp16_activation_scratch: None,
+            fp16_activation_scratch_size: 0,
+            // PMAT-032: Prefill attention score scratch (lazy init)
+            prefill_attn_scores: None,
+            prefill_attn_scores_size: 0,
             // QWEN-010: Auto-tune tile size based on GPU
             // RTX 4090 (sm_89) has 72MB L2 cache - use 64x64 tiles
             // Default: 32x32 tiles for other GPUs
