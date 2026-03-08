@@ -21,25 +21,7 @@ impl CudaExecutor {
         intermediate_dim: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
-        // Verify workspace initialized with correct batch size
-        if !self.workspace.initialized {
-            return Err(GpuError::InvalidLaunchConfig(
-                "PAR-111: Workspace not initialized".to_string(),
-            ));
-        }
-        if self.workspace.batch_size != m as usize {
-            return Err(GpuError::InvalidLaunchConfig(format!(
-                "PAR-111: Workspace batch_size {} != m {}",
-                self.workspace.batch_size, m
-            )));
-        }
-        if positions.len() != m as usize {
-            return Err(GpuError::InvalidLaunchConfig(format!(
-                "PAR-111: positions.len() {} != m {}",
-                positions.len(),
-                m
-            )));
-        }
+        self.validate_batched_workspace(m, positions.len())?;
 
         let q_dim = (self.kv_num_heads * self.kv_head_dim) as u32;
         let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
