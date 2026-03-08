@@ -412,7 +412,7 @@ pub struct CudaExecutor {
     batched_v_ptrs: Option<GpuBuffer<u64>>,
     batched_seq_lens_gpu: Option<GpuBuffer<u32>>,
     // PAR-119: Stride for computing per-sequence pointers
-    batched_kv_stride: usize,
+    pub(crate) batched_kv_stride: usize,
     // PAR-119: Currently allocated batch size (for reallocation check)
     batched_kv_allocated_batch: usize,
     // PAR-121: CUDA graphs for batched forward path (one per batch size)

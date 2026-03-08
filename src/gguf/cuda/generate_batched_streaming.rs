@@ -54,12 +54,7 @@ impl OwnedQuantizedModelCuda {
             .map(|_| OwnedQuantizedKVCache::new(num_layers, kv_dim, max_seq_len))
             .collect();
 
-        // Prefill phase FIRST: uses single-request workspace + single GPU KV cache
-        // Must happen before init_batched_* which would corrupt prefill
-        let (mut sequences, mut positions, mut last_tokens) =
-            self.prefill_all_slots(prompts, &mut caches)?;
-
-        // Init batched KV caches and workspace for decode phase
+        // Init batched KV caches for scatter targets
         self.executor
             .init_batched_kv_cache_gpu(num_layers, m)
             .map_err(|e| RealizarError::UnsupportedOperation {
@@ -67,18 +62,19 @@ impl OwnedQuantizedModelCuda {
                 reason: format!("Failed to init batched KV cache for M={m}: {e}"),
             })?;
         self.executor.reset_batched_kv_cache_gpu();
+
+        // Prefill each slot sequentially, scattering GPU KV to batched cache
+        // (toggles batched_kv_stride: 0 for prefill, restore for scatter)
+        let (mut sequences, mut positions, mut last_tokens) =
+            self.prefill_and_scatter(prompts, &mut caches)?;
+
+        // Init batched workspace for decode (stride restored by prefill_and_scatter)
         self.executor
             .init_batched_workspace(hidden_dim, intermediate_dim, m)
             .map_err(|e| RealizarError::UnsupportedOperation {
                 operation: "init_batched_workspace".to_string(),
                 reason: format!("Failed to init batched workspace for M={m}: {e}"),
             })?;
-
-        // Scatter prefilled KV data from CPU caches to batched GPU KV slots
-        for (slot_idx, cache) in caches.iter().enumerate() {
-            let seq_len = cache.len();
-            self.scatter_cpu_kv_to_batched_gpu(slot_idx, cache, seq_len)?;
-        }
 
         // Decode phase: batched
         let mut done = vec![false; m];
@@ -131,52 +127,42 @@ impl OwnedQuantizedModelCuda {
         Ok(())
     }
 
-    fn scatter_cpu_kv_to_batched_gpu(
-        &mut self,
-        slot_idx: usize,
-        cache: &OwnedQuantizedKVCache,
-        seq_len: usize,
-    ) -> Result<()> {
-        let num_layers = self.model.layers.len();
-        let k_data: Vec<&[f32]> = (0..num_layers).map(|l| cache.get_k(l)).collect();
-        let v_data: Vec<&[f32]> = (0..num_layers).map(|l| cache.get_v(l)).collect();
-        self.executor
-            .scatter_cpu_kv_to_batched(slot_idx, &k_data, &v_data, seq_len)
-            .map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "scatter_cpu_kv_to_batched".to_string(),
-                reason: format!("Failed to scatter CPU KV to slot {slot_idx}: {e}"),
-            })?;
-        Ok(())
-    }
-
-    fn prefill_all_slots(
+    fn prefill_and_scatter(
         &mut self,
         prompts: &[Vec<u32>],
         caches: &mut [OwnedQuantizedKVCache],
     ) -> Result<(Vec<Vec<u32>>, Vec<usize>, Vec<u32>)> {
         let m = prompts.len();
-        let mut sequences: Vec<Vec<u32>> = prompts.to_vec();
+        let sequences: Vec<Vec<u32>> = prompts.to_vec();
         let mut positions: Vec<usize> = Vec::with_capacity(m);
         let mut last_tokens: Vec<u32> = Vec::with_capacity(m);
+        let saved_stride = self.executor.batched_kv_stride;
 
         eprintln!("[PMAT-044] Batched streaming: {m} slots, prefilling...");
 
         for (slot_idx, prompt) in prompts.iter().enumerate() {
             self.executor.reset_kv_cache_gpu();
+            let seq_len = prompt.len().saturating_sub(1);
 
-            // Serial prefill: populates BOTH GPU KV cache and CPU cache
-            // (Batched prefill only populates GPU, so CPU cache would be empty for scatter)
-            for (pos, &token_id) in prompt.iter().enumerate().take(prompt.len().saturating_sub(1)) {
-                let _ = self.forward_gpu_resident(token_id, &mut caches[slot_idx], pos)?;
-            }
+            // Zero stride so prefill uses single KV cache path
+            self.executor.batched_kv_stride = 0;
+            self.run_prefill(prompt, &mut caches[slot_idx], seq_len, false)?;
 
-            positions.push(prompt.len().saturating_sub(1));
+            // Restore stride for D2D scatter: single GPU KV → batched KV slot
+            self.executor.batched_kv_stride = saved_stride;
+            self.executor
+                .scatter_single_kv_to_batched(slot_idx, seq_len)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "scatter_single_kv_to_batched".to_string(),
+                    reason: format!("Failed to scatter KV for slot {slot_idx}: {e}"),
+                })?;
+
+            positions.push(seq_len);
             last_tokens.push(prompt[prompt.len() - 1]);
         }
 
+        // Leave stride restored for decode phase
         eprintln!("[PMAT-044] Prefill done, starting batched decode...");
-        // Suppress unused variable warning — sequences are built up during decode
-        let _ = &sequences;
         Ok((sequences, positions, last_tokens))
     }
 
