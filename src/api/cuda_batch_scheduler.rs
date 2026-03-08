@@ -124,10 +124,10 @@ fn process_cuda_batch(
         let mut cuda_model = model.write().expect("PMAT-044: model lock poisoned");
         let result =
             cuda_model.generate_gpu_resident_streaming(&req.prompt_ids, &req.config, |token_id| {
-                req.token_tx.blocking_send(Ok(token_id)).is_ok()
+                req.token_tx.try_send(Ok(token_id)).is_ok()
             });
         if let Err(e) = result {
-            let _ = req.token_tx.blocking_send(Err(e.to_string()));
+            let _ = req.token_tx.try_send(Err(e.to_string()));
         }
         return;
     }
@@ -143,7 +143,7 @@ fn process_cuda_batch(
     let callbacks: Vec<Box<dyn FnMut(u32) -> bool + Send>> = senders
         .into_iter()
         .map(|tx| {
-            Box::new(move |token_id: u32| -> bool { tx.blocking_send(Ok(token_id)).is_ok() })
+            Box::new(move |token_id: u32| -> bool { tx.try_send(Ok(token_id)).is_ok() })
                 as Box<dyn FnMut(u32) -> bool + Send>
         })
         .collect();
@@ -154,7 +154,7 @@ fn process_cuda_batch(
     if let Err(e) = result {
         // Send error to all slots
         for req in &batch {
-            let _ = req.token_tx.blocking_send(Err(e.to_string()));
+            let _ = req.token_tx.try_send(Err(e.to_string()));
         }
     }
 }
