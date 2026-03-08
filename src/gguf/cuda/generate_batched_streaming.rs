@@ -37,6 +37,12 @@ impl OwnedQuantizedModelCuda {
                 reason: format!("Failed to set CUDA context current: {e}"),
             })?;
 
+        // PMAT-044 FIX: Clear decode graph from prior M=1 requests. prefill_and_scatter
+        // uses forward_gpu_resident which replays the M=1 decode graph. During graph
+        // replay, CPU-side kv_cache_lengths is NOT updated (only GPU kernels run),
+        // causing KV cache state mismatch. Force eager path for prefill by clearing graph.
+        self.executor.clear_decode_graph();
+
         let hidden_dim = self.model.config.hidden_dim;
         let intermediate_dim = self.model.layers[0].ffn_up_weight.out_dim;
         let num_layers = self.model.layers.len();
@@ -76,6 +82,12 @@ impl OwnedQuantizedModelCuda {
                 reason: format!("Failed to init batched workspace for M={m}: {e}"),
             })?;
 
+        // PMAT-044 FIX: Clear decode graph — init_batched_workspace reallocated all
+        // workspace buffers (new GPU addresses), so any CUDA graph captured during
+        // prefill_and_scatter holds stale buffer pointers. Without this, subsequent
+        // M=1 requests replay the stale graph → garbage output → 0 tokens.
+        self.executor.clear_decode_graph();
+
         // Decode phase: batched
         let mut done = vec![false; m];
         self.decode_batched(
@@ -99,6 +111,12 @@ impl OwnedQuantizedModelCuda {
         let _ = self
             .executor
             .init_workspace(hidden_dim, intermediate_dim);
+
+        // PMAT-044 FIX: Reset batched KV state so subsequent M=1 prefill doesn't
+        // take the batched attention path (batched_ffn.rs line 37). Without this,
+        // M=1 prefill writes K/V to batched caches while M=1 decode reads from the
+        // single KV cache (empty) → EOS on first token → 0 output tokens.
+        self.executor.batched_kv_stride = 0;
 
         Ok(sequences)
     }
@@ -144,12 +162,11 @@ impl OwnedQuantizedModelCuda {
             self.executor.reset_kv_cache_gpu();
             let seq_len = prompt.len().saturating_sub(1);
 
-            // Serial prefill: token-by-token forward populates single GPU KV cache
-            // (cuBLAS batched prefill uses different KV write path, causing scatter mismatch)
+            // PMAT-037: Use cuBLAS batched prefill (HGEMM) instead of serial token-by-token.
+            // Five-Whys: serial prefill at c=4 causes 854ms TTFT (16x vs c=1).
+            // cuBLAS prefill processes all prompt tokens at once via HGEMM, 4.9x faster.
             self.executor.batched_kv_stride = 0;
-            for (pos, &token_id) in prompt.iter().enumerate().take(seq_len) {
-                let _ = self.forward_gpu_resident(token_id, &mut caches[slot_idx], pos)?;
-            }
+            self.run_prefill(prompt, &mut caches[slot_idx], seq_len, false)?;
 
             // Restore stride for D2D scatter: single GPU KV → batched KV slot
             self.executor.batched_kv_stride = saved_stride;
@@ -189,7 +206,7 @@ impl OwnedQuantizedModelCuda {
     ) -> Result<()> {
         let mut embed_buf = vec![0.0f32; m * hidden_dim];
 
-        for _gen_idx in 0..max_tokens_max {
+        for gen_idx in 0..max_tokens_max {
             if done.iter().all(|&d| d) {
                 break;
             }
@@ -207,6 +224,10 @@ impl OwnedQuantizedModelCuda {
 
             let pos_u32: Vec<u32> = positions.iter().map(|&p| p as u32).collect();
 
+            if gen_idx == 0 {
+                eprintln!("[PMAT-044] decode step 0: positions={pos_u32:?}, last_tokens={last_tokens:?}");
+            }
+
             let token_ids = self
                 .executor
                 .forward_batched_to_token_ids(
@@ -222,6 +243,11 @@ impl OwnedQuantizedModelCuda {
                     operation: "forward_batched_to_token_ids".to_string(),
                     reason: format!("Batched forward failed: {e}"),
                 })?;
+
+            if gen_idx < 3 {
+                let stop_tokens: Vec<&Vec<u32>> = configs.iter().map(|c| &c.stop_tokens).collect();
+                eprintln!("[PMAT-044] decode step {gen_idx}: token_ids={token_ids:?}, stop_tokens={stop_tokens:?}, done={done:?}");
+            }
 
             self.distribute_tokens(
                 m, prompts, configs, &mut on_tokens, &token_ids, sequences, positions,
