@@ -1,4 +1,26 @@
 impl CudaExecutor {
+    /// Validate workspace is initialized and large enough for batch size M.
+    fn validate_batched_workspace(&self, m: u32, positions_len: usize) -> Result<(), GpuError> {
+        if !self.workspace.initialized {
+            return Err(GpuError::InvalidLaunchConfig(
+                "PAR-111: Workspace not initialized".to_string(),
+            ));
+        }
+        if self.workspace.batch_size < m as usize {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "PAR-111: Workspace batch_size {} < m {}",
+                self.workspace.batch_size, m
+            )));
+        }
+        if positions_len != m as usize {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "PAR-111: positions.len() {} != m {}",
+                positions_len, m
+            )));
+        }
+        Ok(())
+    }
+
     /// PAR-111: Batched forward pass for M sequences through a single layer.
     ///
     /// Processes M sequences in parallel using batched GEMV kernels.
@@ -21,25 +43,7 @@ impl CudaExecutor {
         intermediate_dim: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
-        // Verify workspace initialized with correct batch size
-        if !self.workspace.initialized {
-            return Err(GpuError::InvalidLaunchConfig(
-                "PAR-111: Workspace not initialized".to_string(),
-            ));
-        }
-        if self.workspace.batch_size != m as usize {
-            return Err(GpuError::InvalidLaunchConfig(format!(
-                "PAR-111: Workspace batch_size {} != m {}",
-                self.workspace.batch_size, m
-            )));
-        }
-        if positions.len() != m as usize {
-            return Err(GpuError::InvalidLaunchConfig(format!(
-                "PAR-111: positions.len() {} != m {}",
-                positions.len(),
-                m
-            )));
-        }
+        self.validate_batched_workspace(m, positions.len())?;
 
         let q_dim = (self.kv_num_heads * self.kv_head_dim) as u32;
         let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
