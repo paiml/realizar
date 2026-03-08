@@ -181,6 +181,27 @@ impl OwnedQuantizedModelCuda {
             });
         }
 
+        // PMAT-037: Eagerly warm FP16 weight cache for HGEMM prefill.
+        // Five-Whys root cause: FP16 cache lazily populated on first inference
+        // request (303ms cold-start), inflating TTFT P50 from 25ms to 50.9ms.
+        // Pre-populating at model init moves cost to startup (one-time).
+        if std::env::var("HGEMM_PREFILL").as_deref() != Ok("0") {
+            let num_layers = self.model.config.num_layers;
+            let hidden_dim = self.model.config.hidden_dim as u32;
+            let intermediate_dim = self.model.config.intermediate_dim as u32;
+            let vocab_size = self.model.config.vocab_size as u32;
+            if let Err(e) = self.executor.ensure_cublas() {
+                eprintln!("[PMAT-037] cuBLAS init failed (non-fatal): {e}");
+            } else if let Err(e) = self.executor.warmup_hgemm_cache(
+                num_layers,
+                hidden_dim,
+                intermediate_dim,
+                vocab_size,
+            ) {
+                eprintln!("[PMAT-037] FP16 cache warmup failed (non-fatal): {e}");
+            }
+        }
+
         // PARITY-GATE: Jidoka — stop-the-line if GPU diverges from CPU.
         // Run ONE token through both backends and compare logits.
         // If cosine similarity < 0.99, refuse to construct.
