@@ -21,9 +21,15 @@ mod apr;
 mod apr_q4;
 #[cfg(all(test, feature = "cuda"))]
 mod apr_q4_tests;
+#[cfg(feature = "cuda")]
+pub mod apr_q4k;
 #[cfg(test)]
 mod tests;
 
 pub use apr::{transpose_matrix, AprF32ToGpuAdapter, AprGpuError, AprToGpuAdapter};
 #[cfg(feature = "cuda")]
 pub use apr_q4::{AprQ4ToGpuAdapter, GpuModelQ4, LayerNorms};
+#[cfg(feature = "cuda")]
+pub use apr_q4k::{
+    forward_token_apr_q4k, parse_apr_q4k_config, upload_apr_q4k_weights, AprQ4KConfig,
+};
