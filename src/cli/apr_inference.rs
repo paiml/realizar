@@ -39,6 +39,18 @@ pub fn run_apr_inference(
     // PMAT-106: GPU path for APR models
     #[cfg(feature = "cuda")]
     if force_gpu {
+        // ALB-095: Route Q4K APR models through quantized GPU path
+        if is_apr_q4k(model_ref) {
+            return run_apr_inference_gpu_q4k(
+                model_ref,
+                prompt,
+                max_tokens,
+                temperature,
+                format,
+                verbose,
+                trace_config,
+            );
+        }
         return run_apr_inference_gpu(
             model_ref,
             file_data,
