@@ -51,7 +51,7 @@ use crate::{
 
 // PMAT-802: Extracted handlers
 #[cfg(feature = "cuda")]
-pub(crate) mod cuda_batch_scheduler;
+pub mod cuda_batch_scheduler;
 mod openai_handlers;
 pub(crate) use openai_handlers::{
     openai_chat_completions_handler, openai_chat_completions_stream_handler, openai_models_handler,

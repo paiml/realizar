@@ -1,7 +1,7 @@
-/// PMAT-044: CUDA batch scheduler for continuous batching on /v1/chat/completions
-///
-/// Accumulates streaming requests and processes them in batches using
-/// `generate_batched_streaming` for weight sharing across concurrent requests.
+//! PMAT-044: CUDA batch scheduler for continuous batching on `/v1/chat/completions`
+//!
+//! Accumulates streaming requests and processes them in batches using
+//! `generate_batched_streaming` for weight sharing across concurrent requests.
 
 #[cfg(feature = "cuda")]
 use crate::gguf::{OwnedQuantizedModelCuda, QuantizedGenerateConfig};
@@ -10,8 +10,11 @@ use std::sync::Arc;
 /// Request submitted to the batch scheduler
 #[cfg(feature = "cuda")]
 pub struct CudaBatchRequest {
+    /// Tokenized prompt IDs
     pub prompt_ids: Vec<u32>,
+    /// Generation configuration (max tokens, temperature, stop tokens)
     pub config: QuantizedGenerateConfig,
+    /// Channel to stream generated token IDs back to the HTTP handler
     pub token_tx: tokio::sync::mpsc::Sender<Result<u32, String>>,
 }
 
