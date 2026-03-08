@@ -169,7 +169,9 @@ fn from_architecture_generated(arch: &str) -> ArchConstraints {
             has_qk_norm: false,
             default_eps: 1e-6,
         },
-        // ALB-010: Qwen3.5-35B-A3B MoE
+        // ALB-010: Qwen3 MoE (Qwen3-Coder-30B-A3B: 128 experts, per-head QK norm)
+        // and Qwen3.5 MoE (Qwen3.5-35B-A3B: 256 experts, DeltaNet+GQA)
+        // Both have per-head Q/K RMSNorm: q_norm.weight/k_norm.weight [head_dim]
         "qwen3_moe" | "qwen3_5_moe" => ArchConstraints {
             norm_type: NormType::RmsNorm,
             activation: Activation::Silu,
@@ -178,7 +180,7 @@ fn from_architecture_generated(arch: &str) -> ArchConstraints {
             weight_layout: WeightLayout::Linear,
             has_bias: false,
             tied_embeddings: false,
-            has_qk_norm: false,
+            has_qk_norm: true,
             default_eps: 1e-6,
         },
         // falcon_h1.yaml

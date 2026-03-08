@@ -196,6 +196,7 @@ pub fn global_fallback_names(role: GlobalTensorRole) -> &'static [&'static str] 
 pub fn layer_templates(arch: &str, role: LayerTensorRole) -> &'static [&'static str] {
     match (arch, role) {
         ("qwen3", LayerTensorRole::AttnKNormWeight) => &["model.layers.{n}.self_attn.k_norm.weight"],
+        ("qwen3_moe", LayerTensorRole::AttnKNormWeight) => &["model.layers.{n}.self_attn.k_norm.weight", "model.language_model.layers.{n}.self_attn.k_norm.weight"],
         ("bert", LayerTensorRole::AttnNormBias) => &["bert.encoder.layer.{n}.attention.output.LayerNorm.bias"],
         ("falcon", LayerTensorRole::AttnNormBias) => &["transformer.h.{n}.input_layernorm.bias"],
         ("gpt2", LayerTensorRole::AttnNormBias) => &["h.{n}.ln_1.bias", "transformer.h.{n}.ln_1.bias"],
@@ -217,6 +218,7 @@ pub fn layer_templates(arch: &str, role: LayerTensorRole) -> &'static [&'static 
         ("qwen3_moe", LayerTensorRole::AttnNormWeight) => &["model.language_model.layers.{n}.input_layernorm.weight", "model.layers.{n}.input_layernorm.weight"],
         ("stablelm", LayerTensorRole::AttnNormWeight) => &["model.layers.{n}.input_layernorm.weight"],
         ("qwen3", LayerTensorRole::AttnQNormWeight) => &["model.layers.{n}.self_attn.q_norm.weight"],
+        ("qwen3_moe", LayerTensorRole::AttnQNormWeight) => &["model.layers.{n}.self_attn.q_norm.weight", "model.language_model.layers.{n}.self_attn.q_norm.weight"],
         ("bert", LayerTensorRole::FfnDownWeight) => &["bert.encoder.layer.{n}.output.dense.weight", "encoder.layer.{n}.output.dense.weight"],
         ("deepseek", LayerTensorRole::FfnDownWeight) => &["model.layers.{n}.mlp.down_proj.weight"],
         ("falcon", LayerTensorRole::FfnDownWeight) => &["transformer.h.{n}.mlp.dense_4h_to_h.weight", "model.layers.{n}.mlp.dense_4h_to_h.weight"],
