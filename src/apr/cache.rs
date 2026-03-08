@@ -247,13 +247,13 @@ impl AprV2ModelCuda {
                 reason: format!("Failed to set CUDA context current: {e}"),
             })?;
 
-        // GH-260: Reset KV cache and decode graph before each generation.
-        // Without this, the second chat turn has stale kv_position from turn 1,
-        // causing the prefill to write KV entries at wrong positions and the
-        // decode graph to replay with stale state. This caused multi-minute
-        // delays on the second prompt.
+        // GH-260: Reset KV cache before each generation.
+        // kv_position=0 prevents stale positions from previous request.
+        // PMAT-042: Preserve CUDA graph across requests (same pattern as GGUF
+        // generate_1/generate_2 which call reset_kv_cache_gpu only).
+        // Graph is position-independent: reads position/seq_len from GPU buffers
+        // updated via copy_from_host before each replay.
         self.reset_kv_cache();
-        self.executor.clear_decode_graph();
 
         // PMAT-113-F: Diagnostic tracing for logit verification
         let trace_enabled = std::env::var("APR_TRACE_LOGITS").is_ok();
