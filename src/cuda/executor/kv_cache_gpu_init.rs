@@ -168,9 +168,12 @@ impl CudaExecutor {
 
         let num_kv_heads = self.kv_num_kv_heads;
         let head_dim = self.kv_head_dim;
-        let copy_elements = num_kv_heads * seq_len * head_dim;
-        let size_bytes = copy_elements * std::mem::size_of::<f32>();
-        let offset_bytes = (slot_idx * stride * std::mem::size_of::<f32>()) as u64;
+        let max_len = self.kv_cache_max_len;
+        // Per-head copy size (only the filled positions, not full max_len)
+        let per_head_copy_bytes = (seq_len * head_dim * std::mem::size_of::<f32>()) as u64;
+        // Per-head stride in bytes (full max_len allocation per head)
+        let head_stride_bytes = (max_len * head_dim * std::mem::size_of::<f32>()) as u64;
+        let slot_offset_bytes = (slot_idx * stride * std::mem::size_of::<f32>()) as u64;
 
         // Collect pointer pairs to avoid borrow conflicts between HashMap fields
         let layer_indices: Vec<usize> = self.batched_kv_k_caches.keys().copied().collect();
@@ -199,17 +202,25 @@ impl CudaExecutor {
                 ))?.as_ptr();
 
             copies.push((
-                batched_k_ptr + offset_bytes,
+                batched_k_ptr + slot_offset_bytes,
                 single_k_ptr,
-                batched_v_ptr + offset_bytes,
+                batched_v_ptr + slot_offset_bytes,
                 single_v_ptr,
             ));
         }
 
-        // Execute D2D copies using raw device pointers (no borrow conflicts)
+        // Copy per-head: layout is [num_kv_heads, max_len, head_dim]
+        // Each head's data is head_stride_bytes apart, copy only seq_len positions
         for (k_dst, k_src, v_dst, v_src) in copies {
-            self.stream.memcpy_dtod_sync(k_dst, k_src, size_bytes)?;
-            self.stream.memcpy_dtod_sync(v_dst, v_src, size_bytes)?;
+            for head in 0..num_kv_heads as u64 {
+                let head_off = head * head_stride_bytes;
+                self.stream.memcpy_dtod_sync(
+                    k_dst + head_off, k_src + head_off, per_head_copy_bytes as usize,
+                )?;
+                self.stream.memcpy_dtod_sync(
+                    v_dst + head_off, v_src + head_off, per_head_copy_bytes as usize,
+                )?;
+            }
         }
 
         // Update batched KV length for this slot
