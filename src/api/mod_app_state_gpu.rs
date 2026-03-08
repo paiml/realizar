@@ -51,6 +51,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            cuda_batch_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -95,6 +97,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            cuda_batch_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -143,6 +147,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            cuda_batch_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -194,6 +200,7 @@ impl AppState {
             #[cfg(feature = "gpu")]
             batch_config: None,
             cuda_model: Some(Arc::new(std::sync::RwLock::new(cuda_model))),
+            cuda_batch_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -236,6 +243,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: Some(Arc::new(std::sync::RwLock::new(cuda_model))),
+            #[cfg(feature = "cuda")]
+            cuda_batch_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -285,6 +294,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            cuda_batch_tx: None,
             apr_transformer: Some(Arc::new(transformer)),
             verbose: false,
         })
@@ -397,6 +408,27 @@ impl AppState {
     ) -> Self {
         self.batch_request_tx = Some(batch_request_tx);
         self.batch_config = Some(batch_config);
+        self
+    }
+
+    /// Get CUDA batch scheduler sender (PMAT-044)
+    #[cfg(feature = "cuda")]
+    #[must_use]
+    pub fn cuda_batch_tx(
+        &self,
+    ) -> Option<&tokio::sync::mpsc::Sender<cuda_batch_scheduler::CudaBatchRequest>> {
+        self.cuda_batch_tx.as_ref()
+    }
+
+    /// Set CUDA batch scheduler sender (PMAT-044)
+    /// Enables continuous batching for /v1/chat/completions
+    #[cfg(feature = "cuda")]
+    #[must_use]
+    pub fn with_cuda_batch_tx(
+        mut self,
+        tx: tokio::sync::mpsc::Sender<cuda_batch_scheduler::CudaBatchRequest>,
+    ) -> Self {
+        self.cuda_batch_tx = Some(tx);
         self
     }
 

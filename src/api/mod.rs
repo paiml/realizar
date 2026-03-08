@@ -50,6 +50,8 @@ use crate::{
 };
 
 // PMAT-802: Extracted handlers
+#[cfg(feature = "cuda")]
+pub(crate) mod cuda_batch_scheduler;
 mod openai_handlers;
 pub(crate) use openai_handlers::{
     openai_chat_completions_handler, openai_chat_completions_stream_handler, openai_models_handler,
@@ -143,6 +145,9 @@ pub struct AppState {
     /// Uses pre-uploaded weights and batched workspaces for 755+ tok/s (2.6x Ollama)
     #[cfg(feature = "cuda")]
     cuda_model: Option<Arc<std::sync::RwLock<crate::gguf::OwnedQuantizedModelCuda>>>,
+    /// PMAT-044: CUDA batch scheduler for continuous batching on /v1/chat/completions
+    #[cfg(feature = "cuda")]
+    cuda_batch_tx: Option<tokio::sync::mpsc::Sender<cuda_batch_scheduler::CudaBatchRequest>>,
     /// APR Transformer for SafeTensors/APR inference (PMAT-SERVE-FIX-001)
     /// Supports F32 weights from SafeTensors or APR format
     apr_transformer: Option<Arc<crate::apr_transformer::AprTransformer>>,

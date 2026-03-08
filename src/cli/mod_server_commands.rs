@@ -163,9 +163,23 @@ mod server_commands {
             println!("  CUDA model created on GPU: {}", cuda_model.device_name());
             println!("  Max sequence length: {}", max_seq_len);
             println!("  TRUE STREAMING: enabled (PAR-112)");
+
+            let state = crate::api::AppState::with_cuda_model_and_vocab(cuda_model, vocab)?;
+
+            // PMAT-044: Spawn continuous batch scheduler for concurrent request handling
+            let cuda_model_arc = state.cuda_model().expect("just created").clone();
+            let batch_config = crate::api::cuda_batch_scheduler::CudaBatchConfig::default();
+            println!(
+                "  CONTINUOUS BATCHING: max_batch={}, window={}ms (PMAT-044)",
+                batch_config.max_batch, batch_config.window_ms
+            );
+            let batch_tx = crate::api::cuda_batch_scheduler::spawn_cuda_batch_scheduler(
+                cuda_model_arc,
+                batch_config,
+            );
             println!();
 
-            crate::api::AppState::with_cuda_model_and_vocab(cuda_model, vocab)
+            Ok(state.with_cuda_batch_tx(batch_tx))
         }
 
         #[cfg(not(feature = "cuda"))]

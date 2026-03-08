@@ -145,6 +145,81 @@ impl CudaExecutor {
         }
     }
 
+    /// PMAT-044: Copy single KV cache to batched KV cache at a specific slot.
+    ///
+    /// After prefill populates the single GPU KV cache (kv_L_k, kv_L_v),
+    /// this copies it into the batched KV cache at the correct stride offset
+    /// for the given slot. This enables batched decode after sequential prefill.
+    pub fn scatter_single_kv_to_batched(
+        &mut self,
+        slot_idx: usize,
+        seq_len: usize,
+    ) -> Result<(), GpuError> {
+        if seq_len == 0 {
+            return Ok(());
+        }
+
+        let stride = self.batched_kv_stride;
+        if stride == 0 {
+            return Err(GpuError::InvalidLaunchConfig(
+                "PMAT-044: batched KV cache not initialized (stride=0)".to_string(),
+            ));
+        }
+
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let copy_elements = num_kv_heads * seq_len * head_dim;
+        let size_bytes = copy_elements * std::mem::size_of::<f32>();
+        let offset_bytes = (slot_idx * stride * std::mem::size_of::<f32>()) as u64;
+
+        // Collect pointer pairs to avoid borrow conflicts between HashMap fields
+        let layer_indices: Vec<usize> = self.batched_kv_k_caches.keys().copied().collect();
+        let mut copies: Vec<(u64, u64, u64, u64)> = Vec::new();
+
+        for &layer_idx in &layer_indices {
+            let k_key = format!("kv_{}_k", layer_idx);
+            let v_key = format!("kv_{}_v", layer_idx);
+
+            let single_k_ptr = self.kv_cache_gpu.get(&k_key)
+                .ok_or_else(|| GpuError::InvalidLaunchConfig(
+                    format!("PMAT-044: single KV cache '{}' not found", k_key)
+                ))?.as_ptr();
+            let batched_k_ptr = self.batched_kv_k_caches.get(&layer_idx)
+                .ok_or_else(|| GpuError::InvalidLaunchConfig(
+                    format!("PMAT-044: batched K cache layer {} not found", layer_idx)
+                ))?.as_ptr();
+
+            let single_v_ptr = self.kv_cache_gpu.get(&v_key)
+                .ok_or_else(|| GpuError::InvalidLaunchConfig(
+                    format!("PMAT-044: single KV cache '{}' not found", v_key)
+                ))?.as_ptr();
+            let batched_v_ptr = self.batched_kv_v_caches.get(&layer_idx)
+                .ok_or_else(|| GpuError::InvalidLaunchConfig(
+                    format!("PMAT-044: batched V cache layer {} not found", layer_idx)
+                ))?.as_ptr();
+
+            copies.push((
+                batched_k_ptr + offset_bytes,
+                single_k_ptr,
+                batched_v_ptr + offset_bytes,
+                single_v_ptr,
+            ));
+        }
+
+        // Execute D2D copies using raw device pointers (no borrow conflicts)
+        for (k_dst, k_src, v_dst, v_src) in copies {
+            self.stream.memcpy_dtod_sync(k_dst, k_src, size_bytes)?;
+            self.stream.memcpy_dtod_sync(v_dst, v_src, size_bytes)?;
+        }
+
+        // Update batched KV length for this slot
+        if slot_idx < self.batched_kv_lengths.len() {
+            self.batched_kv_lengths[slot_idx] = seq_len;
+        }
+
+        Ok(())
+    }
+
     /// Clear KV cache for a new generation (reset sequence position to 0)
     pub fn reset_kv_cache_gpu(&mut self) {
         for len in self.kv_cache_lengths.values_mut() {

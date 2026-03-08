@@ -32,6 +32,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            cuda_batch_tx: None,
             apr_transformer: None,
             verbose: false,
         }
@@ -81,6 +83,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            cuda_batch_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -171,6 +175,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            cuda_batch_tx: None,
             apr_transformer: None,
             verbose: false,
         }
@@ -233,6 +239,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            cuda_batch_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -277,6 +285,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            cuda_batch_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -326,6 +336,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            cuda_batch_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -370,6 +382,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            cuda_batch_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -427,6 +441,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            cuda_batch_tx: None,
             apr_transformer: None,
             verbose: false,
         })
