@@ -144,9 +144,12 @@ impl OwnedQuantizedModelCuda {
             self.executor.reset_kv_cache_gpu();
             let seq_len = prompt.len().saturating_sub(1);
 
-            // Zero stride so prefill uses single KV cache path
+            // Serial prefill: token-by-token forward populates single GPU KV cache
+            // (cuBLAS batched prefill uses different KV write path, causing scatter mismatch)
             self.executor.batched_kv_stride = 0;
-            self.run_prefill(prompt, &mut caches[slot_idx], seq_len, false)?;
+            for (pos, &token_id) in prompt.iter().enumerate().take(seq_len) {
+                let _ = self.forward_gpu_resident(token_id, &mut caches[slot_idx], pos)?;
+            }
 
             // Restore stride for D2D scatter: single GPU KV → batched KV slot
             self.executor.batched_kv_stride = saved_stride;
