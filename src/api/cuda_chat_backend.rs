@@ -41,21 +41,39 @@ fn try_cuda_backend(
 
     if request.stream {
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<u32, String>>(16);
-        let cuda_model_clone = cuda_model_lock.clone();
-        let prompt_ids_clone = prompt_ids.clone();
-        let q_config_clone = q_config.clone();
 
-        tokio::task::spawn_blocking(move || {
-            let mut cuda_model = cuda_model_clone.write().expect("operation failed");
-            let result = cuda_model.generate_gpu_resident_streaming(
-                &prompt_ids_clone,
-                &q_config_clone,
-                |token_id| tx.blocking_send(Ok(token_id)).is_ok(),
-            );
-            if let Err(e) = result {
-                let _ = tx.blocking_send(Err(e.to_string()));
+        // PMAT-044: Use batch scheduler if available (continuous batching)
+        if let Some(batch_tx) = state.cuda_batch_tx() {
+            let batch_req = super::cuda_batch_scheduler::CudaBatchRequest {
+                prompt_ids,
+                config: q_config,
+                token_tx: tx,
+            };
+            if let Err(e) = batch_tx.try_send(batch_req) {
+                return Some(fail_response(
+                    state,
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    format!("Batch queue full: {e}"),
+                ));
             }
-        });
+        } else {
+            // Fallback: direct RwLock path (serialized)
+            let cuda_model_clone = cuda_model_lock.clone();
+            let prompt_ids_clone = prompt_ids.clone();
+            let q_config_clone = q_config.clone();
+
+            tokio::task::spawn_blocking(move || {
+                let mut cuda_model = cuda_model_clone.write().expect("operation failed");
+                let result = cuda_model.generate_gpu_resident_streaming(
+                    &prompt_ids_clone,
+                    &q_config_clone,
+                    |token_id| tx.blocking_send(Ok(token_id)).is_ok(),
+                );
+                if let Err(e) = result {
+                    let _ = tx.blocking_send(Err(e.to_string()));
+                }
+            });
+        }
 
         return Some(true_streaming_sse_response(
             rx,

@@ -13,3 +13,4 @@ use super::{OwnedQuantizedKVCache, OwnedQuantizedModelCuda, QuantizedGenerateCon
 use crate::error::{RealizarError, Result};
 
 include!("generate_1.rs");
+include!("generate_batched_streaming.rs");
