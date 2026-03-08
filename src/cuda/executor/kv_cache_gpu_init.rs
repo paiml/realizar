@@ -220,62 +220,6 @@ impl CudaExecutor {
         Ok(())
     }
 
-    /// PMAT-044: Scatter CPU KV cache data to a specific slot in batched GPU KV cache
-    pub fn scatter_cpu_kv_to_batched(
-        &mut self,
-        slot_idx: usize,
-        k_data: &[&[f32]],
-        v_data: &[&[f32]],
-        seq_len: usize,
-    ) -> Result<(), GpuError> {
-        if seq_len == 0 {
-            return Ok(());
-        }
-
-        let stride = self.batched_kv_stride;
-        if stride == 0 {
-            return Err(GpuError::InvalidLaunchConfig(
-                "PMAT-044: batched KV cache not initialized (stride=0)".to_string(),
-            ));
-        }
-
-        let num_kv_heads = self.kv_num_kv_heads;
-        let head_dim = self.kv_head_dim;
-        let copy_elements = num_kv_heads * seq_len * head_dim;
-        let offset_elements = slot_idx * stride;
-
-        for (layer_idx, (k_slice, v_slice)) in k_data.iter().zip(v_data.iter()).enumerate() {
-            if k_slice.len() < copy_elements || v_slice.len() < copy_elements {
-                return Err(GpuError::Transfer(format!(
-                    "PMAT-044: CPU KV data too small for layer {layer_idx}: \
-                     need {copy_elements}, have k={} v={}",
-                    k_slice.len(),
-                    v_slice.len()
-                )));
-            }
-
-            let batched_k = self.batched_kv_k_caches.get_mut(&layer_idx).ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PMAT-044: batched K cache layer {layer_idx} not found"
-                ))
-            })?;
-            batched_k.copy_from_host_at(&k_slice[..copy_elements], offset_elements)?;
-
-            let batched_v = self.batched_kv_v_caches.get_mut(&layer_idx).ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PMAT-044: batched V cache layer {layer_idx} not found"
-                ))
-            })?;
-            batched_v.copy_from_host_at(&v_slice[..copy_elements], offset_elements)?;
-        }
-
-        if slot_idx < self.batched_kv_lengths.len() {
-            self.batched_kv_lengths[slot_idx] = seq_len;
-        }
-
-        Ok(())
-    }
-
     /// Clear KV cache for a new generation (reset sequence position to 0)
     pub fn reset_kv_cache_gpu(&mut self) {
         for len in self.kv_cache_lengths.values_mut() {
