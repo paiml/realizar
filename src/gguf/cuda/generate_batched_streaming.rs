@@ -45,8 +45,6 @@ impl OwnedQuantizedModelCuda {
         let max_tokens_max = configs.iter().map(|c| c.max_tokens).max().unwrap_or(128);
         let max_prompt_len = prompts.iter().map(Vec::len).max().unwrap_or(0);
 
-        self.init_batched_resources(m, hidden_dim, intermediate_dim, num_layers)?;
-
         // Create CPU KV caches for each slot (needed for prefill path)
         let num_kv_heads = self.model.config.num_kv_heads;
         let head_dim = self.model.config.hidden_dim / self.model.config.num_heads;
@@ -56,9 +54,28 @@ impl OwnedQuantizedModelCuda {
             .map(|_| OwnedQuantizedKVCache::new(num_layers, kv_dim, max_seq_len))
             .collect();
 
-        // Prefill phase: sequential per-slot
+        // Init batched KV caches (needed for scatter during prefill)
+        // but NOT the workspace (prefill uses single-request workspace)
+        self.executor
+            .init_batched_kv_cache_gpu(num_layers, m)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "init_batched_kv_cache_gpu".to_string(),
+                reason: format!("Failed to init batched KV cache for M={m}: {e}"),
+            })?;
+        self.executor.reset_batched_kv_cache_gpu();
+
+        // Prefill phase: uses single-request workspace + GPU KV cache
+        // Each slot's KV data is scattered to batched cache immediately after prefill
         let (mut sequences, mut positions, mut last_tokens) =
             self.prefill_all_slots(prompts, &mut caches)?;
+
+        // Now init batched workspace for decode phase
+        self.executor
+            .init_batched_workspace(hidden_dim, intermediate_dim, m)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "init_batched_workspace".to_string(),
+                reason: format!("Failed to init batched workspace for M={m}: {e}"),
+            })?;
 
         // Decode phase: batched
         let mut done = vec![false; m];
@@ -111,29 +128,6 @@ impl OwnedQuantizedModelCuda {
         Ok(())
     }
 
-    fn init_batched_resources(
-        &mut self,
-        m: usize,
-        hidden_dim: usize,
-        intermediate_dim: usize,
-        num_layers: usize,
-    ) -> Result<()> {
-        self.executor
-            .init_batched_kv_cache_gpu(num_layers, m)
-            .map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "init_batched_kv_cache_gpu".to_string(),
-                reason: format!("Failed to init batched KV cache for M={m}: {e}"),
-            })?;
-        self.executor
-            .init_batched_workspace(hidden_dim, intermediate_dim, m)
-            .map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "init_batched_workspace".to_string(),
-                reason: format!("Failed to init batched workspace for M={m}: {e}"),
-            })?;
-        self.executor.reset_batched_kv_cache_gpu();
-        Ok(())
-    }
-
     fn prefill_all_slots(
         &mut self,
         prompts: &[Vec<u32>],
@@ -157,6 +151,7 @@ impl OwnedQuantizedModelCuda {
             positions.push(prompt.len().saturating_sub(1));
             last_tokens.push(prompt[prompt.len() - 1]);
 
+            // Scatter this slot's KV cache to batched GPU KV BEFORE next slot overwrites it
             let seq_len = caches[slot_idx].len();
             self.executor
                 .scatter_single_kv_to_batched(slot_idx, seq_len)
