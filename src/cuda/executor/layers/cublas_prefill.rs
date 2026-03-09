@@ -14,6 +14,16 @@ use super::super::*;
 /// Below this threshold, batched GEMV is faster due to lower overhead.
 ///
 /// Override with CUBLAS_GEMM_THRESHOLD env var (e.g., =1 for HGEMM decode on high-BW GPUs).
+/// Minimum batch size M for cuBLAS SGEMM to beat batched GEMV in decode.
+///
+/// GH-141 Five-Whys: At M=4, cuBLAS SGEMM dequants Q4K → FP32 (4 B/elem)
+/// then runs SGEMM. Batched GEMV reads Q4K directly (0.5625 B/elem) — 7.1x
+/// less bandwidth. SGEMM only wins at large M where compute dominates.
+///
+/// Default=4: cuBLAS SGEMM beats batched GEMV at M=4 (51 vs 35 tok/s).
+/// Batched Q4K GEMV at M<=8 uses single warp (32 threads/block) — insufficient
+/// parallelism. Multi-warp specializations only exist for M=16/32.
+/// TODO: Add M=4 multi-warp kernel, then raise threshold to 8+.
 pub(crate) fn cublas_gemm_threshold() -> u32 {
     std::env::var("CUBLAS_GEMM_THRESHOLD")
         .ok()
@@ -300,6 +310,13 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        let detail_trace = std::env::var("PREFILL_DETAIL_TRACE").is_ok();
+        let t0 = if detail_trace {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+
         // Convert FP32 activations → FP16
         let input_count = m as usize * k as usize;
         self.ensure_fp16_activation_scratch(input_count)?;
@@ -310,11 +327,16 @@ impl CudaExecutor {
             .as_ptr();
         self.convert_f32_to_f16(packed_input_ptr, input_fp16_ptr, input_count as u32)?;
 
+        let t1 = if detail_trace {
+            self.stream.synchronize()?;
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+
         // HGEMM: FP16 weights × FP16 activations → FP32 output (tensor cores)
-        // W[N,K] row-major → col-major [K,N] ld=K → Trans gives [N,K]
-        // Input[M,K] row-major → col-major [K,M] ld=K → NoTrans gives [K,M]
         let handle = self.cublas_handle.as_ref().expect("cublas initialized");
-        handle.gemm_f16_to_f32(
+        let result = handle.gemm_f16_to_f32(
             trueno_gpu::driver::GemmOp::Trans,
             trueno_gpu::driver::GemmOp::NoTrans,
             n as i32,
@@ -328,7 +350,23 @@ impl CudaExecutor {
             0.0,
             packed_output_ptr,
             n as i32,
-        )
+        );
+
+        if let (Some(t0), Some(t1)) = (t0, t1) {
+            self.stream.synchronize()?;
+            let t2 = std::time::Instant::now();
+            eprintln!(
+                "[HGEMM-TRACE] M={} N={} K={}: cvt={:.3}ms cublas={:.3}ms total={:.3}ms",
+                m,
+                n,
+                k,
+                t1.duration_since(t0).as_secs_f64() * 1000.0,
+                t2.duration_since(t1).as_secs_f64() * 1000.0,
+                t2.duration_since(t0).as_secs_f64() * 1000.0,
+            );
+        }
+
+        result
     }
 
     /// PMAT-024/026/031/GH-182: cuBLAS GEMM (or fused Q4K GEMM) for prefill
@@ -366,7 +404,11 @@ impl CudaExecutor {
         self.ensure_cublas()?;
 
         // PMAT-031: HGEMM path with cached FP16 weights (default)
-        if std::env::var("HGEMM_PREFILL").as_deref() != Ok("0") {
+        // GH-141: Skip HGEMM when FP16 cache was cleared (batched mode frees it
+        // to make room for batched KV caches on 8GB GPUs). Uses SGEMM instead.
+        if std::env::var("HGEMM_PREFILL").as_deref() != Ok("0")
+            && !self.fp16_weight_cache.is_empty()
+        {
             let w_fp16_ptr = self.get_or_cache_fp16_weight(qtype, weight_ptr, n, k)?;
             return self.cublas_prefill_hgemm(
                 w_fp16_ptr,
@@ -968,9 +1010,37 @@ DONE_NORM:
         n_per_seq: u32,
         k_per_seq: u32,
     ) -> Result<(), GpuError> {
+        // GH-141: Batched HW DP4A for Q4K on DP4A-capable GPUs (sm_75+).
+        // Reads Q4K weights (0.5625 B/elem) + Q8_1 activations (1.125 B/elem)
+        // = 1.69 B/elem total, vs cuBLAS SGEMM 8 B/elem. 4.7x less bandwidth.
+        // Only for M<=8 Q4K during decode (not prefill, not graph capture).
+        let use_batched_dp4a = qtype == WeightQuantType::Q4K
+            && m >= 2
+            && m <= 8
+            && self.gpu_profile.q4k == crate::cuda::gpu_profile::Q4kVariant::HwDp4a
+            && !self.is_capturing
+            && !self.is_prefilling
+            && std::env::var("BATCHED_DP4A").as_deref() != Ok("0");
+
+        if use_batched_dp4a {
+            return self.batched_hw_dp4a_q4k_gemv_into(
+                weight_ptr,
+                packed_input,
+                packed_output,
+                m,
+                n_per_seq,
+                k_per_seq,
+            );
+        }
+
+        // GH-141: Never use cuBLAS during CUDA graph capture. cuBLAS calls
+        // are not reliably capturable — they may use internal workspace or
+        // stream management that the graph infrastructure cannot replay.
+        // Use batched GEMV (custom PTX) instead, which is always capturable.
         let use_cublas = m >= cublas_gemm_threshold()
             && (qtype == WeightQuantType::Q4K || qtype == WeightQuantType::Q6K)
-            && std::env::var("CUBLAS_PREFILL").as_deref() != Ok("0");
+            && std::env::var("CUBLAS_PREFILL").as_deref() != Ok("0")
+            && !self.is_capturing;
 
         if use_cublas {
             self.cublas_prefill_gemm(
@@ -994,6 +1064,43 @@ DONE_NORM:
                 n_per_seq,
                 k_per_seq,
             )
+        }
+    }
+
+    /// GH-141: Clear FP16 weight cache to free VRAM for batched KV caches.
+    ///
+    /// FP16 weights are only needed during HGEMM prefill (not GEMV decode).
+    /// Clearing them before batched decode frees ~2944 MB on Qwen2.5 1.5B,
+    /// allowing batched KV cache allocation on 8GB GPUs.
+    /// The cache is re-warmed lazily on next prefill via get_or_cache_fp16_weight.
+    pub(crate) fn clear_fp16_weight_cache(&mut self) {
+        let cache_mb = self
+            .fp16_weight_cache
+            .values()
+            .map(|b| b.len() * 2)
+            .sum::<usize>() as f64
+            / 1_048_576.0;
+        let count = self.fp16_weight_cache.len();
+        self.fp16_weight_cache.clear();
+        // Also clear FP16 activation scratch (tied to HGEMM path)
+        self.fp16_activation_scratch = None;
+        self.fp16_activation_scratch_size = 0;
+        if count > 0 {
+            eprintln!(
+                "[GH-141] Cleared FP16 weight cache: {} matrices ({:.1} MB freed)",
+                count, cache_mb,
+            );
+        }
+    }
+
+    /// GH-141: Clear prefill CUDA graphs to free VRAM.
+    /// Prefill graphs are not used during batched decode and can be recaptured later.
+    pub(crate) fn clear_prefill_graphs(&mut self) {
+        let count = self.prefill_graphs.len();
+        self.prefill_graphs.clear();
+        self.prefill_graph_input_buf = None;
+        if count > 0 {
+            eprintln!("[GH-141] Cleared {} prefill graphs", count);
         }
     }
 

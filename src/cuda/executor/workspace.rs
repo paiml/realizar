@@ -124,6 +124,24 @@ impl CudaExecutor {
         {
             // Update logical batch size for decode kernels (they check == m)
             self.workspace.batch_size = batch_size;
+
+            // GH-141: Ensure Q8 buffer is sized for batched DP4A (M vectors).
+            // init_prefill_workspace doesn't allocate Q8 buffer, so on first
+            // decode after prefill the Q8 buffer may still be M=1 sized.
+            let q_dim = self.kv_num_heads * self.kv_head_dim;
+            let max_input_dim = hidden_dim.max(intermediate_dim).max(q_dim);
+            let q8_num_blocks = (max_input_dim + 31) / 32;
+            let q8_bytes_needed = q8_num_blocks * 36 * batch_size;
+            let q8_current = self
+                .workspace
+                .q8_activation_buf
+                .as_ref()
+                .map_or(0, |b| b.len());
+            if q8_current < q8_bytes_needed {
+                self.workspace.q8_activation_buf =
+                    Some(GpuBuffer::new(&self.context, q8_bytes_needed)?);
+            }
+
             return Ok(());
         }
 
@@ -146,6 +164,13 @@ impl CudaExecutor {
         self.workspace.normed_hidden_buf = Some(GpuBuffer::new(&self.context, hidden_dim * m)?);
         // PAR-114: positions buffer for batched RoPE
         self.workspace.positions_buf = Some(GpuBuffer::new(&self.context, m)?);
+
+        // GH-141: Scale Q8_1 activation buffer for batched DP4A GEMV
+        // Batched kernel needs M vectors × (K/32 blocks × 36 bytes)
+        let max_input_dim = hidden_dim.max(intermediate_dim).max(q_dim);
+        let q8_num_blocks = (max_input_dim + 31) / 32;
+        let q8_bytes = q8_num_blocks * 36 * m;
+        self.workspace.q8_activation_buf = Some(GpuBuffer::new(&self.context, q8_bytes)?);
 
         self.workspace.hidden_dim = hidden_dim;
         self.workspace.q_dim = q_dim;

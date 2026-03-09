@@ -480,6 +480,109 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// GH-141: Batched HW DP4A Q4_K GEMV for M=2..8
+    ///
+    /// Three-step pipeline:
+    /// 1. Quantize M×K f32 activations → M×Q8_1 blocks (one kernel launch)
+    /// 2. Launch batched HW DP4A kernel: Q4K weights × M Q8_1 activations
+    /// 3. Output: M×N f32 (row-major)
+    ///
+    /// 4.7x less bandwidth than cuBLAS SGEMM (Q4K 0.5625 + Q8_1 1.125 vs FP32 8 B/elem).
+    pub fn batched_hw_dp4a_q4k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "batched_hw_dp4a_q4k_gemv_into")?;
+
+        // Q8_1 buffer: M vectors × (K/32 blocks × 36 bytes)
+        let q8_blocks_per_vec = (k + 31) / 32;
+        let q8_bytes_per_vec = q8_blocks_per_vec * 36;
+        let q8_total_bytes = (m * q8_bytes_per_vec) as usize;
+
+        // Use workspace q8_activation_buf if large enough, else allocate
+        let q8_ptr = self
+            .workspace
+            .q8_activation_buf
+            .as_ref()
+            .expect("batched_hw_dp4a: workspace.q8_activation_buf not initialized")
+            .as_ptr();
+        let q8_len = self
+            .workspace
+            .q8_activation_buf
+            .as_ref()
+            .expect("q8_activation_buf must be initialized")
+            .len();
+
+        if q8_len < q8_total_bytes {
+            return Err(GpuError::InvalidParameter(format!(
+                "GH-141: q8_activation_buf too small: have {} bytes, need {} for M={m}",
+                q8_len, q8_total_bytes
+            )));
+        }
+
+        // SAFETY: q8_activation_buf is pre-allocated in init_workspace and valid for this scope
+        let q8_buf = unsafe { GpuBuffer::<u8>::from_raw_parts(q8_ptr, q8_len) };
+
+        // Step 1: Quantize all M activation vectors to Q8_1
+        // Treat as one long vector of M*K elements
+        let total_elements = m * k;
+        self.q8_quantize_into(input, &q8_buf, total_elements)?;
+
+        // Step 2: Launch batched HW DP4A kernel
+        let num_warps = self.gpu_profile.mwv_warps;
+        let kernel_type = KernelType::BatchedHwDp4aQ4KGemv { k, n, m, num_warps };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("batched_hw_dp4a_q4k_gemv_{}_{}_{}_{}", k, n, m, num_warps);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let threads = num_warps * 32;
+        let grid_x = n.min(self.num_sms * 16);
+        let config = LaunchConfig::grid_2d(grid_x, 1, threads, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_q8 = q8_buf.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+        let mut m_val = m;
+
+        // SAFETY: All device pointers are allocated by CudaExecutor and valid.
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_q8) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        std::mem::forget(q8_buf);
+
+        Ok(())
+    }
+
     /// PAR-077: Execute Fused Gate+Up Q4_K GEMV into existing buffers
     ///
     /// Computes both gate and up projections in a single kernel pass:
