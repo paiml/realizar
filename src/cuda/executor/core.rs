@@ -153,6 +153,7 @@ impl CudaExecutor {
             num_sms: context.multiprocessor_count().unwrap_or(8) as u32,
             // PMAT-027: Q8 activation cache starts invalid
             q8_activation_valid: false,
+            hgemm_batched_decode_active: false,
             context: std::mem::ManuallyDrop::new(context), // Last field — ManuallyDrop skips cuDevicePrimaryCtxRelease - dropped last
         })
     }

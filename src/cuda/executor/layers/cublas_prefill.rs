@@ -1010,6 +1010,32 @@ DONE_NORM:
         n_per_seq: u32,
         k_per_seq: u32,
     ) -> Result<(), GpuError> {
+        // PMAT-061: cuBLAS HGEMM for M>1 decode when FP16 weight cache is available.
+        // Five-Whys: c=4 decode 0.56x (23.4ms/step vs llama.cpp 13.1ms).
+        // Why? Batched Q4K GEMV is compute-bound at M=4 (3.25x instruction scaling).
+        // Why? Each weight SB requires M activation loads + M DP4A chains.
+        // Why? Dequant uses ~20 bitmask ops/SB — kernel is ALU-heavy at any M.
+        // Fix: cuBLAS HGEMM uses tensor cores (memory-bound, ~1x scaling with M).
+        // FP16 reads 3.5x more data but tensor cores hide M×compute.
+        // Estimated: HGEMM M=4 ~15.6ms (BW-limited) vs GEMV M=4 ~23.4ms (compute-limited).
+        if self.hgemm_batched_decode_active
+            && m >= 2
+            && !self.is_capturing
+            && (qtype == WeightQuantType::Q4K || qtype == WeightQuantType::Q6K)
+            && self.fp16_weight_cache.contains_key(&weight_ptr)
+            && std::env::var("HGEMM_BATCHED_DECODE").as_deref() != Ok("0")
+        {
+            return self.cublas_prefill_gemm(
+                qtype,
+                weight_ptr,
+                packed_input_ptr,
+                packed_output_ptr,
+                m,
+                n_per_seq,
+                k_per_seq,
+            );
+        }
+
         // GH-141: Batched HW DP4A for Q4K on DP4A-capable GPUs (sm_75+).
         // Reads Q4K weights (0.5625 B/elem) + Q8_1 activations (1.125 B/elem)
         // = 1.69 B/elem total, vs cuBLAS SGEMM 8 B/elem. 4.7x less bandwidth.
@@ -1065,6 +1091,11 @@ DONE_NORM:
                 k_per_seq,
             )
         }
+    }
+
+    /// PMAT-061: Check if FP16 weight cache is populated (for HGEMM batched decode routing).
+    pub(crate) fn has_fp16_weight_cache(&self) -> bool {
+        !self.fp16_weight_cache.is_empty()
     }
 
     /// GH-141: Clear FP16 weight cache to free VRAM for batched KV caches.

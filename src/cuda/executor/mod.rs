@@ -532,6 +532,10 @@ pub struct CudaExecutor {
     // Set to true after q8_quantize_into; callers invalidate (set false)
     // when the input buffer content changes (e.g. after RMSNorm write).
     q8_activation_valid: bool,
+    // PMAT-061: cuBLAS HGEMM for M>1 decode — set by generate_batched_streaming
+    // when FP16 weight cache is retained during decode. Routes batched GEMV
+    // through cuBLAS tensor cores instead of compute-bound DP4A GEMV.
+    pub(crate) hgemm_batched_decode_active: bool,
     // CUDA context — declared last so all GPU resources above drop first
     // (they need the context alive for cuMemFree etc.).
     //
