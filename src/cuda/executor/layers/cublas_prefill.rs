@@ -1099,6 +1099,8 @@ DONE_NORM:
         let count = self.prefill_graphs.len();
         self.prefill_graphs.clear();
         self.prefill_graph_input_buf = None;
+        // PMAT-059: Reset prefill capture flag so graphs can be recaptured
+        self.prefill_graph_capture_failed = false;
         if count > 0 {
             eprintln!("[GH-141] Cleared {} prefill graphs", count);
         }

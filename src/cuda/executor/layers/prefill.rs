@@ -128,40 +128,46 @@ impl CudaExecutor {
             )));
         }
 
-        // PMAT-050: Try graph capture/replay path
-        // Disabled with PREFILL_GRAPH=0 for debugging
-        let use_graph = std::env::var("PREFILL_GRAPH").as_deref() != Ok("0")
-            && std::env::var("CUBLAS_PREFILL").as_deref() != Ok("0")
-            && !self.graph_capture_failed;
+        // PMAT-059: Prefill graph DISABLED by default — cuBLAS uses workspace-free
+        // algorithms during graph capture, which are 7x slower than eager cuBLAS
+        // (541ms vs 78ms for S=125 on RTX 4060L). Enable with PREFILL_GRAPH=1.
+        let graph_enabled = std::env::var("PREFILL_GRAPH").as_deref() == Ok("1")
+            && std::env::var("CUBLAS_PREFILL").as_deref() != Ok("0");
 
-        if use_graph {
+        if graph_enabled {
+            // PMAT-059: Always try replay first — graph_capture_failed must NOT
+            // block replay of already-captured graphs. Prior bug: capture failure
+            // for S=30 blocked replay of S=125 graph → 561ms TTFT regression.
             if self.prefill_graphs.contains_key(&s) {
-                // Replay existing graph
                 return self.prefill_graphed_replay(embeddings, s, num_layers, hidden_dim);
             }
-            // First time for this S: capture then replay
-            match self.try_prefill_graph_capture(
-                s,
-                num_layers,
-                hidden_dim,
-                intermediate_dim,
-                epsilon,
-            ) {
-                Ok(()) => {
-                    return self.prefill_graphed_replay(embeddings, s, num_layers, hidden_dim);
-                },
-                Err(e) => {
-                    eprintln!(
-                        "[PREFILL-GRAPH] Capture failed for S={}: {}. Falling back to eager.",
-                        s, e
-                    );
-                    self.graph_capture_failed = true;
-                    // Reset KV cache lengths (capture may have modified them)
-                    for layer_idx in 0..num_layers {
-                        self.kv_cache_lengths.insert(layer_idx, 0);
-                    }
-                    // Fall through to eager path
-                },
+            // Only attempt new capture if no previous prefill capture failure
+            if !self.prefill_graph_capture_failed {
+                match self.try_prefill_graph_capture(
+                    s,
+                    num_layers,
+                    hidden_dim,
+                    intermediate_dim,
+                    epsilon,
+                ) {
+                    Ok(()) => {
+                        return self.prefill_graphed_replay(embeddings, s, num_layers, hidden_dim);
+                    },
+                    Err(e) => {
+                        eprintln!(
+                            "[PREFILL-GRAPH] Capture failed for S={}: {}. Falling back to eager.",
+                            s, e
+                        );
+                        // PMAT-059: Only set prefill-specific flag, NOT shared graph_capture_failed.
+                        // Shared flag would prevent decode graph capture → decode regression.
+                        self.prefill_graph_capture_failed = true;
+                        // Reset KV cache lengths (capture may have modified them)
+                        for layer_idx in 0..num_layers {
+                            self.kv_cache_lengths.insert(layer_idx, 0);
+                        }
+                        // Fall through to eager path
+                    },
+                }
             }
         }
 

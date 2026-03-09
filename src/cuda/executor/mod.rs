@@ -461,6 +461,9 @@ pub struct CudaExecutor {
     // PAR-118: Graph capture failure flag — prevents futile retry that crashes CUDA.
     // After first failure, skip capture and use eager path.
     graph_capture_failed: bool,
+    // PMAT-059: Separate prefill graph capture flag — prefill failure must NOT
+    // prevent decode graph capture (shared flag caused 561ms→50ms TTFT regression).
+    prefill_graph_capture_failed: bool,
     // PAR-118: True while inside try_graph_capture — Flash Decoding uses
     // seq_len_buf (already populated) instead of copy_from_host.
     is_capturing: bool,
