@@ -53,6 +53,7 @@ impl AppState {
             cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
+            #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
             verbose: false,
@@ -100,6 +101,7 @@ impl AppState {
             cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
+            #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
             verbose: false,
@@ -151,6 +153,7 @@ impl AppState {
             cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
+            #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
             verbose: false,
@@ -204,6 +207,7 @@ impl AppState {
             batch_config: None,
             cuda_model: Some(Arc::new(std::sync::RwLock::new(cuda_model))),
             cuda_batch_tx: None,
+            #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
             verbose: false,
@@ -249,6 +253,7 @@ impl AppState {
             cuda_model: Some(Arc::new(std::sync::RwLock::new(cuda_model))),
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
+            #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
             verbose: false,
@@ -301,6 +306,7 @@ impl AppState {
             cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
+            #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: Some(Arc::new(transformer)),
             verbose: false,
