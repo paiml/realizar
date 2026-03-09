@@ -88,6 +88,8 @@ impl CudaExecutor {
             batched_k_ptrs: None,
             batched_v_ptrs: None,
             batched_seq_lens_gpu: None,
+            batched_k_ptrs_per_layer: HashMap::new(),
+            batched_v_ptrs_per_layer: HashMap::new(),
             batched_kv_stride: 0,
             batched_kv_allocated_batch: 0,
             // PAR-121: Batched graph fields

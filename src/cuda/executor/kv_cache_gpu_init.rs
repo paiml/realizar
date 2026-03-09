@@ -124,7 +124,33 @@ impl CudaExecutor {
         self.batched_v_ptrs = Some(GpuBuffer::new(&self.context, batch_size)?);
         self.batched_seq_lens_gpu = Some(GpuBuffer::new(&self.context, batch_size)?);
 
-        let total_bytes = num_layers * 2 * buffer_size * 4 + batch_size * 24; // caches + ptr arrays
+        // GH-141: Pre-populate per-layer pointer buffers for CUDA graph capture.
+        // During graph capture, H2D copies are not capturable, so we can't update
+        // the shared batched_k_ptrs per layer. These per-layer buffers contain
+        // static KV cache base addresses that the graph records directly.
+        self.batched_k_ptrs_per_layer.clear();
+        self.batched_v_ptrs_per_layer.clear();
+        let stride_bytes = (stride * std::mem::size_of::<f32>()) as u64;
+        for layer_idx in 0..num_layers {
+            if let (Some(k_cache), Some(v_cache)) = (
+                self.batched_kv_k_caches.get(&layer_idx),
+                self.batched_kv_v_caches.get(&layer_idx),
+            ) {
+                let k_ptrs: Vec<u64> = (0..batch_size)
+                    .map(|i| k_cache.as_ptr() + i as u64 * stride_bytes)
+                    .collect();
+                let v_ptrs: Vec<u64> = (0..batch_size)
+                    .map(|i| v_cache.as_ptr() + i as u64 * stride_bytes)
+                    .collect();
+                self.batched_k_ptrs_per_layer
+                    .insert(layer_idx, GpuBuffer::from_host(&self.context, &k_ptrs)?);
+                self.batched_v_ptrs_per_layer
+                    .insert(layer_idx, GpuBuffer::from_host(&self.context, &v_ptrs)?);
+            }
+        }
+
+        let total_bytes = num_layers * 2 * buffer_size * 4 + batch_size * 24
+            + num_layers * 2 * batch_size * 8; // caches + ptr arrays + per-layer ptrs
         self.memory_pool.record_allocation(total_bytes);
 
         eprintln!(

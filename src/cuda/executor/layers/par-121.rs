@@ -22,6 +22,15 @@ impl CudaExecutor {
         vocab_size: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
+        // PMAT-045: Pre-upload static data BEFORE capture.
+        // cuMemcpyHtoD is not capturable — all host-to-device copies must happen
+        // outside the capture region. Guards inside batched ops skip copy_from_host
+        // when is_capturing == true.
+        self.pre_upload_batched_state_for_capture(m)?;
+
+        // PMAT-045: Set capture flag so copy_from_host calls are skipped
+        self.is_capturing = true;
+
         // Begin graph capture
         self.stream.begin_capture(CaptureMode::Global)?;
 
@@ -37,6 +46,7 @@ impl CudaExecutor {
 
         // End capture regardless of result
         let graph = self.stream.end_capture()?;
+        self.is_capturing = false;
 
         // Check capture result
         capture_result?;
@@ -44,6 +54,40 @@ impl CudaExecutor {
         // Instantiate the graph
         let graph_exec = graph.instantiate()?;
         self.batched_decode_graphs.insert(m, graph_exec);
+
+        Ok(())
+    }
+
+    /// PMAT-045: Pre-upload static batched state before graph capture.
+    /// Uploads k_ptrs, v_ptrs, seq_lens, and positions to device buffers.
+    /// These are the same buffers the graph will reference during replay.
+    fn pre_upload_batched_state_for_capture(&mut self, m: usize) -> Result<(), GpuError> {
+        // Upload dummy positions to workspace.positions_buf
+        let dummy_positions: Vec<u32> = vec![0; m];
+        if let Some(ref mut pos_buf) = self.workspace.positions_buf {
+            if pos_buf.len() >= m {
+                let mut wrapper =
+                    unsafe { GpuBuffer::<u32>::from_raw_parts(pos_buf.as_ptr(), m) };
+                wrapper.copy_from_host(&dummy_positions)?;
+                std::mem::forget(wrapper);
+            }
+        }
+
+        // GH-141: Per-layer k_ptrs/v_ptrs are now pre-populated in
+        // init_batched_kv_cache_gpu (batched_k_ptrs_per_layer). During capture,
+        // batch.rs reads from these per-layer buffers instead of the shared
+        // batched_k_ptrs. No need to pre-upload shared buffer here.
+
+        // Upload dummy seq_lens to batched_seq_lens_gpu
+        let dummy_lens: Vec<u32> = vec![1; m];
+        if let Some(ref mut seq_buf) = self.batched_seq_lens_gpu {
+            if seq_buf.len() >= m {
+                let mut wrapper =
+                    unsafe { GpuBuffer::<u32>::from_raw_parts(seq_buf.as_ptr(), m) };
+                wrapper.copy_from_host(&dummy_lens)?;
+                std::mem::forget(wrapper);
+            }
+        }
 
         Ok(())
     }
@@ -297,6 +341,25 @@ impl CudaExecutor {
         // Also update the batched KV cache seq_lens for attention
         if let Some(ref mut seq_lens_gpu) = self.batched_seq_lens_gpu {
             seq_lens_gpu.copy_from_host(&seq_lens)?;
+        }
+
+        // PMAT-045: Update workspace.positions_buf (read by RoPE kernels in graph)
+        if let Some(ref mut pos_buf) = self.workspace.positions_buf {
+            if pos_buf.len() >= m {
+                let mut wrapper =
+                    unsafe { GpuBuffer::<u32>::from_raw_parts(pos_buf.as_ptr(), m) };
+                wrapper.copy_from_host(positions)?;
+                std::mem::forget(wrapper);
+            }
+        }
+
+        // PMAT-045: Update CPU-side batched_kv_lengths for attention seq_lens computation.
+        // The graph's attention kernel reads from batched_seq_lens_gpu (already updated above),
+        // but we also need CPU-side tracking for the next step's seq_lens calculation.
+        for (seq_idx, &pos) in positions.iter().enumerate() {
+            if seq_idx < self.batched_kv_lengths.len() {
+                self.batched_kv_lengths[seq_idx] = pos as usize + 1;
+            }
         }
 
         // Launch the captured graph
