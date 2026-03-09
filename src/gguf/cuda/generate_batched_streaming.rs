@@ -70,6 +70,7 @@ impl OwnedQuantizedModelCuda {
         // On 8GB GPUs, keeping FP16 cache (2944 MB) alongside batched KV causes memory
         // pressure that slows HGEMM prefill from ~100ms to >2000ms per slot (VRAM thrash).
         // SGEMM prefill at ~100ms/slot is faster than thrashing HGEMM at ~2300ms/slot.
+        // PMAT-057: Attempted post-prefill FP16 clear, confirmed regression (42.9 vs 60.2 decode).
         self.executor.clear_fp16_weight_cache();
         self.executor.clear_prefill_graphs();
 
