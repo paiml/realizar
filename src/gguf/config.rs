@@ -45,6 +45,8 @@ pub enum PositionalEncoding {
     Absolute,
     /// Rotary Position Embedding (LLaMA, Qwen2, Mistral, phi, etc.)
     Rope,
+    /// Attention with Linear Biases (BLOOM, MPT)
+    Alibi,
     /// No positional encoding (mamba, rwkv7)
     None,
 }

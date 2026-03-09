@@ -212,16 +212,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        let weight_ptr = self
-            .quantized_weight_cache
-            .get(weight_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-014: Quantized weight '{}' not cached",
-                    weight_name
-                ))
-            })?
-            .as_ptr();
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
 
         let kernel_type = KernelType::Q4KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
@@ -291,16 +282,7 @@ impl CudaExecutor {
         k: u32,
         n: u32,
     ) -> Result<(), GpuError> {
-        let weight_ptr = self
-            .quantized_weight_cache
-            .get(weight_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-094: Quantized weight '{}' not cached for GEMM",
-                    weight_name
-                ))
-            })?
-            .as_ptr();
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
 
         let kernel_type = KernelType::TensorCoreQ4KGemm { m, k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
@@ -392,17 +374,8 @@ impl CudaExecutor {
             )));
         }
 
-        // Get cached weight buffer
-        let _weight_ptr = self
-            .quantized_weight_cache
-            .get(weight_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-095: Quantized weight '{}' not cached for batched GEMM",
-                    weight_name
-                ))
-            })?
-            .as_ptr();
+        // Get cached weight buffer (ALB-098: checks pool first, then individual cache)
+        let _weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
 
         // Upload input to GPU
         let input_buf = GpuBuffer::from_host(&self.context, input)?;

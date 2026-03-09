@@ -329,6 +329,12 @@ pub struct CudaExecutor {
     // PAR-058: Quantization type for each cached weight (e.g., Q4K=12, Q5_0=6, Q8_0=8)
     // Stored separately to support mixed-quantization models like Qwen 0.5B
     quantized_weight_types: HashMap<String, u32>,
+    // ALB-098: Pooled GPU allocation for quantized weights (MoE models).
+    // Single cuMemAlloc instead of 18,867 individual allocations.
+    // Tensors are packed contiguously at 256-byte aligned offsets.
+    quantized_weight_pool: Option<GpuBuffer<u8>>,
+    // ALB-098: Map from tensor name to (device_ptr, size_bytes) within the pool
+    quantized_weight_pool_entries: HashMap<String, (u64, usize)>,
     // PAR-023: Cached RMSNorm gamma weights on GPU
     // Key format: "blk.{layer_idx}.{attn|ffn}_norm.gamma"
     // Pre-cached at model load to avoid per-token uploads
@@ -439,6 +445,9 @@ pub struct CudaExecutor {
     argmax_result: Option<GpuBuffer<u32>>,
     // Number of blocks (based on vocab_size)
     argmax_num_blocks: u32,
+    // PMAT-045: Batched argmax result buffer (M u32s) — eliminates M-1 syncs at c>1
+    batched_argmax_results: Option<GpuBuffer<u32>>,
+    batched_argmax_results_cap: usize,
     // PAR-118: Graph capture failure flag — prevents futile retry that crashes CUDA.
     // After first failure, skip capture and use eager path.
     graph_capture_failed: bool,

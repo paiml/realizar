@@ -16,6 +16,9 @@
 fn generate_q8_dequant_ptx(_n: u32) -> String {
     // Note: n is used by caller for launch config, not embedded in PTX
     // The kernel uses n_param from arguments for bounds checking
+    // PMAT-044: This raw PTX uses basic instructions only (no SM-specific features).
+    // sm_70 forward-compiles to all sm_70+ devices via PTX JIT.
+    // Unlike trueno-gpu generated kernels, this raw PTX cannot take a runtime target.
     r"
 .version 8.0
 .target sm_70

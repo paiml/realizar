@@ -4485,3 +4485,51 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: PMAT-809
+  github_issue: null
+  item_type: task
+  title: 'PMAT-037: Eagerly warm FP16 weight cache at model init'
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-03-08T22:53:29Z
+  updated: 2026-03-08T22:53:29Z
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
+- id: PMAT-810
+  github_issue: null
+  item_type: task
+  title: 'PMAT-037b: cuBLAS HGEMM prefill for batched streaming path'
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-03-08T22:58:19Z
+  updated: 2026-03-08T22:58:19Z
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
+- id: PMAT-811
+  github_issue: null
+  item_type: task
+  title: 'PMAT-045: Batched GPU argmax — eliminate M sequential syncs in c=4 decode'
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-03-09T07:58:58Z
+  updated: 2026-03-09T07:58:58Z
+  spec: null
+  acceptance_criteria: []
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null

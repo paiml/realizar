@@ -155,9 +155,12 @@ impl AprF32ToGpuAdapter {
             // QKV = Q(key_dim) + K(key_dim) + V(value_dim)
             (key_dim + key_dim + value_dim, hidden_dim, value_dim)
         } else {
-            let head_dim = hidden_dim / num_heads;
+            // Use config.head_dim() to handle explicit_head_dim (Qwen3-Coder: 128 vs 2048/32=64)
+            let head_dim = config.head_dim();
             let kv_dim = num_kv_heads * head_dim;
-            (hidden_dim + 2 * kv_dim, hidden_dim, hidden_dim)
+            let q_dim = num_heads * head_dim;
+            // Output proj: [hidden_dim, q_dim] — maps attention space back to residual
+            (q_dim + 2 * kv_dim, hidden_dim, q_dim)
         };
 
         // Transpose QKV: [qkv_out_dim, hidden_dim] -> [hidden_dim, qkv_out_dim]
@@ -345,23 +348,24 @@ impl AprToGpuAdapter {
     /// Extract QKV weights from APR layer
     ///
     /// APR stores QKV as a single tensor, which matches GpuModel format.
+    /// Uses config's head_dim() to handle explicit_head_dim (Qwen3-Coder: 128 vs 2048/32=64).
     pub fn extract_qkv_weights(
         layer: &QuantizedAprLayerQ4,
-        hidden_dim: usize,
-        num_heads: usize,
-        num_kv_heads: usize,
+        config: &GpuModelConfig,
     ) -> Result<Vec<f32>> {
-        let head_dim = hidden_dim / num_heads;
-        let kv_dim = num_kv_heads * head_dim;
-        let qkv_out_dim = hidden_dim + 2 * kv_dim;
-        let expected = hidden_dim * qkv_out_dim;
+        let qkv_out_dim = config.qkv_dim();
+        let expected = config.hidden_dim * qkv_out_dim;
 
         Self::dequantize_tensor(&layer.qkv_weight.data, expected)
     }
 
     /// Extract output projection weights
-    pub fn extract_out_weights(layer: &QuantizedAprLayerQ4, hidden_dim: usize) -> Result<Vec<f32>> {
-        let expected = hidden_dim * hidden_dim;
+    /// Output proj shape: [hidden_dim, q_dim] where q_dim = num_heads * head_dim
+    pub fn extract_out_weights(
+        layer: &QuantizedAprLayerQ4,
+        config: &GpuModelConfig,
+    ) -> Result<Vec<f32>> {
+        let expected = config.hidden_dim * config.q_dim();
         Self::dequantize_tensor(&layer.attn_output_weight.data, expected)
     }
 
@@ -408,11 +412,10 @@ impl AprToGpuAdapter {
         let config = Self::config_to_gpu(&apr.config);
         let hidden_dim = config.hidden_dim;
         let intermediate_dim = config.intermediate_dim;
-        let num_heads = config.num_heads;
-        let num_kv_heads = config.num_kv_heads;
-        let head_dim = hidden_dim / num_heads;
-        let kv_dim = num_kv_heads * head_dim;
-        let qkv_out_dim = hidden_dim + 2 * kv_dim;
+        // Use config methods for head_dim to handle explicit_head_dim
+        // (e.g., Qwen3-Coder: head_dim=128, hidden=2048, num_heads=32 → 2048/32=64 is WRONG)
+        let qkv_out_dim = config.qkv_dim();
+        let q_dim = config.q_dim();
 
         // Embedding weights (already F32 in APR)
         let embedding_weights = apr.token_embedding.clone();
@@ -428,13 +431,8 @@ impl AprToGpuAdapter {
         // Convert each layer
         let mut block_weights = Vec::with_capacity(apr.layers.len());
         for (block_idx, layer) in apr.layers.iter().enumerate() {
-            let qkv = Self::extract_qkv_weights(
-                layer,
-                hidden_dim,
-                config.num_heads,
-                config.num_kv_heads,
-            )?;
-            let out = Self::extract_out_weights(layer, hidden_dim)?;
+            let qkv = Self::extract_qkv_weights(layer, &config)?;
+            let out = Self::extract_out_weights(layer, &config)?;
             let (fc1, fc2) = Self::extract_ffn_weights(layer, hidden_dim, intermediate_dim)?;
 
             // Extract gate weight for SwiGLU (optional)
@@ -449,7 +447,8 @@ impl AprToGpuAdapter {
             // This matches the F32 path in AprF32ToGpuAdapter::convert_layer
             // APR/GGUF stores weights as [out_dim, in_dim] row-major, but GpuModel matmul expects [in_dim, out_dim]
             let qkv_weight_t = transpose_matrix(&qkv, qkv_out_dim, hidden_dim);
-            let out_weight_t = transpose_matrix(&out, hidden_dim, hidden_dim);
+            // Output proj: [hidden_dim, q_dim] where q_dim = num_heads * head_dim (may != hidden_dim)
+            let out_weight_t = transpose_matrix(&out, hidden_dim, q_dim);
             let fc1_weight_t = transpose_matrix(&fc1, intermediate_dim, hidden_dim);
             let fc2_weight_t = transpose_matrix(&fc2, hidden_dim, intermediate_dim);
             let gate_weight_t = ffn_gate_weight

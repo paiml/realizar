@@ -617,7 +617,7 @@ impl CudaExecutor {
             let chunk_kernel = FlashDecodingChunkKernel::new(
                 max_len, head_dim, num_heads, num_kv_heads, 1,
             );
-            let ptx = chunk_kernel.emit_ptx();
+            let ptx = chunk_kernel.emit_ptx_for_target(&self.kernels.sm_target);
             let module = self.compile_ptx(&ptx)?;
             self.modules.insert(chunk_module_key, module);
         }
@@ -625,7 +625,7 @@ impl CudaExecutor {
         let reduce_module_key = format!("flash_decode_reduce_{}_{}", head_dim, num_heads);
         if !self.modules.contains_key(&reduce_module_key) {
             let reduce_kernel = FlashDecodingReduceKernel::new(head_dim, num_heads, 1);
-            let ptx = reduce_kernel.emit_ptx();
+            let ptx = reduce_kernel.emit_ptx_for_target(&self.kernels.sm_target);
             let module = self.compile_ptx(&ptx)?;
             self.modules.insert(reduce_module_key, module);
         }

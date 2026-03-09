@@ -417,11 +417,13 @@ fn test_extract_ffn_weights_dimensions() {
 #[test]
 fn test_extract_out_weights_dimensions() {
     let config = create_minimal_apr_config();
+    let gpu_config = AprToGpuAdapter::config_to_gpu(&config);
     let layer = create_q4_layer(&config);
 
-    let result = AprToGpuAdapter::extract_out_weights(&layer, config.hidden_dim);
+    let result = AprToGpuAdapter::extract_out_weights(&layer, &gpu_config);
     assert!(result.is_ok());
 
     let weights = result.expect("test value should be present");
-    assert_eq!(weights.len(), config.hidden_dim * config.hidden_dim);
+    // q_dim = num_heads * head_dim = hidden_dim (no explicit head_dim)
+    assert_eq!(weights.len(), config.hidden_dim * gpu_config.q_dim());
 }

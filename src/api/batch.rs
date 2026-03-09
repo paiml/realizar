@@ -48,6 +48,66 @@ fn try_quantized_generate(
     }))
 }
 
+#[cfg(feature = "cuda")]
+async fn try_apr_q4k_generate(
+    state: &AppState,
+    request: &GenerateRequest,
+) -> Result<Option<GenerateResponse>, ApiErr> {
+    use super::apr_q4k_scheduler::AprQ4kRequest;
+
+    let q4k_tx = match state.apr_q4k_tx() {
+        Some(tx) => tx,
+        None => return Ok(None),
+    };
+    let tokenizer = require_tok(state)?;
+    let prompt_ids = tokenize_prompt(&tokenizer, &request.prompt)?;
+    let prompt_ids_copy = prompt_ids.clone();
+
+    let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+
+    q4k_tx
+        .send(AprQ4kRequest {
+            prompt_ids,
+            max_tokens: request.max_tokens,
+            temperature: request.temperature,
+            response_tx,
+        })
+        .await
+        .map_err(|_| {
+            api_err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Q4K inference thread not available",
+            )
+        })?;
+
+    let result = response_rx.await.map_err(|_| {
+        api_err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Q4K inference thread dropped response",
+        )
+    })?;
+
+    let resp = result.map_err(|e| {
+        api_err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Q4K generation failed: {e}"),
+        )
+    })?;
+
+    // Build full token sequence (prompt + generated) and decode
+    let mut all_tokens = prompt_ids_copy;
+    all_tokens.extend_from_slice(&resp.output_tokens);
+    let text = tokenizer
+        .decode(&all_tokens)
+        .map_err(|e| api_err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Some(GenerateResponse {
+        num_generated: resp.tokens_generated,
+        token_ids: all_tokens,
+        text,
+    }))
+}
+
 fn try_apr_generate(
     state: &AppState,
     request: &GenerateRequest,
@@ -168,6 +228,14 @@ pub async fn generate_handler(
     }
 
     if let Some(resp) = try_quantized_generate(&state, &request)? {
+        state
+            .metrics
+            .record_success(resp.num_generated, start.elapsed());
+        return Ok(Json(resp));
+    }
+
+    #[cfg(feature = "cuda")]
+    if let Some(resp) = try_apr_q4k_generate(&state, &request).await? {
         state
             .metrics
             .record_success(resp.num_generated, start.elapsed());

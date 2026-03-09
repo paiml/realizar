@@ -563,6 +563,7 @@ fn map_positional_encoding(s: &str) -> &'static str {
     match s {
         "Absolute" | "absolute" => "PositionalEncoding::Absolute",
         "Rope" | "rope" => "PositionalEncoding::Rope",
+        "Alibi" | "alibi" => "PositionalEncoding::Alibi",
         "None" | "none" => "PositionalEncoding::None",
         _ => panic!("Unknown positional_encoding in YAML: {s}"),
     }

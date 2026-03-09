@@ -42,8 +42,10 @@ impl CudaExecutor {
 
         // PAR-200: Skip reallocation if workspace already large enough.
         // Eliminates GPU malloc churn when batched prefill runs per-request.
+        // PMAT-045: Check buffer_capacity (high-water mark) instead of batch_size
+        // to prevent thrashing between prefill and decode phases.
         if self.workspace.initialized
-            && self.workspace.batch_size >= max_seq_len
+            && self.workspace.buffer_capacity >= max_seq_len
             && self.workspace.hidden_dim == hidden_dim
             && self.workspace.intermediate_dim == intermediate_dim
         {
@@ -75,6 +77,7 @@ impl CudaExecutor {
         self.workspace.kv_dim = kv_dim;
         self.workspace.intermediate_dim = intermediate_dim;
         self.workspace.batch_size = m;
+        self.workspace.buffer_capacity = m;
         self.workspace.initialized = true;
 
         Ok(())
@@ -127,10 +130,11 @@ impl CudaExecutor {
         }
 
         // Verify workspace initialized for this batch size
-        if !self.workspace.initialized || self.workspace.batch_size < s {
+        // PMAT-045: Check buffer_capacity (actual allocation) not batch_size (logical)
+        if !self.workspace.initialized || self.workspace.buffer_capacity < s {
             return Err(GpuError::InvalidLaunchConfig(format!(
-                "PMAT-PREFILL: Workspace not initialized for S={} (have batch_size={})",
-                s, self.workspace.batch_size
+                "PMAT-PREFILL: Workspace not initialized for S={} (have buffer_capacity={})",
+                s, self.workspace.buffer_capacity
             )));
         }
 

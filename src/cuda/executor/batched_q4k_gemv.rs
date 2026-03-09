@@ -54,17 +54,8 @@ impl CudaExecutor {
             )));
         }
 
-        // Get cached weight pointer
-        let weight_ptr = self
-            .quantized_weight_cache
-            .get(weight_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-096: Quantized weight '{}' not cached for batched GEMV",
-                    weight_name
-                ))
-            })?
-            .as_ptr();
+        // Get cached weight pointer (ALB-098: checks pool first, then individual cache)
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
 
         // PAR-108: Use true batched kernel for dequant sharing across M sequences
         // This amortizes weight dequantization cost across batch, providing ~15x speedup for M=4
@@ -103,28 +94,9 @@ impl CudaExecutor {
         hidden_dim: u32,
         intermediate_dim: u32,
     ) -> Result<(), GpuError> {
-        // Verify weights are cached
-        let up_ptr = self
-            .quantized_weight_cache
-            .get(ffn_up_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-014: FFN up weight '{}' not cached",
-                    ffn_up_name
-                ))
-            })?
-            .as_ptr();
-
-        let down_ptr = self
-            .quantized_weight_cache
-            .get(ffn_down_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-014: FFN down weight '{}' not cached",
-                    ffn_down_name
-                ))
-            })?
-            .as_ptr();
+        // Verify weights are cached (ALB-098: checks pool first, then individual cache)
+        let up_ptr = self.get_quantized_weight_ptr(ffn_up_name)?;
+        let down_ptr = self.get_quantized_weight_ptr(ffn_down_name)?;
 
         // 1. Upload input to GPU (only transfer IN for FFN)
         let buf_input = GpuBuffer::from_host(&self.context, input)?;

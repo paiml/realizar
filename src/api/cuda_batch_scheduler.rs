@@ -152,6 +152,7 @@ fn process_cuda_batch(
     let result = cuda_model.generate_batched_streaming(&prompts, &configs, callbacks);
 
     if let Err(e) = result {
+        eprintln!("[PMAT-044] Batched streaming ERROR (m={m}): {e}");
         // Send error to all slots
         for req in &batch {
             let _ = req.token_tx.try_send(Err(e.to_string()));

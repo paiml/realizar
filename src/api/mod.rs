@@ -51,6 +51,8 @@ use crate::{
 
 // PMAT-802: Extracted handlers
 #[cfg(feature = "cuda")]
+pub mod apr_q4k_scheduler;
+#[cfg(feature = "cuda")]
 pub mod cuda_batch_scheduler;
 mod openai_handlers;
 pub(crate) use openai_handlers::{
@@ -148,6 +150,9 @@ pub struct AppState {
     /// PMAT-044: CUDA batch scheduler for continuous batching on /v1/chat/completions
     #[cfg(feature = "cuda")]
     cuda_batch_tx: Option<tokio::sync::mpsc::Sender<cuda_batch_scheduler::CudaBatchRequest>>,
+    /// ALB-095: APR Q4K GPU inference channel (dedicated thread owns CudaExecutor)
+    #[cfg(feature = "cuda")]
+    apr_q4k_tx: Option<tokio::sync::mpsc::Sender<apr_q4k_scheduler::AprQ4kRequest>>,
     /// APR Transformer for SafeTensors/APR inference (PMAT-SERVE-FIX-001)
     /// Supports F32 weights from SafeTensors or APR format
     apr_transformer: Option<Arc<crate::apr_transformer::AprTransformer>>,

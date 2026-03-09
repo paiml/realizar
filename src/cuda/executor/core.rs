@@ -33,17 +33,23 @@ impl CudaExecutor {
         let context = checkout_context(device_ordinal)?;
         let (compute_stream, transfer_stream, stream) = checkout_streams(&context)?;
 
+        // PMAT-044: Detect GPU profile FIRST so sm_target is available for CudaKernels.
+        // All PTX generation uses this target — no hardcoded sm_70.
+        let gpu_profile = GpuProfile::detect(&context);
+
         Ok(Self {
             // Initialize in struct declaration order (for clarity)
-            kernels: CudaKernels::new(),
+            kernels: CudaKernels::with_target(gpu_profile.sm_target.clone()),
             memory_pool: GpuMemoryPool::new(),
             staging_pool: StagingBufferPool::new(), // PARITY-042: pinned memory pool
             modules: std::mem::ManuallyDrop::new(HashMap::new()),
             weight_cache: HashMap::new(),
             quantized_weight_cache: HashMap::new(), // PAR-005: quantized weight cache
             quantized_weight_types: HashMap::new(), // PAR-058: weight quant types
-            rmsnorm_cache: HashMap::new(),          // PAR-023: RMSNorm gamma cache
-            bias_cache: HashMap::new(),             // BIAS-FIX: QKV bias cache
+            quantized_weight_pool: None,            // ALB-098: pool allocator
+            quantized_weight_pool_entries: HashMap::new(),
+            rmsnorm_cache: HashMap::new(), // PAR-023: RMSNorm gamma cache
+            bias_cache: HashMap::new(),    // BIAS-FIX: QKV bias cache
             // PAR-043: Pre-indexed layer weights for O(1) access
             indexed_layer_weights: Vec::new(),
             output_norm_ptr: 0,
@@ -97,6 +103,8 @@ impl CudaExecutor {
             argmax_block_idxs: None,
             argmax_result: None,
             argmax_num_blocks: 0,
+            batched_argmax_results: None,
+            batched_argmax_results_cap: 0,
             // PAR-118: Graph capture failure tracking
             graph_capture_failed: false,
             is_capturing: false,
@@ -134,7 +142,7 @@ impl CudaExecutor {
             // Enable with executor.enable_profiling() for per-brick timing
             profiler: trueno::BrickProfiler::new(),
             // Auto-detect kernel variants from GPU hardware (replaces env var tuning)
-            gpu_profile: GpuProfile::detect(&context),
+            gpu_profile,
             // SM count for grid scaling (fallback 8 = Jetson Orin Nano)
             num_sms: context.multiprocessor_count().unwrap_or(8) as u32,
             // PMAT-027: Q8 activation cache starts invalid

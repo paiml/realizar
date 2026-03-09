@@ -324,7 +324,7 @@ pub fn run_apr_inference_gpu_q4k(
 
 /// Greedy argmax over logits.
 #[cfg(feature = "cuda")]
-fn argmax(logits: &[f32]) -> u32 {
+pub(crate) fn argmax(logits: &[f32]) -> u32 {
     logits
         .iter()
         .enumerate()
@@ -335,7 +335,7 @@ fn argmax(logits: &[f32]) -> u32 {
 
 /// Sample a token with temperature and top-k.
 #[cfg(feature = "cuda")]
-fn sample_with_temperature(logits: &[f32], temperature: f32, top_k: usize) -> u32 {
+pub(crate) fn sample_with_temperature(logits: &[f32], temperature: f32, top_k: usize) -> u32 {
     // Apply temperature
     let scaled: Vec<f32> = logits.iter().map(|&l| l / temperature).collect();
 

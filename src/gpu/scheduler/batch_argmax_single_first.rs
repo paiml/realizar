@@ -315,7 +315,7 @@ mod tests {
         expert_intermediate_size: None,
         };
 
-        // qkv_dim = hidden_dim + 2 * kv_dim = 4096 + 2 * 1024 = 6144
+        // qkv_dim = (num_heads + 2*num_kv_heads) * head_dim = (32+16)*128 = 6144
         assert_eq!(config.qkv_dim(), 6144);
     }
 

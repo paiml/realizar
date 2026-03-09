@@ -297,11 +297,24 @@ mod server_commands {
     }
 
     /// Load and prepare an APR model for serving
-    fn prepare_apr_serve_state(model_path: &str) -> Result<PreparedServer> {
-        use crate::apr_transformer::AprTransformer;
+    fn prepare_apr_serve_state(model_path: &str, force_gpu: bool) -> Result<PreparedServer> {
         use std::path::Path;
 
         println!("Loading APR model for serving...");
+
+        // ALB-095: Check if Q4K and GPU requested — use dedicated inference thread
+        #[cfg(feature = "cuda")]
+        if force_gpu || std::env::var("REALIZAR_BACKEND")
+            .map(|v| v.eq_ignore_ascii_case("cuda"))
+            .unwrap_or(false)
+        {
+            if crate::cli::inference::is_apr_q4k(model_path) {
+                return prepare_apr_q4k_serve_state(model_path);
+            }
+        }
+
+        // F32 CPU path (original)
+        use crate::apr_transformer::AprTransformer;
 
         let file_data = std::fs::read(model_path).map_err(|e| {
             crate::error::RealizarError::UnsupportedOperation {
@@ -349,6 +362,47 @@ mod server_commands {
         })
     }
 
+    /// ALB-095: Load APR Q4K model and spawn GPU inference thread for serving
+    #[cfg(feature = "cuda")]
+    fn prepare_apr_q4k_serve_state(model_path: &str) -> Result<PreparedServer> {
+        use crate::api::apr_q4k_scheduler;
+        use crate::apr::AprV2Model;
+        use std::path::Path;
+
+        println!("  Mode: GPU (Q4K CUDA — ALB-095)");
+
+        // Load tokenizer for the HTTP serving path
+        let model_path_obj = Path::new(model_path);
+        let vocab = AprV2Model::load_tokenizer_from_sibling(model_path_obj)
+            .map(|(v, _, _)| v)
+            .or_else(|| {
+                AprV2Model::load(model_path_obj)
+                    .ok()
+                    .and_then(|m| m.load_embedded_tokenizer())
+                    .map(|t| t.id_to_token.clone())
+            })
+            .unwrap_or_else(|| {
+                println!("  Warning: No vocabulary found, using simple vocabulary");
+                (0..151936).map(|i| format!("token{i}")).collect()
+            });
+
+        println!("  Vocab: {} tokens", vocab.len());
+
+        // Spawn the Q4K inference thread (loads model, uploads weights to GPU)
+        let q4k_tx = apr_q4k_scheduler::spawn_apr_q4k_inference_thread(model_path)
+            .map_err(|e| crate::error::RealizarError::GpuError {
+                reason: format!("Q4K inference thread failed: {e}"),
+            })?;
+
+        let state = crate::api::AppState::with_apr_q4k_and_vocab(q4k_tx, vocab)?;
+
+        Ok(PreparedServer {
+            state,
+            batch_mode_enabled: false,
+            model_type: ModelType::Apr,
+        })
+    }
+
     /// Prepare server state by loading a model (GGUF/SafeTensors/APR)
     ///
     /// Dispatches to format-specific loaders based on file extension.
@@ -373,7 +427,7 @@ mod server_commands {
         } else if model_path.ends_with(".safetensors") {
             prepare_safetensors_serve_state(model_path)
         } else if model_path.ends_with(".apr") {
-            prepare_apr_serve_state(model_path)
+            prepare_apr_serve_state(model_path, force_gpu)
         } else {
             Err(crate::error::RealizarError::UnsupportedOperation {
                 operation: "detect_model_type".to_string(),

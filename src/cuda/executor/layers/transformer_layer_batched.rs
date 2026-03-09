@@ -6,10 +6,10 @@ impl CudaExecutor {
                 "PAR-111: Workspace not initialized".to_string(),
             ));
         }
-        if self.workspace.batch_size < m as usize {
+        if self.workspace.buffer_capacity < m as usize {
             return Err(GpuError::InvalidLaunchConfig(format!(
-                "PAR-111: Workspace batch_size {} < m {}",
-                self.workspace.batch_size, m
+                "PAR-111: Workspace buffer_capacity {} < m {}",
+                self.workspace.buffer_capacity, m
             )));
         }
         if positions_len != m as usize {

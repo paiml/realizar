@@ -25,6 +25,7 @@ impl OwnedQuantizedModelCuda {
         on_tokens: Vec<Box<dyn FnMut(u32) -> bool + Send>>,
     ) -> Result<Vec<Vec<u32>>> {
         let m = prompts.len();
+        eprintln!("[PMAT-044] generate_batched_streaming ENTRY m={m}");
         self.validate_batch_args(m, configs.len(), on_tokens.len())?;
         if m == 0 {
             return Ok(Vec::new());
@@ -60,6 +61,17 @@ impl OwnedQuantizedModelCuda {
             .map(|_| OwnedQuantizedKVCache::new(num_layers, kv_dim, max_seq_len))
             .collect();
 
+        // PMAT-045: Pre-allocate workspace for max_prompt_len BEFORE prefill.
+        // Uses init_prefill_workspace (no 32-batch limit) to size buffers for prefill.
+        // The buffer_capacity high-water mark ensures init_batched_workspace(m) skips
+        // reallocation since buffer_capacity >= max_prompt_len >= m.
+        self.executor
+            .init_prefill_workspace(hidden_dim, intermediate_dim, max_prompt_len)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "init_prefill_workspace".to_string(),
+                reason: format!("Failed to pre-allocate workspace for seq_len={max_prompt_len}: {e}"),
+            })?;
+
         // Init batched KV caches for scatter targets
         self.executor
             .init_batched_kv_cache_gpu(num_layers, m)
@@ -74,18 +86,19 @@ impl OwnedQuantizedModelCuda {
         let (mut sequences, mut positions, mut last_tokens) =
             self.prefill_and_scatter(prompts, &mut caches)?;
 
-        // Init batched workspace for decode (stride restored by prefill_and_scatter)
+        // PMAT-045: Set workspace.batch_size = m for decode kernels (they check == m).
+        // buffer_capacity stays at max_prompt_len (high-water mark), so this call
+        // skips reallocation and just sets the logical batch_size.
         self.executor
             .init_batched_workspace(hidden_dim, intermediate_dim, m)
             .map_err(|e| RealizarError::UnsupportedOperation {
                 operation: "init_batched_workspace".to_string(),
-                reason: format!("Failed to init batched workspace for M={m}: {e}"),
+                reason: format!("Failed to set decode batch_size={m}: {e}"),
             })?;
 
-        // PMAT-044 FIX: Clear decode graph — init_batched_workspace reallocated all
-        // workspace buffers (new GPU addresses), so any CUDA graph captured during
-        // prefill_and_scatter holds stale buffer pointers. Without this, subsequent
-        // M=1 requests replay the stale graph → garbage output → 0 tokens.
+        // PMAT-044 FIX: Clear M=1 decode graph — prefill_and_scatter may have
+        // captured an M=1 graph with stale addresses. init_batched_workspace skips
+        // reallocation if batch_size matches (PMAT-045), preserving batched graphs.
         self.executor.clear_decode_graph();
 
         // Decode phase: batched
@@ -228,6 +241,8 @@ impl OwnedQuantizedModelCuda {
                 eprintln!("[PMAT-044] decode step 0: positions={pos_u32:?}, last_tokens={last_tokens:?}");
             }
 
+            // PMAT-045: Use non-graphed batched forward for debugging.
+            // TODO: Re-enable graphed path after fixing CUDA_ERROR_ILLEGAL_ADDRESS.
             let token_ids = self
                 .executor
                 .forward_batched_to_token_ids(

@@ -278,6 +278,7 @@ impl AprTransformer {
         hidden_dim: usize,
         kv_dim: usize,
         intermediate_dim: usize,
+        num_experts: Option<usize>,
         debug_enabled: bool,
     ) -> (Vec<AprTransformerLayer>, Option<Vec<Q4KLayerWeights>>) {
         let mut layers = Vec::with_capacity(num_layers);
@@ -320,6 +321,47 @@ impl AprTransformer {
             }
             q4k_layer_weights.push(quant_weights);
 
+            // ALB-094: Load MoE weights if architecture supports it
+            let moe_gate_weight = lookup.get_f32(&format!("{}.mlp.gate.weight", pfx.hf));
+
+            let (moe_expert_gate_up, moe_expert_down, has_moe) = if let Some(n_experts) = num_experts {
+                let mut all_gate_up = Vec::new();
+                let mut all_down = Vec::new();
+                for e in 0..n_experts {
+                    let gate = lookup.get_f32(&format!("{}.mlp.experts.{e}.gate_proj.weight", pfx.hf))
+                        .unwrap_or_default();
+                    let up = lookup.get_f32(&format!("{}.mlp.experts.{e}.up_proj.weight", pfx.hf))
+                        .unwrap_or_default();
+                    let down = lookup.get_f32(&format!("{}.mlp.experts.{e}.down_proj.weight", pfx.hf))
+                        .unwrap_or_default();
+                    // Concatenate gate + up for fused gate_up
+                    all_gate_up.extend_from_slice(&gate);
+                    all_gate_up.extend_from_slice(&up);
+                    all_down.extend_from_slice(&down);
+                }
+                let has = !all_gate_up.is_empty();
+                (
+                    if has { Some(all_gate_up) } else { None },
+                    if has { Some(all_down) } else { None },
+                    has,
+                )
+            } else {
+                (None, None, false)
+            };
+
+            // ALB-094: Load shared expert weights (Qwen3.5 MoE)
+            let moe_shared_gate = lookup.get_f32(&format!("{}.mlp.shared_expert.gate_proj.weight", pfx.hf));
+            let moe_shared_up = lookup.get_f32(&format!("{}.mlp.shared_expert.up_proj.weight", pfx.hf));
+            let moe_shared_down = lookup.get_f32(&format!("{}.mlp.shared_expert.down_proj.weight", pfx.hf));
+            let moe_shared_expert_gate_weight = lookup.get_f32(&format!("{}.mlp.shared_expert_gate.weight", pfx.hf));
+
+            // When MoE is active, standard FFN is replaced by experts
+            let (final_ffn_gate, final_ffn_up, final_ffn_down) = if has_moe {
+                (None, vec![0.0f32; 0], vec![0.0f32; 0])
+            } else {
+                (ffn_gate, ffn_up, ffn_down)
+            };
+
             layers.push(AprTransformerLayer {
                 attn_norm_weight: attn_norm,
                 attn_norm_bias: None,
@@ -327,11 +369,11 @@ impl AprTransformer {
                 qkv_bias,
                 attn_output_weight: attn_output,
                 attn_output_bias: None,
-                ffn_gate_weight: ffn_gate,
+                ffn_gate_weight: final_ffn_gate,
                 ffn_gate_bias: None,
-                ffn_up_weight: ffn_up,
+                ffn_up_weight: final_ffn_up,
                 ffn_up_bias: None,
-                ffn_down_weight: ffn_down,
+                ffn_down_weight: final_ffn_down,
                 ffn_down_bias: None,
                 ffn_norm_weight: ffn_norm,
                 ffn_norm_bias: None,
@@ -344,13 +386,13 @@ impl AprTransformer {
                 linear_attn_a_log: None,
                 linear_attn_dt_bias: None,
                 linear_attn_norm_weight: None,
-                moe_gate_weight: None,
-                moe_expert_gate_up: None,
-                moe_expert_down: None,
-                moe_shared_gate: None,
-                moe_shared_up: None,
-                moe_shared_down: None,
-                moe_shared_expert_gate_weight: None,
+                moe_gate_weight,
+                moe_expert_gate_up,
+                moe_expert_down,
+                moe_shared_gate,
+                moe_shared_up,
+                moe_shared_down,
+                moe_shared_expert_gate_weight,
             });
         }
 

@@ -31,10 +31,10 @@ impl CudaExecutor {
         intermediate_dim: usize,
     ) -> Result<(), GpuError> {
         // PAR-200: Skip reallocation if workspace already initialized with matching dims.
-        // Prefill workspace (batch_size >= 1) is always large enough for decode (batch_size=1).
+        // Prefill workspace (buffer_capacity >= 1) is always large enough for decode (batch_size=1).
         // Reusing prefill buffers preserves GPU pointers, enabling CUDA graph reuse across requests.
         if self.workspace.initialized
-            && self.workspace.batch_size >= 1
+            && self.workspace.buffer_capacity >= 1
             && self.workspace.hidden_dim == hidden_dim
             && self.workspace.intermediate_dim == intermediate_dim
         {
@@ -77,6 +77,7 @@ impl CudaExecutor {
         self.workspace.kv_dim = kv_dim;
         self.workspace.intermediate_dim = intermediate_dim;
         self.workspace.batch_size = 1;
+        self.workspace.buffer_capacity = 1;
         self.workspace.initialized = true;
 
         Ok(())
@@ -110,6 +111,22 @@ impl CudaExecutor {
             )));
         }
 
+        // PMAT-045: Skip reallocation if workspace buffers are already large enough.
+        // Preserves GPU buffer addresses → CUDA graph stays valid → no recapture.
+        // Uses buffer_capacity (high-water mark) instead of batch_size to prevent
+        // thrashing: prefill sets batch_size=30, decode sets batch_size=4, next
+        // request's prefill would see 4<30 and reallocate. buffer_capacity stays
+        // at the high-water mark (30), so the skip fires correctly.
+        if self.workspace.initialized
+            && self.workspace.buffer_capacity >= batch_size
+            && self.workspace.hidden_dim == hidden_dim
+            && self.workspace.intermediate_dim == intermediate_dim
+        {
+            // Update logical batch size for decode kernels (they check == m)
+            self.workspace.batch_size = batch_size;
+            return Ok(());
+        }
+
         let q_dim = self.kv_num_heads * self.kv_head_dim;
         let kv_dim = self.kv_num_kv_heads * self.kv_head_dim;
 
@@ -135,7 +152,21 @@ impl CudaExecutor {
         self.workspace.kv_dim = kv_dim;
         self.workspace.intermediate_dim = intermediate_dim;
         self.workspace.batch_size = batch_size;
+        self.workspace.buffer_capacity = batch_size;
         self.workspace.initialized = true;
+
+        // PMAT-044 FIX: Buffer reallocation invalidates any captured CUDA graph
+        // (graph holds hardcoded GPU pointers to old buffers). Clear graph so next
+        // decode re-captures with the new buffer addresses. Poka-yoke at source.
+        self.decode_graph = None;
+        self.decode_token_count = 0;
+        self.graph_input_buf = None;
+        self.position_buf = None;
+        self.seq_len_buf = None;
+        self.graph_capture_failed = false;
+        // PMAT-045: Also clear batched decode graphs (stale pointers)
+        self.batched_decode_graphs.clear();
+        self.batched_graph_batch_size = 0;
 
         eprintln!(
             "[PAR-111] Initialized batched workspace: batch_size={}, hidden={}×{}, q={}×{}, kv={}×{}, ffn={}×{}",
@@ -187,6 +218,12 @@ impl CudaExecutor {
         self.seq_len_buf = None;
         // PAR-118: Reset capture failure flag so next generation can attempt capture
         self.graph_capture_failed = false;
+    }
+
+    /// PMAT-045: Clear batched decode graphs (stale after workspace reallocation)
+    pub fn clear_batched_decode_graphs(&mut self) {
+        self.batched_decode_graphs.clear();
+        self.batched_graph_batch_size = 0;
     }
 
     /// GH-219: Validate PTX parity for all batched kernels at startup
