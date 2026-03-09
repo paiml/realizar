@@ -30,9 +30,17 @@ pub struct CudaBatchConfig {
 #[cfg(feature = "cuda")]
 impl Default for CudaBatchConfig {
     fn default() -> Self {
+        let max_batch = std::env::var("CUDA_MAX_BATCH")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(4);
+        let window_ms = std::env::var("CUDA_BATCH_WINDOW_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(10);
         Self {
-            max_batch: 4,
-            window_ms: 10,
+            max_batch,
+            window_ms,
         }
     }
 }
@@ -104,10 +112,18 @@ async fn cuda_batch_scheduler_loop(
         }
 
         let batch_size = batch.len();
-        eprintln!("[PMAT-044] Processing batch of {} requests", batch_size);
+        let batch_start = std::time::Instant::now();
 
         // Process the batch
         process_cuda_batch(&model, batch);
+
+        let elapsed = batch_start.elapsed();
+        eprintln!(
+            "[PMAT-044] Batch m={} done in {:.1}ms ({:.1} tok/s/slot)",
+            batch_size,
+            elapsed.as_secs_f64() * 1000.0,
+            if elapsed.as_secs_f64() > 0.0 { 1000.0 / elapsed.as_secs_f64() / batch_size as f64 } else { 0.0 }
+        );
     }
 }
 
