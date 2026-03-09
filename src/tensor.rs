@@ -149,6 +149,21 @@ impl<T: Num + Clone> Tensor<T> {
     pub fn data(&self) -> &[T] {
         &self.data
     }
+
+    /// Get a mutable reference to the underlying data
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use realizar::Tensor;
+    ///
+    /// let mut t = Tensor::from_vec(vec![2], vec![1.0, 2.0]).expect("test");
+    /// t.data_mut()[0] = 9.0;
+    /// assert_eq!(t.data(), &[9.0, 2.0]);
+    /// ```
+    pub fn data_mut(&mut self) -> &mut [T] {
+        &mut self.data
+    }
 }
 
 impl<T: Num + Clone + fmt::Display> fmt::Display for Tensor<T> {

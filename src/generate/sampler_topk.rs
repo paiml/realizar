@@ -33,18 +33,24 @@ impl Sampler for TopKSampler {
     }
 
     fn apply(&self, logits: &mut Tensor<f32>, _context: &SamplerContext) {
-        // Apply top-k by zeroing out tokens outside top-k
-        let data = logits.data();
-        let mut indexed: Vec<(usize, f32)> = data.iter().copied().enumerate().collect();
-        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        let mut new_data = vec![f32::NEG_INFINITY; data.len()];
-        for (idx, logit) in indexed.iter().take(self.k) {
-            new_data[*idx] = *logit;
+        let data = logits.data_mut();
+        if self.k == 0 || self.k >= data.len() {
+            return; // k=0: no-op; k >= vocab: nothing to mask
         }
 
-        if let Ok(result) = Tensor::from_vec(logits.shape().to_vec(), new_data) {
-            *logits = result;
+        // Find the k-th largest value using partial sort — O(n) average vs O(n log n) full sort.
+        // We sort a values-only Vec (4 bytes/element) instead of (usize, f32) pairs (16 bytes).
+        let mut values: Vec<f32> = data.iter().copied().collect();
+        values.select_nth_unstable_by(self.k - 1, |a, b| {
+            b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let threshold = values[self.k - 1];
+
+        // Mask everything below threshold in-place — no second allocation
+        for logit in data.iter_mut() {
+            if *logit < threshold {
+                *logit = f32::NEG_INFINITY;
+            }
         }
     }
 

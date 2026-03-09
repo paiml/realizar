@@ -108,15 +108,15 @@ impl QuantizedGenerateConfig {
 pub struct OwnedQuantizedKVCache {
     /// Number of transformer layers
     num_layers: usize,
-    /// Hidden dimension (stored for future use)
+    /// KV dimension: num_kv_heads * head_dim (stored for future use)
     _hidden_dim: usize,
     /// Maximum sequence length
     max_seq_len: usize,
     /// Current sequence length (tokens processed)
     seq_len: usize,
-    /// Key cache: [num_layers][seq_len][hidden_dim]
+    /// Key cache: [num_layers][seq_len][kv_dim]
     k_cache: Vec<Vec<f32>>,
-    /// Value cache: [num_layers][seq_len][hidden_dim]
+    /// Value cache: [num_layers][seq_len][kv_dim]
     v_cache: Vec<Vec<f32>>,
 }
 
@@ -139,24 +139,30 @@ impl OwnedQuantizedKVCache {
     ///
     /// # Arguments
     /// * `num_layers` - Number of transformer layers
-    /// * `hidden_dim` - Hidden dimension (num_heads * head_dim)
+    /// * `kv_dim` - KV dimension (`num_kv_heads * head_dim` for GQA, or `hidden_dim` for MHA)
     /// * `max_seq_len` - Maximum sequence length to cache
     #[must_use]
-    pub fn new(num_layers: usize, hidden_dim: usize, max_seq_len: usize) -> Self {
+    pub fn new(num_layers: usize, kv_dim: usize, max_seq_len: usize) -> Self {
         Self {
             num_layers,
-            _hidden_dim: hidden_dim,
+            _hidden_dim: kv_dim,
             max_seq_len,
             seq_len: 0,
-            k_cache: vec![Vec::with_capacity(max_seq_len * hidden_dim); num_layers],
-            v_cache: vec![Vec::with_capacity(max_seq_len * hidden_dim); num_layers],
+            k_cache: vec![Vec::with_capacity(max_seq_len * kv_dim); num_layers],
+            v_cache: vec![Vec::with_capacity(max_seq_len * kv_dim); num_layers],
         }
     }
 
     /// Create cache from model configuration
+    ///
+    /// ALB-102: Uses `num_kv_heads * head_dim` (not `hidden_dim`) so GQA models
+    /// allocate only the KV cache they need instead of over-allocating by
+    /// `num_heads / num_kv_heads`.
     #[must_use]
     pub fn from_config(config: &GGUFConfig, max_seq_len: usize) -> Self {
-        Self::new(config.num_layers, config.hidden_dim, max_seq_len)
+        let head_dim = config.head_dim();
+        let kv_dim = config.num_kv_heads * head_dim;
+        Self::new(config.num_layers, kv_dim, max_seq_len)
     }
 
     /// Append K and V vectors for a single position to a layer's cache
@@ -385,6 +391,76 @@ mod tests {
 
         let cache = OwnedQuantizedKVCache::from_config(&config, 512);
         assert_eq!(cache.max_len(), 512);
+    }
+
+    /// ALB-102: Verify GQA models allocate kv_dim (not hidden_dim) in from_config
+    #[test]
+    fn test_kv_cache_from_config_gqa() {
+        // Albor 350M: hidden=1024, heads=16, kv_heads=4, head_dim=64
+        // kv_dim = 4 * 64 = 256 (not 1024)
+        let config = GGUFConfig {
+            architecture: "llama".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("llama"),
+            hidden_dim: 1024,
+            num_layers: 24,
+            num_heads: 16,
+            num_kv_heads: 4,
+            vocab_size: 32000,
+            intermediate_dim: 4096,
+            context_length: 2048,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+            rope_type: 0,
+            explicit_head_dim: None,
+            bos_token_id: None,
+            eos_token_id: None,
+        };
+
+        let kv_dim = config.num_kv_heads * config.head_dim(); // 4 * 64 = 256
+        assert_eq!(kv_dim, 256);
+
+        let mut cache = OwnedQuantizedKVCache::from_config(&config, 16);
+        assert_eq!(cache.max_len(), 16);
+
+        // Append a kv_dim-sized vector (256 floats, not 1024)
+        let k = vec![1.0_f32; kv_dim];
+        let v = vec![2.0_f32; kv_dim];
+        cache.append(0, &k, &v);
+        cache.advance();
+
+        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.get_k(0).len(), kv_dim); // 256, not 1024
+        assert_eq!(cache.get_v(0).len(), kv_dim);
+    }
+
+    /// ALB-102: Verify explicit_head_dim is respected in from_config
+    #[test]
+    fn test_kv_cache_from_config_explicit_head_dim() {
+        // Qwen3-0.6B style: hidden=1024, heads=16, kv_heads=4, explicit_head_dim=128
+        // kv_dim = 4 * 128 = 512 (head_dim != hidden_dim / num_heads)
+        let config = GGUFConfig {
+            architecture: "qwen3".to_string(),
+            constraints: crate::gguf::ArchConstraints::from_architecture("qwen3"),
+            hidden_dim: 1024,
+            num_layers: 24,
+            num_heads: 16,
+            num_kv_heads: 4,
+            vocab_size: 151936,
+            intermediate_dim: 2048,
+            context_length: 2048,
+            rope_theta: 10000.0,
+            eps: 1e-5,
+            rope_type: 0,
+            explicit_head_dim: Some(128),
+            bos_token_id: None,
+            eos_token_id: None,
+        };
+
+        let kv_dim = config.num_kv_heads * config.head_dim(); // 4 * 128 = 512
+        assert_eq!(kv_dim, 512);
+
+        let cache = OwnedQuantizedKVCache::from_config(&config, 32);
+        assert_eq!(cache.max_len(), 32);
     }
 
     #[test]
