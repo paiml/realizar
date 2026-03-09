@@ -1013,12 +1013,12 @@ DONE_NORM:
         // GH-141: Batched HW DP4A for Q4K on DP4A-capable GPUs (sm_75+).
         // Reads Q4K weights (0.5625 B/elem) + Q8_1 activations (1.125 B/elem)
         // = 1.69 B/elem total, vs cuBLAS SGEMM 8 B/elem. 4.7x less bandwidth.
-        // Only for M<=8 Q4K during decode (not prefill, not graph capture).
+        // PMAT-056: Removed !self.is_capturing guard — DP4A kernels are pure GPU
+        // kernels (no H2D copies), graph-capturable. Old guard forced FP32 fallback.
         let use_batched_dp4a = qtype == WeightQuantType::Q4K
             && m >= 2
             && m <= 8
             && self.gpu_profile.q4k == crate::cuda::gpu_profile::Q4kVariant::HwDp4a
-            && !self.is_capturing
             && !self.is_prefilling
             && std::env::var("BATCHED_DP4A").as_deref() != Ok("0");
 

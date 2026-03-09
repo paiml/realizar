@@ -253,12 +253,10 @@ impl OwnedQuantizedModelCuda {
                 eprintln!("[PMAT-044] decode step {gen_idx}: positions={pos_u32:?}, last_tokens={last_tokens:?}");
             }
 
-            // PMAT-055: Disable batched CUDA graph by default — multi-stream graph capture
-            // causes identical token_ids across decode steps (scatter on compute_stream
-            // not properly ordered with RoPE on main stream during graph replay).
-            // Root cause: graph captures operations on 3 streams but replay topology
-            // may run scatter before QKV projection completes → stale K/V in cache.
-            // Enable with BATCHED_GRAPH=1 for future testing once fixed.
+            // PMAT-056: Multi-stream root cause fixed (scatter moved to self.stream),
+            // but graph replay still 25% slower than eager due to capture overhead.
+            // Keep eager by default until graph replay is optimized.
+            // Enable with BATCHED_GRAPH=1 for testing.
             let use_graph = std::env::var("BATCHED_GRAPH").as_deref() == Ok("1");
             let token_ids = if use_graph {
                 self.executor
