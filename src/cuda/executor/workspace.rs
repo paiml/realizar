@@ -38,6 +38,10 @@ impl CudaExecutor {
             && self.workspace.hidden_dim == hidden_dim
             && self.workspace.intermediate_dim == intermediate_dim
         {
+            // PMAT-058: Reset batch_size to 1 for M=1 decode path.
+            // After generate_batched_streaming sets batch_size=4, the early return
+            // preserves batch_size=4 which is wrong for single-request decode.
+            self.workspace.batch_size = 1;
             return Ok(());
         }
 
