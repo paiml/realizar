@@ -432,6 +432,11 @@ pub struct CudaExecutor {
     batched_graph_seq_lens_buf: Option<GpuBuffer<u32>>,
     // PAR-121: Current batch size for batched graph
     batched_graph_batch_size: usize,
+    // PMAT-050: CUDA graphs for prefill (one per sequence length S)
+    // Maps seq_len -> CudaGraphExec for graph replay
+    prefill_graphs: HashMap<usize, CudaGraphExec>,
+    // PMAT-050: Stable input buffer for prefill graph capture
+    prefill_graph_input_buf: Option<GpuBuffer<f32>>,
     // PAR-054: Stable input buffer for graph capture (same address every decode)
     graph_input_buf: Option<GpuBuffer<f32>>,
     // PAR-054: Token counter for graph capture (first decode captures, subsequent replay)
