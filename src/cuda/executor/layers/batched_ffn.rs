@@ -92,16 +92,40 @@ impl CudaExecutor {
         )?;
 
         // ========== 8. FFN Gate/Up (BATCHED GEMV or cuBLAS GEMM) ==========
-        self.batched_gemv_or_gemm(
-            layer_weights.ffn_gate_qtype, layer_weights.ffn_gate_ptr,
-            hidden_buf1, ffn_gate_buf, hidden_buf1_ptr, ffn_gate_ptr,
-            m, intermediate_dim, hidden_dim,
-        )?;
-        self.batched_gemv_or_gemm(
-            layer_weights.ffn_up_qtype, layer_weights.ffn_up_ptr,
-            hidden_buf1, ffn_up_buf, hidden_buf1_ptr, ffn_up_ptr,
-            m, intermediate_dim, hidden_dim,
-        )?;
+        // GH-141: Fuse gate+up Q8_1 quantization when both are Q4K and DP4A is active.
+        // Same input (hidden_buf1) → quantize once, launch both GEMV with shared Q8_1.
+        let use_fused_gate_up_dp4a = layer_weights.ffn_gate_qtype == WeightQuantType::Q4K
+            && layer_weights.ffn_up_qtype == WeightQuantType::Q4K
+            && m >= 2
+            && m <= 8
+            && self.gpu_profile.q4k == crate::cuda::gpu_profile::Q4kVariant::HwDp4a
+            && !self.is_capturing
+            && !self.is_prefilling
+            && std::env::var("BATCHED_DP4A").as_deref() != Ok("0");
+
+        if use_fused_gate_up_dp4a {
+            self.batched_gate_up_dp4a_q4k_gemv_into(
+                layer_weights.ffn_gate_ptr,
+                layer_weights.ffn_up_ptr,
+                hidden_buf1,
+                ffn_gate_buf,
+                ffn_up_buf,
+                m,
+                intermediate_dim,
+                hidden_dim,
+            )?;
+        } else {
+            self.batched_gemv_or_gemm(
+                layer_weights.ffn_gate_qtype, layer_weights.ffn_gate_ptr,
+                hidden_buf1, ffn_gate_buf, hidden_buf1_ptr, ffn_gate_ptr,
+                m, intermediate_dim, hidden_dim,
+            )?;
+            self.batched_gemv_or_gemm(
+                layer_weights.ffn_up_qtype, layer_weights.ffn_up_ptr,
+                hidden_buf1, ffn_up_buf, hidden_buf1_ptr, ffn_up_ptr,
+                m, intermediate_dim, hidden_dim,
+            )?;
+        }
 
         // ========== 9. SwiGLU (PAR-114: BATCHED) ==========
         self.batched_swiglu_into(ffn_gate_buf, ffn_up_buf, ffn_act_buf, intermediate_dim, m)?;
