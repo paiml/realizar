@@ -20,6 +20,9 @@ impl CudaKernels {
             KernelType::QuantizedGemmGgml { m, n, k } => {
                 QuantizeKernel::ggml(*m, *n, *k).emit_ptx_for_target(target)
             },
+            KernelType::QuantizedGemmGgmlTiled { m, n, k, tile_m } => {
+                QuantizeKernel::ggml_tiled(*m, *n, *k, *tile_m).emit_ptx_for_target(target)
+            },
             KernelType::Q5KQuantizedGemm { m, n, k } => Q5KKernel::new(*m, *n, *k).emit_ptx_for_target(target),
             KernelType::Q6KQuantizedGemm { m, n, k } => Q6KKernel::new(*m, *n, *k).emit_ptx_for_target(target),
             KernelType::FusedQ4Q8Dot { n } => QuantizeKernel::ggml(1, 1, *n).emit_ptx_for_target(target),

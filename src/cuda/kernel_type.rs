@@ -74,6 +74,13 @@ pub enum KernelType {
         n: u32,
         k: u32,
     },
+    /// GH-182: Tiled Q4_K GEMM — weight reuse across tile_m rows for prefill
+    QuantizedGemmGgmlTiled {
+        m: u32,
+        n: u32,
+        k: u32,
+        tile_m: u32,
+    },
     /// Q5_K quantized GEMM (fused dequantization) - GGML super-block format (PARITY-116)
     Q5KQuantizedGemm {
         m: u32,

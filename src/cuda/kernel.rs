@@ -24,6 +24,7 @@ impl CudaKernels {
             KernelType::GemmFp16TensorCore { .. } => "gemm_wmma_fp16",
             KernelType::QuantizedGemm { .. } => "q4k_gemm_fused",
             KernelType::QuantizedGemmGgml { .. } => "q4k_gemm_ggml",
+            KernelType::QuantizedGemmGgmlTiled { .. } => "q4k_gemm_ggml_tiled",
             KernelType::Q5KQuantizedGemm { .. } => "q5k_gemm_ggml",
             KernelType::Q6KQuantizedGemm { .. } => "q6k_gemm_ggml",
             KernelType::FusedQ4Q8Dot { .. } => "q4k_gemm_ggml",
