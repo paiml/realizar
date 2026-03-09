@@ -257,6 +257,30 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// PMAT-058: Free batched KV caches to reclaim VRAM after batch decode.
+    ///
+    /// Five-Whys: c=1 decode regresses 140→124 tok/s after c=4 batch.
+    /// Why? SGEMM prefill (no FP16 cache) instead of HGEMM.
+    /// Why? FP16 weight cache was cleared before batch decode (GH-141).
+    /// Why? Not rebuilt because batched KV caches (~460MB) still occupy VRAM.
+    /// Why? generate_batched_streaming didn't free them after decode.
+    /// Fix: Free all batched KV state so FP16 cache can be rebuilt on next c=1.
+    pub fn free_batched_kv_caches(&mut self) {
+        let had_caches = !self.batched_kv_k_caches.is_empty();
+        self.batched_kv_k_caches.clear();
+        self.batched_kv_v_caches.clear();
+        self.batched_k_ptrs_per_layer.clear();
+        self.batched_v_ptrs_per_layer.clear();
+        self.batched_k_ptrs = None;
+        self.batched_v_ptrs = None;
+        self.batched_seq_lens_gpu = None;
+        self.batched_kv_lengths.clear();
+        self.batched_kv_allocated_batch = 0;
+        if had_caches {
+            eprintln!("[PMAT-058] Freed batched KV caches to reclaim VRAM for FP16 rebuild");
+        }
+    }
+
     /// Clear KV cache for a new generation (reset sequence position to 0)
     pub fn reset_kv_cache_gpu(&mut self) {
         for len in self.kv_cache_lengths.values_mut() {

@@ -133,7 +133,11 @@ impl OwnedQuantizedModelCuda {
             &mut done,
         )?;
 
-        // Restore single-token workspace for non-batched requests
+        // PMAT-058: Clear workspace to force M=1-sized reallocation.
+        // Batched workspace has buffer_capacity=M (4×), which spreads the working set
+        // across 4× more L2 cache lines → 12% decode regression (139→123 tok/s).
+        // Clearing forces init_workspace to reallocate tight M=1 buffers.
+        self.executor.clear_workspace();
         let _ = self
             .executor
             .init_workspace(hidden_dim, intermediate_dim);
@@ -143,6 +147,27 @@ impl OwnedQuantizedModelCuda {
         // M=1 prefill writes K/V to batched caches while M=1 decode reads from the
         // single KV cache (empty) → EOS on first token → 0 output tokens.
         self.executor.batched_kv_stride = 0;
+
+        // PMAT-058: Free batched KV caches to reclaim ~460MB VRAM.
+        // Without this, subsequent c=1 requests can't rebuild FP16 weight cache
+        // (cleared by GH-141 above) and fall back to SGEMM prefill → 124 tok/s
+        // instead of 140 tok/s HGEMM prefill.
+        self.executor.free_batched_kv_caches();
+
+        // PMAT-058: Rebuild FP16 weight cache after freeing batched KV.
+        // Five-Whys: c=1 decode regresses 139→123 tok/s after c=4.
+        // Why? Decode uses Q4K GEMV (not FP16), but FP16 cache absence causes 12% regression.
+        // Why? FP16 cache (2944 MB) acts as VRAM occupancy stabilizer — with it present,
+        //       Q4K weight pointers have consistent DRAM bank mapping. Without it,
+        //       CUDA memory allocator reuses freed FP16 regions for workspace/KV,
+        //       causing different DRAM bank conflicts during Q4K GEMV.
+        // Fix: Rebuild FP16 cache immediately so VRAM layout matches the decode-optimal state.
+        let _ = self.executor.warmup_hgemm_cache(
+            num_layers,
+            hidden_dim as u32,
+            intermediate_dim as u32,
+            vocab_size as u32,
+        );
 
         Ok(sequences)
     }
