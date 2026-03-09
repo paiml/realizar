@@ -187,9 +187,14 @@ DONE:
         let mut stride_val = stride as u32;
         let mut kv_dim_val = kv_dim as u32;
 
+        // PMAT-056: During graph capture, use self.stream for all operations so the
+        // graph records a single-stream dependency chain. In eager mode, use
+        // compute_stream for scatter/attention (better kernel scheduling overlap).
+        // PMAT-055 root cause: multi-stream graph capture had no inter-stream events.
         // SAFETY: src/dst are valid GPU allocs, positions_buf populated above, stride/kv_dim bounds verified
+        let scatter_stream = if self.is_capturing { &self.stream } else { &self.compute_stream };
         unsafe {
-            self.compute_stream.launch_kernel(
+            scatter_stream.launch_kernel(
                 batched_scatter_module,
                 "batched_kv_cache_scatter",
                 &batched_scatter_config,
@@ -211,9 +216,11 @@ DONE:
         let mut stride_val2 = stride as u32;
         let mut kv_dim_val2 = kv_dim as u32;
 
+        // PMAT-056: Same stream selection as K scatter above
         // SAFETY: v_batched/v_cache are valid GPU allocs, positions_buf populated above
+        let scatter_stream = if self.is_capturing { &self.stream } else { &self.compute_stream };
         unsafe {
-            self.compute_stream.launch_kernel(
+            scatter_stream.launch_kernel(
                 batched_scatter_module,
                 "batched_kv_cache_scatter",
                 &batched_scatter_config,
@@ -335,9 +342,11 @@ DONE:
         let mut out_ptr = out_batched.as_ptr();
         let mut seq_lens_ptr = seq_lens_buf.as_ptr();
 
+        // PMAT-056: Same stream selection as scatter above
         // SAFETY: Unsafe operation with validated invariants
+        let attn_stream = if self.is_capturing { &self.stream } else { &self.compute_stream };
         unsafe {
-            self.compute_stream.launch_kernel(
+            attn_stream.launch_kernel(
                 module,
                 kernel_name,
                 &config,

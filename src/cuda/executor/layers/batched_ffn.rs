@@ -94,12 +94,13 @@ impl CudaExecutor {
         // ========== 8. FFN Gate/Up (BATCHED GEMV or cuBLAS GEMM) ==========
         // GH-141: Fuse gate+up Q8_1 quantization when both are Q4K and DP4A is active.
         // Same input (hidden_buf1) → quantize once, launch both GEMV with shared Q8_1.
+        // PMAT-056: Removed !self.is_capturing guard — DP4A kernels are pure GPU
+        // kernels (no H2D copies), graph-capturable. Old guard forced FP32 fallback.
         let use_fused_gate_up_dp4a = layer_weights.ffn_gate_qtype == WeightQuantType::Q4K
             && layer_weights.ffn_up_qtype == WeightQuantType::Q4K
             && m >= 2
             && m <= 8
             && self.gpu_profile.q4k == crate::cuda::gpu_profile::Q4kVariant::HwDp4a
-            && !self.is_capturing
             && !self.is_prefilling
             && std::env::var("BATCHED_DP4A").as_deref() != Ok("0");
 

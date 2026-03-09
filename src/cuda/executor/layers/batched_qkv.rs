@@ -90,13 +90,15 @@ impl CudaExecutor {
         // PMAT-054A: Fused QKV DP4A — quantize hidden_buf1 to Q8_1 ONCE, then
         // launch 3 GEMV kernels (Q, K, V) reusing the same Q8 buffer.
         // Saves 2 Q8 quantize kernel launches per layer (56 total across 28 layers).
+        // PMAT-056: Removed !self.is_capturing guard — DP4A kernels are pure GPU
+        // kernels (no H2D copies), so they are graph-capturable. The old guard
+        // forced fallback to FP32-activation GEMV during capture, 2x slower.
         let use_fused_qkv_dp4a = layer_weights.attn_q_qtype == WeightQuantType::Q4K
             && layer_weights.attn_k_qtype == WeightQuantType::Q4K
             && layer_weights.attn_v_qtype == WeightQuantType::Q4K
             && m >= 2
             && m <= 8
             && self.gpu_profile.q4k == crate::cuda::gpu_profile::Q4kVariant::HwDp4a
-            && !self.is_capturing
             && !self.is_prefilling
             && std::env::var("BATCHED_DP4A").as_deref() != Ok("0");
 
