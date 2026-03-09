@@ -221,6 +221,14 @@ pub enum KernelType {
         n: u32,
         warps: u32,
     },
+    /// GH-141: Batched HW DP4A Q4_K GEMV for M=2..8
+    /// Reads Q4K weights once, M Q8_1 activations per SB. 4.7x less BW than cuBLAS SGEMM.
+    BatchedHwDp4aQ4KGemv {
+        k: u32,
+        n: u32,
+        m: u32,
+        num_warps: u32,
+    },
     /// Q5_K quantized GEMV (fused dequantization) - PAR-003
     Q5KGemv {
         k: u32,

@@ -1,7 +1,7 @@
 impl CudaExecutor {
     /// Phase 2: Attention + output projection + residuals + FFN (batched)
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-    fn batched_attn_ffn_phase(
+    pub(crate) fn batched_attn_ffn_phase(
         &mut self,
         input: &GpuBuffer<f32>,
         hidden_buf1: &GpuBuffer<f32>,
@@ -106,59 +106,13 @@ impl CudaExecutor {
         // ========== 9. SwiGLU (PAR-114: BATCHED) ==========
         self.batched_swiglu_into(ffn_gate_buf, ffn_up_buf, ffn_act_buf, intermediate_dim, m)?;
 
-        // ========== 10. FFN Down (cuBLAS GEMM or BATCHED GEMV) ==========
-        // PMAT-024/026: Use cuBLAS GEMM for Q4K/Q6K during prefill (M >= threshold)
-        let use_cublas_down = m >= super::cublas_prefill::cublas_gemm_threshold()
-            && (layer_weights.ffn_down_qtype == WeightQuantType::Q4K
-                || layer_weights.ffn_down_qtype == WeightQuantType::Q6K)
-            && std::env::var("CUBLAS_PREFILL").as_deref() != Ok("0");
-        if use_cublas_down {
-            self.cublas_prefill_gemm(
-                layer_weights.ffn_down_qtype,
-                layer_weights.ffn_down_ptr,
-                ffn_act_ptr,
-                hidden_buf1_ptr,
-                m,
-                hidden_dim,
-                intermediate_dim,
-            )?;
-        } else if layer_weights.ffn_down_qtype == WeightQuantType::Q4K {
-            self.batched_q4k_gemv_into(
-                layer_weights.ffn_down_ptr,
-                ffn_act_buf, hidden_buf1, m, hidden_dim, intermediate_dim,
-            )?;
-        } else if layer_weights.ffn_down_qtype == WeightQuantType::Q6K {
-            self.batched_q6k_gemv_into(
-                layer_weights.ffn_down_ptr,
-                ffn_act_buf, hidden_buf1, m, hidden_dim, intermediate_dim,
-            )?;
-        } else {
-            // Fall back to sequential for other quantization types
-            for seq_idx in 0..m as usize {
-                let h_offset = seq_idx * hidden_dim as usize;
-                let ffn_offset = seq_idx * intermediate_dim as usize;
-                // SAFETY: ffn_act_ptr/hidden_buf1_ptr are valid GPU allocs, offsets bounded by seq*dim
-                let act_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        ffn_act_ptr + (ffn_offset * std::mem::size_of::<f32>()) as u64,
-                        intermediate_dim as usize,
-                    )
-                };
-                // SAFETY: hidden_buf1_ptr is valid GPU alloc, h_offset bounded by seq * hidden_dim
-                let out_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        hidden_buf1_ptr + (h_offset * std::mem::size_of::<f32>()) as u64,
-                        hidden_dim as usize,
-                    )
-                };
-                self.q6k_gemv_into(
-                    layer_weights.ffn_down_ptr,
-                    &act_view, &out_view, hidden_dim, intermediate_dim,
-                )?;
-                std::mem::forget(act_view);
-                std::mem::forget(out_view);
-            }
-        }
+        // ========== 10. FFN Down (Batched DP4A / cuBLAS GEMM / BATCHED GEMV) ==========
+        // GH-141: Route through batched_gemv_or_gemm for consistent DP4A dispatch
+        self.batched_gemv_or_gemm(
+            layer_weights.ffn_down_qtype, layer_weights.ffn_down_ptr,
+            ffn_act_buf, hidden_buf1, ffn_act_ptr, hidden_buf1_ptr,
+            m, hidden_dim, intermediate_dim,
+        )?;
 
         // ========== 11. Second Residual (PAR-114: BATCHED) ==========
         self.batched_residual_add_into(input_staging, hidden_buf1, hidden_buf2, hidden_dim, m)?;
