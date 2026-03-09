@@ -66,26 +66,25 @@ impl OwnedQuantizedModelCuda {
             .map(|_| OwnedQuantizedKVCache::new(num_layers, kv_dim, max_seq_len))
             .collect();
 
-        // GH-141: Free FP16 weight cache and prefill graphs before allocating batched KV.
-        // On 8GB GPUs, FP16 cache (2944 MB) + batched KV (~940 MB) + Q4K (~850 MB)
-        // exceeds VRAM → CUDA_ERROR_ILLEGAL_ADDRESS. Must clear FP16 before batch alloc.
-        // This forces SGEMM prefill (~160ms/slot) instead of HGEMM (~58ms/slot).
-        // Future: fused Q4K GEMM would eliminate FP16 dependency entirely.
-        self.executor.clear_fp16_weight_cache();
-        self.executor.clear_prefill_graphs();
-
         // PMAT-045: Pre-allocate workspace for max_prompt_len BEFORE prefill.
-        // Uses init_prefill_workspace (no 32-batch limit) to size buffers for prefill.
-        // The buffer_capacity high-water mark ensures init_batched_workspace(m) skips
+        // buffer_capacity high-water mark ensures init_batched_workspace(m) skips
         // reallocation since buffer_capacity >= max_prompt_len >= m.
         self.executor
-            .init_prefill_workspace(hidden_dim, intermediate_dim, max_prompt_len)
+            .init_prefill_workspace(max_prompt_len, hidden_dim, intermediate_dim)
             .map_err(|e| RealizarError::UnsupportedOperation {
                 operation: "init_prefill_workspace".to_string(),
                 reason: format!("Failed to pre-allocate workspace for seq_len={max_prompt_len}: {e}"),
             })?;
 
-        // Init batched KV caches for scatter targets
+        // PMAT-060: Allocate batched KV alongside FP16 weight cache (both fit in VRAM).
+        // Five-Whys: c=4 TTFT = 659ms (29.9x gap vs llama.cpp 22ms).
+        // Why? SGEMM prefill at ~165ms/slot instead of HGEMM ~58ms/slot.
+        // Why? FP16 weight cache (2944 MB) cleared before prefill (GH-141).
+        // Why? Assumed FP16 + batched KV + Q4K > 8 GB VRAM.
+        // Reality: FP16 (2944) + batched KV (56-896) + Q4K (850) = 3850-4700 MB.
+        //          RTX 4060L has ~7.5 GB usable → fits with 2.8-3.6 GB headroom.
+        // Fix: Keep FP16 during prefill, allocate batched KV, D2D scatter, THEN clear FP16.
+        // GH-141 ILLEGAL_ADDRESS was from a different root cause (stale graph pointers).
         self.executor
             .init_batched_kv_cache_gpu(num_layers, m)
             .map_err(|e| RealizarError::UnsupportedOperation {
@@ -94,10 +93,14 @@ impl OwnedQuantizedModelCuda {
             })?;
         self.executor.reset_batched_kv_cache_gpu();
 
-        // Prefill each slot sequentially (SGEMM — FP16 cache cleared above),
-        // then scatter GPU KV to batched cache via D2D memcpy.
+        // Prefill each slot with HGEMM (FP16 present) + D2D scatter to batched KV.
         let (mut sequences, mut positions, mut last_tokens) =
             self.prefill_and_scatter(prompts, &mut caches)?;
+
+        // Clear FP16 after prefill — not needed during decode (Q4K GEMV).
+        // Frees ~2944 MB for future c=1 requests to rebuild FP16 lazily.
+        self.executor.clear_fp16_weight_cache();
+        self.executor.clear_prefill_graphs();
 
         // PMAT-045: Set workspace.batch_size = m for decode kernels (they check == m).
         // buffer_capacity stays at max_prompt_len (high-water mark), so this call
