@@ -331,12 +331,14 @@ impl CudaExecutor {
         )
     }
 
-    /// PMAT-024/026/031: cuBLAS GEMM for prefill
+    /// PMAT-024/026/031/GH-182: cuBLAS GEMM (or fused Q4K GEMM) for prefill
     ///
     /// C[M×N] = Input[M×K] @ W[N×K]^T
     ///
-    /// PMAT-031 path (default): cached FP16 weights + HGEMM with tensor cores.
-    /// Fallback (HGEMM_PREFILL=0): per-request dequant + SGEMM.
+    /// Priority:
+    /// 1. FUSED_Q4K_PREFILL=1 + Q4K → tiled fused Q4K GEMM (reads Q4K directly, 3.56x BW savings)
+    /// 2. HGEMM_PREFILL!=0 (default) → cached FP16 weights + cuBLAS HGEMM + tensor cores
+    /// 3. HGEMM_PREFILL=0 → per-request dequant + cuBLAS SGEMM
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn cublas_prefill_gemm(
         &mut self,
@@ -348,6 +350,19 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        // GH-182: Fused Q4K GEMM — reads Q4K directly (0.5625 B/elem vs 2 B/elem HGEMM)
+        if qtype == WeightQuantType::Q4K && std::env::var("FUSED_Q4K_PREFILL").as_deref() == Ok("1")
+        {
+            return self.fused_q4k_gemm_prefill(
+                weight_ptr,
+                packed_input_ptr,
+                packed_output_ptr,
+                m,
+                n,
+                k,
+            );
+        }
+
         self.ensure_cublas()?;
 
         // PMAT-031: HGEMM path with cached FP16 weights (default)
@@ -391,6 +406,75 @@ impl CudaExecutor {
             packed_output_ptr,
             n as i32,
         )
+    }
+
+    /// GH-182: Fused tiled Q4K GEMM for prefill — reads Q4K weights directly
+    ///
+    /// C[M×N] = A[M×K] @ B_q4k[N×(K/256)×144B]^T
+    ///
+    /// Each thread computes tile_m output rows for one column, loading weight
+    /// super-blocks once and reusing across rows. 3.56x bandwidth reduction
+    /// vs HGEMM (0.5625 B/elem vs 2 B/elem).
+    #[allow(clippy::too_many_arguments)]
+    fn fused_q4k_gemm_prefill(
+        &mut self,
+        weight_ptr: u64,
+        packed_input_ptr: u64,
+        packed_output_ptr: u64,
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let tile_m: u32 = std::env::var("FUSED_Q4K_TILE_M")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(4);
+
+        let kernel_type = KernelType::QuantizedGemmGgmlTiled { m, n, k, tile_m };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("q4k_gemm_ggml_tiled_{m}_{n}_{k}_{tile_m}");
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Grid: (ceil(N/block_threads), ceil(M/tile_m))
+        let block_threads = 128u32;
+        let grid_x = (n + block_threads - 1) / block_threads;
+        let grid_y = (m + tile_m - 1) / tile_m;
+        let config = LaunchConfig::grid_2d(grid_x, grid_y, block_threads, 1);
+
+        let mut ptr_a = packed_input_ptr;
+        let mut ptr_b = weight_ptr;
+        let mut ptr_c = packed_output_ptr;
+        let mut m_val = m;
+        let mut n_val = n;
+        let mut k_val = k;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_a) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_b) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_c) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
     }
 
     // ========================================================================
