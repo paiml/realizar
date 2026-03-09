@@ -67,10 +67,10 @@ impl OwnedQuantizedModelCuda {
             .collect();
 
         // GH-141: Free FP16 weight cache and prefill graphs before allocating batched KV.
-        // On 8GB GPUs, keeping FP16 cache (2944 MB) alongside batched KV causes memory
-        // pressure that slows HGEMM prefill from ~100ms to >2000ms per slot (VRAM thrash).
-        // SGEMM prefill at ~100ms/slot is faster than thrashing HGEMM at ~2300ms/slot.
-        // PMAT-057: Attempted post-prefill FP16 clear, confirmed regression (42.9 vs 60.2 decode).
+        // On 8GB GPUs, FP16 cache (2944 MB) + batched KV (~940 MB) + Q4K (~850 MB)
+        // exceeds VRAM → CUDA_ERROR_ILLEGAL_ADDRESS. Must clear FP16 before batch alloc.
+        // This forces SGEMM prefill (~160ms/slot) instead of HGEMM (~58ms/slot).
+        // Future: fused Q4K GEMM would eliminate FP16 dependency entirely.
         self.executor.clear_fp16_weight_cache();
         self.executor.clear_prefill_graphs();
 
@@ -207,6 +207,7 @@ impl OwnedQuantizedModelCuda {
         let mut last_tokens: Vec<u32> = Vec::with_capacity(m);
         let saved_stride = self.executor.batched_kv_stride;
 
+        let prefill_start = std::time::Instant::now();
         eprintln!("[PMAT-044] Batched streaming: {m} slots, prefilling...");
 
         for (slot_idx, prompt) in prompts.iter().enumerate() {
@@ -233,7 +234,12 @@ impl OwnedQuantizedModelCuda {
         }
 
         // Leave stride restored for decode phase
-        eprintln!("[PMAT-044] Prefill done, starting batched decode...");
+        let prefill_elapsed = prefill_start.elapsed();
+        eprintln!(
+            "[PMAT-044] Prefill done in {:.1}ms ({:.0} tok/s), starting batched decode...",
+            prefill_elapsed.as_secs_f64() * 1000.0,
+            prompts.iter().map(|p| p.len() as f64).sum::<f64>() / prefill_elapsed.as_secs_f64(),
+        );
         Ok((sequences, positions, last_tokens))
     }
 
