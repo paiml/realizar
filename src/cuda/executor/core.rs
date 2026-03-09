@@ -96,6 +96,9 @@ impl CudaExecutor {
             batched_graph_positions_buf: None,
             batched_graph_seq_lens_buf: None,
             batched_graph_batch_size: 0,
+            // PMAT-050: Prefill graph fields
+            prefill_graphs: HashMap::new(),
+            prefill_graph_input_buf: None,
             graph_input_buf: None,
             decode_token_count: 0,
             // PAR-068: Pre-allocated argmax buffers (lazy init on first use)
