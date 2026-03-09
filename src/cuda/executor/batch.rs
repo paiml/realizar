@@ -136,11 +136,15 @@ impl CudaExecutor {
             }
         }
 
-        // Update per-sequence cache lengths
-        for seq_idx in 0..m {
-            let pos = positions[seq_idx] as usize;
-            if seq_idx < self.batched_kv_lengths.len() {
-                self.batched_kv_lengths[seq_idx] = pos + 1;
+        // PMAT-045: Skip CPU-side state update during CUDA graph capture.
+        // During capture, kernels are recorded, not executed — data values don't matter.
+        // On replay, batched_kv_lengths is updated by the non-captured caller path.
+        if !self.is_capturing {
+            for seq_idx in 0..m {
+                let pos = positions[seq_idx] as usize;
+                if seq_idx < self.batched_kv_lengths.len() {
+                    self.batched_kv_lengths[seq_idx] = pos + 1;
+                }
             }
         }
 
@@ -183,7 +187,6 @@ impl CudaExecutor {
             self.modules.insert(module_key.clone(), module);
         }
 
-        // Upload pointer arrays and sequence lengths to GPU
         let k_ptrs_buf = self.batched_k_ptrs.as_mut().ok_or_else(|| {
             GpuError::InvalidLaunchConfig("PAR-119: batched_k_ptrs not allocated".to_string())
         })?;
@@ -194,9 +197,15 @@ impl CudaExecutor {
             GpuError::InvalidLaunchConfig("PAR-119: batched_seq_lens_gpu not allocated".to_string())
         })?;
 
-        k_ptrs_buf.copy_from_host(&k_ptrs)?;
-        v_ptrs_buf.copy_from_host(&v_ptrs)?;
-        seq_lens_buf.copy_from_host(&seq_lens)?;
+        // PMAT-045: Skip copy_from_host during CUDA graph capture.
+        // cuMemcpyHtoD is not capturable — causes CUDA_ERROR_ILLEGAL_ADDRESS.
+        // k_ptrs/v_ptrs are static (same KV cache addresses every step).
+        // seq_lens are updated via batched_seq_lens_gpu before graph replay.
+        if !self.is_capturing {
+            k_ptrs_buf.copy_from_host(&k_ptrs)?;
+            v_ptrs_buf.copy_from_host(&v_ptrs)?;
+            seq_lens_buf.copy_from_host(&seq_lens)?;
+        }
         let module = self
             .modules
             .get_mut(&module_key)

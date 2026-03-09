@@ -177,12 +177,17 @@ impl CudaExecutor {
                 GpuError::InvalidLaunchConfig("PAR-114: positions_buf not initialized".to_string())
             })?
             .as_ptr();
-        // SAFETY: positions_buf_ptr was obtained from a valid GpuBuffer via as_ptr(),
-        // and m is the batch size matching the original allocation.
+        // SAFETY: positions_buf_ptr is valid GPU allocation from workspace.positions_buf
         let mut positions_buf =
             unsafe { GpuBuffer::<u32>::from_raw_parts(positions_buf_ptr, m as usize) };
-        let positions_u32: Vec<u32> = positions.to_vec();
-        positions_buf.copy_from_host(&positions_u32)?;
+
+        // PMAT-045: Skip copy_from_host during CUDA graph capture — positions are
+        // already on device from batched_graph_positions_buf (pre-loaded before capture).
+        // cuMemcpyHtoD during capture causes CUDA_ERROR_ILLEGAL_ADDRESS.
+        if !self.is_capturing {
+            let positions_u32: Vec<u32> = positions.to_vec();
+            positions_buf.copy_from_host(&positions_u32)?;
+        }
 
         if self.rope_type == 2 {
             // Sequential NEOX RoPE (no batched NEOX kernel yet)
