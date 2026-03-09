@@ -1,5 +1,8 @@
 impl CudaExecutor {
-    /// Batched QKV projection dispatch: Q4K → batched kernel, others → sequential fallback.
+    /// Batched QKV projection dispatch: Q4K/Q6K → batched kernel, others → sequential fallback.
+    ///
+    /// PMAT-046: Added Q6K batched path. Previously Q6K fell through to sequential
+    /// loop (M individual kernel launches), causing 2.87x ITL overhead at c=4.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn batched_gemv_with_fallback(
         &mut self,
@@ -15,6 +18,10 @@ impl CudaExecutor {
     ) -> Result<(), GpuError> {
         if qtype == WeightQuantType::Q4K {
             self.batched_q4k_gemv_into(
+                weight_ptr, packed_input, packed_output, m, n_per_seq, k_per_seq,
+            )
+        } else if qtype == WeightQuantType::Q6K {
+            self.batched_q6k_gemv_into(
                 weight_ptr, packed_input, packed_output, m, n_per_seq, k_per_seq,
             )
         } else {
@@ -45,7 +52,7 @@ impl CudaExecutor {
 
     /// Phase 1: RMSNorm + QKV projections + bias + RoPE (batched)
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-    fn batched_qkv_rope_phase(
+    pub(crate) fn batched_qkv_rope_phase(
         &mut self,
         input: &GpuBuffer<f32>,
         hidden_buf1: &GpuBuffer<f32>,
@@ -79,88 +86,69 @@ impl CudaExecutor {
         // ========== 2. Q/K/V Projections (BATCHED GEMV or cuBLAS GEMM) ==========
         // PMAT-024: During prefill (M > threshold), use cuBLAS GEMM for Q4K weights.
         // This reads weights once instead of M/8 times, closing the 86x prefill gap.
-        self.batched_gemv_or_gemm(
-            layer_weights.attn_q_qtype, layer_weights.attn_q_ptr,
-            hidden_buf1, q_buf, hidden_buf1_ptr, q_buf_ptr,
-            m, q_dim, hidden_dim,
-        )?;
-        self.batched_gemv_or_gemm(
-            layer_weights.attn_k_qtype, layer_weights.attn_k_ptr,
-            hidden_buf1, k_buf, hidden_buf1_ptr, k_buf_ptr,
-            m, kv_dim, hidden_dim,
-        )?;
-        self.batched_gemv_or_gemm(
-            layer_weights.attn_v_qtype, layer_weights.attn_v_ptr,
-            hidden_buf1, v_buf, hidden_buf1_ptr, v_buf_ptr,
-            m, kv_dim, hidden_dim,
-        )?;
+        //
+        // PMAT-054A: Fused QKV DP4A — quantize hidden_buf1 to Q8_1 ONCE, then
+        // launch 3 GEMV kernels (Q, K, V) reusing the same Q8 buffer.
+        // Saves 2 Q8 quantize kernel launches per layer (56 total across 28 layers).
+        let use_fused_qkv_dp4a = layer_weights.attn_q_qtype == WeightQuantType::Q4K
+            && layer_weights.attn_k_qtype == WeightQuantType::Q4K
+            && layer_weights.attn_v_qtype == WeightQuantType::Q4K
+            && m >= 2
+            && m <= 8
+            && self.gpu_profile.q4k == crate::cuda::gpu_profile::Q4kVariant::HwDp4a
+            && !self.is_capturing
+            && !self.is_prefilling
+            && std::env::var("BATCHED_DP4A").as_deref() != Ok("0");
 
-        // ========== 2b. QKV Bias ==========
-        // SAFETY: bias ptrs/lens come from validated layer_weights, GPU memory is pre-allocated
+        if use_fused_qkv_dp4a {
+            self.batched_qkv_dp4a_q4k_gemv_into(
+                layer_weights.attn_q_ptr,
+                layer_weights.attn_k_ptr,
+                layer_weights.attn_v_ptr,
+                hidden_buf1,
+                q_buf,
+                k_buf,
+                v_buf,
+                m,
+                q_dim,
+                kv_dim,
+                hidden_dim,
+            )?;
+        } else {
+            self.batched_gemv_or_gemm(
+                layer_weights.attn_q_qtype, layer_weights.attn_q_ptr,
+                hidden_buf1, q_buf, hidden_buf1_ptr, q_buf_ptr,
+                m, q_dim, hidden_dim,
+            )?;
+            self.batched_gemv_or_gemm(
+                layer_weights.attn_k_qtype, layer_weights.attn_k_ptr,
+                hidden_buf1, k_buf, hidden_buf1_ptr, k_buf_ptr,
+                m, kv_dim, hidden_dim,
+            )?;
+            self.batched_gemv_or_gemm(
+                layer_weights.attn_v_qtype, layer_weights.attn_v_ptr,
+                hidden_buf1, v_buf, hidden_buf1_ptr, v_buf_ptr,
+                m, kv_dim, hidden_dim,
+            )?;
+        }
+
+        // ========== 2b. QKV Bias (PMAT-046: batched broadcast) ==========
+        // Single launch per bias vector: adds bias[dim] to packed[M×dim] in-place.
+        // Eliminates 3×M sequential launches per layer (was 12 for M=4, now 3).
         if layer_weights.attn_q_bias_len > 0 {
-            let q_bias_buf = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    layer_weights.attn_q_bias_ptr,
-                    layer_weights.attn_q_bias_len,
-                )
-            };
-            for seq_idx in 0..m as usize {
-                let offset = seq_idx * q_dim as usize;
-                // SAFETY: q_buf_ptr is valid GPU alloc, offset bounded by m * q_dim
-                let q_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        q_buf_ptr + (offset * std::mem::size_of::<f32>()) as u64,
-                        q_dim as usize,
-                    )
-                };
-                self.residual_add_into(&q_view, &q_bias_buf, &q_view, q_dim)?;
-                std::mem::forget(q_view);
-            }
-            std::mem::forget(q_bias_buf);
+            self.batched_bias_broadcast_add(
+                q_buf_ptr, layer_weights.attn_q_bias_ptr, q_dim, m,
+            )?;
         }
-        // SAFETY: bias ptrs/lens come from validated layer_weights, GPU memory is pre-allocated
         if layer_weights.attn_k_bias_len > 0 {
-            let k_bias_buf = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    layer_weights.attn_k_bias_ptr,
-                    layer_weights.attn_k_bias_len,
-                )
-            };
-            for seq_idx in 0..m as usize {
-                let offset = seq_idx * kv_dim as usize;
-                // SAFETY: k_buf_ptr is valid GPU alloc, offset bounded by m * kv_dim
-                let k_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        k_buf_ptr + (offset * std::mem::size_of::<f32>()) as u64,
-                        kv_dim as usize,
-                    )
-                };
-                self.residual_add_into(&k_view, &k_bias_buf, &k_view, kv_dim)?;
-                std::mem::forget(k_view);
-            }
-            std::mem::forget(k_bias_buf);
+            self.batched_bias_broadcast_add(
+                k_buf_ptr, layer_weights.attn_k_bias_ptr, kv_dim, m,
+            )?;
         }
-        // SAFETY: bias ptrs/lens come from validated layer_weights, GPU memory is pre-allocated
         if layer_weights.attn_v_bias_len > 0 {
-            let v_bias_buf = unsafe {
-                GpuBuffer::<f32>::from_raw_parts(
-                    layer_weights.attn_v_bias_ptr,
-                    layer_weights.attn_v_bias_len,
-                )
-            };
-            for seq_idx in 0..m as usize {
-                let offset = seq_idx * kv_dim as usize;
-                // SAFETY: v_buf_ptr is valid GPU alloc, offset bounded by m * kv_dim
-                let v_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        v_buf_ptr + (offset * std::mem::size_of::<f32>()) as u64,
-                        kv_dim as usize,
-                    )
-                };
-                self.residual_add_into(&v_view, &v_bias_buf, &v_view, kv_dim)?;
-                std::mem::forget(v_view);
-            }
-            std::mem::forget(v_bias_buf);
+            self.batched_bias_broadcast_add(
+                v_buf_ptr, layer_weights.attn_v_bias_ptr, kv_dim, m,
+            )?;
         }
 
         // ========== 3. RoPE on Q/K (PAR-114) ==========
@@ -190,30 +178,10 @@ impl CudaExecutor {
         }
 
         if self.rope_type == 2 {
-            // Sequential NEOX RoPE (no batched NEOX kernel yet)
-            for seq_idx in 0..m as usize {
-                let q_offset = seq_idx * q_dim as usize;
-                let kv_offset = seq_idx * kv_dim as usize;
-                let position = positions[seq_idx];
-                // SAFETY: q_buf_ptr/k_buf_ptr are valid GPU allocs, offsets bounded by seq_idx * dim
-                let q_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        q_buf_ptr + (q_offset * std::mem::size_of::<f32>()) as u64,
-                        q_dim as usize,
-                    )
-                };
-                // SAFETY: k_buf_ptr is valid GPU alloc, kv_offset bounded by seq_idx * kv_dim
-                let k_view = unsafe {
-                    GpuBuffer::<f32>::from_raw_parts(
-                        k_buf_ptr + (kv_offset * std::mem::size_of::<f32>()) as u64,
-                        kv_dim as usize,
-                    )
-                };
-                self.rope_neox_into(&q_view, &q_view, position, num_heads, head_dim, theta)?;
-                self.rope_neox_into(&k_view, &k_view, position, num_kv_heads, head_dim, theta)?;
-                std::mem::forget(q_view);
-                std::mem::forget(k_view);
-            }
+            // PMAT-046: Batched NEOX RoPE (all M sequences in one launch per Q/K)
+            // Replaces 2×M sequential launches with 2 launches.
+            self.batched_rope_neox_into(q_buf, q_buf, &positions_buf, num_heads, head_dim, m, theta)?;
+            self.batched_rope_neox_into(k_buf, k_buf, &positions_buf, num_kv_heads, head_dim, m, theta)?;
         } else {
             // PAR-114: Batched RoPE (all M sequences in one launch)
             self.batched_rope_into(q_buf, q_buf, &positions_buf, num_heads, head_dim, m, theta)?;

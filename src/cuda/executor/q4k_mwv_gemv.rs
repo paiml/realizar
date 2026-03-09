@@ -708,6 +708,84 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// PMAT-054A: Fused QKV DP4A GEMV with shared Q8_1 quantization.
+    ///
+    /// Quantizes the input ONCE, then launches Q, K, V GEMV kernels
+    /// using the same Q8_1 buffer. Saves 2 Q8 quantize kernels per layer
+    /// (56 total across 28 layers).
+    ///
+    /// Q projection has output dim `q_dim`, K and V have output dim `kv_dim`.
+    /// All share the same input dim `k` (hidden_dim after RMSNorm).
+    #[allow(clippy::too_many_arguments)]
+    pub fn batched_qkv_dp4a_q4k_gemv_into(
+        &mut self,
+        q_weight_ptr: u64,
+        k_weight_ptr: u64,
+        v_weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        q_output: &GpuBuffer<f32>,
+        k_output: &GpuBuffer<f32>,
+        v_output: &GpuBuffer<f32>,
+        m: u32,
+        q_dim: u32,
+        kv_dim: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(q_weight_ptr, "batched_qkv_dp4a: Q")?;
+        validate_device_ptr(k_weight_ptr, "batched_qkv_dp4a: K")?;
+        validate_device_ptr(v_weight_ptr, "batched_qkv_dp4a: V")?;
+
+        // Q8_1 buffer: M vectors × (K/32 blocks × 36 bytes)
+        let q8_blocks_per_vec = (k + 31) / 32;
+        let q8_bytes_per_vec = q8_blocks_per_vec * 36;
+        let q8_total_bytes = (m * q8_bytes_per_vec) as usize;
+
+        let q8_ptr = self
+            .workspace
+            .q8_activation_buf
+            .as_ref()
+            .expect("batched_qkv_dp4a: q8_activation_buf not initialized")
+            .as_ptr();
+        let q8_len = self
+            .workspace
+            .q8_activation_buf
+            .as_ref()
+            .expect("q8_activation_buf must be initialized")
+            .len();
+
+        if q8_len < q8_total_bytes {
+            return Err(GpuError::InvalidParameter(format!(
+                "PMAT-054A: q8_activation_buf too small for QKV: have {} bytes, need {} for M={m}",
+                q8_len, q8_total_bytes
+            )));
+        }
+
+        // SAFETY: q8_activation_buf is pre-allocated and valid for this scope
+        let q8_buf = unsafe { GpuBuffer::<u8>::from_raw_parts(q8_ptr, q8_len) };
+
+        // Step 1: Quantize input ONCE (shared across Q + K + V)
+        let total_elements = m * k;
+        self.q8_quantize_into(input, &q8_buf, total_elements)?;
+
+        // Step 2: Launch Q GEMV using pre-quantized Q8_1
+        self.batched_hw_dp4a_q4k_gemv_q8_launch(
+            q_weight_ptr, q8_ptr, q_output, m, q_dim, k,
+        )?;
+
+        // Step 3: Launch K GEMV using same Q8_1 buffer
+        self.batched_hw_dp4a_q4k_gemv_q8_launch(
+            k_weight_ptr, q8_ptr, k_output, m, kv_dim, k,
+        )?;
+
+        // Step 4: Launch V GEMV using same Q8_1 buffer
+        self.batched_hw_dp4a_q4k_gemv_q8_launch(
+            v_weight_ptr, q8_ptr, v_output, m, kv_dim, k,
+        )?;
+
+        std::mem::forget(q8_buf);
+        Ok(())
+    }
+
     /// PAR-077: Execute Fused Gate+Up Q4_K GEMV into existing buffers
     ///
     /// Computes both gate and up projections in a single kernel pass:

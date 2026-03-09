@@ -76,65 +76,158 @@ impl CudaExecutor {
             self.modules.insert(scatter_key.clone(), module);
         }
 
-        // Scatter K and V for each sequence (still sequential, but now to separate caches)
-        for seq_idx in 0..m {
-            let pos = positions[seq_idx] as usize;
+        // PMAT-046: Batched KV scatter — 2 launches (K+V) regardless of M.
+        // Previous: 2×M launches per layer (was 224 at M=4, L=28).
+        // Now: 2 launches per layer (56 at L=28). Saves 168 launches/step.
+        //
+        // Kernel layout: Grid (num_kv_heads, M, 1), Block (head_dim, 1, 1)
+        //   seq_idx = blockIdx.y
+        //   head_idx = blockIdx.x
+        //   elem_idx = threadIdx.x
+        //   src: src_base[seq_idx * kv_dim + head_idx * head_dim + elem_idx]
+        //   dst: dst_base[seq_idx * stride + (head_idx * max_len + positions[seq_idx]) * head_dim + elem_idx]
+        let batched_scatter_key = format!("batched_kv_scatter_{}_{}_{}", num_kv_heads, head_dim, max_len);
+        if !self.modules.contains_key(&batched_scatter_key) {
+            let ptx = format!(
+                r#".version 7.0
+.target sm_70
+.address_size 64
 
-            // Calculate source and destination pointers for this sequence
-            let k_src_offset = seq_idx * kv_dim;
-            let k_dst_offset = seq_idx * stride;
-            let k_src_ptr = k_batched.as_ptr() + (k_src_offset * std::mem::size_of::<f32>()) as u64;
-            let k_dst_ptr = k_cache.as_ptr() + (k_dst_offset * std::mem::size_of::<f32>()) as u64;
+.visible .entry batched_kv_cache_scatter(
+    .param .u64 src_base,
+    .param .u64 dst_base,
+    .param .u64 positions_ptr,
+    .param .u32 stride_param,
+    .param .u32 kv_dim_param
+) {{
+    .reg .u64 %rd<16>;
+    .reg .u32 %r<16>;
+    .reg .f32 %f<2>;
+    .reg .pred %p;
 
-            let mut k_src = k_src_ptr;
-            let mut k_dst = k_dst_ptr;
-            let mut pos_val = pos as u32;
-            let mut head_dim_val = head_dim as u32;
-            let mut max_len_val = max_len as u32;
+    // elem_idx = threadIdx.x
+    mov.u32 %r0, %tid.x;
+    // head_idx = blockIdx.x
+    mov.u32 %r1, %ctaid.x;
+    // seq_idx = blockIdx.y
+    mov.u32 %r2, %ctaid.y;
 
-            let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
-            // SAFETY: Unsafe operation with validated invariants
-            unsafe {
-                self.compute_stream.launch_kernel(
-                    scatter_module,
-                    scatter_name,
-                    &scatter_config,
-                    &mut [
-                        std::ptr::from_mut(&mut k_src) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut k_dst) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut pos_val) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
-                    ],
-                )?;
-            }
+    // bounds check: elem_idx < head_dim
+    setp.ge.u32 %p, %r0, {head_dim};
+    @%p bra DONE;
 
-            // Scatter V
-            let v_src_offset = seq_idx * kv_dim;
-            let v_dst_offset = seq_idx * stride;
-            let v_src_ptr = v_batched.as_ptr() + (v_src_offset * std::mem::size_of::<f32>()) as u64;
-            let v_dst_ptr = v_cache.as_ptr() + (v_dst_offset * std::mem::size_of::<f32>()) as u64;
+    // Load positions[seq_idx]
+    ld.param.u64 %rd0, [positions_ptr];
+    mul.wide.u32 %rd1, %r2, 4;          // seq_idx * 4
+    add.u64 %rd2, %rd0, %rd1;
+    ld.global.u32 %r3, [%rd2];          // pos = positions[seq_idx]
 
-            let mut v_src = v_src_ptr;
-            let mut v_dst = v_dst_ptr;
+    // Source: src_base + (seq_idx * kv_dim + head_idx * head_dim + elem_idx) * 4
+    ld.param.u32 %r4, [kv_dim_param];   // kv_dim
+    mul.lo.u32 %r5, %r2, %r4;           // seq_idx * kv_dim
+    mul.lo.u32 %r6, %r1, {head_dim};    // head_idx * head_dim
+    add.u32 %r5, %r5, %r6;              // + head_idx * head_dim
+    add.u32 %r5, %r5, %r0;              // + elem_idx
+    mul.wide.u32 %rd3, %r5, 4;
+    ld.param.u64 %rd4, [src_base];
+    add.u64 %rd5, %rd4, %rd3;           // src_addr
 
-            let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
-            // SAFETY: Unsafe operation with validated invariants
-            unsafe {
-                self.compute_stream.launch_kernel(
-                    scatter_module,
-                    scatter_name,
-                    &scatter_config,
-                    &mut [
-                        std::ptr::from_mut(&mut v_src) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut v_dst) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut pos_val) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
-                        std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
-                    ],
-                )?;
-            }
+    // Dest: dst_base + (seq_idx * stride + (head_idx * max_len + pos) * head_dim + elem_idx) * 4
+    ld.param.u32 %r7, [stride_param];   // stride
+    mul.lo.u32 %r8, %r2, %r7;           // seq_idx * stride
+    mul.lo.u32 %r9, %r1, {max_len};     // head_idx * max_len
+    add.u32 %r9, %r9, %r3;              // + pos
+    mul.lo.u32 %r9, %r9, {head_dim};    // * head_dim
+    add.u32 %r8, %r8, %r9;              // + (head_idx * max_len + pos) * head_dim
+    add.u32 %r8, %r8, %r0;              // + elem_idx
+    mul.wide.u32 %rd6, %r8, 4;
+    ld.param.u64 %rd7, [dst_base];
+    add.u64 %rd8, %rd7, %rd6;           // dst_addr
+
+    // Copy: dst[...] = src[...]
+    ld.global.f32 %f0, [%rd5];
+    st.global.f32 [%rd8], %f0;
+
+DONE:
+    ret;
+}}"#,
+                head_dim = head_dim,
+                max_len = max_len,
+            );
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(batched_scatter_key.clone(), module);
         }
+
+        // Upload positions to GPU
+        let positions_u32: Vec<u32> = positions.iter().map(|&p| p as u32).collect();
+        let positions_buf = self
+            .workspace
+            .positions_buf
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig("PMAT-046: positions_buf not initialized".to_string())
+            })?;
+        let positions_buf_ptr = positions_buf.as_ptr();
+        // SAFETY: positions_buf is valid workspace allocation sized for M positions
+        let mut positions_gpu = unsafe { GpuBuffer::<u32>::from_raw_parts(positions_buf_ptr, m) };
+        if !self.is_capturing {
+            positions_gpu.copy_from_host(&positions_u32)?;
+        }
+
+        let batched_scatter_config = LaunchConfig {
+            grid: (num_kv_heads as u32, m as u32, 1),
+            block: (head_dim as u32, 1, 1),
+            shared_mem: 0,
+        };
+
+        let batched_scatter_module = self.modules.get_mut(&batched_scatter_key).expect("module exists");
+        let mut k_src_base = k_batched.as_ptr();
+        let mut k_dst_base = k_cache.as_ptr();
+        let mut pos_ptr = positions_buf_ptr;
+        let mut stride_val = stride as u32;
+        let mut kv_dim_val = kv_dim as u32;
+
+        // SAFETY: src/dst are valid GPU allocs, positions_buf populated above, stride/kv_dim bounds verified
+        unsafe {
+            self.compute_stream.launch_kernel(
+                batched_scatter_module,
+                "batched_kv_cache_scatter",
+                &batched_scatter_config,
+                &mut [
+                    std::ptr::from_mut(&mut k_src_base) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_dst_base) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut pos_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut stride_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut kv_dim_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // Scatter V (same kernel, different src/dst)
+        let batched_scatter_module = self.modules.get_mut(&batched_scatter_key).expect("module exists");
+        let mut v_src_base = v_batched.as_ptr();
+        let mut v_dst_base = v_cache.as_ptr();
+        let mut pos_ptr2 = positions_buf_ptr;
+        let mut stride_val2 = stride as u32;
+        let mut kv_dim_val2 = kv_dim as u32;
+
+        // SAFETY: v_batched/v_cache are valid GPU allocs, positions_buf populated above
+        unsafe {
+            self.compute_stream.launch_kernel(
+                batched_scatter_module,
+                "batched_kv_cache_scatter",
+                &batched_scatter_config,
+                &mut [
+                    std::ptr::from_mut(&mut v_src_base) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut v_dst_base) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut pos_ptr2) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut stride_val2) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut kv_dim_val2) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        std::mem::forget(positions_gpu);
 
         // PMAT-045: Skip CPU-side state update during CUDA graph capture.
         // During capture, kernels are recorded, not executed — data values don't matter.
@@ -199,13 +292,31 @@ impl CudaExecutor {
 
         // PMAT-045: Skip copy_from_host during CUDA graph capture.
         // cuMemcpyHtoD is not capturable — causes CUDA_ERROR_ILLEGAL_ADDRESS.
-        // k_ptrs/v_ptrs are static (same KV cache addresses every step).
-        // seq_lens are updated via batched_seq_lens_gpu before graph replay.
+        // GH-141: During capture, use per-layer pointer buffers instead of shared
+        // buffer — each layer's KV cache is at a different address, and the graph
+        // records the pointer passed to the kernel. Per-layer buffers are static
+        // (pre-populated in init_batched_kv_cache_gpu).
         if !self.is_capturing {
             k_ptrs_buf.copy_from_host(&k_ptrs)?;
             v_ptrs_buf.copy_from_host(&v_ptrs)?;
             seq_lens_buf.copy_from_host(&seq_lens)?;
         }
+
+        // GH-141: Choose pointer source — per-layer (capture) or shared (non-capture)
+        let (k_ptrs_ptr_val, v_ptrs_ptr_val) = if self.is_capturing {
+            // Per-layer buffers: graph records correct per-layer addresses
+            let k_ptr = self.batched_k_ptrs_per_layer.get(&layer_idx)
+                .map(|b| b.as_ptr())
+                .unwrap_or(k_ptrs_buf.as_ptr());
+            let v_ptr = self.batched_v_ptrs_per_layer.get(&layer_idx)
+                .map(|b| b.as_ptr())
+                .unwrap_or(v_ptrs_buf.as_ptr());
+            (k_ptr, v_ptr)
+        } else {
+            // Shared buffers: updated per layer via copy_from_host above
+            (k_ptrs_buf.as_ptr(), v_ptrs_buf.as_ptr())
+        };
+
         let module = self
             .modules
             .get_mut(&module_key)
@@ -219,8 +330,8 @@ impl CudaExecutor {
         };
 
         let mut q_ptr = q_batched.as_ptr();
-        let mut k_ptrs_ptr = k_ptrs_buf.as_ptr();
-        let mut v_ptrs_ptr = v_ptrs_buf.as_ptr();
+        let mut k_ptrs_ptr = k_ptrs_ptr_val;
+        let mut v_ptrs_ptr = v_ptrs_ptr_val;
         let mut out_ptr = out_batched.as_ptr();
         let mut seq_lens_ptr = seq_lens_buf.as_ptr();
 

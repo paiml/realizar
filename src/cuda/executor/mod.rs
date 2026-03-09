@@ -417,6 +417,11 @@ pub struct CudaExecutor {
     batched_k_ptrs: Option<GpuBuffer<u64>>,
     batched_v_ptrs: Option<GpuBuffer<u64>>,
     batched_seq_lens_gpu: Option<GpuBuffer<u32>>,
+    // GH-141: Per-layer pointer arrays for CUDA graph capture.
+    // During capture, batched_k_ptrs can't be updated per layer (H2D copy not capturable).
+    // These pre-populated per-layer buffers contain static KV cache addresses.
+    batched_k_ptrs_per_layer: HashMap<usize, GpuBuffer<u64>>,
+    batched_v_ptrs_per_layer: HashMap<usize, GpuBuffer<u64>>,
     // PAR-119: Stride for computing per-sequence pointers
     pub(crate) batched_kv_stride: usize,
     // PAR-119: Currently allocated batch size (for reallocation check)

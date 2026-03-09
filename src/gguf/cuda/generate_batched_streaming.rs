@@ -44,6 +44,11 @@ impl OwnedQuantizedModelCuda {
         // causing KV cache state mismatch. Force eager path for prefill by clearing graph.
         self.executor.clear_decode_graph();
 
+        // GH-141: Clear batched decode graphs — workspace buffers may have been
+        // reallocated between batches (init_workspace restores M=1 sizing).
+        // A stale graph would reference freed buffer addresses → ILLEGAL_ADDRESS.
+        self.executor.clear_batched_decode_graphs();
+
         let hidden_dim = self.model.config.hidden_dim;
         let intermediate_dim = self.model.layers[0].ffn_up_weight.out_dim;
         let num_layers = self.model.layers.len();
@@ -60,6 +65,13 @@ impl OwnedQuantizedModelCuda {
         let mut caches: Vec<OwnedQuantizedKVCache> = (0..m)
             .map(|_| OwnedQuantizedKVCache::new(num_layers, kv_dim, max_seq_len))
             .collect();
+
+        // GH-141: Free FP16 weight cache and prefill graphs before allocating batched KV.
+        // On 8GB GPUs, keeping FP16 cache (2944 MB) alongside batched KV causes memory
+        // pressure that slows HGEMM prefill from ~100ms to >2000ms per slot (VRAM thrash).
+        // SGEMM prefill at ~100ms/slot is faster than thrashing HGEMM at ~2300ms/slot.
+        self.executor.clear_fp16_weight_cache();
+        self.executor.clear_prefill_graphs();
 
         // PMAT-045: Pre-allocate workspace for max_prompt_len BEFORE prefill.
         // Uses init_prefill_workspace (no 32-batch limit) to size buffers for prefill.
@@ -81,8 +93,8 @@ impl OwnedQuantizedModelCuda {
             })?;
         self.executor.reset_batched_kv_cache_gpu();
 
-        // Prefill each slot sequentially, scattering GPU KV to batched cache
-        // (toggles batched_kv_stride: 0 for prefill, restore for scatter)
+        // Prefill each slot sequentially (SGEMM — FP16 cache cleared above),
+        // then scatter GPU KV to batched cache via D2D memcpy.
         let (mut sequences, mut positions, mut last_tokens) =
             self.prefill_and_scatter(prompts, &mut caches)?;
 
@@ -237,31 +249,51 @@ impl OwnedQuantizedModelCuda {
 
             let pos_u32: Vec<u32> = positions.iter().map(|&p| p as u32).collect();
 
-            if gen_idx == 0 {
-                eprintln!("[PMAT-044] decode step 0: positions={pos_u32:?}, last_tokens={last_tokens:?}");
+            if gen_idx < 3 {
+                eprintln!("[PMAT-044] decode step {gen_idx}: positions={pos_u32:?}, last_tokens={last_tokens:?}");
             }
 
-            // PMAT-045: Use non-graphed batched forward for debugging.
-            // TODO: Re-enable graphed path after fixing CUDA_ERROR_ILLEGAL_ADDRESS.
-            let token_ids = self
-                .executor
-                .forward_batched_to_token_ids(
-                    &embed_buf,
-                    &pos_u32,
-                    num_layers,
-                    hidden_dim as u32,
-                    intermediate_dim as u32,
-                    vocab_size as u32,
-                    eps,
-                )
-                .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "forward_batched_to_token_ids".to_string(),
-                    reason: format!("Batched forward failed: {e}"),
-                })?;
+            // PMAT-055: Disable batched CUDA graph by default — multi-stream graph capture
+            // causes identical token_ids across decode steps (scatter on compute_stream
+            // not properly ordered with RoPE on main stream during graph replay).
+            // Root cause: graph captures operations on 3 streams but replay topology
+            // may run scatter before QKV projection completes → stale K/V in cache.
+            // Enable with BATCHED_GRAPH=1 for future testing once fixed.
+            let use_graph = std::env::var("BATCHED_GRAPH").as_deref() == Ok("1");
+            let token_ids = if use_graph {
+                self.executor
+                    .forward_batched_to_token_ids_graphed(
+                        &embed_buf,
+                        &pos_u32,
+                        num_layers,
+                        hidden_dim as u32,
+                        intermediate_dim as u32,
+                        vocab_size as u32,
+                        eps,
+                    )
+                    .map_err(|e| RealizarError::UnsupportedOperation {
+                        operation: "forward_batched_to_token_ids_graphed".to_string(),
+                        reason: format!("Batched forward failed: {e}"),
+                    })?
+            } else {
+                self.executor
+                    .forward_batched_to_token_ids(
+                        &embed_buf,
+                        &pos_u32,
+                        num_layers,
+                        hidden_dim as u32,
+                        intermediate_dim as u32,
+                        vocab_size as u32,
+                        eps,
+                    )
+                    .map_err(|e| RealizarError::UnsupportedOperation {
+                        operation: "forward_batched_to_token_ids".to_string(),
+                        reason: format!("Batched forward failed: {e}"),
+                    })?
+            };
 
             if gen_idx < 3 {
-                let stop_tokens: Vec<&Vec<u32>> = configs.iter().map(|c| &c.stop_tokens).collect();
-                eprintln!("[PMAT-044] decode step {gen_idx}: token_ids={token_ids:?}, stop_tokens={stop_tokens:?}, done={done:?}");
+                eprintln!("[PMAT-044] decode step {gen_idx}: token_ids={token_ids:?}, done={done:?}");
             }
 
             self.distribute_tokens(
