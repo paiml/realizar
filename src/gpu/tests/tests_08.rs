@@ -476,19 +476,13 @@ fn test_apr_q4_config_conversion_all_fields() {
 #[test]
 fn test_apr_q4_extract_qkv_mha() {
     let config = create_minimal_apr_config();
+    let gpu_config = AprToGpuAdapter::config_to_gpu(&config);
     let layer = create_q4_layer(&config);
 
-    let result = AprToGpuAdapter::extract_qkv_weights(
-        &layer,
-        config.hidden_dim,
-        config.num_heads,
-        config.num_kv_heads,
-    );
+    let result = AprToGpuAdapter::extract_qkv_weights(&layer, &gpu_config);
     assert!(result.is_ok());
 
-    let head_dim = config.hidden_dim / config.num_heads;
-    let kv_dim = config.num_kv_heads * head_dim;
-    let qkv_out_dim = config.hidden_dim + 2 * kv_dim;
+    let qkv_out_dim = gpu_config.qkv_dim();
     let expected_len = config.hidden_dim * qkv_out_dim;
     assert_eq!(result.expect("test value should be present").len(), expected_len);
 }
@@ -496,6 +490,7 @@ fn test_apr_q4_extract_qkv_mha() {
 #[test]
 fn test_apr_q4_extract_qkv_gqa() {
     let config = create_gqa_apr_config();
+    let gpu_config = AprToGpuAdapter::config_to_gpu(&config);
     let layer = QuantizedAprLayerQ4 {
         attn_norm_weight: vec![1.0; config.hidden_dim],
         qkv_weight: QuantizedAprTensorQ4::zeros(config.hidden_dim, config.hidden_dim + 2 * 16),
@@ -506,18 +501,11 @@ fn test_apr_q4_extract_qkv_gqa() {
         ffn_norm_weight: Some(vec![1.0; config.hidden_dim]),
     };
 
-    let result = AprToGpuAdapter::extract_qkv_weights(
-        &layer,
-        config.hidden_dim,
-        config.num_heads,
-        config.num_kv_heads,
-    );
+    let result = AprToGpuAdapter::extract_qkv_weights(&layer, &gpu_config);
     assert!(result.is_ok());
 
     // GQA: kv_dim = 2 * 8 = 16
-    let head_dim = config.hidden_dim / config.num_heads; // 64 / 8 = 8
-    let kv_dim = config.num_kv_heads * head_dim; // 2 * 8 = 16
-    let qkv_out_dim = config.hidden_dim + 2 * kv_dim; // 64 + 32 = 96
+    let qkv_out_dim = gpu_config.qkv_dim(); // 64 + 32 = 96
     let expected_len = config.hidden_dim * qkv_out_dim;
     assert_eq!(result.expect("test value should be present").len(), expected_len);
 }

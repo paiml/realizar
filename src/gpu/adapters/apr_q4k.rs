@@ -93,16 +93,34 @@ pub struct UploadResult {
 /// # Returns
 ///
 /// Upload statistics (total bytes, tensor counts)
+/// Align `offset` up to the next multiple of `align` (must be power of 2).
+#[cfg(feature = "cuda")]
+const fn align_up(offset: usize, align: usize) -> usize {
+    (offset + align - 1) & !(align - 1)
+}
+
+/// ALB-098: Upload APR Q4K model weights to GPU using pool allocator.
+///
+/// Two-pass approach:
+/// 1. Scan all tensors to compute total quantized bytes
+/// 2. Allocate ONE large GPU buffer (pool)
+/// 3. Copy each tensor into its 256-byte-aligned offset within the pool
+///
+/// This replaces 18,867 individual cuMemAlloc calls with 1, fixing
+/// CUDA memory fragmentation OOM on MoE models.
+///
+/// F32/F16 tensors (norms, embeddings) still use individual allocations
+/// since they're few (~100) and need separate type treatment.
 #[cfg(feature = "cuda")]
 pub fn upload_apr_q4k_weights(
     model: &AprV2Model,
     executor: &mut CudaExecutor,
 ) -> Result<UploadResult> {
-    let mut total_bytes = 0usize;
-    let mut num_q4k = 0usize;
-    let mut num_f32 = 0usize;
-
     let tensor_names: Vec<String> = model.tensor_names().into_iter().map(String::from).collect();
+
+    // Pass 1: Scan quantized tensors for total pool size
+    let mut pool_size = 0usize;
+    let mut quantized_entries: Vec<(String, u32, usize)> = Vec::new(); // (name, qtype, offset)
 
     for name in &tensor_names {
         let entry = model
@@ -114,34 +132,79 @@ pub fn upload_apr_q4k_weights(
         let bytes = model.get_tensor_bytes(name)?;
         let dtype = entry.dtype.as_str();
 
+        let qtype = match dtype {
+            "Q4_K" | "q4_k" => Some(Q4K_TYPE),
+            "Q6_K" | "q6_k" => Some(Q6K_TYPE),
+            other => crate::apr::dequant::dtype_to_ggml_qtype(other),
+        };
+
+        if let Some(qt) = qtype {
+            let offset = pool_size;
+            quantized_entries.push((name.clone(), qt, offset));
+            pool_size = align_up(pool_size + bytes.len(), 256);
+        }
+    }
+
+    let num_q4k = quantized_entries.len();
+    println!(
+        "  ALB-098: Pool allocator — {} quantized tensors, {:.1} GB in 1 cuMemAlloc",
+        num_q4k,
+        pool_size as f64 / 1e9
+    );
+
+    // Pass 2: Allocate pool and upload quantized weights
+    let mut total_bytes = 0usize;
+
+    if pool_size > 0 {
+        executor
+            .allocate_quantized_weight_pool(pool_size)
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!(
+                    "Failed to allocate {:.1} GB weight pool: {e}",
+                    pool_size as f64 / 1e9
+                ),
+            })?;
+
+        for (name, qtype, offset) in &quantized_entries {
+            let bytes = model.get_tensor_bytes(name)?;
+            let uploaded = executor
+                .load_quantized_weights_pooled(name, bytes, *qtype, *offset)
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("Failed to upload {name} to pool: {e}"),
+                })?;
+            total_bytes += uploaded;
+        }
+    }
+
+    // Pass 3: Upload non-quantized tensors (F32/F16 norms, embeddings) individually
+    let mut num_f32 = 0usize;
+
+    for name in &tensor_names {
+        let entry = model
+            .get_tensor(name)
+            .ok_or_else(|| RealizarError::FormatError {
+                reason: format!("Tensor disappeared: {name}"),
+            })?;
+
+        let dtype = entry.dtype.as_str();
+
+        // Skip quantized tensors (already in pool)
         match dtype {
-            "Q4_K" | "q4_k" => {
-                let uploaded = executor
-                    .load_quantized_weights_with_type(name, bytes, Q4K_TYPE)
-                    .map_err(|e| RealizarError::GpuError {
-                        reason: format!("Failed to upload Q4K {name}: {e}"),
-                    })?;
-                total_bytes += uploaded;
-                num_q4k += 1;
-            },
-            "Q6_K" | "q6_k" => {
-                let uploaded = executor
-                    .load_quantized_weights_with_type(name, bytes, Q6K_TYPE)
-                    .map_err(|e| RealizarError::GpuError {
-                        reason: format!("Failed to upload Q6K {name}: {e}"),
-                    })?;
-                total_bytes += uploaded;
-                num_q4k += 1; // Count as quantized
-            },
+            "Q4_K" | "q4_k" | "Q6_K" | "q6_k" => continue,
+            other if crate::apr::dequant::dtype_to_ggml_qtype(other).is_some() => continue,
+            _ => {},
+        }
+
+        let bytes = model.get_tensor_bytes(name)?;
+
+        match dtype {
             "F32" | "f32" => {
-                // Parse F32 bytes and check if it's a norm weight
                 let floats: Vec<f32> = bytes
                     .chunks_exact(4)
                     .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect();
 
                 if name.contains("norm") {
-                    // Upload norm as RMSNorm gamma
                     let uploaded = executor.cache_rmsnorm_gamma(name, &floats).map_err(|e| {
                         RealizarError::GpuError {
                             reason: format!("Failed to cache norm {name}: {e}"),
@@ -149,7 +212,6 @@ pub fn upload_apr_q4k_weights(
                     })?;
                     total_bytes += uploaded;
                 } else {
-                    // Upload as F32 weight (embeddings, LM head if F32)
                     let uploaded = executor.load_weights(name, &floats).map_err(|e| {
                         RealizarError::GpuError {
                             reason: format!("Failed to upload F32 {name}: {e}"),
@@ -160,7 +222,6 @@ pub fn upload_apr_q4k_weights(
                 num_f32 += 1;
             },
             "F16" | "f16" => {
-                // Dequantize F16 to F32 for upload
                 let floats: Vec<f32> = bytes
                     .chunks_exact(2)
                     .map(|c| {
@@ -187,18 +248,7 @@ pub fn upload_apr_q4k_weights(
                 num_f32 += 1;
             },
             other => {
-                // Try to upload as quantized with type from dtype
-                if let Some(qtype) = crate::apr::dequant::dtype_to_ggml_qtype(other) {
-                    let uploaded = executor
-                        .load_quantized_weights_with_type(name, bytes, qtype)
-                        .map_err(|e| RealizarError::GpuError {
-                            reason: format!("Failed to upload {other} {name}: {e}"),
-                        })?;
-                    total_bytes += uploaded;
-                    num_q4k += 1;
-                } else {
-                    eprintln!("[ALB-095] Skipping unsupported dtype {other} for {name}");
-                }
+                eprintln!("[ALB-095] Skipping unsupported dtype {other} for {name}");
             },
         }
     }
@@ -235,33 +285,67 @@ pub fn parse_apr_q4k_config(model: &AprV2Model) -> Result<AprQ4KConfig> {
     })?;
     let intermediate_dim = meta.intermediate_size.unwrap_or(hidden_dim * 4);
 
-    // head_dim: check extra map (ALB-094 added this field)
+    // head_dim: check extra map first, then infer from QKV weight size
     let head_dim = meta
         .extra
         .get("head_dim")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize)
-        .unwrap_or(hidden_dim / num_heads);
+        .unwrap_or_else(|| {
+            // ALB-095: Infer head_dim from layer 0 Q projection weight size
+            // q_proj.weight shape: [num_heads * head_dim, hidden_dim] in Q4K
+            // So: head_dim = q_out_dim / num_heads
+            let q_tensor = model.get_tensor("model.layers.0.self_attn.q_proj.weight");
+            if let Some(t) = q_tensor {
+                let num_blocks = (t.size / 18) as usize;
+                let total_elements = num_blocks * 32;
+                let q_out_dim = total_elements / hidden_dim;
+                let inferred = q_out_dim / num_heads;
+                if inferred != hidden_dim / num_heads {
+                    eprintln!(
+                        "[ALB-095] Inferred head_dim={} from q_proj weight (vs default {})",
+                        inferred,
+                        hidden_dim / num_heads
+                    );
+                }
+                inferred
+            } else {
+                hidden_dim / num_heads
+            }
+        });
 
     let eps = meta.rms_norm_eps.unwrap_or(1e-6);
     let rope_theta = meta.rope_theta.unwrap_or(10000.0);
 
-    // MoE fields from extra map (ALB-094)
-    let num_experts = meta
+    // MoE fields from metadata (ALB-094)
+    // Try typed fields first (new APR files), then extra map (legacy), then infer from tensor names
+    let mut num_experts = meta
         .extra
         .get("num_experts")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize);
-    let num_experts_per_tok = meta
+    let mut num_experts_per_tok = meta
         .extra
         .get("num_experts_per_tok")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize);
-    let moe_intermediate_size = meta
+    let mut moe_intermediate_size = meta
         .extra
         .get("moe_intermediate_size")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize);
+
+    // ALB-095: Infer MoE config from tensor names when metadata is missing
+    // (handles APR files created before MoE metadata was added to the converter)
+    if num_experts.is_none() {
+        let (inferred_experts, inferred_k, inferred_moe_inter) =
+            infer_moe_config_from_tensors(model, hidden_dim);
+        if let Some(n) = inferred_experts {
+            num_experts = Some(n);
+            num_experts_per_tok = num_experts_per_tok.or(inferred_k);
+            moe_intermediate_size = moe_intermediate_size.or(inferred_moe_inter);
+        }
+    }
 
     Ok(AprQ4KConfig {
         hidden_dim,
@@ -277,6 +361,66 @@ pub fn parse_apr_q4k_config(model: &AprV2Model) -> Result<AprQ4KConfig> {
         num_experts_per_tok,
         moe_intermediate_size,
     })
+}
+
+/// ALB-095: Infer MoE config from tensor names when metadata is missing.
+///
+/// Scans layer 0's tensor names for expert patterns like
+/// `model.layers.0.mlp.experts.{E}.gate_proj.weight` and infers:
+/// - `num_experts`: max expert index + 1
+/// - `num_experts_per_tok`: defaults to 8 (common for Qwen MoE)
+/// - `moe_intermediate_size`: from expert weight shape (if available)
+#[cfg(feature = "cuda")]
+fn infer_moe_config_from_tensors(
+    model: &AprV2Model,
+    hidden_dim: usize,
+) -> (Option<usize>, Option<usize>, Option<usize>) {
+    let names = model.tensor_names();
+
+    // Count experts by scanning layer 0 tensor names
+    let mut max_expert: Option<usize> = None;
+    for name in &names {
+        // Pattern: model.layers.0.mlp.experts.{E}.gate_proj.weight
+        if let Some(rest) = name.strip_prefix("model.layers.0.mlp.experts.") {
+            if let Some(dot_pos) = rest.find('.') {
+                if let Ok(expert_id) = rest[..dot_pos].parse::<usize>() {
+                    max_expert = Some(max_expert.map_or(expert_id, |m: usize| m.max(expert_id)));
+                }
+            }
+        }
+    }
+
+    let num_experts = max_expert.map(|m| m + 1);
+
+    if num_experts.is_none() {
+        return (None, None, None);
+    }
+
+    // Default top-k to 8 (standard for Qwen MoE models)
+    let num_experts_per_tok = Some(8);
+
+    // Infer moe_intermediate_size from expert gate_proj weight shape
+    // gate_proj.weight shape is [intermediate, hidden] in Q4K → byte count reveals intermediate_size
+    let moe_intermediate: Option<usize> = model
+        .get_tensor("model.layers.0.mlp.experts.0.gate_proj.weight")
+        .map(|t| {
+            // Q4K: each block is 32 elements packed into 18 bytes (2 bytes scale + 16 bytes data)
+            // Total elements = (data_bytes / 18) * 32
+            // intermediate = total_elements / hidden_dim
+            let num_blocks = (t.size / 18) as usize;
+            let total_elements = num_blocks * 32;
+            total_elements / hidden_dim
+        });
+
+    let n = num_experts.unwrap();
+    let k = num_experts_per_tok.unwrap();
+    let inter = moe_intermediate.unwrap_or(0);
+    eprintln!(
+        "[ALB-095] Inferred MoE config from tensor names: {} experts, top-{}, intermediate={}",
+        n, k, inter
+    );
+
+    (num_experts, num_experts_per_tok, moe_intermediate)
 }
 
 /// Q4K GEMV helper: run a cached Q4K weight GEMV via CudaExecutor.

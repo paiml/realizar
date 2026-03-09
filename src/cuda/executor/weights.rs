@@ -127,18 +127,23 @@ impl CudaExecutor {
     /// Check if quantized weights are cached on GPU
     #[must_use]
     pub fn has_quantized_weights(&self, name: &str) -> bool {
-        self.quantized_weight_cache.contains_key(name)
+        self.quantized_weight_pool_entries.contains_key(name)
+            || self.quantized_weight_cache.contains_key(name)
     }
 
     /// Get raw device pointer for cached quantized weights
     ///
     /// Returns the raw u64 device pointer for the named weight buffer.
-    /// Used for debugging and direct kernel invocation.
+    /// ALB-098: Checks pool entries first, then individual cache.
     ///
     /// # Errors
     ///
     /// Returns error if weight is not cached.
     pub fn get_quantized_weight_ptr(&self, name: &str) -> Result<u64, GpuError> {
+        // ALB-098: Check pool first (MoE models use pooled allocation)
+        if let Some(&(ptr, _size)) = self.quantized_weight_pool_entries.get(name) {
+            return Ok(ptr);
+        }
         self.quantized_weight_cache
             .get(name)
             .map(trueno_gpu::driver::GpuBuffer::as_ptr)
@@ -147,24 +152,112 @@ impl CudaExecutor {
             })
     }
 
+    /// Get raw device pointer and size for cached quantized weights.
+    ///
+    /// ALB-098: Checks pool entries first, then individual cache.
+    pub fn get_quantized_weight_ptr_and_size(&self, name: &str) -> Result<(u64, usize), GpuError> {
+        if let Some(&(ptr, size)) = self.quantized_weight_pool_entries.get(name) {
+            return Ok((ptr, size));
+        }
+        self.quantized_weight_cache
+            .get(name)
+            .map(|buf| (buf.as_ptr(), buf.size_bytes()))
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!("Quantized weight '{}' not cached", name))
+            })
+    }
+
     /// Get the number of cached quantized weight tensors
     #[must_use]
     pub fn cached_quantized_weight_count(&self) -> usize {
-        self.quantized_weight_cache.len()
+        self.quantized_weight_cache.len() + self.quantized_weight_pool_entries.len()
     }
 
     /// Get total size of cached quantized weights in bytes
     #[must_use]
     pub fn cached_quantized_weight_bytes(&self) -> usize {
-        self.quantized_weight_cache
+        let cache_bytes: usize = self
+            .quantized_weight_cache
             .values()
             .map(GpuBuffer::size_bytes)
-            .sum()
+            .sum();
+        let pool_bytes: usize = self
+            .quantized_weight_pool_entries
+            .values()
+            .map(|&(_ptr, size)| size)
+            .sum();
+        cache_bytes + pool_bytes
     }
 
     /// Clear all cached quantized weights (releases GPU memory)
     pub fn clear_quantized_weights(&mut self) {
         self.quantized_weight_cache.clear();
+        self.quantized_weight_pool = None;
+        self.quantized_weight_pool_entries.clear();
+    }
+
+    // ========================================================================
+    // ALB-098: Pooled GPU Weight Allocation (MoE models)
+    // ========================================================================
+
+    /// Allocate a single contiguous GPU buffer for all quantized weights.
+    ///
+    /// Call this BEFORE `load_quantized_weights_pooled()`.
+    /// Replaces 18,867 individual cuMemAlloc calls with 1.
+    ///
+    /// # Arguments
+    ///
+    /// * `total_bytes` - Total bytes for all quantized weights (pre-computed)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if GPU allocation fails.
+    pub fn allocate_quantized_weight_pool(&mut self, total_bytes: usize) -> Result<(), GpuError> {
+        // Allocate single large buffer
+        let pool = GpuBuffer::<u8>::new(&self.context, total_bytes)?;
+        self.quantized_weight_pool = Some(pool);
+        self.quantized_weight_pool_entries.clear();
+        Ok(())
+    }
+
+    /// Load quantized weights into the pre-allocated pool at a specific offset.
+    ///
+    /// Does NOT call cuMemAlloc — copies data into the existing pool buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Tensor name for later lookup
+    /// * `data` - Raw quantized bytes
+    /// * `qtype` - GGML quantization type
+    /// * `offset` - Byte offset within the pool
+    ///
+    /// # Returns
+    ///
+    /// Size in bytes of the uploaded data.
+    pub fn load_quantized_weights_pooled(
+        &mut self,
+        name: &str,
+        data: &[u8],
+        qtype: u32,
+        offset: usize,
+    ) -> Result<usize, GpuError> {
+        let pool = self.quantized_weight_pool.as_mut().ok_or_else(|| {
+            GpuError::InvalidLaunchConfig("ALB-098: Weight pool not allocated".to_string())
+        })?;
+
+        let pool_ptr = pool.as_ptr();
+        let dest_ptr = pool_ptr + offset as u64;
+
+        // Copy data into pool at the specified byte offset
+        pool.copy_from_host_at(data, offset)
+            .map_err(|e| GpuError::Transfer(format!("Pool H2D copy failed for {name}: {e}")))?;
+
+        // Record entry: store absolute device pointer for direct kernel use
+        self.quantized_weight_pool_entries
+            .insert(name.to_string(), (dest_ptr, data.len()));
+        self.quantized_weight_types.insert(name.to_string(), qtype);
+
+        Ok(data.len())
     }
 
     // ========================================================================
@@ -216,15 +309,9 @@ impl CudaExecutor {
             let attn_norm_name = format!("{}.attn_norm.gamma", prefix);
             let ffn_norm_name = format!("{}.ffn_norm.gamma", prefix);
 
-            // Get pointers from quantized weight cache
+            // Get pointers from quantized weight cache (ALB-098: pool-aware)
             let get_qweight = |name: &str| -> Result<(u64, usize), GpuError> {
-                let buf = self.quantized_weight_cache.get(name).ok_or_else(|| {
-                    GpuError::InvalidLaunchConfig(format!(
-                        "PAR-043: Quantized weight '{}' not cached",
-                        name
-                    ))
-                })?;
-                Ok((buf.as_ptr(), buf.size_bytes()))
+                self.get_quantized_weight_ptr_and_size(name)
             };
 
             // Get pointers from RMSNorm cache
@@ -411,9 +498,10 @@ impl CudaExecutor {
             self.output_norm_len = buf.len();
         }
 
-        if let Some(buf) = self.quantized_weight_cache.get("output.weight") {
-            self.lm_head_ptr = buf.as_ptr();
-            self.lm_head_len = buf.len();
+        // ALB-098: Check pool first, then individual cache
+        if let Ok((ptr, size)) = self.get_quantized_weight_ptr_and_size("output.weight") {
+            self.lm_head_ptr = ptr;
+            self.lm_head_len = size;
             self.lm_head_qtype = self.resolve_qtype("output.weight");
             if verbose() {
                 eprintln!(

@@ -25,37 +25,20 @@ impl CudaExecutor {
         let lm_head_name = "output.weight".to_string();
 
         // PAR-058: Detect LM head quantization type using size-based detection
-        let lm_head_qtype = if let Some(lm_head_buf) =
-            self.quantized_weight_cache.get(&lm_head_name)
-        {
-            let lm_head_size = lm_head_buf.size_bytes();
-            // Try size-based detection first, fall back to metadata
-            let detected_qtype =
-                WeightQuantType::from_size(lm_head_size, vocab_size as usize, hidden_dim as usize)
-                    .unwrap_or_else(|| {
-                        // Fall back to GGML type from metadata
-                        self.quantized_weight_types
-                            .get(&lm_head_name)
-                            .and_then(|&t| WeightQuantType::from_ggml_type(t))
-                            .unwrap_or(WeightQuantType::Q4K)
-                    });
-            detected_qtype
-        } else {
-            WeightQuantType::Q4K
-        };
-
-        // Get LM head buffer pointer for direct ptr API
-        let lm_head_buf = self
-            .quantized_weight_cache
-            .get(&lm_head_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig("LM head weight not cached".to_string())
-            })?;
-        let lm_head_ptr = lm_head_buf.as_ptr();
+        // ALB-098: Use pool-aware lookup (pool entries or individual cache)
+        let (lm_head_ptr, lm_head_buf_size) = self.get_quantized_weight_ptr_and_size(&lm_head_name)?;
+        let lm_head_qtype =
+            WeightQuantType::from_size(lm_head_buf_size, vocab_size as usize, hidden_dim as usize)
+                .unwrap_or_else(|| {
+                    self.quantized_weight_types
+                        .get(&lm_head_name)
+                        .and_then(|&t| WeightQuantType::from_ggml_type(t))
+                        .unwrap_or(WeightQuantType::Q4K)
+                });
 
         // CORRECTNESS-002: Debug LM head weight buffer
         if debug_enabled {
-            let lm_head_size = lm_head_buf.size_bytes();
+            let lm_head_size = lm_head_buf_size;
             let super_blocks_per_row = (hidden_dim as usize + 255) / 256;
             let bytes_per_row = super_blocks_per_row * 210;
             let expected_size = vocab_size as usize * bytes_per_row;

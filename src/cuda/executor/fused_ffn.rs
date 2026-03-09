@@ -124,27 +124,8 @@ impl CudaExecutor {
         intermediate_size: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
-        let w_gate_ptr = self
-            .quantized_weight_cache
-            .get(w_gate_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "QWEN-009: Gate weight '{}' not cached",
-                    w_gate_name
-                ))
-            })?
-            .as_ptr();
-
-        let w_up_ptr = self
-            .quantized_weight_cache
-            .get(w_up_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "QWEN-009: Up weight '{}' not cached",
-                    w_up_name
-                ))
-            })?
-            .as_ptr();
+        let w_gate_ptr = self.get_quantized_weight_ptr(w_gate_name)?;
+        let w_up_ptr = self.get_quantized_weight_ptr(w_up_name)?;
 
         self.fused_ffn_rmsnorm_swiglu_q4k_into(
             input,

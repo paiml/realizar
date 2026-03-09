@@ -145,6 +145,65 @@ fn registry_completions(
     ))
 }
 
+/// ALB-098: Q4K GPU completions via dedicated inference thread.
+#[cfg(feature = "cuda")]
+async fn try_apr_q4k_completions(
+    state: &AppState,
+    request: &CompletionRequest,
+    max_tokens: usize,
+    temperature: f32,
+    start: std::time::Instant,
+) -> Result<Option<CompletionResponse>, RErr> {
+    use crate::api::apr_q4k_scheduler::AprQ4kRequest;
+
+    let q4k_tx = match state.apr_q4k_tx() {
+        Some(tx) => tx,
+        None => return Ok(None),
+    };
+    let tokenizer = state.tokenizer.clone().ok_or_else(|| {
+        rerr(state, StatusCode::INTERNAL_SERVER_ERROR, "No tokenizer available")
+    })?;
+    let prompt_ids = tokenizer.encode(&request.prompt);
+    if prompt_ids.is_empty() {
+        return Err(rerr(state, StatusCode::BAD_REQUEST, "Prompt cannot be empty"));
+    }
+    let prompt_tokens = prompt_ids.len();
+
+    let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+    q4k_tx
+        .send(AprQ4kRequest {
+            prompt_ids,
+            max_tokens,
+            temperature,
+            response_tx,
+        })
+        .await
+        .map_err(|_| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, "Q4K thread unavailable"))?;
+
+    let result = response_rx
+        .await
+        .map_err(|_| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, "Q4K thread dropped response"))?;
+
+    let resp = result.map_err(|e| {
+        rerr(state, StatusCode::INTERNAL_SERVER_ERROR, format!("Q4K generation failed: {e}"))
+    })?;
+
+    let text = tokenizer
+        .decode(&resp.output_tokens)
+        .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let completion_tokens = resp.tokens_generated;
+    state.metrics.record_success(completion_tokens, start.elapsed());
+
+    Ok(Some(completion_resp(
+        "cmpl",
+        request.model.clone(),
+        text,
+        prompt_tokens,
+        completion_tokens,
+        max_tokens,
+    )))
+}
+
 pub async fn openai_completions_handler(
     State(state): State<AppState>,
     Json(request): Json<CompletionRequest>,
@@ -166,6 +225,11 @@ pub async fn openai_completions_handler(
 
     #[cfg(feature = "gpu")]
     if let Some(r) = try_gpu_completions(&state, &request, max_tokens, temperature, start)? {
+        return Ok(Json(r));
+    }
+
+    #[cfg(feature = "cuda")]
+    if let Some(r) = try_apr_q4k_completions(&state, &request, max_tokens, temperature, start).await? {
         return Ok(Json(r));
     }
 

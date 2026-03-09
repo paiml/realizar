@@ -267,11 +267,20 @@ impl GpuModelConfig {
     }
 
     /// Total QKV projection output dimension
-    /// For MHA: 3 * hidden_dim
-    /// For GQA: hidden_dim + 2 * kv_dim
+    /// Q = num_heads * head_dim, K = V = num_kv_heads * head_dim
+    /// When explicit_head_dim is set (e.g., Qwen3-Coder: head_dim=128, hidden=2048),
+    /// num_heads * head_dim != hidden_dim, so we must use the actual head_dim.
     #[inline]
     pub fn qkv_dim(&self) -> usize {
-        self.hidden_dim + 2 * self.kv_dim()
+        let hd = self.head_dim();
+        (self.num_heads + 2 * self.num_kv_heads) * hd
+    }
+
+    /// Q projection output dimension (num_heads * head_dim)
+    /// May differ from hidden_dim when explicit_head_dim is set.
+    #[inline]
+    pub fn q_dim(&self) -> usize {
+        self.num_heads * self.head_dim()
     }
 
     /// Whether this is a GQA model (num_kv_heads < num_heads)

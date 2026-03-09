@@ -315,12 +315,12 @@ impl CudaExecutor {
     }
 
     /// PAR-121: Extract token IDs from batched logits using GPU argmax
+    /// PMAT-045: Batched argmax — ONE sync for all M sequences instead of M syncs.
     fn batched_argmax_from_logits(
         &mut self,
         m: usize,
         vocab_size: u32,
     ) -> Result<Vec<u32>, GpuError> {
-        // Get logits buffer pointer to avoid borrow conflict
         let logits_base_ptr = self
             .workspace
             .logits_buf
@@ -330,15 +330,6 @@ impl CudaExecutor {
             })?
             .as_ptr();
 
-        let mut token_ids = Vec::with_capacity(m);
-        for seq_idx in 0..m {
-            let v_offset = seq_idx * vocab_size as usize;
-            let logits_ptr = logits_base_ptr + (v_offset * std::mem::size_of::<f32>()) as u64;
-
-            let token_id = self.gpu_argmax(logits_ptr, vocab_size)?;
-            token_ids.push(token_id);
-        }
-
-        Ok(token_ids)
+        self.batched_gpu_argmax(logits_base_ptr, vocab_size, m)
     }
 }

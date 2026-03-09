@@ -5,7 +5,7 @@
 .SUFFIXES:
 .DELETE_ON_ERROR:
 # Note: .ONESHELL omitted intentionally - causes OOM with large test suites (bashrs: MAKE017)
-.PHONY: help build test test-fast lint quality-gates deploy clean
+.PHONY: help build test test-fast lint quality-gates deploy clean contract-lint
 .PHONY: tier1 tier2 test-cuda-fast test-probar
 .PHONY: cov coverage coverage-open coverage-clean clean-coverage coverage-summary
 .PHONY: mutants mutants-quick mutants-quantize mutants-layers mutants-tokenizer
@@ -125,7 +125,11 @@ test-full: ## Full test suite (requires 16GB+ RAM for gguf tests)
 
 # === Quality Gates ===
 
-quality-gates: fmt-check clippy test coverage bashrs-check book-build book-validate ## Run all quality gates (pre-commit)
+contract-lint: ## Validate provable contracts (PTX target parity, kernel correctness)
+	@echo "$(GREEN)Checking provable contracts...$(NC)"
+	pv lint ../provable-contracts/contracts/ --binding ../provable-contracts/contracts/realizar/binding.yaml --min-score 0.25
+
+quality-gates: fmt-check clippy test coverage bashrs-check book-build book-validate contract-lint ## Run all quality gates (pre-commit)
 	@echo "$(GREEN)✅ All quality gates passed!$(NC)"
 
 fmt: ## Format code

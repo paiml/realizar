@@ -46,6 +46,11 @@ pub struct TransformerWorkspace {
     pub intermediate_dim: usize,
     /// PAR-111: Batch size for multi-sequence processing (default 1)
     pub batch_size: usize,
+    /// PMAT-045: High-water mark of allocated buffer capacity.
+    /// Tracks the largest batch_size ever allocated — never shrinks.
+    /// Skip conditions check this instead of batch_size to prevent
+    /// workspace thrashing when prefill (large) and decode (small) alternate.
+    pub buffer_capacity: usize,
     /// PAR-114: Positions buffer for batched RoPE (M positions)
     pub positions_buf: Option<GpuBuffer<u32>>,
     /// PAR-PERF-DP4A: Pre-allocated Q8_1 activation buffer for DP4A GEMV
@@ -379,6 +384,7 @@ mod tests {
         assert_eq!(workspace.kv_dim, 0);
         assert_eq!(workspace.intermediate_dim, 0);
         assert_eq!(workspace.batch_size, 0);
+        assert_eq!(workspace.buffer_capacity, 0);
         assert!(workspace.hidden_buf1.is_none());
         assert!(workspace.hidden_buf2.is_none());
         assert!(workspace.q_buf.is_none());

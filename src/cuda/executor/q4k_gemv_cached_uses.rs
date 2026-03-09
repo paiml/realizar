@@ -28,17 +28,8 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        // Get cached weight buffer
-        let weight_ptr = self
-            .quantized_weight_cache
-            .get(weight_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-005: Quantized weight '{}' not cached",
-                    weight_name
-                ))
-            })?
-            .as_ptr();
+        // Get cached weight buffer (ALB-098: checks pool first, then individual cache)
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
 
         // PAR-057: Use TiledQ4KGemv for better performance (~4x fewer global reads)
         // Fall back to basic Q4KGemv if K not aligned to 256
@@ -154,17 +145,8 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<GpuBuffer<f32>, GpuError> {
-        // Get cached weight buffer
-        let weight_ptr = self
-            .quantized_weight_cache
-            .get(weight_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-023: Quantized weight '{}' not cached",
-                    weight_name
-                ))
-            })?
-            .as_ptr();
+        // Get cached weight buffer (ALB-098: checks pool first, then individual cache)
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
 
         // CORRECTNESS-001: Use TiledQ4KGemv for aligned K (matches sync version)
         // The basic Q4KGemv kernel has the same scale extraction issue
@@ -255,17 +237,8 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<GpuBuffer<f32>, GpuError> {
-        // Get cached weight buffer
-        let weight_ptr = self
-            .quantized_weight_cache
-            .get(weight_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-023: Quantized weight '{}' not cached",
-                    weight_name
-                ))
-            })?
-            .as_ptr();
+        // Get cached weight buffer (ALB-098: checks pool first, then individual cache)
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
 
         let use_mwv = self.gpu_profile.q6k != crate::cuda::gpu_profile::Q6kVariant::Legacy && k.is_multiple_of(256);
         let num_warps = self.gpu_profile.mwv_warps;

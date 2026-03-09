@@ -26,17 +26,8 @@ impl CudaExecutor {
         k: u32,
         outputs_per_block: u32,
     ) -> Result<GpuBuffer<f32>, GpuError> {
-        // Get cached weight buffer
-        let weight_ptr = self
-            .quantized_weight_cache
-            .get(weight_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-041: Quantized weight '{}' not cached",
-                    weight_name
-                ))
-            })?
-            .as_ptr();
+        // Get cached weight buffer (ALB-098: checks pool first, then individual cache)
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
 
         // PAR-502: sm_89 has 100KB shared memory limit, K * 4 bytes must fit
         const MAX_TILED_K: u32 = 12_288; // 48KB / 4 bytes = 12,288 floats (default static shared memory limit)
@@ -136,17 +127,8 @@ impl CudaExecutor {
         k: u32,
         outputs_per_block: u32,
     ) -> Result<GpuBuffer<f32>, GpuError> {
-        // Get cached weight buffer
-        let weight_ptr = self
-            .quantized_weight_cache
-            .get(weight_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-056: Quantized weight '{}' not cached",
-                    weight_name
-                ))
-            })?
-            .as_ptr();
+        // Get cached weight buffer (ALB-098: checks pool first, then individual cache)
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
 
         // Load kernel module
         let kernel_type = KernelType::ChunkedTiledQ4KGemv {
@@ -232,17 +214,8 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<GpuBuffer<f32>, GpuError> {
-        // Get cached weight buffer
-        let weight_ptr = self
-            .quantized_weight_cache
-            .get(weight_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-063: Quantized weight '{}' not cached",
-                    weight_name
-                ))
-            })?
-            .as_ptr();
+        // Get cached weight buffer (ALB-098: checks pool first, then individual cache)
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
 
         // Load kernel module
         let kernel_type = KernelType::Dp4aQ4KGemv { k, n };

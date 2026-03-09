@@ -181,7 +181,7 @@ impl CudaExecutor {
         );
 
         if !self.modules.contains_key(&chunk_module_key) {
-            let chunk_ptx = chunk_kernel.emit_ptx();
+            let chunk_ptx = chunk_kernel.emit_ptx_for_target(&self.kernels.sm_target);
             let module = self.compile_ptx(&chunk_ptx)?;
             self.modules.insert(chunk_module_key.clone(), module);
         }
@@ -250,7 +250,7 @@ impl CudaExecutor {
         let reduce_module_key = format!("flash_decode_reduce_{}_{}", head_dim, num_heads);
 
         if !self.modules.contains_key(&reduce_module_key) {
-            let reduce_ptx = reduce_kernel.emit_ptx();
+            let reduce_ptx = reduce_kernel.emit_ptx_for_target(&self.kernels.sm_target);
             let module = self.compile_ptx(&reduce_ptx)?;
             self.modules.insert(reduce_module_key.clone(), module);
         }

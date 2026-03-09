@@ -53,6 +53,7 @@ impl AppState {
             cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
+            apr_q4k_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -99,6 +100,7 @@ impl AppState {
             cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
+            apr_q4k_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -149,6 +151,7 @@ impl AppState {
             cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
+            apr_q4k_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -201,6 +204,7 @@ impl AppState {
             batch_config: None,
             cuda_model: Some(Arc::new(std::sync::RwLock::new(cuda_model))),
             cuda_batch_tx: None,
+            apr_q4k_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -245,6 +249,7 @@ impl AppState {
             cuda_model: Some(Arc::new(std::sync::RwLock::new(cuda_model))),
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
+            apr_q4k_tx: None,
             apr_transformer: None,
             verbose: false,
         })
@@ -296,6 +301,7 @@ impl AppState {
             cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
+            apr_q4k_tx: None,
             apr_transformer: Some(Arc::new(transformer)),
             verbose: false,
         })
@@ -429,6 +435,67 @@ impl AppState {
         tx: tokio::sync::mpsc::Sender<cuda_batch_scheduler::CudaBatchRequest>,
     ) -> Self {
         self.cuda_batch_tx = Some(tx);
+        self
+    }
+
+    /// Create AppState with APR Q4K GPU inference channel and vocabulary (ALB-095)
+    ///
+    /// The Q4K inference runs on a dedicated thread; this state only holds
+    /// the channel sender and tokenizer for HTTP request/response handling.
+    #[cfg(feature = "cuda")]
+    pub fn with_apr_q4k_and_vocab(
+        q4k_tx: tokio::sync::mpsc::Sender<apr_q4k_scheduler::AprQ4kRequest>,
+        vocab: Vec<String>,
+    ) -> Result<Self, RealizarError> {
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>")?;
+        let (audit_logger, audit_sink) = create_audit_state();
+        Ok(Self {
+            model: None,
+            tokenizer: Some(Arc::new(tokenizer)),
+            cache: None,
+            cache_key: None,
+            metrics: Arc::new(MetricsCollector::new()),
+            registry: None,
+            default_model_id: None,
+            apr_model: None,
+            audit_logger,
+            audit_sink,
+            #[cfg(feature = "gpu")]
+            gpu_model: None,
+            quantized_model: None,
+            #[cfg(feature = "gpu")]
+            cached_model: None,
+            #[cfg(feature = "gpu")]
+            dispatch_metrics: None,
+            #[cfg(feature = "gpu")]
+            batch_request_tx: None,
+            #[cfg(feature = "gpu")]
+            batch_config: None,
+            cuda_model: None,
+            cuda_batch_tx: None,
+            apr_q4k_tx: Some(q4k_tx),
+            apr_transformer: None,
+            verbose: false,
+        })
+    }
+
+    /// Get APR Q4K inference channel sender (ALB-095)
+    #[cfg(feature = "cuda")]
+    #[must_use]
+    pub fn apr_q4k_tx(
+        &self,
+    ) -> Option<&tokio::sync::mpsc::Sender<apr_q4k_scheduler::AprQ4kRequest>> {
+        self.apr_q4k_tx.as_ref()
+    }
+
+    /// Set APR Q4K inference channel sender (ALB-095)
+    #[cfg(feature = "cuda")]
+    #[must_use]
+    pub fn with_apr_q4k_tx(
+        mut self,
+        tx: tokio::sync::mpsc::Sender<apr_q4k_scheduler::AprQ4kRequest>,
+    ) -> Self {
+        self.apr_q4k_tx = Some(tx);
         self
     }
 

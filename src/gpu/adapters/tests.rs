@@ -4,6 +4,37 @@
 
 use super::apr::{transpose_matrix, AprGpuError, AprToGpuAdapter};
 use crate::apr_transformer::{AprTransformerConfig, QuantizedAprLayerQ4, QuantizedAprTensorQ4};
+use crate::gpu::scheduler::GpuModelConfig;
+
+/// Build a minimal GpuModelConfig for tests (no explicit_head_dim, no MoE)
+fn test_gpu_config(
+    hidden_dim: usize,
+    num_heads: usize,
+    num_kv_heads: usize,
+    intermediate_dim: usize,
+) -> GpuModelConfig {
+    GpuModelConfig {
+        vocab_size: 32000,
+        hidden_dim,
+        num_heads,
+        num_kv_heads,
+        num_layers: 1,
+        intermediate_dim,
+        eps: 1e-5,
+        rope_theta: 10000.0,
+        explicit_head_dim: None,
+        layer_types: None,
+        linear_key_head_dim: None,
+        linear_value_head_dim: None,
+        linear_num_key_heads: None,
+        linear_num_value_heads: None,
+        linear_conv_kernel_dim: None,
+        constraints: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
+    }
+}
 
 // ============================================================================
 // AprGpuError Tests
@@ -287,10 +318,11 @@ fn test_dequantize_tensor_exact_size() {
 #[test]
 fn test_extract_qkv_weights_dimensions() {
     let layer = create_test_q4_layer(256, 4, 4, 512);
+    let config = test_gpu_config(256, 4, 4, 512);
 
-    // QKV: hidden_dim + 2 * kv_dim = 256 + 2*256 = 768
+    // QKV: num_heads*head_dim + 2 * kv_dim = 256 + 2*256 = 768
     // Total: hidden_dim * qkv_out = 256 * 768 = 196608
-    let result = AprToGpuAdapter::extract_qkv_weights(&layer, 256, 4, 4);
+    let result = AprToGpuAdapter::extract_qkv_weights(&layer, &config);
     assert!(result.is_ok());
 
     let weights = result.unwrap();
@@ -300,9 +332,10 @@ fn test_extract_qkv_weights_dimensions() {
 #[test]
 fn test_extract_qkv_weights_gqa() {
     let layer = create_test_q4_layer(256, 8, 2, 512); // GQA: 8 heads, 2 kv heads
+    let config = test_gpu_config(256, 8, 2, 512);
 
-    // QKV: hidden_dim + 2 * kv_dim = 256 + 2*64 = 384
-    let result = AprToGpuAdapter::extract_qkv_weights(&layer, 256, 8, 2);
+    // QKV: num_heads*head_dim + 2 * kv_dim = 256 + 2*64 = 384
+    let result = AprToGpuAdapter::extract_qkv_weights(&layer, &config);
     assert!(result.is_ok());
 
     let weights = result.unwrap();
@@ -313,11 +346,13 @@ fn test_extract_qkv_weights_gqa() {
 #[test]
 fn test_extract_out_weights() {
     let layer = create_test_q4_layer(256, 4, 4, 512);
+    let config = test_gpu_config(256, 4, 4, 512);
 
-    let result = AprToGpuAdapter::extract_out_weights(&layer, 256);
+    let result = AprToGpuAdapter::extract_out_weights(&layer, &config);
     assert!(result.is_ok());
 
     let weights = result.unwrap();
+    // q_dim = num_heads * head_dim = 4 * 64 = 256 = hidden_dim (no explicit head_dim)
     assert_eq!(weights.len(), 256 * 256);
 }
 

@@ -74,6 +74,27 @@ impl AprTransformer {
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0) as usize;
 
+        // ALB-094: MoE metadata fields
+        let head_dim = metadata
+            .get("head_dim")
+            .and_then(serde_json::Value::as_u64)
+            .map(|v| v as usize);
+
+        let num_experts = metadata
+            .get("num_experts")
+            .and_then(serde_json::Value::as_u64)
+            .map(|v| v as usize);
+
+        let num_experts_per_tok = metadata
+            .get("num_experts_per_tok")
+            .and_then(serde_json::Value::as_u64)
+            .map(|v| v as usize);
+
+        let expert_intermediate_size = metadata
+            .get("moe_intermediate_size")
+            .and_then(serde_json::Value::as_u64)
+            .map(|v| v as usize);
+
         AprTransformerConfig {
             architecture,
             hidden_dim,
@@ -86,6 +107,10 @@ impl AprTransformer {
             rope_theta,
             eps: rms_norm_eps,
             eos_token_id: None, // Not yet in APR metadata; defaults to tokenizer config
+            explicit_head_dim: head_dim,
+            num_experts,
+            num_experts_per_tok,
+            expert_intermediate_size,
             ..Default::default()
         }
     }
@@ -493,13 +518,14 @@ impl AprTransformer {
             &lookup, &tensors, config.vocab_size, config.hidden_dim, debug_enabled,
         )?;
 
-        // Compute KV dimension from config
-        let head_dim = config.hidden_dim / config.num_heads;
+        // ALB-094: Use explicit head_dim when available (MoE models like Qwen3.5)
+        let head_dim = config.explicit_head_dim.unwrap_or(config.hidden_dim / config.num_heads);
         let kv_dim = config.num_kv_heads * head_dim;
 
         // Load per-layer weights (extracted for decomposition)
         let (layers, q4k_layers) = Self::build_apr_layers(
-            &lookup, config.num_layers, config.hidden_dim, kv_dim, config.intermediate_dim, debug_enabled,
+            &lookup, config.num_layers, config.hidden_dim, kv_dim, config.intermediate_dim,
+            config.num_experts, debug_enabled,
         );
 
         Ok(Self {

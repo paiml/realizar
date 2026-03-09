@@ -21,17 +21,8 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<GpuBuffer<f32>, GpuError> {
-        // Get cached weight buffer
-        let weight_ptr = self
-            .quantized_weight_cache
-            .get(weight_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-063-V5: Quantized weight '{}' not cached",
-                    weight_name
-                ))
-            })?
-            .as_ptr();
+        // Get cached weight buffer (ALB-098: checks pool first, then individual cache)
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
 
         // Load kernel module
         let kernel_type = KernelType::Q4KQ8Dot { k, n };
@@ -124,17 +115,8 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<GpuBuffer<f32>, GpuError> {
-        // Get cached weight buffer
-        let weight_ptr = self
-            .quantized_weight_cache
-            .get(weight_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-063-V6: Quantized weight '{}' not cached",
-                    weight_name
-                ))
-            })?
-            .as_ptr();
+        // Get cached weight buffer (ALB-098: checks pool first, then individual cache)
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
 
         // Load kernel module
         let kernel_type = KernelType::PackedDp4aQ4KQ8 { k, n };
@@ -213,16 +195,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        let weight_ptr = self
-            .quantized_weight_cache
-            .get(weight_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-005: Quantized weight '{}' not cached",
-                    weight_name
-                ))
-            })?
-            .as_ptr();
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
 
         let kernel_type = KernelType::Q5KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);
@@ -292,16 +265,7 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        let weight_ptr = self
-            .quantized_weight_cache
-            .get(weight_name)
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig(format!(
-                    "PAR-005: Quantized weight '{}' not cached",
-                    weight_name
-                ))
-            })?
-            .as_ptr();
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
 
         let kernel_type = KernelType::Q6KGemv { k, n };
         let kernel_name = self.kernels.kernel_name(&kernel_type);

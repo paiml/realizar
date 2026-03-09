@@ -244,6 +244,137 @@ impl CudaExecutor {
         Ok(result[0])
     }
 
+    /// PMAT-045: Batched GPU argmax — process M logit vectors with ONE sync.
+    ///
+    /// Five-Whys root cause: c=4 decode regression (140→50 tok/s per request).
+    /// Why? Sequential `gpu_argmax` calls: M syncs × ~0.3ms = 1.2ms/token at c=4.
+    /// Why? Each `gpu_argmax` calls `stream.synchronize()` + `copy_to_host`.
+    /// Why? API designed for single-sequence M=1 path.
+    /// Fix: Launch all 2×M kernel passes back-to-back, then ONE sync + ONE memcpy.
+    /// Same-stream kernels serialize naturally — intermediate buffers safely reused.
+    pub fn batched_gpu_argmax(
+        &mut self,
+        logits_base_ptr: u64,
+        vocab_size: u32,
+        m: usize,
+    ) -> Result<Vec<u32>, GpuError> {
+        if m == 0 {
+            return Ok(Vec::new());
+        }
+        if m == 1 {
+            return Ok(vec![self.gpu_argmax(logits_base_ptr, vocab_size)?]);
+        }
+
+        let block_size = 256u32;
+        let elements_per_block = block_size * 4;
+        let num_blocks = (vocab_size + elements_per_block - 1) / elements_per_block;
+
+        // Ensure block-level buffers (shared across M seqs — safe on same stream)
+        if self.argmax_block_vals.is_none() || self.argmax_num_blocks != num_blocks {
+            self.argmax_block_vals = Some(GpuBuffer::new(&self.context, num_blocks as usize)?);
+            self.argmax_block_idxs = Some(GpuBuffer::new(&self.context, num_blocks as usize)?);
+            self.argmax_result = Some(GpuBuffer::new(&self.context, 1)?);
+            self.argmax_num_blocks = num_blocks;
+        }
+
+        // Allocate/grow batched result buffer
+        if self.batched_argmax_results.is_none() || self.batched_argmax_results_cap < m {
+            self.batched_argmax_results = Some(GpuBuffer::new(&self.context, m)?);
+            self.batched_argmax_results_cap = m;
+        }
+
+        let block_max_vals_ptr = self.argmax_block_vals.as_ref().unwrap().as_ptr();
+        let block_max_idxs_ptr = self.argmax_block_idxs.as_ref().unwrap().as_ptr();
+        let batched_results_base = self.batched_argmax_results.as_ref().unwrap().as_ptr();
+
+        // Ensure kernels are compiled (cached after first use)
+        let argmax_kernel_type = KernelType::ArgMax { length: vocab_size };
+        let argmax_key = format!("argmax_{}", vocab_size);
+        if !self.modules.contains_key(&argmax_key) {
+            let ptx = self.kernels.generate_ptx(&argmax_kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(argmax_key.clone(), module);
+        }
+        let final_kernel_type = KernelType::ArgMaxFinal { num_blocks };
+        let final_key = format!("argmax_final_{}", num_blocks);
+        if !self.modules.contains_key(&final_key) {
+            let ptx = self.kernels.generate_ptx(&final_kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(final_key.clone(), module);
+        }
+
+        let kernel_name = self.kernels.kernel_name(&argmax_kernel_type);
+        let final_kernel_name = self.kernels.kernel_name(&final_kernel_type);
+        let launch_config = LaunchConfig::grid_2d(num_blocks, 1, block_size, 1);
+        let final_launch_config = LaunchConfig::grid_2d(1, 1, 256, 1);
+
+        // Launch all 2*M kernels back-to-back — no sync between sequences.
+        // Same-stream kernels serialize: pass2[i] completes before pass1[i+1],
+        // so block_max_vals/idxs buffers are safely reused across sequences.
+        for seq_idx in 0..m {
+            let v_offset = seq_idx * vocab_size as usize;
+            let mut input_ptr =
+                logits_base_ptr + (v_offset * std::mem::size_of::<f32>()) as u64;
+            let mut result_ptr =
+                batched_results_base + (seq_idx * std::mem::size_of::<u32>()) as u64;
+
+            let mut bv_ptr = block_max_vals_ptr;
+            let mut bi_ptr = block_max_idxs_ptr;
+            let mut length_val = vocab_size;
+
+            // Pass 1: block-level reduction
+            unsafe {
+                let module = self
+                    .modules
+                    .get_mut(&argmax_key)
+                    .expect("argmax module just compiled");
+                self.stream.launch_kernel(
+                    module,
+                    kernel_name,
+                    &launch_config,
+                    &mut [
+                        std::ptr::from_mut(&mut input_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut bv_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut bi_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut length_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+
+            // Pass 2: final reduction → writes to batched_results[seq_idx]
+            let mut nb_val = num_blocks;
+            unsafe {
+                let final_module = self
+                    .modules
+                    .get_mut(&final_key)
+                    .expect("argmax_final module just compiled");
+                self.stream.launch_kernel(
+                    final_module,
+                    final_kernel_name,
+                    &final_launch_config,
+                    &mut [
+                        std::ptr::from_mut(&mut bv_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut bi_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut result_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut nb_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        }
+
+        // ONE sync after all 2*M kernels
+        self.stream.synchronize()?;
+
+        // ONE memcpy for all M results
+        let mut results = vec![0u32; m];
+        self.batched_argmax_results
+            .as_ref()
+            .unwrap()
+            .copy_to_host(&mut results[..m])?;
+
+        Ok(results)
+    }
+
     /// PAR-062: Forward pass with GPU-side argmax returning token ID directly
     ///
     /// Like `forward_graphed_replay` but uses GPU argmax instead of downloading all logits.
