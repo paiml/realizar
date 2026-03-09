@@ -130,19 +130,29 @@ pub fn run_inference(config: &InferenceConfig) -> Result<InferenceResult> {
     // Validate path to prevent traversal attacks (F-SEC-222)
     validate_model_path(&config.model_path)?;
 
-    // Read model file header for format detection
-    let data = std::fs::read(&config.model_path).map_err(|e| RealizarError::IoError {
-        message: format!("Failed to read model: {}", e),
-    })?;
-
-    if data.len() < 8 {
-        return Err(RealizarError::FormatError {
-            reason: "File too small for format detection".to_string(),
-        });
-    }
+    // ALB-099: Read only 8 bytes for format detection (was reading entire file)
+    let magic = {
+        use std::io::Read;
+        let mut file = std::fs::File::open(&config.model_path).map_err(|e| RealizarError::IoError {
+            message: format!("Failed to read model: {}", e),
+        })?;
+        let mut buf = [0u8; 8];
+        file.read_exact(&mut buf).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                RealizarError::FormatError {
+                    reason: "File too small for format detection".to_string(),
+                }
+            } else {
+                RealizarError::IoError {
+                    message: format!("Failed to read model header: {}", e),
+                }
+            }
+        })?;
+        buf
+    };
 
     // Detect format
-    let format = detect_format(data.get(..8).expect("len >= 8 checked above")).map_err(|e| RealizarError::FormatError {
+    let format = detect_format(&magic).map_err(|e| RealizarError::FormatError {
         reason: format!("Format detection failed: {}", e),
     })?;
 

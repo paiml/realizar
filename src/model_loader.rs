@@ -194,19 +194,22 @@ impl ModelMetadata {
 /// assert_eq!(metadata.format, ModelFormat::Apr);
 /// ```
 pub fn detect_model(path: &Path) -> Result<ModelMetadata, LoadError> {
-    // Read first 8 bytes for magic detection
-    let data = std::fs::read(path)?;
-    if data.len() < 8 {
+    // ALB-099: Read only 8 bytes for magic detection (was reading entire file)
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let mut magic = [0u8; 8];
+    let bytes_read = file.read(&mut magic)?;
+    if bytes_read < 8 {
         return Err(LoadError::ParseError(format!(
             "File too small: {} bytes",
-            data.len()
+            bytes_read
         )));
     }
 
-    // Verify format from path and data
-    let format = detect_and_verify_format(path, data.get(..8).expect("len >= 8 checked above"))?;
+    let format = detect_and_verify_format(path, &magic)?;
 
-    Ok(ModelMetadata::new(format).with_file_size(data.len() as u64))
+    Ok(ModelMetadata::new(format).with_file_size(file_size))
 }
 
 /// Detect model format from bytes only (no path verification)
