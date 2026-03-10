@@ -154,10 +154,11 @@ impl OwnedQuantizedModelCuda {
         // causing KV cache state mismatch. Force eager path for prefill by clearing graph.
         self.executor.clear_decode_graph();
 
-        // GH-141: Clear batched decode graphs — workspace buffers may have been
-        // reallocated between batches (init_workspace restores M=1 sizing).
-        // A stale graph would reference freed buffer addresses → ILLEGAL_ADDRESS.
-        self.executor.clear_batched_decode_graphs();
+        // PMAT-075: Do NOT clear batched decode graphs here. Workspace buffer
+        // addresses are now stable across batches (batched_cleanup preserves them
+        // via init_workspace skip path). If init_batched_workspace or
+        // init_prefill_workspace must reallocate (longer prompt), they clear
+        // graphs at the reallocation site (poka-yoke at source).
 
         let hidden_dim = self.model.config.hidden_dim;
         let intermediate_dim = self.model.layers[0].ffn_up_weight.out_dim;
@@ -345,31 +346,42 @@ impl OwnedQuantizedModelCuda {
 
     /// PMAT-072: Cleanup after step-wise batched generation.
     ///
-    /// Resets workspace to M=1 sizing, frees batched KV caches, restores
-    /// FP16 weight cache for subsequent single-request inference.
+    /// PMAT-075: Preserves workspace AND KV cache buffer addresses for CUDA
+    /// graph reuse across batches. Only resets logical state (batch_size=1,
+    /// kv_stride=0) without freeing GPU buffers.
+    ///
+    /// VRAM budget: FP16(2944)+KV(896)+Q4K(850)+WS(40) = 4730 MB fits 7.5 GB.
     ///
     /// Caller must hold model write lock for the duration of this call.
     pub fn batched_cleanup(&mut self, state: &BatchedDecodeState) {
         // PMAT-061: Disable HGEMM batched decode flag before cleanup.
         self.executor.hgemm_batched_decode_active = false;
 
-        // PMAT-058: Clear workspace to force M=1-sized reallocation.
-        // Batched workspace has buffer_capacity=M (4×), which spreads the working set
-        // across 4× more L2 cache lines → 12% decode regression (139→123 tok/s).
-        // Clearing forces init_workspace to reallocate tight M=1 buffers.
-        self.executor.clear_workspace();
+        // PMAT-075: Keep workspace buffers alive for graph reuse across batches.
+        // PAR-200: init_workspace sets batch_size=1 without reallocation when
+        // buffer_capacity >= 1 (preserves GPU buffer addresses → cached batched
+        // decode graphs remain valid). Previously clear_workspace() forced
+        // reallocation with new addresses → stale graph pointers → ILLEGAL_ADDRESS.
         let _ = self
             .executor
             .init_workspace(state.hidden_dim, state.intermediate_dim);
 
-        // PMAT-044 FIX: Reset batched KV state so subsequent M=1 prefill doesn't
+        // PMAT-044 FIX: Reset batched KV stride so subsequent M=1 prefill doesn't
         // take the batched attention path (batched_ffn.rs line 37). Without this,
         // M=1 prefill writes K/V to batched caches while M=1 decode reads from the
         // single KV cache (empty) → EOS on first token → 0 output tokens.
+        // Note: batched_kv_stride is restored by init_batched_kv_cache_gpu on next batch.
         self.executor.batched_kv_stride = 0;
 
-        // PMAT-058: Free batched KV caches to reclaim ~460MB VRAM.
-        self.executor.free_batched_kv_caches();
+        // PMAT-075: Keep batched KV caches alive for graph reuse.
+        // The captured batched decode graph holds pointers to KV cache buffers
+        // (k_ptrs_per_layer, v_ptrs_per_layer, seq_lens_gpu). Freeing them and
+        // reallocating in the next batch gives new addresses → stale graph
+        // pointers → CUDA_ERROR_ILLEGAL_ADDRESS on graph replay.
+        // init_batched_kv_cache_gpu has high-water mark (batched_kv_allocated_batch)
+        // and skips reallocation when capacity is sufficient.
+        // VRAM cost: ~896 MB retained between batches (fits in 7.5 GB budget).
+        // reset_batched_kv_cache_gpu zeroes contents at next batch start.
 
         // PMAT-061: Weight cache is now kept during decode (not cleared after prefill).
         // PMAT-067: Prefer FP8 cache on sm_89+ — skip FP16 cache rebuild.
@@ -415,9 +427,13 @@ impl OwnedQuantizedModelCuda {
         let seq_len = prompt.len().saturating_sub(1);
         let prefill_start = std::time::Instant::now();
 
-        // Clear decode graphs — M=1 prefill uses different kernel config
+        // Clear M=1 decode graph — prefill uses different kernel config.
+        // PMAT-075: Do NOT clear batched decode graphs unconditionally.
+        // M is changing (growing), but the old M's graph entry stays in the
+        // HashMap (unused). The new M will trigger a capture on first use.
+        // If workspace reallocation is needed, init_prefill_workspace clears
+        // batched graphs at the source (poka-yoke).
         self.executor.clear_decode_graph();
-        self.executor.clear_batched_decode_graphs();
 
         // Init workspace for prefill (high-water mark, usually no realloc)
         self.executor
@@ -507,9 +523,12 @@ impl OwnedQuantizedModelCuda {
         let seq_len = prompt.len().saturating_sub(1);
         let prefill_start = std::time::Instant::now();
 
-        // Clear decode graphs — M=1 prefill uses different kernel config
+        // Clear M=1 decode graph — prefill uses different kernel config.
+        // PMAT-075: Do NOT clear batched decode graphs. M is unchanged and
+        // workspace addresses remain stable (init_prefill_workspace skips
+        // realloc when buffer_capacity >= seq_len). If realloc IS needed,
+        // init_prefill_workspace clears batched graphs at the source.
         self.executor.clear_decode_graph();
-        self.executor.clear_batched_decode_graphs();
 
         // Init workspace for prefill (high-water mark, usually no realloc)
         self.executor
