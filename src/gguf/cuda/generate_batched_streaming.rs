@@ -97,21 +97,19 @@ impl OwnedQuantizedModelCuda {
         let (mut sequences, mut positions, mut last_tokens) =
             self.prefill_and_scatter(prompts, &mut caches)?;
 
-        // PMAT-061: Keep FP16 weight cache during M>1 decode for cuBLAS HGEMM.
-        // Five-Whys: c=4 decode 0.56x — Q4K GEMV compute-bound at M=4 (3.25x scaling).
-        // cuBLAS HGEMM (tensor cores) is memory-bound — scales ~1x with M.
-        // VRAM: FP16 (2944) + batched KV (896) + Q4K (850) = 4690 MB, fits in 7.5 GB.
-        // FP16 cache stays for decode, cleared on cleanup after batch completes.
-        let has_fp16 = self.executor.has_fp16_weight_cache();
-        if !has_fp16 {
-            // FP16 not available (e.g. HGEMM_PREFILL=0 or Jetson multi-service) —
-            // fall through to DP4A GEMV decode path (existing behavior).
-            self.executor.clear_prefill_graphs();
-        } else {
-            // Enable HGEMM batched decode — routes M>1 GEMV through cuBLAS tensor cores.
+        // PMAT-062: DP4A GEMV for batched decode (default), not cuBLAS HGEMM.
+        // Five-Whys: HGEMM batched decode is 13% slower (22.1ms vs 19.3ms ITL at M=4).
+        // Why? FP16 reads 3.5x more data (2 B/elem vs Q4K 0.5625 B/elem).
+        // Why? Tensor cores help but don't compensate for 3.5x BW penalty.
+        // Why? RTX 4060L has 272 GB/s BW — FP16 M=4 GEMM is BW-limited.
+        // Also: HGEMM flag blocks fused gate+up DP4A (batched_ffn.rs:107).
+        // Override: HGEMM_BATCHED_DECODE=1 to force cuBLAS tensor core path.
+        let use_hgemm_decode = std::env::var("HGEMM_BATCHED_DECODE").as_deref() == Ok("1")
+            && self.executor.has_fp16_weight_cache();
+        if use_hgemm_decode {
             self.executor.hgemm_batched_decode_active = true;
-            self.executor.clear_prefill_graphs();
         }
+        self.executor.clear_prefill_graphs();
 
         // PMAT-045: Set workspace.batch_size = m for decode kernels (they check == m).
         // buffer_capacity stays at max_prompt_len (high-water mark), so this call
@@ -168,9 +166,11 @@ impl OwnedQuantizedModelCuda {
         // PMAT-058: Free batched KV caches to reclaim ~460MB VRAM.
         self.executor.free_batched_kv_caches();
 
-        // PMAT-061: FP16 weight cache is now kept during decode (not cleared after prefill).
-        // No need to rebuild — it's already in VRAM. Just ensure it's present for next c=1.
-        if !self.executor.has_fp16_weight_cache() {
+        // PMAT-061: Weight cache is now kept during decode (not cleared after prefill).
+        // PMAT-067: Prefer FP8 cache on sm_89+ — skip FP16 cache rebuild.
+        if self.executor.gpu_profile.fp8_prefill {
+            // FP8 cache handles its own lazy population — no rebuild needed.
+        } else if !self.executor.has_fp16_weight_cache() {
             // FP16 was never populated (HGEMM_PREFILL=0) — rebuild for c=1 HGEMM prefill.
             let _ = self.executor.warmup_hgemm_cache(
                 num_layers,
