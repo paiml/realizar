@@ -297,6 +297,10 @@ impl OwnedQuantizedModelCuda {
             );
         }
 
+        // PMAT-076: Set dead slot mask before forward pass so attention kernel
+        // can skip KV iteration for done slots (seq_lens=0 → early exit).
+        self.executor.batched_done_mask = state.done.clone();
+
         // PMAT-056: Multi-stream root cause fixed (scatter moved to self.stream),
         // but graph replay still 25% slower than eager due to capture overhead.
         // Keep eager by default until graph replay is optimized.

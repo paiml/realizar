@@ -269,7 +269,15 @@ DONE:
             .collect();
         v_ptrs.resize(buf_len, v_cache_base);
         let mut seq_lens: Vec<u32> = (0..m)
-            .map(|seq_idx| self.batched_kv_lengths.get(seq_idx).copied().unwrap_or(1) as u32)
+            .map(|seq_idx| {
+                // PMAT-076: Zero seq_lens for done slots — attention kernel early-exits
+                // (loop condition: pos < seq_len, so seq_len=0 → zero KV iterations).
+                if seq_idx < self.batched_done_mask.len() && self.batched_done_mask[seq_idx] {
+                    0
+                } else {
+                    self.batched_kv_lengths.get(seq_idx).copied().unwrap_or(1) as u32
+                }
+            })
             .collect();
         seq_lens.resize(buf_len, 0);
 
