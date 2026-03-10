@@ -52,6 +52,14 @@ impl CudaExecutor {
             return Ok(());
         }
 
+        // CORRECTNESS-014: Workspace reallocation invalidates decode graph.
+        // Graph captures pointers to workspace buffers (hidden_buf1, q_buf, etc.).
+        // When init_prefill_workspace allocates NEW buffers (longer prompt exceeds
+        // buffer_capacity), the captured graph has stale pointers → ILLEGAL_ADDRESS.
+        // Fix: clear decode graph before reallocating workspace.
+        self.decode_graph = None;
+        self.graph_capture_failed = false;
+
         let q_dim = self.kv_num_heads * self.kv_head_dim;
         let kv_dim = self.kv_num_kv_heads * self.kv_head_dim;
         let m = max_seq_len;
@@ -196,7 +204,60 @@ impl CudaExecutor {
         let s = positions.len();
 
         // 1. Upload all S embeddings to GPU
-        let input_buf = GpuBuffer::from_host(&self.context, embeddings)?;
+        // CORRECTNESS-013 FIX: Use copy_from_host_async on self.stream instead of
+        // GpuBuffer::from_host (which uses cuMemcpyHtoD on legacy default stream 0).
+        // Five-Whys root cause: CU_STREAM_NON_BLOCKING streams have NO ordering
+        // guarantee with stream 0. The RMSNorm kernel on self.stream could read
+        // stale/zero data at later positions because the stream 0 H2D copy has no
+        // happens-before relationship with the non-blocking stream kernel launch.
+        // Fix: copy_from_host_async submits the DMA on self.stream, ensuring
+        // same-stream ordering with all subsequent kernel launches.
+        let mut input_buf = GpuBuffer::new(&self.context, embeddings.len())?;
+        // SAFETY: embeddings slice is valid for the duration of prefill_eager.
+        // cuMemcpyHtoDAsync with pageable memory stages data synchronously, then
+        // submits DMA on self.stream. The slice can be safely read afterward.
+        unsafe {
+            input_buf.copy_from_host_async(embeddings, &self.stream)?;
+        }
+
+        // CORRECTNESS-013/FALSIFY-PREFILL-003: Verify embedding upload integrity.
+        // Contract: GPU embedding buffer == host embedding buffer (byte-exact).
+        static EMBED_FP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *EMBED_FP.get_or_init(|| std::env::var("PHASE_FP").as_deref() == Ok("1")) {
+            let hidden_dim = (self.kv_num_heads * self.kv_head_dim) as usize;
+            let mut gpu_embeddings = vec![0.0f32; embeddings.len()];
+            input_buf.copy_to_host(&mut gpu_embeddings)?;
+            let head_dim = self.kv_head_dim;
+            let sums: Vec<f32> = (0..s)
+                .map(|p| {
+                    gpu_embeddings[p * hidden_dim..p * hidden_dim + head_dim]
+                        .iter()
+                        .sum::<f32>()
+                })
+                .collect();
+            let total: f32 = sums.iter().sum();
+            let all: Vec<String> = sums.iter().map(|v| format!("{:.2}", v)).collect();
+            let host_sums: Vec<f32> = (0..s)
+                .map(|p| {
+                    embeddings[p * hidden_dim..p * hidden_dim + head_dim]
+                        .iter()
+                        .sum::<f32>()
+                })
+                .collect();
+            let host_total: f32 = host_sums.iter().sum();
+            let mismatch = sums
+                .iter()
+                .zip(host_sums.iter())
+                .enumerate()
+                .find(|(_, (g, h))| (*g - *h).abs() > 1e-6);
+            eprintln!(
+                "[EMBED-FP] GPU total={:.4} host_total={:.4} mismatch={:?} all=[{}]",
+                total,
+                host_total,
+                mismatch,
+                all.join(",")
+            );
+        }
 
         // PMAT-049: Hoist workspace extraction out of layer loop.
         self.validate_batched_workspace(s as u32, positions.len())?;
@@ -359,6 +420,34 @@ impl CudaExecutor {
                 epsilon,
             )?;
 
+            // CORRECTNESS-013/FALSIFY-PREFILL-001: Phase fingerprint.
+            // Isolates non-determinism to Phase 1 (QKV+RoPE) or Phase 2 (Attn+FFN).
+            // Contract: identical input → identical k_buf after Phase 1.
+            static PHASE_FP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            if layer_idx == 0
+                && *PHASE_FP.get_or_init(|| std::env::var("PHASE_FP").as_deref() == Ok("1"))
+            {
+                self.stream.synchronize()?;
+                let k_count = s as usize * kv_dim as usize;
+                let mut k_vals = vec![0.0f32; k_count];
+                k_buf.copy_to_host(&mut k_vals)?;
+                let head_dim = self.kv_head_dim;
+                let sums: Vec<f32> = (0..s)
+                    .map(|p| {
+                        let start = p * kv_dim as usize;
+                        let end = start + head_dim;
+                        k_vals[start..end].iter().sum::<f32>()
+                    })
+                    .collect();
+                let total: f32 = sums.iter().sum();
+                let all: Vec<String> = sums.iter().map(|v| format!("{:.2}", v)).collect();
+                eprintln!(
+                    "[PHASE1-FP] L0 k_buf total={:.4} all=[{}]",
+                    total,
+                    all.join(",")
+                );
+            }
+
             let phase1_done = if prefill_trace && layer_idx == 0 {
                 self.stream.synchronize()?;
                 Some(std::time::Instant::now())
@@ -409,6 +498,13 @@ impl CudaExecutor {
                         total_ms, phase1_ms, total_ms - phase1_ms, s
                     );
                 }
+            }
+
+            // CORRECTNESS-016: Per-layer stream sync to test for async ordering bugs.
+            // Remove after root cause found. Cost: ~0.5ms per layer × 28 layers = 14ms.
+            static PREFILL_SYNC: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            if *PREFILL_SYNC.get_or_init(|| std::env::var("PREFILL_SYNC").as_deref() == Ok("1")) {
+                self.stream.synchronize()?;
             }
         }
 
@@ -494,7 +590,13 @@ impl CudaExecutor {
         let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
 
         // 1. Upload all embeddings to GPU
-        let input_buf = GpuBuffer::from_host(&self.context, embeddings)?;
+        // CORRECTNESS-013 FIX: Same as prefill_eager — use async H2D on self.stream
+        // to ensure same-stream ordering with subsequent kernel launches.
+        let mut input_buf = GpuBuffer::new(&self.context, embeddings.len())?;
+        // SAFETY: embeddings valid for duration of prefill_multi_prompt
+        unsafe {
+            input_buf.copy_from_host_async(embeddings, &self.stream)?;
+        }
 
         // Extract workspace buffer pointers ONCE
         let hidden_buf1_ptr = self
@@ -1211,8 +1313,14 @@ impl CudaExecutor {
         hidden_dim: u32,
     ) -> Result<(), GpuError> {
         // 1. Copy new embeddings to stable input buffer
+        // CORRECTNESS-013 FIX: Use async H2D on self.stream for same-stream ordering
+        // with the graph launch below. copy_from_host uses cuMemcpyHtoD (stream 0)
+        // which has no ordering guarantee with CU_STREAM_NON_BLOCKING graph launches.
         if let Some(ref mut input_buf) = self.prefill_graph_input_buf {
-            input_buf.copy_from_host(embeddings)?;
+            // SAFETY: embeddings valid for duration of this function
+            unsafe {
+                input_buf.copy_from_host_async(embeddings, &self.stream)?;
+            }
         } else {
             return Err(GpuError::InvalidLaunchConfig(
                 "PMAT-050: prefill_graph_input_buf missing for replay".to_string(),
