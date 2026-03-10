@@ -31,14 +31,14 @@ use trueno_gpu::kernels::{
     FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel, HalfWarpDp4aQ4KGemvKernel,
     HalfWarpDp4aQ6KGemvKernel, IncrementalAttentionKernel, Kernel, KvCacheScatterIndirectKernel,
     KvCacheScatterKernel, LayerNormKernel, MultiWarpIncrementalAttentionKernel,
-    MultiWarpQ6KGemvKernel, MultiWarpVectorizedQ4KGemvKernel, MwvDp4aQ4KGemvKernel,
-    PackedDp4aQ4KQ8Kernel, PerHeadRmsNormKernel, PreciseRmsNormKernel, PreciseRopeIndirectKernel,
-    Q4KDequantFp16Kernel, Q4KDequantKernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel,
-    Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KDequantKernel, Q6KGemvKernel,
-    Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel,
-    RopeIndirectKernel, RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel, SiluKernel,
-    SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel,
-    VectorizedQ4KGemvKernel, VectorizedRmsNormKernel, WideQ4KGemvKernel,
+    MultiWarpQ6KGemvKernel, MultiWarpTensorCoreQ4KGemmKernel, MultiWarpVectorizedQ4KGemvKernel,
+    MwvDp4aQ4KGemvKernel, PackedDp4aQ4KQ8Kernel, PerHeadRmsNormKernel, PreciseRmsNormKernel,
+    PreciseRopeIndirectKernel, Q4KDequantFp16Kernel, Q4KDequantKernel, Q4KGemvKernel,
+    Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel,
+    Q6KDequantKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel,
+    ResidualAddKernel, RmsNormKernel, RopeIndirectKernel, RopeKernel, RopeNeoxIndirectKernel,
+    RopeNeoxKernel, SiluKernel, SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel,
+    TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel, VectorizedRmsNormKernel, WideQ4KGemvKernel,
 };
 
 include!("kernel_type.rs");

@@ -29,6 +29,9 @@ impl CudaKernels {
             KernelType::TensorCoreQ4KGemm { m, k, n } => {
                 TensorCoreQ4KGemmKernel::new(*m, *k, *n).emit_ptx_for_target(target)
             },
+            KernelType::MultiWarpTensorCoreQ4KGemm { m, k, n } => {
+                MultiWarpTensorCoreQ4KGemmKernel::new(*m, *k, *n).emit_ptx_for_target(target)
+            },
             KernelType::Q4KDequant { k, n } => Q4KDequantKernel::new(*k, *n).emit_ptx_for_target(target),
             KernelType::Q4KDequantFp16 { k, n } => Q4KDequantFp16Kernel::new(*k, *n).emit_ptx_for_target(target),
             KernelType::Q6KDequant { k, n } => Q6KDequantKernel::new(*k, *n).emit_ptx_for_target(target),

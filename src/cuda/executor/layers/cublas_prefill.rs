@@ -961,6 +961,18 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        // PMAT-045: Multi-warp Q4K WMMA GEMM — 4 warps, 32×32 tiles, maxnreg(96)
+        if qtype == WeightQuantType::Q4K && std::env::var("MW_WMMA_PREFILL").as_deref() == Ok("1") {
+            return self.launch_mw_q4k_wmma_kernel(
+                weight_ptr,
+                packed_input_ptr,
+                packed_output_ptr,
+                m,
+                n,
+                k,
+            );
+        }
+
         // PMAT-064: Q4K WMMA GEMM — tensor cores with direct Q4K weight reads
         // Dequant Q4K→FP16 in SHMEM, WMMA 16×16×16 matmul. 3.56x less BW than HGEMM.
         if qtype == WeightQuantType::Q4K && std::env::var("Q4K_WMMA_PREFILL").as_deref() == Ok("1")
@@ -1176,6 +1188,104 @@ impl CudaExecutor {
             // with async kernel launches without this sync.
             self.stream.synchronize()?;
             // Copy row by row: each row has N valid elements out of N_padded
+            for row in 0..m {
+                let src_offset = row as u64 * n_padded as u64 * 4;
+                let dst_offset = row as u64 * n as u64 * 4;
+                self.stream.memcpy_dtod_sync(
+                    packed_output_ptr + dst_offset,
+                    actual_output_ptr + src_offset,
+                    n as usize * 4,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// PMAT-045: Multi-Warp Q4K WMMA GEMM — 4 warps, 32×32 output tiles
+    ///
+    /// C[M×N] = A[M×K] @ B_q4k[N×(K/256)×144B]^T
+    ///
+    /// 4 warps per block (128 threads), each warp handles a 16×16 WMMA tile.
+    /// Grid: (ceil(N/32), ceil(M/32)). SHMEM: 2048 bytes.
+    /// maxnreg(96) limits register pressure for better occupancy.
+    #[allow(clippy::too_many_arguments)]
+    fn launch_mw_q4k_wmma_kernel(
+        &mut self,
+        weight_ptr: u64,
+        packed_input_ptr: u64,
+        packed_output_ptr: u64,
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        // Pad M and N to multiples of 32 for 2×2 WMMA tile safety
+        let m_padded = (m + 31) & !31;
+        let n_padded = (n + 31) & !31;
+        let needs_padding = m_padded != m || n_padded != n;
+
+        let kernel_type = KernelType::MultiWarpTensorCoreQ4KGemm {
+            m: m_padded,
+            n: n_padded,
+            k,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("mw_tensor_core_q4k_gemm_{m_padded}_{n_padded}_{k}");
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        // If padding needed, allocate temp buffer
+        let actual_output_ptr = if needs_padding {
+            let padded_count = m_padded as usize * n_padded as usize;
+            self.ensure_wmma_scratch(padded_count)?;
+            self.wmma_scratch
+                .as_ref()
+                .expect("wmma scratch allocated")
+                .as_ptr()
+        } else {
+            packed_output_ptr
+        };
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Grid: (ceil(N/32), ceil(M/32)), Block: 128 (4 warps for 2×2 WMMA tiles)
+        let grid_x = n_padded / 32;
+        let grid_y = m_padded / 32;
+        let config = LaunchConfig::grid_2d(grid_x, grid_y, 128, 1);
+
+        let mut ptr_a = packed_input_ptr;
+        let mut ptr_b = weight_ptr;
+        let mut ptr_c = actual_output_ptr;
+        let mut m_val = m;
+        let mut n_val = n;
+        let mut k_val = k;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_a) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_b) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_c) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // Copy valid [M, N] from padded buffer to actual output
+        if needs_padding {
+            self.stream.synchronize()?;
             for row in 0..m {
                 let src_offset = row as u64 * n_padded as u64 * 4;
                 let dst_offset = row as u64 * n as u64 * 4;
