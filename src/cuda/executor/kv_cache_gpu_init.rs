@@ -119,6 +119,25 @@ impl CudaExecutor {
         // Initialize per-sequence lengths (all start at 0)
         self.batched_kv_lengths = vec![0; batch_size];
 
+        // PMAT-075: Skip auxiliary buffer reallocation when KV caches are preserved.
+        // The captured batched decode graph holds pointers to batched_k_ptrs,
+        // batched_v_ptrs, batched_seq_lens_gpu, and per-layer pointer buffers.
+        // Reallocating these gives new addresses → stale graph → ILLEGAL_ADDRESS.
+        // When !need_realloc, KV cache buffers haven't changed, so per-layer
+        // pointer buffers still hold correct addresses.
+        if !need_realloc
+            && self.batched_k_ptrs.is_some()
+            && self.batched_v_ptrs.is_some()
+            && self.batched_seq_lens_gpu.is_some()
+            && self.batched_k_ptrs_per_layer.len() == num_layers
+        {
+            eprintln!(
+                "[PMAT-075] Reusing batched KV cache: {} layers × {} sequences (addresses stable)",
+                num_layers, batch_size
+            );
+            return Ok(());
+        }
+
         // Allocate GPU pointer arrays for batched attention
         self.batched_k_ptrs = Some(GpuBuffer::new(&self.context, batch_size)?);
         self.batched_v_ptrs = Some(GpuBuffer::new(&self.context, batch_size)?);
@@ -148,6 +167,10 @@ impl CudaExecutor {
                     .insert(layer_idx, GpuBuffer::from_host(&self.context, &v_ptrs)?);
             }
         }
+
+        // PMAT-075: Auxiliary buffer reallocation invalidates captured batched graphs.
+        self.batched_decode_graphs.clear();
+        self.batched_graph_batch_size = 0;
 
         let total_bytes = num_layers * 2 * buffer_size * 4 + batch_size * 24
             + num_layers * 2 * batch_size * 8; // caches + ptr arrays + per-layer ptrs

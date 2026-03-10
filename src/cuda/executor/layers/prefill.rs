@@ -56,9 +56,14 @@ impl CudaExecutor {
         // Graph captures pointers to workspace buffers (hidden_buf1, q_buf, etc.).
         // When init_prefill_workspace allocates NEW buffers (longer prompt exceeds
         // buffer_capacity), the captured graph has stale pointers → ILLEGAL_ADDRESS.
-        // Fix: clear decode graph before reallocating workspace.
+        // Fix: clear ALL graphs before reallocating workspace.
         self.decode_graph = None;
         self.graph_capture_failed = false;
+        // PMAT-075: Also clear batched decode graphs — stale workspace pointers.
+        // Previously only M=1 decode graph was cleared here, leaving batched graphs
+        // with stale addresses if a recycled slot had a longer prompt.
+        self.batched_decode_graphs.clear();
+        self.batched_graph_batch_size = 0;
 
         let q_dim = self.kv_num_heads * self.kv_head_dim;
         let kv_dim = self.kv_num_kv_heads * self.kv_head_dim;
