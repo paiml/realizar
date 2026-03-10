@@ -26,6 +26,9 @@ impl CudaKernels {
             KernelType::TensorCoreQ4KGemm { m, k, n } => {
                 TensorCoreQ4KGemmKernel::new(*m, *k, *n).emit_ptx()
             },
+            KernelType::MultiWarpTensorCoreQ4KGemm { m, k, n } => {
+                MultiWarpTensorCoreQ4KGemmKernel::new(*m, *k, *n).emit_ptx()
+            },
             _ => return None,
         };
         Some(ptx)

@@ -29,6 +29,7 @@ impl CudaKernels {
             KernelType::Q6KQuantizedGemm { .. } => "q6k_gemm_ggml",
             KernelType::FusedQ4Q8Dot { .. } => "q4k_gemm_ggml",
             KernelType::TensorCoreQ4KGemm { .. } => "tensor_core_q4k_gemm",
+            KernelType::MultiWarpTensorCoreQ4KGemm { .. } => "mw_tensor_core_q4k_gemm",
             _ => return None,
         };
         Some(name)

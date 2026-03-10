@@ -209,6 +209,12 @@ pub enum KernelType {
         k: u32,
         n: u32,
     },
+    /// PMAT-045: Multi-Warp Tensor Core Q4K GEMM (4 warps, 32×32 tiles)
+    MultiWarpTensorCoreQ4KGemm {
+        m: u32,
+        k: u32,
+        n: u32,
+    },
     /// PAR-108: Batched Q4_K GEMV for 2x Ollama via shared dequantization
     BatchedQ4KGemv {
         m: u32,
