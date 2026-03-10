@@ -95,7 +95,7 @@ impl CudaExecutor {
             // SAFETY: Kernel launch with valid pointers - k_src/k_dst from GPU buffers,
             // pos/head_dim/max_len are stack values with stable addresses during call
             unsafe {
-                self.compute_stream.launch_kernel(
+                self.stream.launch_kernel(
                     scatter_module,
                     scatter_name,
                     &scatter_config,
@@ -121,7 +121,7 @@ impl CudaExecutor {
             // SAFETY: Kernel launch with valid pointers - v_src/v_dst from GPU buffers,
             // pos/head_dim/max_len are stack values with stable addresses during call
             unsafe {
-                self.compute_stream.launch_kernel(
+                self.stream.launch_kernel(
                     scatter_module,
                     scatter_name,
                     &scatter_config,
@@ -196,9 +196,13 @@ impl CudaExecutor {
             GpuError::InvalidLaunchConfig("PAR-118: batched_seq_lens_gpu not allocated".to_string())
         })?;
 
-        k_ptrs_buf.copy_from_host(&k_ptrs)?;
-        v_ptrs_buf.copy_from_host(&v_ptrs)?;
-        seq_lens_buf.copy_from_host(&seq_lens)?;
+        // CORRECTNESS-013: Use async H2D on self.stream for same-stream ordering.
+        // copy_from_host uses stream 0 which has no sync with non-blocking streams.
+        unsafe {
+            k_ptrs_buf.copy_from_host_async(&k_ptrs, &self.stream)?;
+            v_ptrs_buf.copy_from_host_async(&v_ptrs, &self.stream)?;
+            seq_lens_buf.copy_from_host_async(&seq_lens, &self.stream)?;
+        }
 
         let partials_buf = self.flash_decode_partials.as_ref().ok_or_else(|| {
             GpuError::InvalidLaunchConfig(
@@ -228,7 +232,7 @@ impl CudaExecutor {
         // SAFETY: Kernel launch with valid pointers - all GPU buffer pointers derived from
         // allocated GpuBuffers, max_chunks is stack value with stable address during call
         unsafe {
-            self.compute_stream.launch_kernel(
+            self.stream.launch_kernel(
                 chunk_module,
                 chunk_kernel_name,
                 &chunk_config,
@@ -272,7 +276,7 @@ impl CudaExecutor {
         // SAFETY: Kernel launch with valid pointers - partials/out/seq_lens from GPU buffers,
         // max_chunks is stack value with stable address during call
         unsafe {
-            self.compute_stream.launch_kernel(
+            self.stream.launch_kernel(
                 reduce_module,
                 reduce_kernel_name,
                 &reduce_config,
