@@ -148,6 +148,8 @@ impl CudaExecutor {
             fp8_activation_scratch_size: 0,
             // PMAT-064: Q4K WMMA padded output scratch (lazy init)
             wmma_scratch: None,
+            // PMAT-066: Q8 activation scratch for DP4A Q4K GEMM (lazy init)
+            dp4a_q8_scratch: None,
             // PMAT-032: Prefill attention score scratch (lazy init)
             prefill_attn_scores: None,
             prefill_attn_scores_size: 0,
