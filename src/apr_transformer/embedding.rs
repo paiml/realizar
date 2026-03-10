@@ -5,39 +5,61 @@ impl AprTransformer {
     /// Reads 13+ metadata fields with fallback aliases matching aprender's naming conventions.
     /// Returns a config struct with all architecture parameters.
     fn parse_apr_metadata_config(metadata: &serde_json::Value) -> AprTransformerConfig {
+        // ALB-106: entrenar checkpoints store model config as a nested JSON string
+        // in "model_config". If top-level fields are null/missing, parse and use it.
+        let model_config_parsed: Option<serde_json::Value> = metadata
+            .get("model_config")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|s| serde_json::from_str(s).ok());
+        let fallback = |key: &str| -> Option<&serde_json::Value> {
+            model_config_parsed.as_ref().and_then(|mc| mc.get(key))
+        };
+
         let hidden_dim = metadata
             .get("hidden_size")
             .or_else(|| metadata.get("hidden_dim"))
+            .filter(|v| !v.is_null())
+            .or_else(|| fallback("hidden_size"))
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(64) as usize;
 
         let num_layers = metadata
             .get("num_hidden_layers")
             .or_else(|| metadata.get("num_layers"))
+            .filter(|v| !v.is_null())
+            .or_else(|| fallback("num_hidden_layers"))
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(1) as usize;
 
         let num_heads = metadata
             .get("num_attention_heads")
             .or_else(|| metadata.get("num_heads"))
+            .filter(|v| !v.is_null())
+            .or_else(|| fallback("num_attention_heads"))
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(4) as usize;
 
         let num_kv_heads = metadata
             .get("num_key_value_heads")
             .or_else(|| metadata.get("num_kv_heads"))
+            .filter(|v| !v.is_null())
+            .or_else(|| fallback("num_key_value_heads").or_else(|| fallback("num_kv_heads")))
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(num_heads as u64) as usize;
 
         // C-12 (Meyer DbC): 0 = unknown, inferred from embedding tensor dims downstream.
         let vocab_size = metadata
             .get("vocab_size")
+            .filter(|v| !v.is_null())
+            .or_else(|| fallback("vocab_size"))
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0) as usize;
 
         let intermediate_dim = metadata
             .get("intermediate_size")
             .or_else(|| metadata.get("intermediate_dim"))
+            .filter(|v| !v.is_null())
+            .or_else(|| fallback("intermediate_size"))
             .and_then(serde_json::Value::as_u64)
             .unwrap_or((hidden_dim * 4) as u64) as usize;
 
@@ -49,18 +71,29 @@ impl AprTransformer {
             .or_else(|| metadata.get("model_type"))
             .and_then(serde_json::Value::as_str)
             .map(str::to_lowercase)
-            .filter(|s| s != "auto" && !s.is_empty()) // "Auto" is not a valid architecture
+            .filter(|s| s != "auto" && !s.is_empty())
+            .or_else(|| {
+                fallback("hf_architecture")
+                    .or_else(|| fallback("architecture"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(|s| s.to_lowercase())
+                    .filter(|s| s != "auto" && !s.is_empty())
+            })
             .unwrap_or_else(|| "unknown".to_string());
 
         // R-02 (Meyer DbC): rope_theta from metadata, or architecture-specific default.
         let rope_theta = metadata
             .get("rope_theta")
+            .filter(|v| !v.is_null())
+            .or_else(|| fallback("rope_theta"))
             .and_then(serde_json::Value::as_f64)
             .unwrap_or_else(||
                 crate::gguf::default_rope_theta_for_architecture(&architecture) as f64) as f32;
 
         let rms_norm_eps = metadata
             .get("rms_norm_eps")
+            .filter(|v| !v.is_null())
+            .or_else(|| fallback("rms_norm_eps"))
             .and_then(serde_json::Value::as_f64)
             .unwrap_or(1e-6) as f32;
 
@@ -71,27 +104,37 @@ impl AprTransformer {
             .or_else(|| metadata.get("context_length"))
             .or_else(|| metadata.get("max_seq_len"))
             .or_else(|| metadata.get("n_ctx"))
+            .filter(|v| !v.is_null())
+            .or_else(|| fallback("max_position_embeddings"))
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0) as usize;
 
         // ALB-094: MoE metadata fields
         let head_dim = metadata
             .get("head_dim")
+            .filter(|v| !v.is_null())
+            .or_else(|| fallback("head_dim_override"))
             .and_then(serde_json::Value::as_u64)
             .map(|v| v as usize);
 
         let num_experts = metadata
             .get("num_experts")
+            .filter(|v| !v.is_null())
+            .or_else(|| fallback("num_experts"))
             .and_then(serde_json::Value::as_u64)
             .map(|v| v as usize);
 
         let num_experts_per_tok = metadata
             .get("num_experts_per_tok")
+            .filter(|v| !v.is_null())
+            .or_else(|| fallback("num_experts_per_tok"))
             .and_then(serde_json::Value::as_u64)
             .map(|v| v as usize);
 
         let expert_intermediate_size = metadata
             .get("moe_intermediate_size")
+            .filter(|v| !v.is_null())
+            .or_else(|| fallback("moe_intermediate_size"))
             .and_then(serde_json::Value::as_u64)
             .map(|v| v as usize);
 
@@ -487,8 +530,18 @@ impl AprTransformer {
         // Parse tensor index
         let tensors = Self::parse_apr_tensor_index(data, tensor_index_offset, data_offset, tensor_count);
 
+        // ALB-106: entrenar checkpoints store linear weights in cuBLAS column-major
+        // convention. Detect via "format": "entrenar-checkpoint" metadata.
+        let is_entrenar = metadata
+            .get("format")
+            .and_then(serde_json::Value::as_str)
+            == Some("entrenar-checkpoint");
+        if debug_enabled && is_entrenar {
+            eprintln!("[DEBUG] Detected entrenar checkpoint — will transpose linear weights");
+        }
+
         // Tensor lookup helper (replaces closures for decomposition)
-        let lookup = AprTensorLookup { data, tensors: &tensors };
+        let lookup = AprTensorLookup { data, tensors: &tensors, transpose_cublas_weights: is_entrenar };
 
         // Debug: print available tensor names (only when REALIZE_DEBUG is set)
         if debug_enabled {

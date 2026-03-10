@@ -131,12 +131,20 @@ impl CudaExecutor {
             kv_cache_q8_v_scales: HashMap::new(),
             // PMAT-024: cuBLAS handle for prefill GEMM (lazy init on first prefill)
             cublas_handle: None,
+            // PMAT-063: cuBLAS workspace for graph capture (lazy init)
+            cublas_workspace: None,
+            // PMAT-053: cuBLASLt handle for FP8 GEMM (lazy init on first FP8 prefill)
+            cublaslt_handle: None,
             dequant_scratch: None,
             dequant_scratch_size: 0,
             // PMAT-031: FP16 weight cache for HGEMM prefill
             fp16_weight_cache: HashMap::new(),
             fp16_activation_scratch: None,
             fp16_activation_scratch_size: 0,
+            // PMAT-053: FP8 weight cache (sm_89+ only, enabled with FP8_PREFILL=1)
+            fp8_weight_cache: HashMap::new(),
+            fp8_activation_scratch: None,
+            fp8_activation_scratch_size: 0,
             // PMAT-032: Prefill attention score scratch (lazy init)
             prefill_attn_scores: None,
             prefill_attn_scores_size: 0,

@@ -62,6 +62,9 @@ pub struct GpuProfile {
     pub fused_gate_up: bool,
     /// SM version for logging (e.g., "sm_89").
     pub sm_target: String,
+    /// Numeric compute capability (major*10 + minor, e.g. 89 for sm_89).
+    /// Used for numeric comparisons instead of string lexicographic (avoids sm_100 bug).
+    pub cc: u32,
 }
 
 impl GpuProfile {
@@ -83,6 +86,8 @@ impl GpuProfile {
         let hgemm_decode = Self::detect_hgemm_decode(has_dp4a, num_sms);
         let fused_gate_up = Self::detect_fused_gate_up(&q4k);
 
+        let cc = major as u32 * 10 + minor as u32;
+
         let profile = Self {
             q4k,
             q6k,
@@ -91,6 +96,7 @@ impl GpuProfile {
             hgemm_decode,
             fused_gate_up,
             sm_target,
+            cc,
         };
 
         eprintln!(

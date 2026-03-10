@@ -216,38 +216,108 @@ impl OwnedQuantizedModelCuda {
         let sequences: Vec<Vec<u32>> = prompts.to_vec();
         let mut positions: Vec<usize> = Vec::with_capacity(m);
         let mut last_tokens: Vec<u32> = Vec::with_capacity(m);
-        let saved_stride = self.executor.batched_kv_stride;
 
         let prefill_start = std::time::Instant::now();
-        eprintln!("[PMAT-044] Batched streaming: {m} slots, prefilling...");
 
-        for (slot_idx, prompt) in prompts.iter().enumerate() {
-            self.executor.reset_kv_cache_gpu();
-            let seq_len = prompt.len().saturating_sub(1);
+        // PMAT-051: Multi-prompt batched prefill — read weights once for all prompts.
+        // Concatenate all prompts' tokens, run GEMM once per layer (M_total tokens),
+        // only attention is per-prompt (prompt-local causal mask).
+        let use_multi_prompt = m > 1
+            && std::env::var("MULTI_PROMPT_PREFILL").as_deref() != Ok("0");
 
-            // PMAT-037: Use cuBLAS batched prefill (HGEMM) instead of serial token-by-token.
-            // Five-Whys: serial prefill at c=4 causes 854ms TTFT (16x vs c=1).
-            // cuBLAS prefill processes all prompt tokens at once via HGEMM, 4.9x faster.
-            self.executor.batched_kv_stride = 0;
-            self.run_prefill(prompt, &mut caches[slot_idx], seq_len, false)?;
+        if use_multi_prompt {
+            let hidden_dim = self.model.config.hidden_dim;
+            let intermediate_dim = self.model.layers[0].ffn_up_weight.out_dim;
+            let num_layers = self.model.config.num_layers;
+            let eps = self.model.config.eps;
 
-            // Restore stride for D2D scatter: single GPU KV → batched KV slot
-            self.executor.batched_kv_stride = saved_stride;
+            // Calculate per-prompt lengths (prefill_count = prompt.len() - 1)
+            let prompt_lengths: Vec<usize> = prompts.iter()
+                .map(|p| p.len().saturating_sub(1))
+                .collect();
+            let m_total: usize = prompt_lengths.iter().sum();
+
+            // Build offsets into the packed buffer
+            let prompt_offsets: Vec<usize> = prompt_lengths.iter()
+                .scan(0, |acc, &len| { let off = *acc; *acc += len; Some(off) })
+                .collect();
+
+            // Embed all prompts, concatenate into packed [M_total × hidden_dim]
+            let mut all_embeddings = Vec::with_capacity(m_total * hidden_dim);
+            for (i, prompt) in prompts.iter().enumerate() {
+                let embeddings = self.model.embed(&prompt[..prompt_lengths[i]]);
+                all_embeddings.extend_from_slice(&embeddings);
+            }
+
+            // Build concatenated positions: [0..S0-1, 0..S1-1, ...]
+            let mut all_positions = Vec::with_capacity(m_total);
+            for &len in &prompt_lengths {
+                all_positions.extend(0..len as u32);
+            }
+
+            // Ensure workspace sized for M_total
             self.executor
-                .scatter_single_kv_to_batched(slot_idx, seq_len)
+                .init_prefill_workspace(m_total, hidden_dim, intermediate_dim)
                 .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "scatter_single_kv_to_batched".to_string(),
-                    reason: format!("Failed to scatter KV for slot {slot_idx}: {e}"),
+                    operation: "init_prefill_workspace".to_string(),
+                    reason: format!("PMAT-051: workspace init failed for M_total={m_total}: {e}"),
                 })?;
 
-            positions.push(seq_len);
-            last_tokens.push(prompt[prompt.len() - 1]);
+            eprintln!(
+                "[PMAT-051] Multi-prompt prefill: {} prompts, M_total={}, reading weights once...",
+                m, m_total
+            );
+
+            // Run multi-prompt prefill — weights read once, per-prompt attention
+            self.executor
+                .prefill_multi_prompt(
+                    &all_embeddings,
+                    &all_positions,
+                    &prompt_offsets,
+                    &prompt_lengths,
+                    num_layers,
+                    hidden_dim as u32,
+                    intermediate_dim as u32,
+                    eps,
+                )
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "prefill_multi_prompt".to_string(),
+                    reason: format!("PMAT-051: multi-prompt prefill failed: {e}"),
+                })?;
+
+            // Build return values
+            for (i, prompt) in prompts.iter().enumerate() {
+                positions.push(prompt_lengths[i]);
+                last_tokens.push(prompt[prompt.len() - 1]);
+            }
+        } else {
+            // Sequential fallback (M=1 or MULTI_PROMPT_PREFILL=0)
+            let saved_stride = self.executor.batched_kv_stride;
+            eprintln!("[PMAT-044] Batched streaming: {m} slots, prefilling sequentially...");
+
+            for (slot_idx, prompt) in prompts.iter().enumerate() {
+                self.executor.reset_kv_cache_gpu();
+                let seq_len = prompt.len().saturating_sub(1);
+
+                self.executor.batched_kv_stride = 0;
+                self.run_prefill(prompt, &mut caches[slot_idx], seq_len, false)?;
+
+                self.executor.batched_kv_stride = saved_stride;
+                self.executor
+                    .scatter_single_kv_to_batched(slot_idx, seq_len)
+                    .map_err(|e| RealizarError::UnsupportedOperation {
+                        operation: "scatter_single_kv_to_batched".to_string(),
+                        reason: format!("Failed to scatter KV for slot {slot_idx}: {e}"),
+                    })?;
+
+                positions.push(seq_len);
+                last_tokens.push(prompt[prompt.len() - 1]);
+            }
         }
 
-        // Leave stride restored for decode phase
         let prefill_elapsed = prefill_start.elapsed();
         eprintln!(
-            "[PMAT-044] Prefill done in {:.1}ms ({:.0} tok/s), starting batched decode...",
+            "[PMAT-051] Prefill done in {:.1}ms ({:.0} tok/s), starting batched decode...",
             prefill_elapsed.as_secs_f64() * 1000.0,
             prompts.iter().map(|p| p.len() as f64).sum::<f64>() / prefill_elapsed.as_secs_f64(),
         );

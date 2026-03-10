@@ -171,6 +171,102 @@ impl CudaExecutor {
         }
     }
 
+    /// PMAT-051: Copy single KV cache to batched KV cache for ONE layer.
+    ///
+    /// Used during multi-prompt batched prefill: within the layer loop,
+    /// each prompt's KV is prefilled into the single cache, then scattered
+    /// to the batched slot for that layer only (not all layers).
+    pub fn scatter_single_kv_to_batched_layer(
+        &mut self,
+        slot_idx: usize,
+        seq_len: usize,
+        layer_idx: usize,
+    ) -> Result<(), GpuError> {
+        if seq_len == 0 {
+            return Ok(());
+        }
+
+        let stride = self.batched_kv_stride;
+        if stride == 0 {
+            return Err(GpuError::InvalidLaunchConfig(
+                "PMAT-051: batched KV cache not initialized (stride=0)".to_string(),
+            ));
+        }
+
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let max_len = self.kv_cache_max_len;
+        let per_head_copy_bytes = (seq_len * head_dim * std::mem::size_of::<f32>()) as u64;
+        let head_stride_bytes = (max_len * head_dim * std::mem::size_of::<f32>()) as u64;
+        let slot_offset_bytes = (slot_idx * stride * std::mem::size_of::<f32>()) as u64;
+
+        let k_key = format!("kv_{}_k", layer_idx);
+        let v_key = format!("kv_{}_v", layer_idx);
+
+        let single_k_ptr = self
+            .kv_cache_gpu
+            .get(&k_key)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PMAT-051: single KV cache '{}' not found",
+                    k_key
+                ))
+            })?
+            .as_ptr();
+        let batched_k_ptr = self
+            .batched_kv_k_caches
+            .get(&layer_idx)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PMAT-051: batched K cache layer {} not found",
+                    layer_idx
+                ))
+            })?
+            .as_ptr();
+
+        let single_v_ptr = self
+            .kv_cache_gpu
+            .get(&v_key)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PMAT-051: single KV cache '{}' not found",
+                    v_key
+                ))
+            })?
+            .as_ptr();
+        let batched_v_ptr = self
+            .batched_kv_v_caches
+            .get(&layer_idx)
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(format!(
+                    "PMAT-051: batched V cache layer {} not found",
+                    layer_idx
+                ))
+            })?
+            .as_ptr();
+
+        for head in 0..num_kv_heads as u64 {
+            let head_off = head * head_stride_bytes;
+            self.stream.memcpy_dtod_sync(
+                batched_k_ptr + slot_offset_bytes + head_off,
+                single_k_ptr + head_off,
+                per_head_copy_bytes as usize,
+            )?;
+            self.stream.memcpy_dtod_sync(
+                batched_v_ptr + slot_offset_bytes + head_off,
+                single_v_ptr + head_off,
+                per_head_copy_bytes as usize,
+            )?;
+        }
+
+        // Update batched KV length for this slot
+        if slot_idx < self.batched_kv_lengths.len() {
+            self.batched_kv_lengths[slot_idx] = seq_len;
+        }
+
+        Ok(())
+    }
+
     /// PMAT-044: Copy single KV cache to batched KV cache at a specific slot.
     ///
     /// After prefill populates the single GPU KV cache (kv_L_k, kv_L_v),

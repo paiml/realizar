@@ -202,6 +202,20 @@ impl OwnedQuantizedModelCuda {
             }
         }
 
+        // PMAT-053: FP8 E4M3 weight cache warmup (sm_89+ only, FP8_PREFILL=1)
+        if std::env::var("FP8_PREFILL").as_deref() == Ok("1") {
+            let num_layers = self.model.config.num_layers;
+            let hidden_dim = self.model.config.hidden_dim as u32;
+            let intermediate_dim = self.model.config.intermediate_dim as u32;
+            let vocab_size = self.model.config.vocab_size as u32;
+            if let Err(e) =
+                self.executor
+                    .warmup_fp8_cache(num_layers, hidden_dim, intermediate_dim, vocab_size)
+            {
+                eprintln!("[PMAT-053] FP8 cache warmup failed (non-fatal): {e}");
+            }
+        }
+
         // PARITY-GATE: Jidoka — stop-the-line if GPU diverges from CPU.
         // Run ONE token through both backends and compare logits.
         // If cosine similarity < 0.99, refuse to construct.

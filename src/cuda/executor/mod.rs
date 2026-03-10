@@ -500,6 +500,9 @@ pub struct CudaExecutor {
     kv_cache_q8_v_scales: HashMap<String, GpuBuffer<f32>>,
     // PMAT-024: cuBLAS handle for prefill GEMM (dequant Q4K → dense → cuBLAS)
     cublas_handle: Option<trueno_gpu::driver::CublasHandle>,
+    // PMAT-063: Pre-allocated cuBLAS workspace for CUDA graph capture
+    // Without this, cuBLAS falls back to workspace-free algorithms (7x slower)
+    cublas_workspace: Option<GpuBuffer<u8>>,
     // PMAT-024: Scratch buffer for dequantized Q4K weights (reused across GEMM calls)
     // Size: largest weight matrix N×K × 4 bytes (FP32)
     dequant_scratch: Option<GpuBuffer<f32>>,
@@ -511,6 +514,15 @@ pub struct CudaExecutor {
     // PMAT-031: FP16 activation scratch for HGEMM input conversion
     fp16_activation_scratch: Option<GpuBuffer<u16>>,
     fp16_activation_scratch_size: usize,
+    // PMAT-053: cuBLASLt handle for FP8 E4M3 GEMM (cublasGemmEx doesn't support FP8)
+    cublaslt_handle: Option<trueno_gpu::driver::CublasLtHandle>,
+    // PMAT-053: Cached FP8 E4M3 dequantized weights for FP8 GEMM
+    // Key: quantized weight GPU pointer → persistent FP8 buffer [N×K] (u8)
+    // Half the size of FP16 cache — 1472 MB vs 2944 MB for Qwen 1.5B
+    fp8_weight_cache: HashMap<u64, GpuBuffer<u8>>,
+    // PMAT-053: FP8 activation scratch for FP8 GEMM input conversion
+    fp8_activation_scratch: Option<GpuBuffer<u8>>,
+    fp8_activation_scratch_size: usize,
     // PMAT-032: Attention score scratch for prefill parallel attention
     // [num_heads × M × total_len] FP32 — stores QK^T scores and softmax output
     prefill_attn_scores: Option<GpuBuffer<f32>>,

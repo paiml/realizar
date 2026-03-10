@@ -327,9 +327,9 @@ impl CudaExecutor {
                 self.batched_graph_batch_size = m;
                 eprintln!("[PAR-121] ✓ Batched CUDA graph captured for M={}", m);
 
-                // Get token IDs from logits
-                self.stream.synchronize()?;
-                self.batched_argmax_from_logits(m, vocab_size)
+                // GH-141: Graph capture RECORDS kernels but doesn't EXECUTE them.
+                // Must replay the graph to get actual logits from the real inputs.
+                self.forward_batched_graphed_replay(inputs, positions, m, vocab_size)
             },
             Err(e) => {
                 // Graph capture failed, fall back to non-graphed path

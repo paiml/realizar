@@ -1,6 +1,6 @@
 impl CudaExecutor {
     /// Validate workspace is initialized and large enough for batch size M.
-    fn validate_batched_workspace(&self, m: u32, positions_len: usize) -> Result<(), GpuError> {
+    pub(crate) fn validate_batched_workspace(&self, m: u32, positions_len: usize) -> Result<(), GpuError> {
         if !self.workspace.initialized {
             return Err(GpuError::InvalidLaunchConfig(
                 "PAR-111: Workspace not initialized".to_string(),
