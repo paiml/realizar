@@ -529,6 +529,9 @@ pub struct CudaExecutor {
     // WMMA stores full 16×16 tiles — edge tiles write past the output buffer
     // when M or N is not a multiple of 16. This scratch absorbs OOB writes.
     wmma_scratch: Option<GpuBuffer<f32>>,
+    // PMAT-066: Q8 activation scratch for DP4A Q4K GEMM prefill
+    // M×K f32 activations quantized to Q8_1: M × (K/32) × 36 bytes
+    dp4a_q8_scratch: Option<GpuBuffer<u8>>,
     // PMAT-032: Attention score scratch for prefill parallel attention
     // [num_heads × M × total_len] FP32 — stores QK^T scores and softmax output
     prefill_attn_scores: Option<GpuBuffer<f32>>,

@@ -961,6 +961,19 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        // PMAT-066: DP4A Q4K×Q8 GEMM — no FP16 dequant, 3.56x BW reduction
+        if qtype == WeightQuantType::Q4K && std::env::var("DP4A_GEMM_PREFILL").as_deref() == Ok("1")
+        {
+            return self.launch_dp4a_q4k_gemm(
+                weight_ptr,
+                packed_input_ptr,
+                packed_output_ptr,
+                m,
+                n,
+                k,
+            );
+        }
+
         // PMAT-045: Multi-warp Q4K WMMA GEMM — 4 warps, 32×32 tiles, maxnreg(96)
         if qtype == WeightQuantType::Q4K && std::env::var("MW_WMMA_PREFILL").as_deref() == Ok("1") {
             return self.launch_mw_q4k_wmma_kernel(
@@ -1295,6 +1308,128 @@ impl CudaExecutor {
                     n as usize * 4,
                 )?;
             }
+        }
+
+        Ok(())
+    }
+
+    /// PMAT-066: DP4A Q4K×Q8 GEMM — dequant-free prefill
+    ///
+    /// Pipeline:
+    /// 1. Q8 quantize: f32 activations → Q8_1 format (36 bytes per 32 values)
+    /// 2. DP4A GEMM: Q4K weights × Q8 activations → f32 output
+    ///
+    /// No FP16 dequantization. 3.56x memory bandwidth reduction vs HGEMM.
+    #[allow(clippy::too_many_arguments)]
+    fn launch_dp4a_q4k_gemm(
+        &mut self,
+        weight_ptr: u64,
+        packed_input_ptr: u64,
+        packed_output_ptr: u64,
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let total_f32_elements = m * k;
+        let num_q8_blocks = total_f32_elements / 32;
+        let q8_bytes = num_q8_blocks as usize * 36;
+
+        // Ensure Q8 scratch buffer is large enough
+        let need_alloc = match &self.dp4a_q8_scratch {
+            Some(buf) => buf.len() < q8_bytes,
+            None => true,
+        };
+        if need_alloc {
+            self.dp4a_q8_scratch = Some(GpuBuffer::<u8>::new(&self.context, q8_bytes)?);
+        }
+        let q8_ptr = self
+            .dp4a_q8_scratch
+            .as_ref()
+            .expect("q8 scratch allocated")
+            .as_ptr();
+
+        // Step 1: Q8 quantize M*K f32 activations → Q8_1
+        {
+            let kernel_type = KernelType::Q8Quantize {
+                n: total_f32_elements,
+            };
+            let kernel_name = self.kernels.kernel_name(&kernel_type);
+            let cache_key = format!("q8_quantize_{total_f32_elements}");
+
+            if !self.modules.contains_key(&cache_key) {
+                let ptx = self.kernels.generate_ptx(&kernel_type);
+                let module = self.compile_ptx(&ptx)?;
+                self.modules.insert(cache_key.clone(), module);
+            }
+
+            let module = self
+                .modules
+                .get_mut(&cache_key)
+                .expect("module just inserted");
+            let config = LaunchConfig::grid_2d(num_q8_blocks, 1, 32, 1);
+            let mut out = q8_ptr;
+            let mut inp = packed_input_ptr;
+            let mut n_val = total_f32_elements;
+
+            unsafe {
+                self.stream.launch_kernel(
+                    module,
+                    kernel_name,
+                    &config,
+                    &mut [
+                        std::ptr::from_mut(&mut out) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut inp) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        }
+
+        // Step 2: DP4A Q4K×Q8 GEMM
+        let num_warps: u32 = 4;
+        let num_half_warps = num_warps * 2;
+        let tile_m: u32 = 4;
+
+        let kernel_type = KernelType::Dp4aQ4KGemm { m, n, k };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("dp4a_q4k_gemm_{m}_{n}_{k}");
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let grid_x = (n + num_half_warps - 1) / num_half_warps;
+        let grid_y = (m + tile_m - 1) / tile_m;
+        let config = LaunchConfig::grid_2d(grid_x, grid_y, num_warps * 32, 1);
+
+        let mut ptr_y = packed_output_ptr;
+        let mut ptr_w = weight_ptr;
+        let mut ptr_q8 = q8_ptr;
+        let mut m_val = m;
+        let mut n_val = n;
+        let mut k_val = k;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_y) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_w) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_q8) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                ],
+            )?;
         }
 
         Ok(())
