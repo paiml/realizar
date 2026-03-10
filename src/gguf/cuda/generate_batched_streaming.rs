@@ -482,6 +482,97 @@ impl OwnedQuantizedModelCuda {
         Ok(())
     }
 
+    /// PMAT-074: Recycle a finished slot for a new request.
+    ///
+    /// Similar to `add_slot_to_batch` but reuses an existing slot index instead
+    /// of appending. The slot's KV cache is overwritten with the new request's
+    /// prefill data. `state.m` stays the same (no growth).
+    ///
+    /// Caller must hold model write lock for the duration of this call.
+    pub fn recycle_slot(
+        &mut self,
+        state: &mut BatchedDecodeState,
+        slot_idx: usize,
+        prompt: Vec<u32>,
+        config: QuantizedGenerateConfig,
+        on_token: Box<dyn FnMut(u32) -> bool + Send>,
+    ) -> Result<()> {
+        if !state.done[slot_idx] {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "recycle_slot".to_string(),
+                reason: format!("PMAT-074: slot {slot_idx} is not done"),
+            });
+        }
+
+        let seq_len = prompt.len().saturating_sub(1);
+        let prefill_start = std::time::Instant::now();
+
+        // Clear decode graphs — M=1 prefill uses different kernel config
+        self.executor.clear_decode_graph();
+        self.executor.clear_batched_decode_graphs();
+
+        // Init workspace for prefill (high-water mark, usually no realloc)
+        self.executor
+            .init_prefill_workspace(seq_len, state.hidden_dim, state.intermediate_dim)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "recycle_slot_prefill_workspace".to_string(),
+                reason: format!("PMAT-074: workspace init for slot {slot_idx}: {e}"),
+            })?;
+
+        // Prefill using M=1 path (writes to single-slot KV cache)
+        let kv_dim = self.model.config.num_kv_heads
+            * (self.model.config.hidden_dim / self.model.config.num_heads);
+        let max_seq_len = seq_len + config.max_tokens;
+        let mut cache = OwnedQuantizedKVCache::new(state.num_layers, kv_dim, max_seq_len);
+
+        let saved_stride = self.executor.batched_kv_stride;
+        self.executor.batched_kv_stride = 0;
+        self.executor.reset_kv_cache_gpu();
+        self.run_prefill(&prompt, &mut cache, seq_len, false)?;
+        self.executor.batched_kv_stride = saved_stride;
+
+        // Scatter KV to the RECYCLED slot index (overwrites old data)
+        self.executor
+            .scatter_single_kv_to_batched(slot_idx, seq_len)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "scatter_single_kv_to_batched".to_string(),
+                reason: format!("PMAT-074: scatter for recycled slot {slot_idx}: {e}"),
+            })?;
+
+        // Restore batched decode workspace (M unchanged)
+        self.executor.clear_prefill_graphs();
+        self.executor
+            .init_batched_workspace(state.hidden_dim, state.intermediate_dim, state.m)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "init_batched_workspace".to_string(),
+                reason: format!("PMAT-074: workspace restore for M={}: {e}", state.m),
+            })?;
+        self.executor.clear_decode_graph();
+
+        // Replace state at recycled slot index
+        let last_token = prompt[prompt.len() - 1];
+        state.sequences[slot_idx] = prompt.clone();
+        state.prompts[slot_idx] = prompt;
+        state.configs[slot_idx] = config;
+        state.on_tokens[slot_idx] = on_token;
+        state.positions[slot_idx] = seq_len;
+        state.last_tokens[slot_idx] = last_token;
+        state.done[slot_idx] = false;
+
+        // Extend max_tokens_max to cover gen_idx + new request's max_tokens
+        state.max_tokens_max = state
+            .max_tokens_max
+            .max(state.gen_idx + state.configs[slot_idx].max_tokens);
+
+        let prefill_ms = prefill_start.elapsed().as_secs_f64() * 1000.0;
+        eprintln!(
+            "[PMAT-074] Slot recycled: slot {} reused (M={}), prefill {:.1}ms ({} tokens)",
+            slot_idx, state.m, prefill_ms, seq_len,
+        );
+
+        Ok(())
+    }
+
     fn validate_batch_args(&self, m: usize, configs_len: usize, callbacks_len: usize) -> Result<()> {
         if m > 32 {
             return Err(RealizarError::UnsupportedOperation {

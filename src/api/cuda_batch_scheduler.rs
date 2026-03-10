@@ -195,16 +195,14 @@ fn process_cuda_batch(
         }
     };
 
-    // Phase 2: Decode loop with mid-batch joins (PMAT-073)
+    // Phase 2: Decode loop with mid-batch joins (PMAT-073) and slot recycling (PMAT-074)
     // Lock per step (~19ms per acquire vs ~660ms total).
-    // Between steps, check for pending requests to join the running batch.
+    // Between steps: (1) fill empty pre-allocated slots, (2) recycle finished slots.
     while !state.all_done() && state.gen_idx < state.max_tokens_max {
         let token_ids = {
             let mut cuda_model = model.write().expect("PMAT-072: model lock poisoned");
 
-            // PMAT-073: Check for pending requests to join mid-batch.
-            // Prefill happens under the same lock acquisition as the decode step
-            // to avoid an extra lock round-trip.
+            // PMAT-073: Check for pending requests to join mid-batch (fill empty slots).
             while state.m < state.max_kv_slots {
                 match rx.try_recv() {
                     Ok(req) => {
@@ -231,11 +229,44 @@ fn process_cuda_batch(
                 }
             }
 
+            // PMAT-074: Slot recycling — reuse finished slots for pending requests.
+            // Iterates done slots and recycles each one that has a pending request.
+            // This is the llama.cpp continuous batching model: slots immediately refilled.
+            for slot_idx in 0..state.m {
+                if !state.done[slot_idx] {
+                    continue;
+                }
+                match rx.try_recv() {
+                    Ok(req) => {
+                        let error_tx = req.token_tx.clone();
+                        let prompt_ids = req.prompt_ids;
+                        let config = req.config;
+                        let token_tx = req.token_tx;
+                        let on_token: Box<dyn FnMut(u32) -> bool + Send> =
+                            Box::new(move |token_id: u32| -> bool {
+                                token_tx.try_send(Ok(token_id)).is_ok()
+                            });
+                        match cuda_model
+                            .recycle_slot(&mut state, slot_idx, prompt_ids, config, on_token)
+                        {
+                            Ok(()) => {
+                                error_senders[slot_idx] = error_tx;
+                            },
+                            Err(e) => {
+                                eprintln!("[PMAT-074] Slot recycle FAILED (slot {slot_idx}): {e}");
+                                let _ = error_tx.try_send(Err(e.to_string()));
+                            },
+                        }
+                    },
+                    Err(_) => break, // No pending requests
+                }
+            }
+
             match cuda_model.batched_decode_step(&mut state) {
                 Ok(ids) => ids,
                 Err(e) => {
                     eprintln!(
-                        "[PMAT-073] Decode step ERROR (m={}, step={}): {e}",
+                        "[PMAT-074] Decode step ERROR (m={}, step={}): {e}",
                         state.m, state.gen_idx
                     );
                     for tx in &error_senders {
