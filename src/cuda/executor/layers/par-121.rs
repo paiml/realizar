@@ -333,7 +333,18 @@ impl CudaExecutor {
             pos_buf.copy_from_host(positions)?;
         }
 
-        let seq_lens: Vec<u32> = positions.iter().map(|&p| p + 1).collect();
+        let seq_lens: Vec<u32> = positions
+            .iter()
+            .enumerate()
+            .map(|(seq_idx, &p)| {
+                // PMAT-076: Zero seq_lens for done slots in graph replay path.
+                if seq_idx < self.batched_done_mask.len() && self.batched_done_mask[seq_idx] {
+                    0
+                } else {
+                    p + 1
+                }
+            })
+            .collect();
         if let Some(ref mut len_buf) = self.batched_graph_seq_lens_buf {
             len_buf.copy_from_host(&seq_lens)?;
         }

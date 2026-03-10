@@ -553,6 +553,11 @@ pub struct CudaExecutor {
     // Set to true after q8_quantize_into; callers invalidate (set false)
     // when the input buffer content changes (e.g. after RMSNorm write).
     q8_activation_valid: bool,
+    // PMAT-076: Dead slot mask for batched decode — set by batched_decode_step
+    // before forward pass. Attention kernel reads seq_lens=0 for done slots,
+    // triggering early-exit (zero KV iterations). Avoids wasted attention on
+    // slots that have emitted EOS or hit max_tokens.
+    pub(crate) batched_done_mask: Vec<bool>,
     // PMAT-061: cuBLAS HGEMM for M>1 decode — set by generate_batched_streaming
     // when FP16 weight cache is retained during decode. Routes batched GEMV
     // through cuBLAS tensor cores instead of compute-bound DP4A GEMV.
