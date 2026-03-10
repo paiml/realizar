@@ -34,13 +34,13 @@ impl Default for CudaBatchConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(4);
-        // PMAT-063: Default 1ms window — minimal latency while allowing concurrent
-        // requests to batch naturally. 0ms has a batched decode bug with batch_size=1.
+        // PMAT-068: Default 0ms window — zero-latency c=1, requests batch naturally
+        // at c>1 from queue contention. Saves ~1ms TTFT at c=1.
         // Override with CUDA_BATCH_WINDOW_MS=10 for throughput-optimized batching.
         let window_ms = std::env::var("CUDA_BATCH_WINDOW_MS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(1);
+            .unwrap_or(0);
         Self {
             max_batch,
             window_ms,

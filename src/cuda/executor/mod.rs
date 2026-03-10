@@ -544,7 +544,7 @@ pub struct CudaExecutor {
     // Uses std::time::Instant + CUDA sync for accurate GPU timing
     profiler: trueno::BrickProfiler,
     // Auto-detected GPU kernel configuration (replaces env var tuning)
-    gpu_profile: GpuProfile,
+    pub(crate) gpu_profile: GpuProfile,
     // Number of SMs on this GPU (e.g. 8 for Jetson Orin, 128 for RTX 4090).
     // Used to scale GEMV grid dimensions for optimal occupancy.
     num_sms: u32,

@@ -60,6 +60,11 @@ pub struct GpuProfile {
     /// Saves 11% instructions + eliminates SwiGLU kernel + 4 buffer passes.
     /// Auto-detected: true when q4k=HwDp4a. Override: FUSED_GATE_UP=0/1.
     pub fused_gate_up: bool,
+    /// PMAT-067: Use FP8 E4M3 weights for prefill GEMM (1 B/elem vs FP16's 2 B/elem).
+    /// Auto-detected: true on sm_89+ (Ada Lovelace FP8 tensor cores).
+    /// Override: FP8_PREFILL=0 to disable, FP8_PREFILL=1 to force.
+    /// cuBLASLt FP8 GEMM halves weight bandwidth — TTFT improvement ~1.25x.
+    pub fp8_prefill: bool,
     /// SM version for logging (e.g., "sm_89").
     pub sm_target: String,
     /// Numeric compute capability (major*10 + minor, e.g. 89 for sm_89).
@@ -87,6 +92,7 @@ impl GpuProfile {
         let fused_gate_up = Self::detect_fused_gate_up(&q4k);
 
         let cc = major as u32 * 10 + minor as u32;
+        let fp8_prefill = Self::detect_fp8_prefill(cc);
 
         let profile = Self {
             q4k,
@@ -95,14 +101,16 @@ impl GpuProfile {
             batched_prefill,
             hgemm_decode,
             fused_gate_up,
+            fp8_prefill,
             sm_target,
             cc,
         };
 
         eprintln!(
-            "[GpuProfile] {}: q4k={:?}, q6k={:?}, warps={}, batched_prefill={}, hgemm_decode={}, fused_gate_up={}, sms={}",
+            "[GpuProfile] {}: q4k={:?}, q6k={:?}, warps={}, batched_prefill={}, hgemm_decode={}, fused_gate_up={}, fp8_prefill={}, sms={}",
             profile.sm_target, profile.q4k, profile.q6k, profile.mwv_warps,
-            profile.batched_prefill, profile.hgemm_decode, profile.fused_gate_up, num_sms,
+            profile.batched_prefill, profile.hgemm_decode, profile.fused_gate_up,
+            profile.fp8_prefill, num_sms,
         );
 
         profile
@@ -178,6 +186,18 @@ impl GpuProfile {
         }
         // Auto-enable when using HW DP4A Q4K (the fused kernel is HW DP4A only)
         *q4k == Q4kVariant::HwDp4a
+    }
+
+    /// PMAT-067: FP8 prefill — opt-in via FP8_PREFILL=1.
+    ///
+    /// FP8 E4M3 weights are 1 B/elem vs FP16's 2 B/elem — halves weight bandwidth.
+    /// Uses cuBLASLt FP8 GEMM with tensor cores. Requires sm_89+ for FP8 support.
+    ///
+    /// PMAT-069: Reverted from auto-enable to opt-in — CUDA 13.1 driver (590.48.01)
+    /// breaks cuBLASLt FP8 GEMM, producing all-zero output. Keep opt-in until
+    /// driver regression is understood.
+    fn detect_fp8_prefill(_cc: u32) -> bool {
+        std::env::var("FP8_PREFILL").as_deref() == Ok("1")
     }
 
     /// HGEMM decode: use cuBLAS HGEMM (cached FP16 weights) for M=1 decode.

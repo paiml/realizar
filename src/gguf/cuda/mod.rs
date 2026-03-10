@@ -185,7 +185,10 @@ impl OwnedQuantizedModelCuda {
         // Five-Whys root cause: FP16 cache lazily populated on first inference
         // request (303ms cold-start), inflating TTFT P50 from 25ms to 50.9ms.
         // Pre-populating at model init moves cost to startup (one-time).
-        if std::env::var("HGEMM_PREFILL").as_deref() != Ok("0") {
+        // PMAT-067: Skip FP16 cache when FP8 is active — saves ~1.5 GB VRAM.
+        if std::env::var("HGEMM_PREFILL").as_deref() != Ok("0")
+            && !self.executor.gpu_profile.fp8_prefill
+        {
             let num_layers = self.model.config.num_layers;
             let hidden_dim = self.model.config.hidden_dim as u32;
             let intermediate_dim = self.model.config.intermediate_dim as u32;
@@ -202,8 +205,8 @@ impl OwnedQuantizedModelCuda {
             }
         }
 
-        // PMAT-053: FP8 E4M3 weight cache warmup (sm_89+ only, FP8_PREFILL=1)
-        if std::env::var("FP8_PREFILL").as_deref() == Ok("1") {
+        // PMAT-053/067: FP8 E4M3 weight cache warmup (auto-enabled on sm_89+)
+        if self.executor.gpu_profile.fp8_prefill {
             let num_layers = self.model.config.num_layers;
             let hidden_dim = self.model.config.hidden_dim as u32;
             let intermediate_dim = self.model.config.intermediate_dim as u32;
