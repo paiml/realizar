@@ -155,30 +155,67 @@ fn process_cuda_batch(
         return;
     }
 
-    // Multi-request — use batched streaming
+    // PMAT-072: Step-wise batched generation with per-step lock release.
+    // Lock held ~19ms per decode step instead of ~660ms for entire batch.
+    // Enables PMAT-073 mid-batch joins and reduces lock contention.
     let prompts: Vec<Vec<u32>> = batch.iter().map(|r| r.prompt_ids.clone()).collect();
     let configs: Vec<QuantizedGenerateConfig> = batch.iter().map(|r| r.config.clone()).collect();
 
-    // Create per-slot streaming callbacks
-    let senders: Vec<tokio::sync::mpsc::Sender<Result<u32, String>>> =
+    // Keep senders for error reporting (callbacks consume batch ownership)
+    let error_senders: Vec<tokio::sync::mpsc::Sender<Result<u32, String>>> =
         batch.iter().map(|r| r.token_tx.clone()).collect();
 
-    let callbacks: Vec<Box<dyn FnMut(u32) -> bool + Send>> = senders
+    let callbacks: Vec<Box<dyn FnMut(u32) -> bool + Send>> = batch
         .into_iter()
-        .map(|tx| {
-            Box::new(move |token_id: u32| -> bool { tx.try_send(Ok(token_id)).is_ok() })
+        .map(|req| {
+            Box::new(move |token_id: u32| -> bool { req.token_tx.try_send(Ok(token_id)).is_ok() })
                 as Box<dyn FnMut(u32) -> bool + Send>
         })
         .collect();
 
-    let mut cuda_model = model.write().expect("PMAT-044: model lock poisoned");
-    let result = cuda_model.generate_batched_streaming(&prompts, &configs, callbacks);
-
-    if let Err(e) = result {
-        eprintln!("[PMAT-044] Batched streaming ERROR (m={m}): {e}");
-        // Send error to all slots
-        for req in &batch {
-            let _ = req.token_tx.try_send(Err(e.to_string()));
+    // Phase 1: Setup + Prefill (under lock)
+    let mut state = {
+        let mut cuda_model = model.write().expect("PMAT-072: model lock poisoned");
+        match cuda_model.batched_setup_and_prefill(&prompts, &configs, callbacks) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[PMAT-072] Setup+prefill ERROR (m={m}): {e}");
+                for tx in &error_senders {
+                    let _ = tx.try_send(Err(e.to_string()));
+                }
+                return;
+            },
         }
+    };
+
+    // Phase 2: Decode loop (lock per step — ~19ms per acquire vs ~660ms total)
+    while !state.all_done() && state.gen_idx < state.max_tokens_max {
+        let token_ids = {
+            let mut cuda_model = model.write().expect("PMAT-072: model lock poisoned");
+            match cuda_model.batched_decode_step(&mut state) {
+                Ok(ids) => ids,
+                Err(e) => {
+                    eprintln!(
+                        "[PMAT-072] Decode step ERROR (m={m}, step={}): {e}",
+                        state.gen_idx
+                    );
+                    for tx in &error_senders {
+                        let _ = tx.try_send(Err(e.to_string()));
+                    }
+                    // Still need cleanup under lock
+                    cuda_model.batched_cleanup(&state);
+                    return;
+                },
+            }
+        };
+
+        // Token distribution runs WITHOUT model lock — SSE callbacks only
+        state.distribute_tokens(&token_ids);
+    }
+
+    // Phase 3: Cleanup (under lock)
+    {
+        let mut cuda_model = model.write().expect("PMAT-072: model lock poisoned");
+        cuda_model.batched_cleanup(&state);
     }
 }

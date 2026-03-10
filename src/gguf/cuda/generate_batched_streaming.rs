@@ -1,3 +1,85 @@
+/// PMAT-072: Decode state for step-wise batched generation.
+///
+/// Extracted from `generate_batched_streaming` to allow lock release between
+/// decode steps. The scheduler acquires the model lock for ~19ms per step
+/// instead of ~660ms for the entire batch.
+pub struct BatchedDecodeState {
+    /// Number of concurrent slots (batch size)
+    pub m: usize,
+    /// Maximum tokens to generate across all slots
+    pub max_tokens_max: usize,
+    /// Current decode step index (incremented by `distribute_tokens`)
+    pub gen_idx: usize,
+    /// Model hidden dimension (for embedding buffer sizing)
+    pub hidden_dim: usize,
+    /// Model intermediate dimension (for workspace cleanup)
+    pub intermediate_dim: usize,
+    /// Number of transformer layers
+    pub num_layers: usize,
+    /// Vocabulary size
+    pub vocab_size: usize,
+    /// Layer norm epsilon
+    pub eps: f32,
+    /// Original prompts per slot (for generated-length tracking)
+    pub prompts: Vec<Vec<u32>>,
+    /// Generation config per slot (stop tokens, max tokens)
+    pub configs: Vec<QuantizedGenerateConfig>,
+    /// Per-slot streaming callbacks (SSE token delivery)
+    pub on_tokens: Vec<Box<dyn FnMut(u32) -> bool + Send>>,
+    /// Accumulated sequences per slot (prompt + generated tokens)
+    pub sequences: Vec<Vec<u32>>,
+    /// Current position per slot (for RoPE)
+    pub positions: Vec<usize>,
+    /// Last generated token per slot (input for next decode step)
+    pub last_tokens: Vec<u32>,
+    /// Whether each slot has finished generating
+    pub done: Vec<bool>,
+    /// Pre-allocated embedding buffer `[m × hidden_dim]`
+    pub embed_buf: Vec<f32>,
+}
+
+impl BatchedDecodeState {
+    /// Distribute generated tokens to SSE callbacks. No model lock needed.
+    ///
+    /// Returns true if all slots are done.
+    pub fn distribute_tokens(&mut self, token_ids: &[u32]) -> bool {
+        for slot_idx in 0..self.m {
+            if self.done[slot_idx] {
+                continue;
+            }
+
+            let next_token = token_ids[slot_idx];
+
+            if self.configs[slot_idx].stop_tokens.contains(&next_token) {
+                self.done[slot_idx] = true;
+                continue;
+            }
+
+            self.sequences[slot_idx].push(next_token);
+
+            if !self.on_tokens[slot_idx](next_token) {
+                self.done[slot_idx] = true;
+                continue;
+            }
+
+            self.last_tokens[slot_idx] = next_token;
+            self.positions[slot_idx] += 1;
+
+            let generated = self.sequences[slot_idx].len() - self.prompts[slot_idx].len();
+            if generated >= self.configs[slot_idx].max_tokens {
+                self.done[slot_idx] = true;
+            }
+        }
+        self.gen_idx += 1;
+        self.done.iter().all(|&d| d)
+    }
+
+    /// Check if all slots have finished generating.
+    pub fn all_done(&self) -> bool {
+        self.done.iter().all(|&d| d)
+    }
+}
+
 /// PMAT-044: Streaming batched generation for continuous batching
 ///
 /// Processes M requests concurrently using batched GEMV (weight sharing):
@@ -13,11 +95,9 @@
 impl OwnedQuantizedModelCuda {
     /// Generate tokens for M requests with per-request streaming callbacks.
     ///
-    /// Each callback receives token IDs as they're generated and can return
-    /// `false` to stop that request early (EOS or client disconnect).
-    ///
-    /// Uses PAR-111 batched GEMV + PAR-119 per-slot GPU KV caches for
-    /// true weight sharing across concurrent requests.
+    /// Backward-compatible wrapper around the PMAT-072 step-wise API.
+    /// For lock-releasing batched decode, use `batched_setup_and_prefill`,
+    /// `batched_decode_step`, and `batched_cleanup` directly.
     pub fn generate_batched_streaming(
         &mut self,
         prompts: &[Vec<u32>],
@@ -26,10 +106,37 @@ impl OwnedQuantizedModelCuda {
     ) -> Result<Vec<Vec<u32>>> {
         let m = prompts.len();
         eprintln!("[PMAT-044] generate_batched_streaming ENTRY m={m}");
-        self.validate_batch_args(m, configs.len(), on_tokens.len())?;
         if m == 0 {
             return Ok(Vec::new());
         }
+
+        let mut state = self.batched_setup_and_prefill(prompts, configs, on_tokens)?;
+
+        while !state.all_done() && state.gen_idx < state.max_tokens_max {
+            let token_ids = self.batched_decode_step(&mut state)?;
+            state.distribute_tokens(&token_ids);
+        }
+
+        self.batched_cleanup(&state);
+
+        Ok(state.sequences)
+    }
+
+    /// PMAT-072: Setup and prefill phase for step-wise batched generation.
+    ///
+    /// Performs validation, graph clearing, workspace init, KV cache allocation,
+    /// and prefill. Returns a `BatchedDecodeState` for use with `batched_decode_step`.
+    ///
+    /// Caller must hold model write lock for the duration of this call.
+    pub fn batched_setup_and_prefill(
+        &mut self,
+        prompts: &[Vec<u32>],
+        configs: &[QuantizedGenerateConfig],
+        on_tokens: Vec<Box<dyn FnMut(u32) -> bool + Send>>,
+    ) -> Result<BatchedDecodeState> {
+        let m = prompts.len();
+        eprintln!("[PMAT-072] batched_setup_and_prefill ENTRY m={m}");
+        self.validate_batch_args(m, configs.len(), on_tokens.len())?;
 
         self.executor
             .make_current()
@@ -94,7 +201,7 @@ impl OwnedQuantizedModelCuda {
         self.executor.reset_batched_kv_cache_gpu();
 
         // Prefill each slot with HGEMM (FP16 present) + D2D scatter to batched KV.
-        let (mut sequences, mut positions, mut last_tokens) =
+        let (sequences, positions, last_tokens) =
             self.prefill_and_scatter(prompts, &mut caches)?;
 
         // PMAT-062: DP4A GEMV for batched decode (default), not cuBLAS HGEMM.
@@ -126,25 +233,116 @@ impl OwnedQuantizedModelCuda {
         // reallocation if batch_size matches (PMAT-045), preserving batched graphs.
         self.executor.clear_decode_graph();
 
-        // Decode phase: batched
-        let mut done = vec![false; m];
-        self.decode_batched(
+        let embed_buf = vec![0.0f32; m * hidden_dim];
+        let done = vec![false; m];
+
+        Ok(BatchedDecodeState {
             m,
             max_tokens_max,
+            gen_idx: 0,
             hidden_dim,
             intermediate_dim,
             num_layers,
             vocab_size,
             eps,
-            prompts,
-            configs,
+            prompts: prompts.to_vec(),
+            configs: configs.to_vec(),
             on_tokens,
-            &mut sequences,
-            &mut positions,
-            &mut last_tokens,
-            &mut done,
-        )?;
+            sequences,
+            positions,
+            last_tokens,
+            done,
+            embed_buf,
+        })
+    }
 
+    /// PMAT-072: Single decode step for step-wise batched generation.
+    ///
+    /// Embeds current tokens, runs one forward pass, returns raw token IDs.
+    /// Call `state.distribute_tokens(&token_ids)` after releasing the model lock
+    /// to deliver tokens to SSE callbacks without holding the lock.
+    ///
+    /// Caller must hold model write lock for the duration of this call.
+    pub fn batched_decode_step(
+        &mut self,
+        state: &mut BatchedDecodeState,
+    ) -> Result<Vec<u32>> {
+        // Embed all tokens into state's pre-allocated buffer
+        for slot_idx in 0..state.m {
+            let offset = slot_idx * state.hidden_dim;
+            if state.done[slot_idx] {
+                state.embed_buf[offset..offset + state.hidden_dim].fill(0.0);
+            } else {
+                self.model.embed_into(
+                    state.last_tokens[slot_idx],
+                    &mut state.embed_buf[offset..offset + state.hidden_dim],
+                );
+            }
+        }
+
+        let pos_u32: Vec<u32> = state.positions.iter().map(|&p| p as u32).collect();
+
+        if state.gen_idx < 3 {
+            eprintln!(
+                "[PMAT-072] decode step {}: positions={pos_u32:?}, last_tokens={:?}",
+                state.gen_idx, state.last_tokens
+            );
+        }
+
+        // PMAT-056: Multi-stream root cause fixed (scatter moved to self.stream),
+        // but graph replay still 25% slower than eager due to capture overhead.
+        // Keep eager by default until graph replay is optimized.
+        // Enable with BATCHED_GRAPH=1 for testing.
+        let use_graph = std::env::var("BATCHED_GRAPH").as_deref() == Ok("1");
+        let token_ids = if use_graph {
+            self.executor
+                .forward_batched_to_token_ids_graphed(
+                    &state.embed_buf,
+                    &pos_u32,
+                    state.num_layers,
+                    state.hidden_dim as u32,
+                    state.intermediate_dim as u32,
+                    state.vocab_size as u32,
+                    state.eps,
+                )
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "forward_batched_to_token_ids_graphed".to_string(),
+                    reason: format!("Batched forward failed: {e}"),
+                })?
+        } else {
+            self.executor
+                .forward_batched_to_token_ids(
+                    &state.embed_buf,
+                    &pos_u32,
+                    state.num_layers,
+                    state.hidden_dim as u32,
+                    state.intermediate_dim as u32,
+                    state.vocab_size as u32,
+                    state.eps,
+                )
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "forward_batched_to_token_ids".to_string(),
+                    reason: format!("Batched forward failed: {e}"),
+                })?
+        };
+
+        if state.gen_idx < 3 {
+            eprintln!(
+                "[PMAT-072] decode step {}: token_ids={token_ids:?}, done={:?}",
+                state.gen_idx, state.done
+            );
+        }
+
+        Ok(token_ids)
+    }
+
+    /// PMAT-072: Cleanup after step-wise batched generation.
+    ///
+    /// Resets workspace to M=1 sizing, frees batched KV caches, restores
+    /// FP16 weight cache for subsequent single-request inference.
+    ///
+    /// Caller must hold model write lock for the duration of this call.
+    pub fn batched_cleanup(&mut self, state: &BatchedDecodeState) {
         // PMAT-061: Disable HGEMM batched decode flag before cleanup.
         self.executor.hgemm_batched_decode_active = false;
 
@@ -155,7 +353,7 @@ impl OwnedQuantizedModelCuda {
         self.executor.clear_workspace();
         let _ = self
             .executor
-            .init_workspace(hidden_dim, intermediate_dim);
+            .init_workspace(state.hidden_dim, state.intermediate_dim);
 
         // PMAT-044 FIX: Reset batched KV state so subsequent M=1 prefill doesn't
         // take the batched attention path (batched_ffn.rs line 37). Without this,
@@ -173,14 +371,12 @@ impl OwnedQuantizedModelCuda {
         } else if !self.executor.has_fp16_weight_cache() {
             // FP16 was never populated (HGEMM_PREFILL=0) — rebuild for c=1 HGEMM prefill.
             let _ = self.executor.warmup_hgemm_cache(
-                num_layers,
-                hidden_dim as u32,
-                intermediate_dim as u32,
-                vocab_size as u32,
+                state.num_layers,
+                state.hidden_dim as u32,
+                state.intermediate_dim as u32,
+                state.vocab_size as u32,
             );
         }
-
-        Ok(sequences)
     }
 
     fn validate_batch_args(&self, m: usize, configs_len: usize, callbacks_len: usize) -> Result<()> {
@@ -322,138 +518,5 @@ impl OwnedQuantizedModelCuda {
             prompts.iter().map(|p| p.len() as f64).sum::<f64>() / prefill_elapsed.as_secs_f64(),
         );
         Ok((sequences, positions, last_tokens))
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn decode_batched(
-        &mut self,
-        m: usize,
-        max_tokens_max: usize,
-        hidden_dim: usize,
-        intermediate_dim: usize,
-        num_layers: usize,
-        vocab_size: usize,
-        eps: f32,
-        prompts: &[Vec<u32>],
-        configs: &[QuantizedGenerateConfig],
-        mut on_tokens: Vec<Box<dyn FnMut(u32) -> bool + Send>>,
-        sequences: &mut [Vec<u32>],
-        positions: &mut [usize],
-        last_tokens: &mut [u32],
-        done: &mut [bool],
-    ) -> Result<()> {
-        let mut embed_buf = vec![0.0f32; m * hidden_dim];
-
-        for gen_idx in 0..max_tokens_max {
-            if done.iter().all(|&d| d) {
-                break;
-            }
-
-            // Embed all tokens
-            for slot_idx in 0..m {
-                let offset = slot_idx * hidden_dim;
-                if done[slot_idx] {
-                    embed_buf[offset..offset + hidden_dim].fill(0.0);
-                } else {
-                    self.model
-                        .embed_into(last_tokens[slot_idx], &mut embed_buf[offset..offset + hidden_dim]);
-                }
-            }
-
-            let pos_u32: Vec<u32> = positions.iter().map(|&p| p as u32).collect();
-
-            if gen_idx < 3 {
-                eprintln!("[PMAT-044] decode step {gen_idx}: positions={pos_u32:?}, last_tokens={last_tokens:?}");
-            }
-
-            // PMAT-056: Multi-stream root cause fixed (scatter moved to self.stream),
-            // but graph replay still 25% slower than eager due to capture overhead.
-            // Keep eager by default until graph replay is optimized.
-            // Enable with BATCHED_GRAPH=1 for testing.
-            let use_graph = std::env::var("BATCHED_GRAPH").as_deref() == Ok("1");
-            let token_ids = if use_graph {
-                self.executor
-                    .forward_batched_to_token_ids_graphed(
-                        &embed_buf,
-                        &pos_u32,
-                        num_layers,
-                        hidden_dim as u32,
-                        intermediate_dim as u32,
-                        vocab_size as u32,
-                        eps,
-                    )
-                    .map_err(|e| RealizarError::UnsupportedOperation {
-                        operation: "forward_batched_to_token_ids_graphed".to_string(),
-                        reason: format!("Batched forward failed: {e}"),
-                    })?
-            } else {
-                self.executor
-                    .forward_batched_to_token_ids(
-                        &embed_buf,
-                        &pos_u32,
-                        num_layers,
-                        hidden_dim as u32,
-                        intermediate_dim as u32,
-                        vocab_size as u32,
-                        eps,
-                    )
-                    .map_err(|e| RealizarError::UnsupportedOperation {
-                        operation: "forward_batched_to_token_ids".to_string(),
-                        reason: format!("Batched forward failed: {e}"),
-                    })?
-            };
-
-            if gen_idx < 3 {
-                eprintln!("[PMAT-044] decode step {gen_idx}: token_ids={token_ids:?}, done={done:?}");
-            }
-
-            self.distribute_tokens(
-                m, prompts, configs, &mut on_tokens, &token_ids, sequences, positions,
-                last_tokens, done,
-            );
-        }
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn distribute_tokens(
-        &self,
-        m: usize,
-        prompts: &[Vec<u32>],
-        configs: &[QuantizedGenerateConfig],
-        on_tokens: &mut [Box<dyn FnMut(u32) -> bool + Send>],
-        token_ids: &[u32],
-        sequences: &mut [Vec<u32>],
-        positions: &mut [usize],
-        last_tokens: &mut [u32],
-        done: &mut [bool],
-    ) {
-        for slot_idx in 0..m {
-            if done[slot_idx] {
-                continue;
-            }
-
-            let next_token = token_ids[slot_idx];
-
-            if configs[slot_idx].stop_tokens.contains(&next_token) {
-                done[slot_idx] = true;
-                continue;
-            }
-
-            sequences[slot_idx].push(next_token);
-
-            if !on_tokens[slot_idx](next_token) {
-                done[slot_idx] = true;
-                continue;
-            }
-
-            last_tokens[slot_idx] = next_token;
-            positions[slot_idx] += 1;
-
-            let generated = sequences[slot_idx].len() - prompts[slot_idx].len();
-            if generated >= configs[slot_idx].max_tokens {
-                done[slot_idx] = true;
-            }
-        }
     }
 }

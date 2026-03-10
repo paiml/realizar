@@ -41,6 +41,8 @@ mod weights;
 
 // Re-export types for public API
 pub use backend::CudaBackend;
+// PMAT-072: Step-wise batched decode state for lock-releasing scheduler
+pub use generation::BatchedDecodeState;
 
 use crate::error::{RealizarError, Result};
 
