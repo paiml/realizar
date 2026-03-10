@@ -56,6 +56,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
+            cached_architecture: None,
+            cached_eos_token_id: None,
             verbose: false,
         })
     }
@@ -104,6 +106,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
+            cached_architecture: None,
+            cached_eos_token_id: None,
             verbose: false,
         })
     }
@@ -156,6 +160,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
+            cached_architecture: None,
+            cached_eos_token_id: None,
             verbose: false,
         })
     }
@@ -181,6 +187,11 @@ impl AppState {
         vocab: Vec<String>,
     ) -> Result<Self, RealizarError> {
         let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>")?;
+        // PMAT-073: Cache architecture at construction to avoid RwLock in hot path.
+        // model_architecture() was blocking HTTP handlers for ~2s due to read lock
+        // contention with the batch scheduler's write lock.
+        let arch = Some(cuda_model.model().config.architecture.clone());
+        let eos = cuda_model.model().config.eos_token_id;
 
         let (audit_logger, audit_sink) = create_audit_state();
         Ok(Self {
@@ -210,6 +221,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
+            cached_architecture: arch,
+            cached_eos_token_id: eos,
             verbose: false,
         })
     }
@@ -225,6 +238,8 @@ impl AppState {
         merges: Vec<(String, String)>,
     ) -> Result<Self, RealizarError> {
         let tokenizer = BPETokenizer::with_merges(vocab, merges, "<unk>")?;
+        let arch = Some(cuda_model.model().config.architecture.clone());
+        let eos = cuda_model.model().config.eos_token_id;
 
         let (audit_logger, audit_sink) = create_audit_state();
         Ok(Self {
@@ -256,6 +271,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
+            cached_architecture: arch,
+            cached_eos_token_id: eos,
             verbose: false,
         })
     }
@@ -309,6 +326,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: Some(Arc::new(transformer)),
+            cached_architecture: None,
+            cached_eos_token_id: None,
             verbose: false,
         })
     }
@@ -481,6 +500,8 @@ impl AppState {
             cuda_batch_tx: None,
             apr_q4k_tx: Some(q4k_tx),
             apr_transformer: None,
+            cached_architecture: None,
+            cached_eos_token_id: None,
             verbose: false,
         })
     }
@@ -511,6 +532,13 @@ impl AppState {
     /// Returns the architecture string (e.g., "qwen2", "llama", "phi2").
     #[must_use]
     pub fn model_architecture(&self) -> Option<String> {
+        // PMAT-073: Return cached architecture to avoid RwLock contention.
+        // The CUDA model read lock blocks HTTP handlers for ~2s when the batch
+        // scheduler holds the write lock during decode steps.
+        if let Some(arch) = &self.cached_architecture {
+            return Some(arch.clone());
+        }
+
         // Check quantized model first (most common GGUF path)
         if let Some(qm) = &self.quantized_model {
             return Some(qm.config.architecture.clone());
@@ -527,14 +555,6 @@ impl AppState {
             return Some(cm.model().config.architecture.clone());
         }
 
-        // Check CUDA model (requires read lock)
-        #[cfg(feature = "cuda")]
-        if let Some(cuda) = &self.cuda_model {
-            if let Ok(m) = cuda.read() {
-                return Some(m.model().config.architecture.clone());
-            }
-        }
-
         // GpuModel doesn't carry architecture info
         None
     }
@@ -545,6 +565,10 @@ impl AppState {
     /// token as a class invariant. Callers must NOT fall back to hardcoded values.
     #[must_use]
     pub fn model_eos_token_id(&self) -> Option<u32> {
+        // PMAT-073: Return cached EOS to avoid RwLock contention
+        if self.cached_eos_token_id.is_some() {
+            return self.cached_eos_token_id;
+        }
         if let Some(qm) = &self.quantized_model {
             return qm.config.eos_token_id;
         }
@@ -554,12 +578,6 @@ impl AppState {
         #[cfg(feature = "gpu")]
         if let Some(cm) = &self.cached_model {
             return cm.model().config.eos_token_id;
-        }
-        #[cfg(feature = "cuda")]
-        if let Some(cuda) = &self.cuda_model {
-            if let Ok(m) = cuda.read() {
-                return m.model().config.eos_token_id;
-            }
         }
         None
     }

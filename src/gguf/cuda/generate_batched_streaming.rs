@@ -6,6 +6,8 @@
 pub struct BatchedDecodeState {
     /// Number of concurrent slots (batch size)
     pub m: usize,
+    /// Maximum KV cache slots pre-allocated (for PMAT-073 mid-batch joins)
+    pub max_kv_slots: usize,
     /// Maximum tokens to generate across all slots
     pub max_tokens_max: usize,
     /// Current decode step index (incremented by `distribute_tokens`)
@@ -110,7 +112,7 @@ impl OwnedQuantizedModelCuda {
             return Ok(Vec::new());
         }
 
-        let mut state = self.batched_setup_and_prefill(prompts, configs, on_tokens)?;
+        let mut state = self.batched_setup_and_prefill(prompts, configs, on_tokens, m)?;
 
         while !state.all_done() && state.gen_idx < state.max_tokens_max {
             let token_ids = self.batched_decode_step(&mut state)?;
@@ -133,6 +135,7 @@ impl OwnedQuantizedModelCuda {
         prompts: &[Vec<u32>],
         configs: &[QuantizedGenerateConfig],
         on_tokens: Vec<Box<dyn FnMut(u32) -> bool + Send>>,
+        max_kv_slots: usize,
     ) -> Result<BatchedDecodeState> {
         let m = prompts.len();
         eprintln!("[PMAT-072] batched_setup_and_prefill ENTRY m={m}");
@@ -192,11 +195,14 @@ impl OwnedQuantizedModelCuda {
         //          RTX 4060L has ~7.5 GB usable → fits with 2.8-3.6 GB headroom.
         // Fix: Keep FP16 during prefill, allocate batched KV, D2D scatter, THEN clear FP16.
         // GH-141 ILLEGAL_ADDRESS was from a different root cause (stale graph pointers).
+        // PMAT-073: Pre-allocate batched KV for max_kv_slots to enable mid-batch joins.
+        // Extra slots cost ~224 MB/slot but avoid reallocation when new requests join.
+        let kv_alloc = max_kv_slots.max(m);
         self.executor
-            .init_batched_kv_cache_gpu(num_layers, m)
+            .init_batched_kv_cache_gpu(num_layers, kv_alloc)
             .map_err(|e| RealizarError::UnsupportedOperation {
                 operation: "init_batched_kv_cache_gpu".to_string(),
-                reason: format!("Failed to init batched KV cache for M={m}: {e}"),
+                reason: format!("Failed to init batched KV cache for M={kv_alloc}: {e}"),
             })?;
         self.executor.reset_batched_kv_cache_gpu();
 
@@ -238,6 +244,7 @@ impl OwnedQuantizedModelCuda {
 
         Ok(BatchedDecodeState {
             m,
+            max_kv_slots: kv_alloc,
             max_tokens_max,
             gen_idx: 0,
             hidden_dim,
@@ -284,8 +291,8 @@ impl OwnedQuantizedModelCuda {
 
         if state.gen_idx < 3 {
             eprintln!(
-                "[PMAT-072] decode step {}: positions={pos_u32:?}, last_tokens={:?}",
-                state.gen_idx, state.last_tokens
+                "[PMAT-072] decode step {}: positions={:?}, last_tokens={:?}",
+                state.gen_idx, &pos_u32[..state.m], state.last_tokens
             );
         }
 
@@ -377,6 +384,102 @@ impl OwnedQuantizedModelCuda {
                 state.vocab_size as u32,
             );
         }
+    }
+
+    /// PMAT-073: Add a new request to a running batch mid-generation.
+    ///
+    /// Prefills the new slot using M=1 forward, scatters KV to the batched cache
+    /// at the next available slot index, and extends the decode state.
+    ///
+    /// Caller must hold model write lock for the duration of this call.
+    /// The prefill takes ~40-130ms depending on prompt length (one-time cost
+    /// that briefly increases ITL for existing slots).
+    pub fn add_slot_to_batch(
+        &mut self,
+        state: &mut BatchedDecodeState,
+        prompt: Vec<u32>,
+        config: QuantizedGenerateConfig,
+        on_token: Box<dyn FnMut(u32) -> bool + Send>,
+    ) -> Result<()> {
+        let new_slot = state.m;
+        if new_slot >= state.max_kv_slots {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "add_slot_to_batch".to_string(),
+                reason: format!(
+                    "PMAT-073: batch full (m={}, max_kv_slots={})",
+                    state.m, state.max_kv_slots
+                ),
+            });
+        }
+
+        let seq_len = prompt.len().saturating_sub(1);
+        let prefill_start = std::time::Instant::now();
+
+        // Clear decode graphs — M=1 prefill uses different kernel config
+        self.executor.clear_decode_graph();
+        self.executor.clear_batched_decode_graphs();
+
+        // Init workspace for prefill (high-water mark, usually no realloc)
+        self.executor
+            .init_prefill_workspace(seq_len, state.hidden_dim, state.intermediate_dim)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "add_slot_prefill_workspace".to_string(),
+                reason: format!("PMAT-073: workspace init for slot {new_slot}: {e}"),
+            })?;
+
+        // Prefill using M=1 path (writes to single-slot KV cache)
+        let kv_dim = self.model.config.num_kv_heads
+            * (self.model.config.hidden_dim / self.model.config.num_heads);
+        let max_seq_len = seq_len + config.max_tokens;
+        let mut cache = OwnedQuantizedKVCache::new(state.num_layers, kv_dim, max_seq_len);
+
+        let saved_stride = self.executor.batched_kv_stride;
+        self.executor.batched_kv_stride = 0;
+        self.executor.reset_kv_cache_gpu();
+        self.run_prefill(&prompt, &mut cache, seq_len, false)?;
+        self.executor.batched_kv_stride = saved_stride;
+
+        // Scatter KV from single-slot cache to batched cache at new_slot
+        self.executor
+            .scatter_single_kv_to_batched(new_slot, seq_len)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "scatter_single_kv_to_batched".to_string(),
+                reason: format!("PMAT-073: scatter for slot {new_slot}: {e}"),
+            })?;
+
+        // Switch back to batched decode mode with M+1
+        let new_m = new_slot + 1;
+        self.executor.clear_prefill_graphs();
+        self.executor
+            .init_batched_workspace(state.hidden_dim, state.intermediate_dim, new_m)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "init_batched_workspace".to_string(),
+                reason: format!("PMAT-073: workspace resize for M={new_m}: {e}"),
+            })?;
+        self.executor.clear_decode_graph();
+
+        // Update state
+        let last_token = prompt[prompt.len() - 1];
+        state.sequences.push(prompt.clone());
+        state.prompts.push(prompt);
+        state.configs.push(config);
+        state.on_tokens.push(on_token);
+        state.positions.push(seq_len);
+        state.last_tokens.push(last_token);
+        state.done.push(false);
+        state.m = new_m;
+        state.embed_buf.resize(new_m * state.hidden_dim, 0.0);
+        state.max_tokens_max = state
+            .max_tokens_max
+            .max(state.configs.last().unwrap().max_tokens);
+
+        let prefill_ms = prefill_start.elapsed().as_secs_f64() * 1000.0;
+        eprintln!(
+            "[PMAT-073] Mid-batch join: slot {} added (now M={}), prefill {:.1}ms ({} tokens)",
+            new_slot, new_m, prefill_ms, seq_len,
+        );
+
+        Ok(())
     }
 
     fn validate_batch_args(&self, m: usize, configs_len: usize, callbacks_len: usize) -> Result<()> {

@@ -156,6 +156,10 @@ pub struct AppState {
     /// APR Transformer for SafeTensors/APR inference (PMAT-SERVE-FIX-001)
     /// Supports F32 weights from SafeTensors or APR format
     apr_transformer: Option<Arc<crate::apr_transformer::AprTransformer>>,
+    /// GH-319: Cached model architecture string (avoids RwLock in hot path)
+    cached_architecture: Option<String>,
+    /// GH-330: Cached EOS token ID (avoids RwLock in hot path)
+    cached_eos_token_id: Option<u32>,
     /// GH-152: Enable verbose request/response logging
     verbose: bool,
 }

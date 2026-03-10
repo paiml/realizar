@@ -345,7 +345,6 @@ pub async fn openai_chat_completions_handler(
     Json(request): Json<ChatCompletionRequest>,
 ) -> Response {
     let start = Instant::now();
-
     // GH-152: Verbose request logging
     if state.is_verbose() {
         let msg_count = request.messages.len();

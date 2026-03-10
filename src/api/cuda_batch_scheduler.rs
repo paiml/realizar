@@ -106,7 +106,7 @@ async fn cuda_batch_scheduler_loop(
                     eprintln!("[PMAT-044] Channel closed during accumulation");
                     // Process remaining batch then exit
                     if !batch.is_empty() {
-                        process_cuda_batch(&model, batch);
+                        process_cuda_batch(&model, batch, &mut rx, config.max_batch);
                     }
                     return;
                 },
@@ -117,8 +117,8 @@ async fn cuda_batch_scheduler_loop(
         let batch_size = batch.len();
         let batch_start = std::time::Instant::now();
 
-        // Process the batch
-        process_cuda_batch(&model, batch);
+        // Process the batch (PMAT-073: pass rx for mid-batch joins)
+        process_cuda_batch(&model, batch, &mut rx, config.max_batch);
 
         let elapsed = batch_start.elapsed();
         eprintln!(
@@ -138,11 +138,17 @@ async fn cuda_batch_scheduler_loop(
 fn process_cuda_batch(
     model: &Arc<std::sync::RwLock<OwnedQuantizedModelCuda>>,
     batch: Vec<CudaBatchRequest>,
+    rx: &mut tokio::sync::mpsc::Receiver<CudaBatchRequest>,
+    max_batch: usize,
 ) {
     let m = batch.len();
 
     if m == 1 {
-        // Single request — use the optimized single-request path
+        // Single request — use the optimized single-request path (138 tok/s vs 46 batched).
+        // PMAT-073: Mid-batch joins only work for initial batches >1. For c=1→c=2
+        // staggered arrivals, the second request queues until the first completes.
+        // This is acceptable because the fast path's 3x better ITL outweighs the
+        // latency benefit of mid-batch join for the second request.
         let req = batch.into_iter().next().unwrap();
         let mut cuda_model = model.write().expect("PMAT-044: model lock poisoned");
         let result =
@@ -161,8 +167,9 @@ fn process_cuda_batch(
     let prompts: Vec<Vec<u32>> = batch.iter().map(|r| r.prompt_ids.clone()).collect();
     let configs: Vec<QuantizedGenerateConfig> = batch.iter().map(|r| r.config.clone()).collect();
 
-    // Keep senders for error reporting (callbacks consume batch ownership)
-    let error_senders: Vec<tokio::sync::mpsc::Sender<Result<u32, String>>> =
+    // Keep senders for error reporting (callbacks consume batch ownership).
+    // Mutable for PMAT-073 mid-batch joins (new senders appended).
+    let mut error_senders: Vec<tokio::sync::mpsc::Sender<Result<u32, String>>> =
         batch.iter().map(|r| r.token_tx.clone()).collect();
 
     let callbacks: Vec<Box<dyn FnMut(u32) -> bool + Send>> = batch
@@ -176,7 +183,7 @@ fn process_cuda_batch(
     // Phase 1: Setup + Prefill (under lock)
     let mut state = {
         let mut cuda_model = model.write().expect("PMAT-072: model lock poisoned");
-        match cuda_model.batched_setup_and_prefill(&prompts, &configs, callbacks) {
+        match cuda_model.batched_setup_and_prefill(&prompts, &configs, callbacks, max_batch) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[PMAT-072] Setup+prefill ERROR (m={m}): {e}");
@@ -188,16 +195,48 @@ fn process_cuda_batch(
         }
     };
 
-    // Phase 2: Decode loop (lock per step — ~19ms per acquire vs ~660ms total)
+    // Phase 2: Decode loop with mid-batch joins (PMAT-073)
+    // Lock per step (~19ms per acquire vs ~660ms total).
+    // Between steps, check for pending requests to join the running batch.
     while !state.all_done() && state.gen_idx < state.max_tokens_max {
         let token_ids = {
             let mut cuda_model = model.write().expect("PMAT-072: model lock poisoned");
+
+            // PMAT-073: Check for pending requests to join mid-batch.
+            // Prefill happens under the same lock acquisition as the decode step
+            // to avoid an extra lock round-trip.
+            while state.m < state.max_kv_slots {
+                match rx.try_recv() {
+                    Ok(req) => {
+                        let error_tx = req.token_tx.clone();
+                        let prompt_ids = req.prompt_ids;
+                        let config = req.config;
+                        let token_tx = req.token_tx;
+                        let on_token: Box<dyn FnMut(u32) -> bool + Send> =
+                            Box::new(move |token_id: u32| -> bool {
+                                token_tx.try_send(Ok(token_id)).is_ok()
+                            });
+                        match cuda_model.add_slot_to_batch(&mut state, prompt_ids, config, on_token)
+                        {
+                            Ok(()) => {
+                                error_senders.push(error_tx);
+                            },
+                            Err(e) => {
+                                eprintln!("[PMAT-073] Mid-batch join FAILED: {e}");
+                                let _ = error_tx.try_send(Err(e.to_string()));
+                            },
+                        }
+                    },
+                    Err(_) => break, // No pending requests
+                }
+            }
+
             match cuda_model.batched_decode_step(&mut state) {
                 Ok(ids) => ids,
                 Err(e) => {
                     eprintln!(
-                        "[PMAT-072] Decode step ERROR (m={m}, step={}): {e}",
-                        state.gen_idx
+                        "[PMAT-073] Decode step ERROR (m={}, step={}): {e}",
+                        state.m, state.gen_idx
                     );
                     for tx in &error_senders {
                         let _ = tx.try_send(Err(e.to_string()));

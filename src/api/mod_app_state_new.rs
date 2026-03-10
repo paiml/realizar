@@ -37,6 +37,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
+            cached_architecture: None,
+            cached_eos_token_id: None,
             verbose: false,
         }
     }
@@ -90,6 +92,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
+            cached_architecture: None,
+            cached_eos_token_id: None,
             verbose: false,
         })
     }
@@ -184,6 +188,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
+            cached_architecture: None,
+            cached_eos_token_id: None,
             verbose: false,
         }
     }
@@ -250,6 +256,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
+            cached_architecture: None,
+            cached_eos_token_id: None,
             verbose: false,
         })
     }
@@ -298,6 +306,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
+            cached_architecture: None,
+            cached_eos_token_id: None,
             verbose: false,
         })
     }
@@ -351,6 +361,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
+            cached_architecture: None,
+            cached_eos_token_id: None,
             verbose: false,
         })
     }
@@ -399,6 +411,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
+            cached_architecture: None,
+            cached_eos_token_id: None,
             verbose: false,
         })
     }
@@ -460,6 +474,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
+            cached_architecture: None,
+            cached_eos_token_id: None,
             verbose: false,
         })
     }

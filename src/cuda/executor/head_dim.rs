@@ -149,15 +149,23 @@ impl CudaExecutor {
         let v_cache_base = v_cache.as_ptr();
         let stride_bytes = (stride * std::mem::size_of::<f32>()) as u64;
 
-        let k_ptrs: Vec<u64> = (0..m)
+        // PMAT-073: Pad pointer/length arrays to match GPU buffer allocation.
+        // GPU buffers (batched_k_ptrs, etc.) are allocated for max_kv_slots,
+        // but active slots may be fewer (m < max_kv_slots during mid-batch joins).
+        // Kernel grid uses m as batch dim, so padding values are never read.
+        let buf_len = self.batched_kv_lengths.len();
+        let mut k_ptrs: Vec<u64> = (0..m)
             .map(|seq_idx| k_cache_base + seq_idx as u64 * stride_bytes)
             .collect();
-        let v_ptrs: Vec<u64> = (0..m)
+        k_ptrs.resize(buf_len, k_cache_base);
+        let mut v_ptrs: Vec<u64> = (0..m)
             .map(|seq_idx| v_cache_base + seq_idx as u64 * stride_bytes)
             .collect();
-        let seq_lens: Vec<u32> = (0..m)
+        v_ptrs.resize(buf_len, v_cache_base);
+        let mut seq_lens: Vec<u32> = (0..m)
             .map(|seq_idx| self.batched_kv_lengths.get(seq_idx).copied().unwrap_or(1) as u32)
             .collect();
+        seq_lens.resize(buf_len, 0);
 
         // Step 3: Compute max chunks needed
         let max_seq_len_actual = seq_lens.iter().copied().max().unwrap_or(1) as usize;
