@@ -104,6 +104,7 @@ impl AprTransformer {
             for i in 0..hidden.len() {
                 hidden[i] += ffn_output[i];
             }
+
         }
         if trace_enabled {
             eprintln!(

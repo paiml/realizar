@@ -31,6 +31,134 @@ pub(crate) fn cublas_gemm_threshold() -> u32 {
         .unwrap_or(4)
 }
 
+/// PMAT-053: Inline PTX for FP32→FP8 E4M3 element-wise conversion.
+/// Works on sm_75+ via manual bit manipulation (no cvt.e4m3x2 which needs sm_90).
+/// Each thread converts 1 FP32 → 1 E4M3 byte. Block size 256.
+///
+/// FP8 E4M3: sign(1) + exponent(4) + mantissa(3), bias=7, range ±448.
+/// FP32:     sign(1) + exponent(8) + mantissa(23), bias=127.
+///
+/// Algorithm: clamp |x| to [2^-9, 448], rebias exponent (127→7), round mantissa
+/// (23→3 bits with RNE), pack sign+exp+mantissa into 8 bits.
+/// NaN/Inf → max finite (0x7E = 448.0). Zero → 0x00.
+const F32_TO_E4M3_PTX: &str = r#"
+.version 7.5
+.target sm_75
+.address_size 64
+
+.visible .entry f32_to_e4m3(
+    .param .u64 param_dst,
+    .param .u64 param_src,
+    .param .u32 param_count
+) {
+    .reg .u64 %rd<5>;
+    .reg .u32 %r<16>;
+    .reg .f32 %f<4>;
+    .reg .pred %p<4>;
+
+    ld.param.u64 %rd0, [param_dst];
+    ld.param.u64 %rd1, [param_src];
+    ld.param.u32 %r0, [param_count];
+
+    // Global thread index
+    mov.u32 %r1, %tid.x;
+    mov.u32 %r2, %ctaid.x;
+    mov.u32 %r3, %ntid.x;
+    mad.lo.u32 %r1, %r2, %r3, %r1;
+
+    // Bounds check
+    setp.ge.u32 %p0, %r1, %r0;
+    @%p0 bra L_DONE;
+
+    // Load FP32
+    cvt.u64.u32 %rd2, %r1;
+    shl.b64 %rd3, %rd2, 2;
+    add.u64 %rd3, %rd1, %rd3;
+    ld.global.f32 %f0, [%rd3];
+
+    // Reinterpret as u32
+    mov.b32 %r4, %f0;
+
+    // Extract sign bit (bit 31) -> %r5
+    shr.u32 %r5, %r4, 31;
+
+    // Extract FP32 exponent (bits 30:23) -> %r6
+    bfe.u32 %r6, %r4, 23, 8;
+
+    // Extract FP32 mantissa (bits 22:0) -> %r7
+    and.b32 %r7, %r4, 0x007FFFFF;
+
+    // Check for zero/denorm (exp == 0) -> output 0x00
+    setp.eq.u32 %p1, %r6, 0;
+    @%p1 bra L_ZERO;
+
+    // Check for NaN/Inf (exp == 255) -> output sign | 0x7E (max finite)
+    setp.eq.u32 %p2, %r6, 255;
+    @%p2 bra L_NANINF;
+
+    // Rebias exponent: e4m3_exp = fp32_exp - 127 + 7 = fp32_exp - 120
+    // E4M3 valid biased exp range: 1..15 (unbiased -6..+8)
+    sub.u32 %r8, %r6, 120;
+
+    // Check underflow (fp32_exp < 121 -> e4m3_exp < 1 -> denorm/zero)
+    setp.lt.s32 %p1, %r8, 1;
+    @%p1 bra L_ZERO;
+
+    // Check overflow (e4m3_exp > 15 -> clamp to max finite)
+    setp.gt.s32 %p2, %r8, 15;
+    @%p2 bra L_NANINF;
+
+    // Round mantissa: 23 bits -> 3 bits (drop 20 low bits, RNE)
+    // Round bit = bit 19, sticky = bits 18:0
+    shr.u32 %r9, %r7, 20;          // top 3 mantissa bits
+    bfe.u32 %r10, %r7, 19, 1;      // round bit
+    and.b32 %r11, %r7, 0x0007FFFF; // sticky bits (bits 18:0)
+
+    // RNE: round up if (round && (sticky || lsb_of_result))
+    and.b32 %r12, %r9, 1;          // lsb of truncated mantissa
+    or.b32 %r13, %r11, %r12;       // sticky | lsb
+    setp.ne.u32 %p3, %r13, 0;
+    and.b32 %r14, %r10, 1;         // round bit
+    // Only round up if round bit is set AND (sticky|lsb)
+    selp.u32 %r14, %r14, 0, %p3;
+    add.u32 %r9, %r9, %r14;
+
+    // Handle mantissa overflow (0b1000 -> increment exponent)
+    setp.gt.u32 %p3, %r9, 7;
+    @!%p3 bra L_PACK;
+    mov.u32 %r9, 0;
+    add.u32 %r8, %r8, 1;
+    // If exponent overflows to 16 -> max finite
+    setp.gt.s32 %p2, %r8, 15;
+    @%p2 bra L_NANINF;
+
+L_PACK:
+    // Pack: sign(1) | exp(4) | mantissa(3)
+    shl.b32 %r5, %r5, 7;
+    shl.b32 %r8, %r8, 3;
+    or.b32 %r5, %r5, %r8;
+    or.b32 %r5, %r5, %r9;
+    bra L_STORE;
+
+L_ZERO:
+    mov.u32 %r5, 0;
+    bra L_STORE;
+
+L_NANINF:
+    // sign | 0x7E (max finite = 448.0)
+    shl.b32 %r5, %r5, 7;
+    or.b32 %r5, %r5, 0x7E;
+
+L_STORE:
+    // Store 1 byte
+    add.u64 %rd4, %rd0, %rd2;
+    st.global.u8 [%rd4], %r5;
+
+L_DONE:
+    ret;
+}
+"#;
+
 /// PMAT-031: Inline PTX for FP32→FP16 element-wise conversion.
 /// Block size 256, one element per thread. Trivially memory-bound (~1μs for 160K elements).
 const F32_TO_F16_PTX: &str = r#"
@@ -70,6 +198,48 @@ L_DONE:
 }
 "#;
 
+/// PMAT-053: Inline PTX for FP16->FP32 element-wise conversion.
+/// Block size 256, one element per thread. Uses hardware cvt.f32.f16.
+const F16_TO_F32_PTX: &str = r#"
+.version 7.5
+.target sm_75
+.address_size 64
+
+.visible .entry f16_to_f32(
+    .param .u64 param_dst,
+    .param .u64 param_src,
+    .param .u32 param_count
+) {
+    .reg .u64 %rd<5>;
+    .reg .u32 %r<4>;
+    .reg .f32 %f0;
+    .reg .b16 %h0;
+    .reg .pred %p0;
+    ld.param.u64 %rd0, [param_dst];
+    ld.param.u64 %rd1, [param_src];
+    ld.param.u32 %r0, [param_count];
+    mov.u32 %r1, %tid.x;
+    mov.u32 %r2, %ctaid.x;
+    mov.u32 %r3, %ntid.x;
+    mad.lo.u32 %r1, %r2, %r3, %r1;
+    setp.ge.u32 %p0, %r1, %r0;
+    @%p0 bra L_DONE;
+    // Load FP16 (16 bits)
+    cvt.u64.u32 %rd2, %r1;
+    shl.b64 %rd3, %rd2, 1;
+    add.u64 %rd3, %rd1, %rd3;
+    ld.global.b16 %h0, [%rd3];
+    // Convert FP16 -> FP32 (hardware instruction)
+    cvt.f32.f16 %f0, %h0;
+    // Store as FP32 (4 bytes)
+    shl.b64 %rd4, %rd2, 2;
+    add.u64 %rd4, %rd0, %rd4;
+    st.global.f32 [%rd4], %f0;
+L_DONE:
+    ret;
+}
+"#;
+
 impl CudaExecutor {
     /// Initialize cuBLAS handle for prefill GEMM (lazy, called once)
     pub(crate) fn ensure_cublas(&mut self) -> Result<(), GpuError> {
@@ -79,6 +249,33 @@ impl CudaExecutor {
         let handle = trueno_gpu::driver::CublasHandle::new(&self.context)?;
         handle.set_stream(&self.stream)?;
         self.cublas_handle = Some(handle);
+        Ok(())
+    }
+
+    /// PMAT-063: Pre-allocate cuBLAS workspace for CUDA graph capture.
+    ///
+    /// cuBLAS internally allocates workspace for fast algorithm selection.
+    /// During CUDA graph capture, dynamic allocation is forbidden, so cuBLAS
+    /// falls back to workspace-free algorithms (7x slower on RTX 4060L).
+    ///
+    /// This allocates a 32 MB GPU buffer and registers it with cuBLAS via
+    /// `cublasSetWorkspace`. Must be called before prefill graph capture.
+    pub(crate) fn ensure_cublas_workspace(&mut self) -> Result<(), GpuError> {
+        if self.cublas_workspace.is_some() {
+            return Ok(());
+        }
+        self.ensure_cublas()?;
+
+        // 32 MB workspace — covers all standard cuBLAS GEMM shapes
+        const WORKSPACE_SIZE: usize = 32 * 1024 * 1024;
+        let workspace = GpuBuffer::<u8>::new(&self.context, WORKSPACE_SIZE)?;
+        let handle = self.cublas_handle.as_ref().expect("cublas initialized");
+        handle.set_workspace(workspace.as_ptr(), WORKSPACE_SIZE)?;
+        eprintln!(
+            "[PMAT-063] cuBLAS workspace: {} MB pre-allocated for graph capture",
+            WORKSPACE_SIZE / 1024 / 1024
+        );
+        self.cublas_workspace = Some(workspace);
         Ok(())
     }
 
@@ -135,6 +332,303 @@ impl CudaExecutor {
                     std::ptr::from_mut(&mut cnt) as *mut std::ffi::c_void,
                 ],
             )?;
+        }
+
+        Ok(())
+    }
+
+    /// PMAT-053: Ensure FP8 activation scratch is large enough
+    fn ensure_fp8_activation_scratch(&mut self, count: usize) -> Result<(), GpuError> {
+        if self.fp8_activation_scratch_size >= count {
+            return Ok(());
+        }
+        self.fp8_activation_scratch = Some(GpuBuffer::new(&self.context, count)?);
+        self.fp8_activation_scratch_size = count;
+        Ok(())
+    }
+
+    /// PMAT-053: Convert FP32 GPU data to FP8 E4M3 using inline PTX kernel (sm_75+)
+    fn convert_f32_to_e4m3(
+        &mut self,
+        src_ptr: u64,
+        dst_ptr: u64,
+        count: u32,
+    ) -> Result<(), GpuError> {
+        if !self.modules.contains_key("f32_to_e4m3") {
+            let module = self.compile_ptx(F32_TO_E4M3_PTX)?;
+            self.modules.insert("f32_to_e4m3".to_string(), module);
+        }
+
+        let module = self.modules.get_mut("f32_to_e4m3").expect("just inserted");
+        // Each thread processes 1 element
+        let config = LaunchConfig::linear(count, 256);
+
+        let mut dst = dst_ptr;
+        let mut src = src_ptr;
+        let mut cnt = count;
+
+        // SAFETY: src_ptr and dst_ptr are valid GPU allocations
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                "f32_to_e4m3",
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut dst) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut src) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut cnt) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PMAT-053: Convert FP16 GPU data to FP32 using hardware cvt.f32.f16
+    fn convert_f16_to_f32(
+        &mut self,
+        src_ptr: u64,
+        dst_ptr: u64,
+        count: u32,
+    ) -> Result<(), GpuError> {
+        if !self.modules.contains_key("f16_to_f32") {
+            let module = self.compile_ptx(F16_TO_F32_PTX)?;
+            self.modules.insert("f16_to_f32".to_string(), module);
+        }
+
+        let module = self.modules.get_mut("f16_to_f32").expect("just inserted");
+        let config = LaunchConfig::linear(count, 256);
+
+        let mut dst = dst_ptr;
+        let mut src = src_ptr;
+        let mut cnt = count;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                "f16_to_f32",
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut dst) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut src) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut cnt) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PMAT-053: Get cached FP8 E4M3 weight or dequant+convert+cache on first access.
+    ///
+    /// On cache miss: dequant Q4K/Q6K → FP32 scratch → FP8 E4M3 → cache.
+    /// On cache hit: return cached FP8 pointer directly.
+    /// FP8 cache is 1472 MB for Qwen 1.5B (vs 2944 MB FP16 = 50% savings).
+    fn get_or_cache_fp8_weight(
+        &mut self,
+        qtype: WeightQuantType,
+        weight_ptr: u64,
+        n: u32,
+        k: u32,
+    ) -> Result<u64, GpuError> {
+        if let Some(buf) = self.fp8_weight_cache.get(&weight_ptr) {
+            return Ok(buf.as_ptr());
+        }
+
+        // Cache miss: dequant → FP32 scratch
+        let f32_ptr = match qtype {
+            WeightQuantType::Q4K => self.dequant_q4k_to_scratch(weight_ptr, n, k)?,
+            WeightQuantType::Q6K => self.dequant_q6k_to_scratch(weight_ptr, n, k)?,
+            _ => {
+                return Err(GpuError::InvalidParameter(format!(
+                    "get_or_cache_fp8_weight: unsupported qtype {:?}",
+                    qtype
+                )))
+            },
+        };
+
+        // Allocate persistent FP8 buffer [N × K] — 1 byte per element
+        let count = n as usize * k as usize;
+        let fp8_buf = GpuBuffer::<u8>::new(&self.context, count)?;
+        let fp8_ptr = fp8_buf.as_ptr();
+
+        // Convert FP32 → FP8 E4M3 (same stream, ordered after dequant)
+        self.convert_f32_to_e4m3(f32_ptr, fp8_ptr, count as u32)?;
+
+        self.fp8_weight_cache.insert(weight_ptr, fp8_buf);
+        Ok(fp8_ptr)
+    }
+
+    /// PMAT-053: cuBLASLt FP8 E4M3 GEMM — cached FP8 weights × FP8 activations → FP32 output
+    ///
+    /// C[M×N] = Input_fp8[M×K] @ W_fp8[N×K]^T → FP32 output
+    ///
+    /// Pipeline: FP32 input → FP8 E4M3 → cuBLASLt GEMM(→BF16) → FP32 output
+    /// cuBLASLt FP8 does NOT support FP32 output directly — outputs BF16, then converts.
+    /// cuBLASLt FP8 requires n (batch dim) aligned to 16 — we pad if needed.
+    ///
+    /// Reads 1 byte/elem (vs 2 bytes/elem for HGEMM) — 2x bandwidth savings on weights.
+    #[allow(clippy::too_many_arguments)]
+    fn cublas_prefill_fp8_gemm(
+        &mut self,
+        w_fp8_ptr: u64,
+        packed_input_ptr: u64,
+        packed_output_ptr: u64,
+        m: u32, // sequence/batch length (tokens)
+        n: u32, // output dimension
+        k: u32, // input dimension
+    ) -> Result<(), GpuError> {
+        let detail_trace = std::env::var("PREFILL_DETAIL_TRACE").is_ok();
+        let t0 = if detail_trace {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+
+        // cuBLASLt FP8 requires batch dimension aligned to 16
+        let m_padded = (m + 15) & !15;
+
+        // Step 1: Convert FP32 activations -> FP8 E4M3 into padded buffer
+        // Input is [M, K] row-major. If M != m_padded, we need zero-padded FP8 buffer.
+        let input_padded_count = m_padded as usize * k as usize;
+        self.ensure_fp8_activation_scratch(input_padded_count)?;
+        let input_fp8_ptr = self
+            .fp8_activation_scratch
+            .as_ref()
+            .expect("scratch just allocated")
+            .as_ptr();
+
+        // Convert actual M*K elements. Padding rows are zero from GpuBuffer::new
+        // (cuMemAlloc returns zeroed memory on most drivers, but FP8 zero = 0x00 = +0.0
+        //  so even if garbage, the GEMM output for padding rows is unused).
+        let input_actual_count = m as usize * k as usize;
+        self.convert_f32_to_e4m3(packed_input_ptr, input_fp8_ptr, input_actual_count as u32)?;
+
+        let t1 = if detail_trace {
+            self.stream.synchronize()?;
+
+            // DIAGNOSTIC: dump first 8 FP32 input values, first 8 E4M3 bytes, first 8 FP8 weight bytes
+            if let Some(drv) = trueno_gpu::driver::sys::CudaDriver::load() {
+                let mut f32_vals = [0.0f32; 8];
+                let mut e4m3_vals = [0u8; 8];
+                let mut w_e4m3 = [0u8; 8];
+                unsafe {
+                    (drv.cuMemcpyDtoH)(
+                        f32_vals.as_mut_ptr() as *mut std::ffi::c_void,
+                        packed_input_ptr,
+                        32,
+                    );
+                    (drv.cuMemcpyDtoH)(
+                        e4m3_vals.as_mut_ptr() as *mut std::ffi::c_void,
+                        input_fp8_ptr,
+                        8,
+                    );
+                    (drv.cuMemcpyDtoH)(w_e4m3.as_mut_ptr() as *mut std::ffi::c_void, w_fp8_ptr, 8);
+                }
+                eprintln!("[FP8-DIAG] Input FP32[0..8]: {:?}", f32_vals);
+                eprintln!("[FP8-DIAG] Input E4M3[0..8]: {:02X?}", e4m3_vals);
+                eprintln!("[FP8-DIAG] Weight E4M3[0..8]: {:02X?}", w_e4m3);
+            }
+
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+
+        // Step 2: cuBLASLt FP8 GEMM -> FP16 output [N, m_padded]
+        let output_padded_count = n as usize * m_padded as usize;
+        self.ensure_fp16_activation_scratch(output_padded_count)?;
+        let f16_output_ptr = self
+            .fp16_activation_scratch
+            .as_ref()
+            .expect("scratch just allocated")
+            .as_ptr();
+
+        if self.cublaslt_handle.is_none() {
+            self.cublaslt_handle = Some(trueno_gpu::driver::CublasLtHandle::new()?);
+        }
+        let lt_handle = self.cublaslt_handle.as_ref().expect("just created");
+        lt_handle.gemm_fp8_e4m3_to_f16(
+            trueno_gpu::driver::GemmOp::Trans,
+            trueno_gpu::driver::GemmOp::NoTrans,
+            n as i32,
+            m_padded as i32, // padded batch dimension
+            k as i32,
+            1.0,
+            w_fp8_ptr,
+            k as i32,
+            input_fp8_ptr,
+            k as i32,
+            0.0,
+            f16_output_ptr,
+            n as i32,
+            &self.stream,
+        )?;
+
+        let t2 = if detail_trace {
+            self.stream.synchronize()?;
+
+            // DIAGNOSTIC: dump first 8 FP16 GEMM output values
+            if let Some(drv) = trueno_gpu::driver::sys::CudaDriver::load() {
+                let mut f16_vals = [0u16; 8];
+                unsafe {
+                    (drv.cuMemcpyDtoH)(
+                        f16_vals.as_mut_ptr() as *mut std::ffi::c_void,
+                        f16_output_ptr,
+                        16,
+                    );
+                }
+                // Convert FP16 to FP32 on CPU for display
+                let f32_display: Vec<f32> = f16_vals
+                    .iter()
+                    .map(|&h| half::f16::from_bits(h).to_f32())
+                    .collect();
+                eprintln!(
+                    "[FP8-DIAG] GEMM FP16 out[0..8]: {:?} (raw: {:04X?})",
+                    f32_display, f16_vals
+                );
+            }
+
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+
+        // Step 3: Convert FP16 output -> FP32 (only actual M*N elements, not padding)
+        let output_actual_count = n as usize * m as usize;
+        self.convert_f16_to_f32(
+            f16_output_ptr,
+            packed_output_ptr,
+            output_actual_count as u32,
+        )?;
+
+        if let (Some(t0), Some(t1), Some(t2)) = (t0, t1, t2) {
+            self.stream.synchronize()?;
+            let t3 = std::time::Instant::now();
+
+            // DIAGNOSTIC: dump first 8 FP32 output values
+            if let Some(drv) = trueno_gpu::driver::sys::CudaDriver::load() {
+                let mut f32_out = [0.0f32; 8];
+                unsafe {
+                    (drv.cuMemcpyDtoH)(
+                        f32_out.as_mut_ptr() as *mut std::ffi::c_void,
+                        packed_output_ptr,
+                        32,
+                    );
+                }
+                eprintln!("[FP8-DIAG] Output FP32[0..8]: {:?}", f32_out);
+            }
+            eprintln!(
+                "[FP8-TRACE] M={} (pad={}) N={} K={}: f32->e4m3={:.3}ms gemm={:.3}ms f16->f32={:.3}ms total={:.3}ms",
+                m,
+                m_padded,
+                n,
+                k,
+                t1.duration_since(t0).as_secs_f64() * 1000.0,
+                t2.duration_since(t1).as_secs_f64() * 1000.0,
+                t3.duration_since(t2).as_secs_f64() * 1000.0,
+                t3.duration_since(t0).as_secs_f64() * 1000.0,
+            );
         }
 
         Ok(())
@@ -369,14 +863,15 @@ impl CudaExecutor {
         result
     }
 
-    /// PMAT-024/026/031/GH-182: cuBLAS GEMM (or fused Q4K GEMM) for prefill
+    /// PMAT-024/026/031/053/GH-182: cuBLAS GEMM (or fused Q4K GEMM) for prefill
     ///
     /// C[M×N] = Input[M×K] @ W[N×K]^T
     ///
     /// Priority:
     /// 1. FUSED_Q4K_PREFILL=1 + Q4K → tiled fused Q4K GEMM (reads Q4K directly, 3.56x BW savings)
-    /// 2. HGEMM_PREFILL!=0 (default) → cached FP16 weights + cuBLAS HGEMM + tensor cores
-    /// 3. HGEMM_PREFILL=0 → per-request dequant + cuBLAS SGEMM
+    /// 2. FP8_PREFILL=1 + sm_89+ → cached FP8 E4M3 weights + cuBLAS FP8 GEMM (1 B/elem, 2x vs HGEMM)
+    /// 3. HGEMM_PREFILL!=0 (default) → cached FP16 weights + cuBLAS HGEMM + tensor cores
+    /// 4. HGEMM_PREFILL=0 → per-request dequant + cuBLAS SGEMM
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn cublas_prefill_gemm(
         &mut self,
@@ -402,6 +897,20 @@ impl CudaExecutor {
         }
 
         self.ensure_cublas()?;
+
+        // PMAT-053: FP8 E4M3 GEMM — 1 byte/elem (2x BW savings vs HGEMM)
+        // Requires sm_89+ (Ada Lovelace) and FP8_PREFILL=1 env var.
+        if std::env::var("FP8_PREFILL").as_deref() == Ok("1") && self.gpu_profile.cc >= 89 {
+            let w_fp8_ptr = self.get_or_cache_fp8_weight(qtype, weight_ptr, n, k)?;
+            return self.cublas_prefill_fp8_gemm(
+                w_fp8_ptr,
+                packed_input_ptr,
+                packed_output_ptr,
+                m,
+                n,
+                k,
+            );
+        }
 
         // PMAT-031: HGEMM path with cached FP16 weights (default)
         // GH-141: Skip HGEMM when FP16 cache was cleared (batched mode frees it
@@ -1666,36 +2175,75 @@ DONE_NORM:
             }
         }
 
-        // Warm up cuBLAS workspace with a tiny GEMM to force internal allocation
+        // PMAT-063: Pre-allocate cuBLAS workspace for CUDA graph capture.
+        // Without this, graph capture forces workspace-free algorithms (7x slower).
+        // 32 MB workspace covers all standard GEMM shapes for Qwen 1.5B.
         if cached > 0 {
-            self.ensure_fp16_activation_scratch(hidden_dim as usize)?;
-            let dummy_out = GpuBuffer::<f32>::new(&self.context, hidden_dim as usize)?;
-            // Find any cached FP16 weight to run a dummy GEMM
+            self.ensure_cublas_workspace()?;
+
+            // PMAT-063: Warm up cuBLAS JIT for common prefill sequence lengths.
+            // First cuBLAS GEMM per (M,N,K) takes ~42ms (algorithm selection);
+            // subsequent calls take <0.1ms. Pre-warming all common M values
+            // moves this one-time cost from first-request to model load.
+            //
+            // Measured shapes for Qwen2.5-Coder-1.5B (M=seq_len):
+            //   (N=1536, K=1536): Q/O projections
+            //   (N=256,  K=1536): K/V projections (GQA, 2 KV heads)
+            //   (N=8960, K=1536): gate/up projections
+            //   (N=1536, K=8960): down projection
+            // Each unique M triggers ~42ms JIT for first shape + ~5ms for remaining.
+            let max_m = 512i32; // Cover sequences up to 512 tokens
+            let max_dim = std::cmp::max(hidden_dim, intermediate_dim) as usize;
+            self.ensure_fp16_activation_scratch(max_m as usize * max_dim)?;
+            let dummy_input = GpuBuffer::<u16>::new(&self.context, max_m as usize * max_dim)?;
+            let dummy_out = GpuBuffer::<f32>::new(&self.context, max_m as usize * max_dim)?;
+
             if let Some((&_ptr, fp16_buf)) = self.fp16_weight_cache.iter().next() {
-                let input_fp16_ptr = self
-                    .fp16_activation_scratch
-                    .as_ref()
-                    .expect("scratch just allocated")
-                    .as_ptr();
                 let handle = self.cublas_handle.as_ref().expect("cublas initialized");
-                // Tiny 1×1 GEMM to force cuBLAS workspace allocation
-                let _ = handle.gemm_f16_to_f32(
-                    trueno_gpu::driver::GemmOp::Trans,
-                    trueno_gpu::driver::GemmOp::NoTrans,
-                    1,
-                    1,
-                    1,
-                    0.0, // alpha=0 so output doesn't matter
-                    fp16_buf.as_ptr(),
-                    1,
-                    input_fp16_ptr,
-                    1,
-                    0.0,
-                    dummy_out.as_ptr(),
-                    1,
+
+                let shapes = [
+                    (hidden_dim as i32, hidden_dim as i32), // Q/O
+                    (
+                        (self.kv_num_kv_heads * self.kv_head_dim) as i32,
+                        hidden_dim as i32,
+                    ), // K/V
+                    (intermediate_dim as i32, hidden_dim as i32), // gate/up
+                    (hidden_dim as i32, intermediate_dim as i32), // down
+                ];
+
+                // Warm common M values: powers of 2 + typical chat lengths
+                let m_values: &[i32] = &[8, 16, 32, 64, 125, 128, 256, 512];
+                let mut warmed = 0u32;
+                for &m in m_values {
+                    for &(n, k) in &shapes {
+                        if n > 0 && k > 0 {
+                            let _ = handle.gemm_f16_to_f32(
+                                trueno_gpu::driver::GemmOp::Trans,
+                                trueno_gpu::driver::GemmOp::NoTrans,
+                                n,
+                                m,
+                                k,
+                                0.0,
+                                fp16_buf.as_ptr(),
+                                k,
+                                dummy_input.as_ptr(),
+                                k,
+                                0.0,
+                                dummy_out.as_ptr(),
+                                n,
+                            );
+                            warmed += 1;
+                        }
+                    }
+                }
+                self.stream.synchronize()?;
+                eprintln!(
+                    "[PMAT-063] cuBLAS JIT warmed: {} shapes ({}×{} M×NK combos)",
+                    warmed,
+                    m_values.len(),
+                    shapes.len()
                 );
             }
-            self.stream.synchronize()?;
         }
 
         let elapsed = start.elapsed();
@@ -1713,5 +2261,119 @@ DONE_NORM:
         );
 
         Ok(())
+    }
+
+    /// PMAT-053: Pre-populate FP8 E4M3 weight cache.
+    ///
+    /// Similar to `warmup_hgemm_cache` but caches as FP8 (1 byte/elem = 50% of FP16).
+    /// Must be called BEFORE CUDA graph capture. Requires sm_89+.
+    pub(crate) fn warmup_fp8_cache(
+        &mut self,
+        num_layers: usize,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        vocab_size: u32,
+    ) -> Result<(), GpuError> {
+        if self.gpu_profile.cc < 89 {
+            eprintln!(
+                "[PMAT-053] FP8 cache skipped: requires sm_89+ (have {})",
+                self.gpu_profile.sm_target
+            );
+            return Ok(());
+        }
+
+        let start = std::time::Instant::now();
+        self.ensure_cublas()?;
+        let mut cached = 0usize;
+
+        let q_dim = (self.kv_num_heads * self.kv_head_dim) as u32;
+        let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
+
+        for layer_idx in 0..num_layers {
+            if layer_idx >= self.indexed_layer_weights.len() {
+                break;
+            }
+            let lw = self.get_indexed_layer(layer_idx).clone();
+
+            let weights = [
+                (lw.attn_q_qtype, lw.attn_q_ptr, q_dim, hidden_dim),
+                (lw.attn_k_qtype, lw.attn_k_ptr, kv_dim, hidden_dim),
+                (lw.attn_v_qtype, lw.attn_v_ptr, kv_dim, hidden_dim),
+                (lw.attn_output_qtype, lw.attn_output_ptr, hidden_dim, q_dim),
+                (
+                    lw.ffn_gate_qtype,
+                    lw.ffn_gate_ptr,
+                    intermediate_dim,
+                    hidden_dim,
+                ),
+                (lw.ffn_up_qtype, lw.ffn_up_ptr, intermediate_dim, hidden_dim),
+                (
+                    lw.ffn_down_qtype,
+                    lw.ffn_down_ptr,
+                    hidden_dim,
+                    intermediate_dim,
+                ),
+            ];
+
+            for (qtype, ptr, n, k) in weights {
+                if ptr != 0 && (qtype == WeightQuantType::Q4K || qtype == WeightQuantType::Q6K) {
+                    if !self.fp8_weight_cache.contains_key(&ptr) {
+                        self.get_or_cache_fp8_weight(qtype, ptr, n, k)?;
+                        cached += 1;
+                    }
+                }
+            }
+        }
+
+        // Also cache LM head
+        if self.lm_head_ptr != 0
+            && (self.lm_head_qtype == WeightQuantType::Q4K
+                || self.lm_head_qtype == WeightQuantType::Q6K)
+        {
+            let lm_ptr = self.lm_head_ptr;
+            let lm_qtype = self.lm_head_qtype;
+            if !self.fp8_weight_cache.contains_key(&lm_ptr) {
+                self.get_or_cache_fp8_weight(lm_qtype, lm_ptr, vocab_size, hidden_dim)?;
+                cached += 1;
+            }
+        }
+
+        self.stream.synchronize()?;
+
+        let elapsed = start.elapsed();
+        let cache_mb = self
+            .fp8_weight_cache
+            .values()
+            .map(|b| b.len())
+            .sum::<usize>() as f64
+            / 1_048_576.0;
+        eprintln!(
+            "[PMAT-053] FP8 weight cache: {} matrices cached ({:.1} MB) in {:.1}ms",
+            cached,
+            cache_mb,
+            elapsed.as_secs_f64() * 1000.0,
+        );
+
+        Ok(())
+    }
+
+    /// PMAT-053: Clear FP8 weight cache to free VRAM.
+    pub(crate) fn clear_fp8_weight_cache(&mut self) {
+        let cache_mb = self
+            .fp8_weight_cache
+            .values()
+            .map(|b| b.len())
+            .sum::<usize>() as f64
+            / 1_048_576.0;
+        let count = self.fp8_weight_cache.len();
+        self.fp8_weight_cache.clear();
+        self.fp8_activation_scratch = None;
+        self.fp8_activation_scratch_size = 0;
+        if count > 0 {
+            eprintln!(
+                "[PMAT-053] Cleared FP8 weight cache: {} matrices ({:.1} MB freed)",
+                count, cache_mb,
+            );
+        }
     }
 }

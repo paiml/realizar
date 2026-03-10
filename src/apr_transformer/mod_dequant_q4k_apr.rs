@@ -6,6 +6,9 @@
 struct AprTensorLookup<'a> {
     data: &'a [u8],
     tensors: &'a std::collections::BTreeMap<String, (usize, usize, Vec<usize>, u8)>,
+    /// ALB-106: entrenar checkpoints store linear weights in cuBLAS column-major
+    /// convention. When true, 2D linear weight tensors are transposed on load.
+    transpose_cublas_weights: bool,
 }
 
 /// Dequantize Q4K/Q5K tensor data, handling per-row padding for 2D tensors (GH-202).
@@ -97,9 +100,41 @@ impl AprTensorLookup<'_> {
     }
 
     /// Extract tensor as f32 values (with dequantization for Q4K/Q5K/Q6K/Q8_0/APR Q4/Q8).
+    /// ALB-106: When `transpose_cublas_weights` is set, 2D linear weight tensors
+    /// are transposed from cuBLAS convention [K,N] row-major to HF [N,K] row-major.
     fn get_f32(&self, name: &str) -> Option<Vec<f32>> {
         self.raw_bytes(name)
-            .map(|(tensor_data, dims, dtype)| dequant_by_dtype(tensor_data, dims, dtype))
+            .map(|(tensor_data, dims, dtype)| {
+                let mut data = dequant_by_dtype(tensor_data, dims, dtype);
+                if self.transpose_cublas_weights
+                    && dims.len() == 2
+                    && Self::is_linear_weight(name)
+                {
+                    data = Self::transpose_2d(&data, dims[0], dims[1]);
+                }
+                data
+            })
+    }
+
+    /// Check if a tensor name refers to a linear weight that needs transposing.
+    fn is_linear_weight(name: &str) -> bool {
+        name.contains("_proj.weight")
+            || name.contains("gate_proj.weight")
+            || name.contains("up_proj.weight")
+            || name.contains("down_proj.weight")
+            || name == "lm_head.weight"
+    }
+
+    /// Transpose a 2D matrix from [cols, rows] row-major to [rows, cols] row-major.
+    /// Used to convert cuBLAS convention [K, N] to HF convention [N, K].
+    fn transpose_2d(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
+        let mut out = vec![0.0f32; data.len()];
+        for c in 0..cols {
+            for r in 0..rows {
+                out[r * cols + c] = data[c * rows + r];
+            }
+        }
+        out
     }
 
     /// Extract raw Q4K bytes (no dequantization) for fused kernel.
