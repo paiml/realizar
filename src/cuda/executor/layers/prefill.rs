@@ -220,45 +220,6 @@ impl CudaExecutor {
             input_buf.copy_from_host_async(embeddings, &self.stream)?;
         }
 
-        // CORRECTNESS-013/FALSIFY-PREFILL-003: Verify embedding upload integrity.
-        // Contract: GPU embedding buffer == host embedding buffer (byte-exact).
-        static EMBED_FP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        if *EMBED_FP.get_or_init(|| std::env::var("PHASE_FP").as_deref() == Ok("1")) {
-            let hidden_dim = (self.kv_num_heads * self.kv_head_dim) as usize;
-            let mut gpu_embeddings = vec![0.0f32; embeddings.len()];
-            input_buf.copy_to_host(&mut gpu_embeddings)?;
-            let head_dim = self.kv_head_dim;
-            let sums: Vec<f32> = (0..s)
-                .map(|p| {
-                    gpu_embeddings[p * hidden_dim..p * hidden_dim + head_dim]
-                        .iter()
-                        .sum::<f32>()
-                })
-                .collect();
-            let total: f32 = sums.iter().sum();
-            let all: Vec<String> = sums.iter().map(|v| format!("{:.2}", v)).collect();
-            let host_sums: Vec<f32> = (0..s)
-                .map(|p| {
-                    embeddings[p * hidden_dim..p * hidden_dim + head_dim]
-                        .iter()
-                        .sum::<f32>()
-                })
-                .collect();
-            let host_total: f32 = host_sums.iter().sum();
-            let mismatch = sums
-                .iter()
-                .zip(host_sums.iter())
-                .enumerate()
-                .find(|(_, (g, h))| (*g - *h).abs() > 1e-6);
-            eprintln!(
-                "[EMBED-FP] GPU total={:.4} host_total={:.4} mismatch={:?} all=[{}]",
-                total,
-                host_total,
-                mismatch,
-                all.join(",")
-            );
-        }
-
         // PMAT-049: Hoist workspace extraction out of layer loop.
         self.validate_batched_workspace(s as u32, positions.len())?;
         let q_dim = (self.kv_num_heads * self.kv_head_dim) as u32;
@@ -420,34 +381,6 @@ impl CudaExecutor {
                 epsilon,
             )?;
 
-            // CORRECTNESS-013/FALSIFY-PREFILL-001: Phase fingerprint.
-            // Isolates non-determinism to Phase 1 (QKV+RoPE) or Phase 2 (Attn+FFN).
-            // Contract: identical input → identical k_buf after Phase 1.
-            static PHASE_FP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-            if layer_idx == 0
-                && *PHASE_FP.get_or_init(|| std::env::var("PHASE_FP").as_deref() == Ok("1"))
-            {
-                self.stream.synchronize()?;
-                let k_count = s as usize * kv_dim as usize;
-                let mut k_vals = vec![0.0f32; k_count];
-                k_buf.copy_to_host(&mut k_vals)?;
-                let head_dim = self.kv_head_dim;
-                let sums: Vec<f32> = (0..s)
-                    .map(|p| {
-                        let start = p * kv_dim as usize;
-                        let end = start + head_dim;
-                        k_vals[start..end].iter().sum::<f32>()
-                    })
-                    .collect();
-                let total: f32 = sums.iter().sum();
-                let all: Vec<String> = sums.iter().map(|v| format!("{:.2}", v)).collect();
-                eprintln!(
-                    "[PHASE1-FP] L0 k_buf total={:.4} all=[{}]",
-                    total,
-                    all.join(",")
-                );
-            }
-
             let phase1_done = if prefill_trace && layer_idx == 0 {
                 self.stream.synchronize()?;
                 Some(std::time::Instant::now())
@@ -498,13 +431,6 @@ impl CudaExecutor {
                         total_ms, phase1_ms, total_ms - phase1_ms, s
                     );
                 }
-            }
-
-            // CORRECTNESS-016: Per-layer stream sync to test for async ordering bugs.
-            // Remove after root cause found. Cost: ~0.5ms per layer × 28 layers = 14ms.
-            static PREFILL_SYNC: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-            if *PREFILL_SYNC.get_or_init(|| std::env::var("PREFILL_SYNC").as_deref() == Ok("1")) {
-                self.stream.synchronize()?;
             }
         }
 

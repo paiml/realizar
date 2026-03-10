@@ -83,8 +83,17 @@ impl OwnedQuantizedModelCuda {
         );
         ttft_mark!("kv_cache_alloc");
 
-        // Reset GPU KV cache positions (lengths → 0, graph preserved for reuse)
+        // Reset GPU KV cache positions (lengths → 0)
         self.executor.reset_kv_cache_gpu();
+        // CORRECTNESS-013: Clear stale decode graph before batched prefill.
+        // Five-Whys: Sequential M=1 requests produce non-deterministic output.
+        // Why? Decode graph from request N replays on request N+1.
+        // Why? init_prefill_workspace/init_workspace early-return (buffer_capacity reuse).
+        // Why? Batched prefill modifies GPU state the captured graph depends on.
+        // Why? Prefill kernels write to workspace buffers at M×-sized offsets,
+        //      leaving residual state that corrupts the graph's M=1 decode path.
+        // Fix: Force graph re-capture per request (~18ms cost, negligible vs TTFT).
+        self.executor.clear_decode_graph();
         ttft_mark!("reset_gpu");
 
         let mut tokens = prompt.to_vec();
