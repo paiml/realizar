@@ -141,10 +141,13 @@ impl CudaExecutor {
             fp16_weight_cache: HashMap::new(),
             fp16_activation_scratch: None,
             fp16_activation_scratch_size: 0,
+            fp16_dequant_temp: None, // PMAT-065: lazy init on first L2-cached HGEMM
             // PMAT-053: FP8 weight cache (sm_89+ only, enabled with FP8_PREFILL=1)
             fp8_weight_cache: HashMap::new(),
             fp8_activation_scratch: None,
             fp8_activation_scratch_size: 0,
+            // PMAT-064: Q4K WMMA padded output scratch (lazy init)
+            wmma_scratch: None,
             // PMAT-032: Prefill attention score scratch (lazy init)
             prefill_attn_scores: None,
             prefill_attn_scores_size: 0,

@@ -680,6 +680,82 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// PMAT-065: Launch Q4K → FP16 direct dequant kernel
+    ///
+    /// Dequants Q4K super-blocks directly to FP16 output (no F32 intermediate).
+    /// Half the output bandwidth of launch_dequant_q4k (2 B/elem vs 4 B/elem).
+    fn launch_dequant_q4k_fp16(
+        &mut self,
+        weight_ptr: u64,
+        output_ptr: u64,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let num_sb = (k + 255) / 256;
+        let cache_key = format!("q4k_dequant_fp16_{k}_{n}");
+        if !self.modules.contains_key(&cache_key) {
+            let kernel_type = KernelType::Q4KDequantFp16 { k, n };
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+        let config = LaunchConfig::grid_2d(n, num_sb, 32, 1);
+
+        let mut ptr_out = output_ptr;
+        let mut ptr_w = weight_ptr;
+        let mut k_val = k;
+        let mut n_val = n;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                "q4k_dequant_to_f16",
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_out) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_w) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// PMAT-065: Dequant Q4K → FP16 temp buffer for L2-cached HGEMM
+    ///
+    /// Per-matmul dequant: Q4K weights (DRAM) → FP16 temp (L2-hot) → cuBLAS HGEMM.
+    /// Reads 3.56x less from DRAM vs cached FP16 HGEMM (0.5625 vs 2.0 B/elem).
+    /// The FP16 temp buffer (≤27.5 MB for largest matrix) fits in RTX 4060's 32 MB L2,
+    /// so cuBLAS reads from L2 instead of DRAM.
+    ///
+    /// Uses a separate `fp16_dequant_temp` buffer (not `fp16_activation_scratch`,
+    /// which is used for input activation conversion in cublas_prefill_hgemm).
+    fn dequant_q4k_fp16_temp(&mut self, weight_ptr: u64, n: u32, k: u32) -> Result<u64, GpuError> {
+        let count = n as usize * k as usize;
+        // Ensure temp buffer is large enough
+        let need_alloc = match &self.fp16_dequant_temp {
+            Some(buf) => buf.len() < count,
+            None => true,
+        };
+        if need_alloc {
+            self.fp16_dequant_temp = Some(GpuBuffer::<u16>::new(&self.context, count)?);
+        }
+        let fp16_ptr = self
+            .fp16_dequant_temp
+            .as_ref()
+            .expect("temp just allocated")
+            .as_ptr();
+        self.launch_dequant_q4k_fp16(weight_ptr, fp16_ptr, n, k)?;
+        Ok(fp16_ptr)
+    }
+
     /// Launch Q6K dequant kernel to an arbitrary output buffer
     fn launch_dequant_q6k(
         &mut self,
@@ -863,15 +939,17 @@ impl CudaExecutor {
         result
     }
 
-    /// PMAT-024/026/031/053/GH-182: cuBLAS GEMM (or fused Q4K GEMM) for prefill
+    /// PMAT-024/026/031/053/064/GH-182: cuBLAS GEMM (or fused Q4K GEMM) for prefill
     ///
     /// C[M×N] = Input[M×K] @ W[N×K]^T
     ///
     /// Priority:
-    /// 1. FUSED_Q4K_PREFILL=1 + Q4K → tiled fused Q4K GEMM (reads Q4K directly, 3.56x BW savings)
+    /// 0. Q4K_WMMA_PREFILL=1 + Q4K → WMMA tensor core Q4K GEMM (3.56x BW savings + tensor cores)
+    /// 1. FUSED_Q4K_PREFILL=1 + Q4K → tiled fused Q4K GEMM (reads Q4K directly, scalar FMA)
     /// 2. FP8_PREFILL=1 + sm_89+ → cached FP8 E4M3 weights + cuBLAS FP8 GEMM (1 B/elem, 2x vs HGEMM)
-    /// 3. HGEMM_PREFILL!=0 (default) → cached FP16 weights + cuBLAS HGEMM + tensor cores
-    /// 4. HGEMM_PREFILL=0 → per-request dequant + cuBLAS SGEMM
+    /// 3. L2_PREFILL=1 + Q4K → per-matmul Q4K→FP16 dequant + L2-cached HGEMM (3.56x less DRAM BW)
+    /// 4. HGEMM_PREFILL!=0 (default) → cached FP16 weights + cuBLAS HGEMM + tensor cores
+    /// 5. HGEMM_PREFILL=0 → per-request dequant + cuBLAS SGEMM
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn cublas_prefill_gemm(
         &mut self,
@@ -883,6 +961,20 @@ impl CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
+        // PMAT-064: Q4K WMMA GEMM — tensor cores with direct Q4K weight reads
+        // Dequant Q4K→FP16 in SHMEM, WMMA 16×16×16 matmul. 3.56x less BW than HGEMM.
+        if qtype == WeightQuantType::Q4K && std::env::var("Q4K_WMMA_PREFILL").as_deref() == Ok("1")
+        {
+            return self.q4k_wmma_gemm_prefill(
+                weight_ptr,
+                packed_input_ptr,
+                packed_output_ptr,
+                m,
+                n,
+                k,
+            );
+        }
+
         // GH-182: Fused Q4K GEMM — reads Q4K directly (0.5625 B/elem vs 2 B/elem HGEMM)
         if qtype == WeightQuantType::Q4K && std::env::var("FUSED_Q4K_PREFILL").as_deref() == Ok("1")
         {
@@ -904,6 +996,22 @@ impl CudaExecutor {
             let w_fp8_ptr = self.get_or_cache_fp8_weight(qtype, weight_ptr, n, k)?;
             return self.cublas_prefill_fp8_gemm(
                 w_fp8_ptr,
+                packed_input_ptr,
+                packed_output_ptr,
+                m,
+                n,
+                k,
+            );
+        }
+
+        // PMAT-065: L2-cached HGEMM — per-matmul Q4K→FP16 dequant + HGEMM from L2
+        // Reads Q4K from DRAM (0.5625 B/elem), writes FP16 to temp buffer (L2-hot),
+        // cuBLAS reads FP16 from L2 instead of DRAM. 3.56x less DRAM bandwidth.
+        // Enable with L2_PREFILL=1. Eliminates need for 2944 MB FP16 weight cache.
+        if qtype == WeightQuantType::Q4K && std::env::var("L2_PREFILL").as_deref() == Ok("1") {
+            let w_fp16_ptr = self.dequant_q4k_fp16_temp(weight_ptr, n, k)?;
+            return self.cublas_prefill_hgemm(
+                w_fp16_ptr,
                 packed_input_ptr,
                 packed_output_ptr,
                 m,
@@ -957,6 +1065,141 @@ impl CudaExecutor {
             packed_output_ptr,
             n as i32,
         )
+    }
+
+    /// PMAT-064: Q4K WMMA GEMM for prefill — tensor cores + direct Q4K reads
+    ///
+    /// C[M×N] = A[M×K] @ B_q4k[N×(K/256)×144B]^T
+    ///
+    /// Dequantizes Q4K super-blocks to FP16 in shared memory, uses WMMA
+    /// 16×16×16 tensor core tiles for compute. 3.56× less bandwidth than
+    /// HGEMM (0.5625 B/elem vs 2 B/elem for FP16).
+    ///
+    /// Grid: (ceil(N/16), ceil(M/16)), Block: 32 threads (1 warp per WMMA tile)
+    #[allow(clippy::too_many_arguments)]
+    fn q4k_wmma_gemm_prefill(
+        &mut self,
+        weight_ptr: u64,
+        packed_input_ptr: u64,
+        packed_output_ptr: u64,
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        self.launch_q4k_wmma_kernel(weight_ptr, packed_input_ptr, packed_output_ptr, m, n, k)
+    }
+
+    /// Launch the Q4K WMMA GEMM kernel
+    ///
+    /// WMMA stores full 16×16 tiles, so when M or N isn't a multiple of 16,
+    /// edge tiles write past the output buffer. To avoid corrupting adjacent
+    /// GPU memory, we allocate a padded temporary buffer and copy back.
+    #[allow(clippy::too_many_arguments)]
+    fn launch_q4k_wmma_kernel(
+        &mut self,
+        weight_ptr: u64,
+        packed_input_ptr: u64,
+        packed_output_ptr: u64,
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        // Pad M and N to multiples of 16 for WMMA tile safety
+        let m_padded = (m + 15) & !15;
+        let n_padded = (n + 15) & !15;
+        let needs_padding = m_padded != m || n_padded != n;
+
+        // Use padded dimensions for kernel compilation (n_const in store stride)
+        let kernel_type = KernelType::TensorCoreQ4KGemm {
+            m: m_padded,
+            n: n_padded,
+            k,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("tensor_core_q4k_gemm_{m_padded}_{n_padded}_{k}");
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        // If padding needed, allocate temp buffer BEFORE borrowing modules
+        let actual_output_ptr = if needs_padding {
+            let padded_count = m_padded as usize * n_padded as usize;
+            self.ensure_wmma_scratch(padded_count)?;
+            self.wmma_scratch
+                .as_ref()
+                .expect("wmma scratch allocated")
+                .as_ptr()
+        } else {
+            packed_output_ptr
+        };
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Grid: (ceil(N/16), ceil(M/16)), Block: 32 (1 warp for WMMA)
+        let grid_x = n_padded / 16;
+        let grid_y = m_padded / 16;
+        let config = LaunchConfig::grid_2d(grid_x, grid_y, 32, 1);
+
+        let mut ptr_a = packed_input_ptr;
+        let mut ptr_b = weight_ptr;
+        let mut ptr_c = actual_output_ptr;
+        let mut m_val = m;
+        let mut n_val = n;
+        let mut k_val = k;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_a) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_b) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_c) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // Copy valid [M, N] from padded buffer to actual output
+        if needs_padding {
+            // Synchronize stream to ensure WMMA kernel completes before D2D copy.
+            // cuMemcpyDtoD is host-synchronous but NOT stream-ordered — it races
+            // with async kernel launches without this sync.
+            self.stream.synchronize()?;
+            // Copy row by row: each row has N valid elements out of N_padded
+            for row in 0..m {
+                let src_offset = row as u64 * n_padded as u64 * 4;
+                let dst_offset = row as u64 * n as u64 * 4;
+                self.stream.memcpy_dtod_sync(
+                    packed_output_ptr + dst_offset,
+                    actual_output_ptr + src_offset,
+                    n as usize * 4,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Ensure WMMA scratch buffer is large enough
+    fn ensure_wmma_scratch(&mut self, count: usize) -> Result<(), GpuError> {
+        let need_alloc = match &self.wmma_scratch {
+            Some(buf) => buf.len() < count,
+            None => true,
+        };
+        if need_alloc {
+            self.wmma_scratch = Some(GpuBuffer::<f32>::new(&self.context, count)?);
+        }
+        Ok(())
     }
 
     /// GH-182: Fused tiled Q4K GEMM for prefill — reads Q4K weights directly

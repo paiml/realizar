@@ -514,6 +514,8 @@ pub struct CudaExecutor {
     // PMAT-031: FP16 activation scratch for HGEMM input conversion
     fp16_activation_scratch: Option<GpuBuffer<u16>>,
     fp16_activation_scratch_size: usize,
+    // PMAT-065: FP16 dequant temp for L2-cached HGEMM (per-matmul Q4K→FP16)
+    fp16_dequant_temp: Option<GpuBuffer<u16>>,
     // PMAT-053: cuBLASLt handle for FP8 E4M3 GEMM (cublasGemmEx doesn't support FP8)
     cublaslt_handle: Option<trueno_gpu::driver::CublasLtHandle>,
     // PMAT-053: Cached FP8 E4M3 dequantized weights for FP8 GEMM
@@ -523,6 +525,10 @@ pub struct CudaExecutor {
     // PMAT-053: FP8 activation scratch for FP8 GEMM input conversion
     fp8_activation_scratch: Option<GpuBuffer<u8>>,
     fp8_activation_scratch_size: usize,
+    // PMAT-064: Padded output scratch for Q4K WMMA GEMM
+    // WMMA stores full 16×16 tiles — edge tiles write past the output buffer
+    // when M or N is not a multiple of 16. This scratch absorbs OOB writes.
+    wmma_scratch: Option<GpuBuffer<f32>>,
     // PMAT-032: Attention score scratch for prefill parallel attention
     // [num_heads × M × total_len] FP32 — stores QK^T scores and softmax output
     prefill_attn_scores: Option<GpuBuffer<f32>>,

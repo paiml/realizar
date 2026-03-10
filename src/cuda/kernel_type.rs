@@ -498,4 +498,9 @@ pub enum KernelType {
         k: u32,
         n: u32,
     },
+    /// PMAT-065: Q4K → FP16 direct dequantization (no F32 intermediate)
+    Q4KDequantFp16 {
+        k: u32,
+        n: u32,
+    },
 }
