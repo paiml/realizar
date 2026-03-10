@@ -299,15 +299,39 @@ impl OwnedQuantizedModelCuda {
                 operation: "prefill_all_layers_gpu".to_string(),
                 reason: format!("Batched prefill failed: {e}"),
             })?;
+        // CORRECTNESS-016: Log KV cache fingerprint after batched prefill.
+        // Non-destructive: just reads the KV cache, no serial comparison.
+        // Compare fingerprints across requests to detect non-determinism.
+        static KV_FINGERPRINT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *KV_FINGERPRINT.get_or_init(|| std::env::var("KV_FINGERPRINT").as_deref() == Ok("1")) {
+            if let Ok(sums) = self.executor.kv_cache_l0_k_fingerprint(prefill_count) {
+                // Compute a single hash-like value: sum of sums
+                let total: f32 = sums.iter().sum();
+                // Also report first 4 and last 4 position sums for pattern matching
+                let all: Vec<String> = sums.iter().map(|s| format!("{:.2}", s)).collect();
+                eprintln!(
+                    "[KV-FP] total={:.4} all=[{}] S={}",
+                    total,
+                    all.join(","),
+                    prefill_count
+                );
+            }
+        }
+
+        // CORRECTNESS-015: Force full workspace reinitialization after batched prefill.
+        // Five-Whys: Sequential requests produce non-deterministic graph output.
+        // Why? Graph captured after batched prefill produces wrong tokens on request 2+.
+        // Why? init_workspace early-returns (PAR-200) keeping M×-sized prefill buffers.
+        // Why? Some GPU state in reused prefill workspace corrupts graph capture.
+        // Fix: Force reallocation by resetting buffer_capacity before init_workspace.
+        // Cost: ~0.2ms workspace alloc per request (negligible vs TTFT).
+        self.executor.force_workspace_reinit();
         self.executor
             .init_workspace(hidden_dim, intermediate_dim)
             .map_err(|e| RealizarError::UnsupportedOperation {
                 operation: "init_workspace".to_string(),
                 reason: format!("Workspace restore failed: {e}"),
             })?;
-        // PMAT-032: Keep decode graph alive — workspace pointers are stable
-        // (init_workspace reuses prefill buffers when dims match).
-        // Graph's position_buf/seq_len_buf are updated before each replay.
 
         if trace {
             eprintln!(
