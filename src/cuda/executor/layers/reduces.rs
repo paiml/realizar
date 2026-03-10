@@ -57,24 +57,28 @@ impl CudaExecutor {
                 .unwrap_or(false)
         });
 
-        // Update position buffer (async memcpy, doesn't invalidate graph)
+        // CORRECTNESS-013 FIX: Use async H2D on self.stream instead of copy_from_host
+        // (stream 0). CU_STREAM_NON_BLOCKING has no ordering between stream 0 and
+        // the non-blocking stream used for graph launch. Same root cause as prefill.
         // CORRECTNESS-013: In stateless mode, always use position=0
         if let Some(ref mut pos_buf) = self.position_buf {
             let pos_to_write = if use_stateless { 0 } else { position };
-            pos_buf.copy_from_host(&[pos_to_write])?;
+            // SAFETY: pos_to_write is stack-local, valid until stream sync at line 88
+            unsafe { pos_buf.copy_from_host_async(&[pos_to_write], &self.stream)?; }
         }
 
         // PAR-061-FIX: Update seq_len buffer (seq_len = position + 1)
-        // The attention kernel reads seq_len from device memory in indirect mode
         // CORRECTNESS-013: In stateless mode, always use seq_len=1
         if let Some(ref mut seq_len_buf) = self.seq_len_buf {
             let seq_len = if use_stateless { 1 } else { position + 1 };
-            seq_len_buf.copy_from_host(&[seq_len])?;
+            // SAFETY: seq_len is stack-local, valid until stream sync at line 88
+            unsafe { seq_len_buf.copy_from_host_async(&[seq_len], &self.stream)?; }
         }
 
         // Update input buffer
         if let Some(ref mut input_buf) = self.graph_input_buf {
-            input_buf.copy_from_host(input)?;
+            // SAFETY: input slice valid until stream sync at line 88
+            unsafe { input_buf.copy_from_host_async(input, &self.stream)?; }
         }
 
         // Launch captured graph
