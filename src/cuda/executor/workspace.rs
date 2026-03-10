@@ -235,6 +235,17 @@ impl CudaExecutor {
         self.workspace = TransformerWorkspace::default();
     }
 
+    /// CORRECTNESS-015: Force next init_workspace to fully reallocate.
+    ///
+    /// After batched prefill, workspace buffers are M×-sized (from init_prefill_workspace).
+    /// The PAR-200 early-return in init_workspace keeps these oversized buffers, but some
+    /// GPU state in the reused buffers corrupts subsequent CUDA graph captures.
+    /// Resetting buffer_capacity forces init_workspace to reallocate fresh M=1 buffers.
+    pub fn force_workspace_reinit(&mut self) {
+        self.workspace.buffer_capacity = 0;
+        self.workspace.initialized = false;
+    }
+
     /// Clear decode graph and related state
     ///
     /// Call this before starting a new generation session to ensure

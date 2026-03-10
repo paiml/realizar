@@ -384,6 +384,19 @@ impl CudaExecutor {
         }
     }
 
+    /// CORRECTNESS-016: Zero-fill all KV cache buffers (diagnostic).
+    /// Used to distinguish "scatter didn't write" (zeros) from "scatter wrote wrong values".
+    pub fn zero_kv_cache_gpu(&mut self) -> Result<(), GpuError> {
+        for buf in self.kv_cache_gpu.values_mut() {
+            let zeros = vec![0.0f32; buf.len()];
+            buf.copy_from_host(&zeros)?;
+        }
+        for len in self.kv_cache_lengths.values_mut() {
+            *len = 0;
+        }
+        Ok(())
+    }
+
     /// PAR-105: Rollback KV cache to a specific position (for speculative decode)
     ///
     /// This allows undoing speculative tokens without losing the prefill history.
@@ -448,6 +461,30 @@ impl CudaExecutor {
             return Ok(vec![]);
         }
         Ok(vals[offset..offset + n.min(head_dim)].to_vec())
+    }
+
+    /// CORRECTNESS-016: Per-position sum fingerprint of L0 K cache head 0.
+    /// Returns one f32 per position (sum of head_dim elements).
+    pub fn kv_cache_l0_k_fingerprint(&self, num_positions: usize) -> Result<Vec<f32>, GpuError> {
+        let key = "kv_0_k".to_string();
+        let buf = self
+            .kv_cache_gpu
+            .get(&key)
+            .ok_or_else(|| GpuError::InvalidParameter("kv_0_k not found".to_string()))?;
+        let mut vals = vec![0.0f32; buf.len()];
+        buf.copy_to_host(&mut vals)?;
+        let head_dim = self.kv_head_dim;
+        Ok((0..num_positions)
+            .map(|p| {
+                let start = p * head_dim;
+                let end = (start + head_dim).min(vals.len());
+                if start < vals.len() {
+                    vals[start..end].iter().sum::<f32>()
+                } else {
+                    0.0
+                }
+            })
+            .collect())
     }
 
     /// PAR-060: Set RoPE theta (rotary position embedding base frequency)
