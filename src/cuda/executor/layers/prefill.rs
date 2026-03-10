@@ -445,6 +445,374 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// PMAT-051: Multi-prompt batched prefill — read weights once for all prompts.
+    ///
+    /// Five-Whys: c=4 TTFT = 256ms (10.7x vs llama.cpp 24ms).
+    /// Why? 4 sequential prefills × 59ms = 236ms.
+    /// Why? Each prefill reads all weights (3 GB FP16) independently.
+    /// Why? prefill_and_scatter loops over prompts, calling run_prefill per slot.
+    /// Fix: Concatenate all prompts' tokens into M_total, run GEMM once per layer.
+    /// Only attention is per-prompt (requires prompt-local causal mask).
+    ///
+    /// Expected: 4×59ms = 236ms → ~65ms (~3.5x TTFT improvement).
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    pub fn prefill_multi_prompt(
+        &mut self,
+        embeddings: &[f32],
+        positions: &[u32],
+        prompt_offsets: &[usize],
+        prompt_lengths: &[usize],
+        num_layers: usize,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        let m_total = positions.len();
+        let num_prompts = prompt_offsets.len();
+        if m_total == 0 || num_prompts == 0 {
+            return Ok(());
+        }
+
+        let expected_input_len = m_total * hidden_dim as usize;
+        if embeddings.len() != expected_input_len {
+            return Err(GpuError::InvalidParameter(format!(
+                "PMAT-051: embeddings.len() {} != M_total*hidden_dim = {}",
+                embeddings.len(),
+                expected_input_len
+            )));
+        }
+
+        // Verify workspace initialized for M_total
+        if !self.workspace.initialized || self.workspace.buffer_capacity < m_total {
+            return Err(GpuError::InvalidLaunchConfig(format!(
+                "PMAT-051: Workspace not initialized for M_total={} (have buffer_capacity={})",
+                m_total, self.workspace.buffer_capacity
+            )));
+        }
+
+        let q_dim = (self.kv_num_heads * self.kv_head_dim) as u32;
+        let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
+
+        // 1. Upload all embeddings to GPU
+        let input_buf = GpuBuffer::from_host(&self.context, embeddings)?;
+
+        // Extract workspace buffer pointers ONCE
+        let hidden_buf1_ptr = self
+            .workspace
+            .hidden_buf1
+            .as_ref()
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("PMAT-051: hidden_buf1 missing".into()))?
+            .as_ptr();
+        let hidden_buf1_len = self.workspace.hidden_buf1.as_ref().unwrap().len();
+        let hidden_buf2_ptr = self
+            .workspace
+            .hidden_buf2
+            .as_ref()
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("PMAT-051: hidden_buf2 missing".into()))?
+            .as_ptr();
+        let hidden_buf2_len = self.workspace.hidden_buf2.as_ref().unwrap().len();
+        let input_staging_ptr = self
+            .workspace
+            .input_staging
+            .as_ref()
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("PMAT-051: input_staging missing".into()))?
+            .as_ptr();
+        let input_staging_len = self.workspace.input_staging.as_ref().unwrap().len();
+        let q_buf_ptr = self
+            .workspace
+            .q_buf
+            .as_ref()
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("PMAT-051: q_buf missing".into()))?
+            .as_ptr();
+        let q_buf_len = self.workspace.q_buf.as_ref().unwrap().len();
+        let k_buf_ptr = self
+            .workspace
+            .k_buf
+            .as_ref()
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("PMAT-051: k_buf missing".into()))?
+            .as_ptr();
+        let k_buf_len = self.workspace.k_buf.as_ref().unwrap().len();
+        let v_buf_ptr = self
+            .workspace
+            .v_buf
+            .as_ref()
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("PMAT-051: v_buf missing".into()))?
+            .as_ptr();
+        let v_buf_len = self.workspace.v_buf.as_ref().unwrap().len();
+        let ffn_gate_ptr = self
+            .workspace
+            .ffn_gate_buf
+            .as_ref()
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("PMAT-051: ffn_gate_buf missing".into()))?
+            .as_ptr();
+        let ffn_gate_len = self.workspace.ffn_gate_buf.as_ref().unwrap().len();
+        let ffn_up_ptr = self
+            .workspace
+            .ffn_up_buf
+            .as_ref()
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("PMAT-051: ffn_up_buf missing".into()))?
+            .as_ptr();
+        let ffn_up_len = self.workspace.ffn_up_buf.as_ref().unwrap().len();
+        let ffn_act_ptr = self
+            .workspace
+            .ffn_act_buf
+            .as_ref()
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("PMAT-051: ffn_act_buf missing".into()))?
+            .as_ptr();
+        let ffn_act_len = self.workspace.ffn_act_buf.as_ref().unwrap().len();
+        let attn_out_ptr = self
+            .workspace
+            .attn_out_buf
+            .as_ref()
+            .ok_or_else(|| GpuError::InvalidLaunchConfig("PMAT-051: attn_out_buf missing".into()))?
+            .as_ptr();
+        let attn_out_len = self.workspace.attn_out_buf.as_ref().unwrap().len();
+
+        // SAFETY: All pointers valid from workspace allocation
+        let hidden_buf1 =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf1_ptr, hidden_buf1_len) };
+        let hidden_buf2 =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) };
+        let input_staging =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(input_staging_ptr, input_staging_len) };
+        let q_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(q_buf_ptr, q_buf_len) };
+        let k_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(k_buf_ptr, k_buf_len) };
+        let v_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(v_buf_ptr, v_buf_len) };
+        let ffn_gate_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(ffn_gate_ptr, ffn_gate_len) };
+        let ffn_up_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(ffn_up_ptr, ffn_up_len) };
+        let ffn_act_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(ffn_act_ptr, ffn_act_len) };
+        let attn_out_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(attn_out_ptr, attn_out_len) };
+
+        // Initialize cuBLAS for HGEMM
+        self.ensure_cublas()?;
+        self.is_prefilling = true;
+
+        let trace = std::env::var("PMAT051_TRACE").is_ok();
+        let mut t_qkv_total = 0u128;
+        let mut t_attn_total = 0u128;
+        let mut t_ffn_total = 0u128;
+
+        for layer_idx in 0..num_layers {
+            if layer_idx >= self.indexed_layer_weights.len() {
+                self.is_prefilling = false;
+                return Err(GpuError::InvalidLaunchConfig(format!(
+                    "PMAT-051: Layer {} weights not indexed (have {})",
+                    layer_idx,
+                    self.indexed_layer_weights.len()
+                )));
+            }
+            let layer_weights = self.get_indexed_layer(layer_idx).clone();
+            let layer_input = if layer_idx == 0 {
+                &input_buf
+            } else {
+                &hidden_buf2
+            };
+
+            let t0 = if trace {
+                self.stream.synchronize()?;
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
+
+            // Phase 1: RMSNorm + QKV + bias + RoPE on ALL M_total tokens (weight read ONCE)
+            self.batched_qkv_rope_phase(
+                layer_input,
+                &hidden_buf1,
+                &q_buf,
+                &k_buf,
+                &v_buf,
+                q_buf_ptr,
+                k_buf_ptr,
+                v_buf_ptr,
+                hidden_buf1_ptr,
+                layer_idx,
+                &layer_weights,
+                m_total as u32,
+                positions,
+                hidden_dim,
+                q_dim,
+                kv_dim,
+                epsilon,
+            )?;
+
+            if let Some(t) = t0 {
+                self.stream.synchronize()?;
+                t_qkv_total += t.elapsed().as_nanos();
+            }
+            let t1 = if trace {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
+
+            // Phase 2a: Per-prompt attention from packed buffer + direct scatter to batched KV
+            // PMAT-051 v2: Eliminates 56,000 D2D copies (bulk_scatter_kv) + 448 D2D copies
+            // (scatter_single_kv_to_batched_layer) by:
+            // 1. Running cuBLAS attention directly from packed K/V buffer (lda=kv_dim)
+            // 2. Scattering K/V to batched cache via PTX kernel (1 launch per prompt)
+            for prompt_idx in 0..num_prompts {
+                let offset = prompt_offsets[prompt_idx];
+                let s_i = prompt_lengths[prompt_idx];
+                if s_i == 0 {
+                    continue;
+                }
+
+                // Compute offset pointers into packed QKV/attn_out buffers
+                let q_off = (offset * q_dim as usize * std::mem::size_of::<f32>()) as u64;
+                let kv_off = (offset * kv_dim as usize * std::mem::size_of::<f32>()) as u64;
+                let attn_off = (offset * q_dim as usize * std::mem::size_of::<f32>()) as u64;
+
+                // Attention from packed buffer + scatter to batched KV cache in one method.
+                // No intermediate single KV cache. Zero D2D copies for attention,
+                // single kernel launch for scatter.
+                self.prefill_attention_from_packed(
+                    layer_idx,
+                    q_buf_ptr + q_off,
+                    k_buf_ptr + kv_off,
+                    v_buf_ptr + kv_off,
+                    attn_out_ptr + attn_off,
+                    s_i as u32,
+                    q_dim,
+                    kv_dim,
+                    prompt_idx,
+                )?;
+            }
+
+            if let Some(t) = t1 {
+                self.stream.synchronize()?;
+                t_attn_total += t.elapsed().as_nanos();
+            }
+            let t2 = if trace {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
+
+            // Phase 2b: Output projection + residuals + FFN on ALL M_total tokens (weight read ONCE)
+
+            // 5. Output Projection
+            self.batched_gemv_or_gemm(
+                layer_weights.attn_output_qtype,
+                layer_weights.attn_output_ptr,
+                &attn_out_buf,
+                &hidden_buf1,
+                attn_out_ptr,
+                hidden_buf1_ptr,
+                m_total as u32,
+                hidden_dim,
+                q_dim,
+            )?;
+
+            // 6. First Residual
+            self.batched_residual_add_into(
+                layer_input,
+                &hidden_buf1,
+                &input_staging,
+                hidden_dim,
+                m_total as u32,
+            )?;
+
+            // 7. Pre-FFN RMSNorm
+            self.batched_rmsnorm_ptr_into(
+                &input_staging,
+                layer_weights.ffn_norm_ptr,
+                layer_weights.ffn_norm_len,
+                &hidden_buf1,
+                hidden_dim,
+                m_total as u32,
+                epsilon,
+            )?;
+
+            // 8. FFN Gate/Up (no fused DP4A during prefill — is_prefilling=true skips it)
+            self.batched_gemv_or_gemm(
+                layer_weights.ffn_gate_qtype,
+                layer_weights.ffn_gate_ptr,
+                &hidden_buf1,
+                &ffn_gate_buf,
+                hidden_buf1_ptr,
+                ffn_gate_ptr,
+                m_total as u32,
+                intermediate_dim,
+                hidden_dim,
+            )?;
+            self.batched_gemv_or_gemm(
+                layer_weights.ffn_up_qtype,
+                layer_weights.ffn_up_ptr,
+                &hidden_buf1,
+                &ffn_up_buf,
+                hidden_buf1_ptr,
+                ffn_up_ptr,
+                m_total as u32,
+                intermediate_dim,
+                hidden_dim,
+            )?;
+
+            // 9. SwiGLU
+            self.batched_swiglu_into(
+                &ffn_gate_buf,
+                &ffn_up_buf,
+                &ffn_act_buf,
+                intermediate_dim,
+                m_total as u32,
+            )?;
+
+            // 10. FFN Down
+            self.batched_gemv_or_gemm(
+                layer_weights.ffn_down_qtype,
+                layer_weights.ffn_down_ptr,
+                &ffn_act_buf,
+                &hidden_buf1,
+                ffn_act_ptr,
+                hidden_buf1_ptr,
+                m_total as u32,
+                hidden_dim,
+                intermediate_dim,
+            )?;
+
+            // 11. Second Residual
+            self.batched_residual_add_into(
+                &input_staging,
+                &hidden_buf1,
+                &hidden_buf2,
+                hidden_dim,
+                m_total as u32,
+            )?;
+
+            if let Some(t) = t2 {
+                self.stream.synchronize()?;
+                t_ffn_total += t.elapsed().as_nanos();
+            }
+        }
+
+        self.is_prefilling = false;
+        self.stream.synchronize()?;
+
+        if trace {
+            eprintln!(
+                "[PMAT-051-TRACE] QKV={:.1}ms, Attn+Scatter={:.1}ms, FFN={:.1}ms, total={:.1}ms",
+                t_qkv_total as f64 / 1e6,
+                t_attn_total as f64 / 1e6,
+                t_ffn_total as f64 / 1e6,
+                (t_qkv_total + t_attn_total + t_ffn_total) as f64 / 1e6,
+            );
+        }
+
+        // Forget all non-owning wrappers
+        std::mem::forget(hidden_buf1);
+        std::mem::forget(hidden_buf2);
+        std::mem::forget(input_staging);
+        std::mem::forget(q_buf);
+        std::mem::forget(k_buf);
+        std::mem::forget(v_buf);
+        std::mem::forget(attn_out_buf);
+        std::mem::forget(ffn_gate_buf);
+        std::mem::forget(ffn_up_buf);
+        std::mem::forget(ffn_act_buf);
+
+        Ok(())
+    }
+
     /// PMAT-050: Warmup all resources needed for prefill graph capture.
     ///
     /// Must be called BEFORE begin_capture() to avoid memory allocations

@@ -993,6 +993,304 @@ DONE_NORM:
         Ok(())
     }
 
+    /// PMAT-051: Scatter K/V from packed QKV buffer directly to batched KV cache.
+    ///
+    /// Five-Whys: bulk_scatter_kv makes 56,000 D2D copies → 128.7ms Attn+Scatter.
+    /// Why? Each token×head needs cuMemcpyDtoDAsync (interleaved→contiguous).
+    /// Fix: Single PTX kernel per prompt per layer scatters all K/V in one launch.
+    /// Grid=(seq_len, num_kv_heads), Block=(head_dim). Each thread copies K+V f32.
+    ///
+    /// Replaces scatter_single_kv_to_batched_layer (which required intermediate single cache).
+    const SCATTER_PACKED_KV_PTX: &str = r#"
+.version 7.5
+.target sm_75
+.address_size 64
+
+.visible .entry scatter_packed_kv(
+    .param .u64 p_k_src,
+    .param .u64 p_v_src,
+    .param .u64 p_k_dst,
+    .param .u64 p_v_dst,
+    .param .u32 p_kv_dim,
+    .param .u32 p_head_dim,
+    .param .u32 p_max_len
+) {
+    .reg .u32 %r<8>;
+    .reg .u64 %rd<10>;
+    .reg .f32 %f<2>;
+
+    ld.param.u64 %rd0, [p_k_src];
+    ld.param.u64 %rd1, [p_v_src];
+    ld.param.u64 %rd2, [p_k_dst];
+    ld.param.u64 %rd3, [p_v_dst];
+    ld.param.u32 %r0, [p_kv_dim];
+    ld.param.u32 %r1, [p_head_dim];
+    ld.param.u32 %r2, [p_max_len];
+
+    mov.u32 %r3, %ctaid.x;   // token_idx
+    mov.u32 %r4, %ctaid.y;   // head_idx
+    mov.u32 %r5, %tid.x;     // dim_idx
+
+    // src_offset = token * kv_dim + head * head_dim + dim
+    mad.lo.u32 %r6, %r3, %r0, %r5;
+    mad.lo.u32 %r6, %r4, %r1, %r6;
+
+    // dst_offset = (head * max_len + token) * head_dim + dim
+    mad.lo.u32 %r7, %r4, %r2, %r3;
+    mad.lo.u32 %r7, %r7, %r1, %r5;
+
+    // Convert to byte offsets
+    cvt.u64.u32 %rd4, %r6;
+    shl.b64 %rd4, %rd4, 2;
+    cvt.u64.u32 %rd5, %r7;
+    shl.b64 %rd5, %rd5, 2;
+
+    // K: packed to cache
+    add.u64 %rd6, %rd0, %rd4;
+    ld.global.f32 %f0, [%rd6];
+    add.u64 %rd7, %rd2, %rd5;
+    st.global.f32 [%rd7], %f0;
+
+    // V: packed to cache
+    add.u64 %rd8, %rd1, %rd4;
+    ld.global.f32 %f1, [%rd8];
+    add.u64 %rd9, %rd3, %rd5;
+    st.global.f32 [%rd9], %f1;
+
+    ret;
+}
+"#;
+
+    /// PMAT-051: Prefill attention reading K/V directly from packed QKV buffer.
+    ///
+    /// Five-Whys: Attn+Scatter=128.7ms (58% of multi-prompt prefill).
+    /// Why? bulk_scatter_kv makes 56,000 individual cuMemcpyDtoDAsync calls.
+    /// Why? Packed K/V [M, kv_dim] needs rearranging to [num_kv_heads, max_len, head_dim].
+    /// Why? cuBLAS expected lda=head_dim from cache layout.
+    /// Fix: Use lda=kv_dim to read directly from packed buffer. Zero D2D copies.
+    ///
+    /// Then scatter K/V from packed buffer directly to batched KV cache via PTX kernel,
+    /// bypassing the intermediate single KV cache entirely.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn prefill_attention_from_packed(
+        &mut self,
+        layer_idx: usize,
+        q_buf_ptr: u64,
+        k_buf_ptr: u64,
+        v_buf_ptr: u64,
+        attn_out_ptr: u64,
+        seq_len: u32,
+        q_dim: u32,
+        kv_dim: u32,
+        slot_idx: usize,
+    ) -> Result<(), GpuError> {
+        if seq_len == 0 {
+            return Ok(());
+        }
+
+        let num_heads = self.kv_num_heads;
+        let num_kv_heads = self.kv_num_kv_heads;
+        let head_dim = self.kv_head_dim;
+        let heads_per_kv = num_heads / num_kv_heads;
+        let scale = 1.0 / (head_dim as f32).sqrt();
+        let total_len = seq_len as usize; // No prior cache — fresh prompt
+
+        // Score scratch buffer
+        self.ensure_cublas()?;
+        let score_size = num_heads * seq_len as usize * total_len;
+        self.ensure_attn_score_scratch(score_size)?;
+        let score_ptr = self
+            .prefill_attn_scores
+            .as_ref()
+            .expect("score scratch just allocated")
+            .as_ptr();
+
+        // 1. QK^T via cuBLAS — reading K directly from packed buffer (lda=kv_dim)
+        //
+        // K packed: [S, kv_dim] row-major → col-major per head: [head_dim, S], lda = kv_dim
+        // (heads are interleaved with kv_dim stride between tokens)
+        let handle = self.cublas_handle.as_ref().expect("cublas initialized");
+
+        for kv_group in 0..num_kv_heads {
+            let first_q_head = kv_group * heads_per_kv;
+            let k_head_ptr = k_buf_ptr + (kv_group * head_dim * std::mem::size_of::<f32>()) as u64;
+            let q_head_ptr =
+                q_buf_ptr + (first_q_head * head_dim * std::mem::size_of::<f32>()) as u64;
+            let s_head_ptr = score_ptr
+                + (first_q_head * seq_len as usize * total_len * std::mem::size_of::<f32>()) as u64;
+
+            handle.gemm_f32_strided_batched(
+                trueno_gpu::driver::GemmOp::Trans,     // K^T
+                trueno_gpu::driver::GemmOp::NoTrans,   // Q
+                total_len as i32,                      // m (rows of C)
+                seq_len as i32,                        // n (cols of C)
+                head_dim as i32,                       // k
+                scale,                                 // alpha = 1/sqrt(d)
+                k_head_ptr,                            // A = packed K
+                kv_dim as i32,                         // lda = kv_dim (NOT head_dim)
+                0,                                     // stride_a = 0 (shared K)
+                q_head_ptr,                            // B = Q
+                q_dim as i32,                          // ldb = q_dim
+                head_dim as i64,                       // stride_b = head_dim
+                0.0,                                   // beta
+                s_head_ptr,                            // C = score
+                total_len as i32,                      // ldc
+                (seq_len as usize * total_len) as i64, // stride_c
+                heads_per_kv as i32,                   // batch
+            )?;
+        }
+
+        // 2. Causal mask + softmax
+        if !self.modules.contains_key("causal_mask_softmax") {
+            let module = self.compile_ptx(Self::CAUSAL_MASK_SOFTMAX_PTX)?;
+            self.modules
+                .insert("causal_mask_softmax".to_string(), module);
+        }
+
+        {
+            let module = self
+                .modules
+                .get_mut("causal_mask_softmax")
+                .expect("just inserted");
+            let config = LaunchConfig {
+                grid: (num_heads as u32, seq_len, 1),
+                block: (32, 1, 1),
+                shared_mem: 0,
+            };
+
+            let mut s_ptr = score_ptr;
+            let mut m_val = seq_len;
+            let mut tl_val = total_len as u32;
+            let mut base_val = 0u32; // No prior cache
+            let mut nh_val = num_heads as u32;
+
+            // SAFETY: score buffer valid, dimensions verified
+            unsafe {
+                self.stream.launch_kernel(
+                    module,
+                    "causal_mask_softmax",
+                    &config,
+                    &mut [
+                        std::ptr::from_mut(&mut s_ptr) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut tl_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut base_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut nh_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+        }
+
+        // 3. Attn × V — reading V directly from packed buffer (lda=kv_dim)
+        let handle = self.cublas_handle.as_ref().expect("cublas initialized");
+
+        for kv_group in 0..num_kv_heads {
+            let first_q_head = kv_group * heads_per_kv;
+            let v_head_ptr = v_buf_ptr + (kv_group * head_dim * std::mem::size_of::<f32>()) as u64;
+            let p_head_ptr = score_ptr
+                + (first_q_head * seq_len as usize * total_len * std::mem::size_of::<f32>()) as u64;
+            let o_head_ptr =
+                attn_out_ptr + (first_q_head * head_dim * std::mem::size_of::<f32>()) as u64;
+
+            handle.gemm_f32_strided_batched(
+                trueno_gpu::driver::GemmOp::NoTrans,   // V
+                trueno_gpu::driver::GemmOp::NoTrans,   // P
+                head_dim as i32,                       // m (rows of C)
+                seq_len as i32,                        // n (cols of C)
+                total_len as i32,                      // k (inner dim)
+                1.0,                                   // alpha
+                v_head_ptr,                            // A = packed V
+                kv_dim as i32,                         // lda = kv_dim (NOT head_dim)
+                0,                                     // stride_a = 0 (shared V)
+                p_head_ptr,                            // B = P (softmax output)
+                total_len as i32,                      // ldb
+                (seq_len as usize * total_len) as i64, // stride_b
+                0.0,                                   // beta
+                o_head_ptr,                            // C = output
+                q_dim as i32,                          // ldc = q_dim
+                head_dim as i64,                       // stride_c
+                heads_per_kv as i32,                   // batch
+            )?;
+        }
+
+        // 4. Scatter K/V from packed buffer directly to batched KV cache
+        let stride = self.batched_kv_stride;
+        if stride > 0 {
+            let max_len = self.kv_cache_max_len;
+            let slot_offset_bytes = (slot_idx * stride * std::mem::size_of::<f32>()) as u64;
+
+            let batched_k_ptr = self
+                .batched_kv_k_caches
+                .get(&layer_idx)
+                .ok_or_else(|| {
+                    GpuError::InvalidLaunchConfig(format!(
+                        "PMAT-051: batched K cache layer {} not found",
+                        layer_idx
+                    ))
+                })?
+                .as_ptr();
+            let batched_v_ptr = self
+                .batched_kv_v_caches
+                .get(&layer_idx)
+                .ok_or_else(|| {
+                    GpuError::InvalidLaunchConfig(format!(
+                        "PMAT-051: batched V cache layer {} not found",
+                        layer_idx
+                    ))
+                })?
+                .as_ptr();
+
+            // Compile scatter kernel on first use
+            if !self.modules.contains_key("scatter_packed_kv") {
+                let module = self.compile_ptx(Self::SCATTER_PACKED_KV_PTX)?;
+                self.modules.insert("scatter_packed_kv".to_string(), module);
+            }
+
+            let module = self
+                .modules
+                .get_mut("scatter_packed_kv")
+                .expect("just inserted");
+            let config = LaunchConfig {
+                grid: (seq_len, num_kv_heads as u32, 1),
+                block: (head_dim as u32, 1, 1),
+                shared_mem: 0,
+            };
+
+            let mut k_src = k_buf_ptr;
+            let mut v_src = v_buf_ptr;
+            let mut k_dst = batched_k_ptr + slot_offset_bytes;
+            let mut v_dst = batched_v_ptr + slot_offset_bytes;
+            let mut kv_dim_val = kv_dim;
+            let mut head_dim_val = head_dim as u32;
+            let mut max_len_val = max_len as u32;
+
+            // SAFETY: All GPU buffers valid, grid/block dimensions verified
+            unsafe {
+                self.stream.launch_kernel(
+                    module,
+                    "scatter_packed_kv",
+                    &config,
+                    &mut [
+                        std::ptr::from_mut(&mut k_src) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut v_src) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut k_dst) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut v_dst) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut kv_dim_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut head_dim_val) as *mut std::ffi::c_void,
+                        std::ptr::from_mut(&mut max_len_val) as *mut std::ffi::c_void,
+                    ],
+                )?;
+            }
+
+            // Update batched KV length for this slot
+            if slot_idx < self.batched_kv_lengths.len() {
+                self.batched_kv_lengths[slot_idx] = seq_len as usize;
+            }
+        }
+
+        Ok(())
+    }
+
     /// PMAT-024/026: Batched GEMV with cuBLAS GEMM fallback for prefill
     ///
     /// When M >= threshold and weights are Q4K or Q6K, uses cuBLAS GEMM
