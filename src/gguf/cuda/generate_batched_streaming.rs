@@ -214,16 +214,36 @@ impl OwnedQuantizedModelCuda {
             self.prefill_and_scatter(prompts, &mut caches)?;
 
         // PMAT-062: DP4A GEMV for batched decode (default), not cuBLAS HGEMM.
-        // Five-Whys: HGEMM batched decode is 13% slower (22.1ms vs 19.3ms ITL at M=4).
-        // Why? FP16 reads 3.5x more data (2 B/elem vs Q4K 0.5625 B/elem).
-        // Why? Tensor cores help but don't compensate for 3.5x BW penalty.
-        // Why? RTX 4060L has 272 GB/s BW — FP16 M=4 GEMM is BW-limited.
-        // Also: HGEMM flag blocks fused gate+up DP4A (batched_ffn.rs:107).
+        // PMAT-088b: Re-testing HGEMM crossover. At M=4, Q4K GEMV is compute-bound
+        // (9.7ms DP4A chains) while HGEMM is BW-bound (9.1ms FP16 reads). Tensor cores
+        // may win when compute dominates. PMAT-062 confound: fused gate+up was disabled.
         // Override: HGEMM_BATCHED_DECODE=1 to force cuBLAS tensor core path.
-        let use_hgemm_decode = std::env::var("HGEMM_BATCHED_DECODE").as_deref() == Ok("1")
-            && self.executor.has_fp16_weight_cache();
+        let use_hgemm_decode = std::env::var("HGEMM_BATCHED_DECODE").as_deref() == Ok("1");
         if use_hgemm_decode {
+            // PMAT-088b: FP16 cache may be empty if FP8 prefill is active (sm_89+).
+            // Clear FP8 cache to free VRAM (1472 MB), then warm FP16 cache (2944 MB).
+            // FP8 cache will be re-warmed lazily on next prefill if needed.
+            if !self.executor.has_fp16_weight_cache() {
+                self.executor.clear_fp8_weight_cache();
+                self.executor.ensure_cublas().map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "ensure_cublas".to_string(),
+                    reason: format!("HGEMM batched decode: cuBLAS init failed: {e}"),
+                })?;
+                self.executor
+                    .warmup_hgemm_cache(
+                        num_layers,
+                        hidden_dim as u32,
+                        intermediate_dim as u32,
+                        vocab_size as u32,
+                    )
+                    .map_err(|e| RealizarError::UnsupportedOperation {
+                        operation: "warmup_hgemm_cache".to_string(),
+                        reason: format!("HGEMM batched decode: FP16 cache warmup failed: {e}"),
+                    })?;
+            }
             self.executor.hgemm_batched_decode_active = true;
+            eprintln!("[PMAT-088b] HGEMM batched decode active (FP16 cache: {} matrices)",
+                if self.executor.has_fp16_weight_cache() { "ready" } else { "EMPTY" });
         }
         self.executor.clear_prefill_graphs();
 

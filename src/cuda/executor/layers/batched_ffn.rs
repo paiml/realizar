@@ -98,6 +98,8 @@ impl CudaExecutor {
         // kernels (no H2D copies), graph-capturable. Old guard forced FP32 fallback.
         // PMAT-061: Disable fused gate+up DP4A when HGEMM batched decode is active.
         // Individual gate/up projections go through batched_gemv_or_gemm → cuBLAS HGEMM.
+        // PMAT-088b RESULT: Even with fused gate+up preserved (hybrid), HGEMM does NOT
+        // beat DP4A at M=4 (260.5 vs 261.5 tok/s). FP16's 3.5x BW penalty not compensated.
         let use_fused_gate_up_dp4a = layer_weights.ffn_gate_qtype == WeightQuantType::Q4K
             && layer_weights.ffn_up_qtype == WeightQuantType::Q4K
             && m >= 2

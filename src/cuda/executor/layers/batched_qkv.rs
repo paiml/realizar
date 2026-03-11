@@ -93,9 +93,13 @@ impl CudaExecutor {
         // PMAT-056: Removed !self.is_capturing guard — DP4A kernels are pure GPU
         // kernels (no H2D copies), so they are graph-capturable. The old guard
         // forced fallback to FP32-activation GEMV during capture, 2x slower.
-        // PMAT-061: Disable fused QKV DP4A when HGEMM batched decode is active.
-        // Individual Q/K/V projections go through batched_gemv_or_gemm → cuBLAS HGEMM
-        // (tensor cores, memory-bound) instead of compute-bound DP4A GEMV.
+        // PMAT-088b: Keep fused QKV DP4A even when HGEMM batched decode is active.
+        // Fused QKV quantizes input once, launches 3 GEMV with shared Q8 — saves 2 Q8
+        // quantize launches per layer (56 total across 28 layers). HGEMM benefits are
+        // only significant for non-fused paths (output proj, down proj).
+        // PMAT-088b RESULT: Confirmed — fused QKV DP4A stays active regardless of HGEMM.
+        // Hybrid (fused QKV DP4A + HGEMM output/down) = 260.5 vs full DP4A 261.5 tok/s.
+        // HGEMM crossover fully falsified at M=4 on RTX 4060L.
         let use_fused_qkv_dp4a = layer_weights.attn_q_qtype == WeightQuantType::Q4K
             && layer_weights.attn_k_qtype == WeightQuantType::Q4K
             && layer_weights.attn_v_qtype == WeightQuantType::Q4K
@@ -103,7 +107,6 @@ impl CudaExecutor {
             && m <= 8
             && self.gpu_profile.q4k == crate::cuda::gpu_profile::Q4kVariant::HwDp4a
             && !self.is_prefilling
-            && !self.hgemm_batched_decode_active
             && std::env::var("BATCHED_DP4A").as_deref() != Ok("0");
 
         if use_fused_qkv_dp4a {
