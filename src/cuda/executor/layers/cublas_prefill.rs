@@ -254,6 +254,126 @@ L_DONE_S:
 }
 "#;
 
+/// PMAT-079: Device-scaled FP32→FP8 E4M3 conversion kernel.
+/// Reads absmax from a device pointer (no CPU sync needed).
+/// Thread 0 of block 0 also writes dequant_scale = absmax/448 to a device buffer
+/// for use as cuBLASLt A_SCALE_POINTER.
+const F32_TO_E4M3_DEVICE_SCALED_PTX: &str = r#"
+.version 7.5
+.target sm_75
+.address_size 64
+
+.visible .entry f32_to_e4m3_device_scaled(
+    .param .u64 param_dst,           // FP8 output buffer
+    .param .u64 param_src,           // FP32 input buffer
+    .param .u32 param_count,         // number of elements
+    .param .u64 param_absmax_ptr,    // device ptr to u32 (absmax as IEEE 754 bits)
+    .param .u64 param_dequant_ptr    // device ptr to f32 where to write absmax/448
+) {
+    .reg .u64 %rd<6>;
+    .reg .u32 %r<16>;
+    .reg .f32 %f<7>;
+    .reg .pred %p<5>;
+
+    ld.param.u64 %rd0, [param_dst];
+    ld.param.u64 %rd1, [param_src];
+    ld.param.u32 %r0, [param_count];
+    ld.param.u64 %rd4, [param_absmax_ptr];
+    ld.param.u64 %rd5, [param_dequant_ptr];
+
+    // Read absmax from device memory (u32 bits to f32)
+    ld.global.u32 %r15, [%rd4];
+    mov.b32 %f4, %r15;
+
+    // Handle absmax == 0: use 1.0 to avoid div-by-zero
+    setp.eq.f32 %p3, %f4, 0f00000000;
+    @%p3 mov.f32 %f4, 0f3F800000;
+
+    // Compute quant_scale = 448 / absmax (f5 = 448.0, reused below)
+    mov.f32 %f5, 0f43E00000;
+    div.rn.f32 %f3, %f5, %f4;
+
+    // Thread 0 of block 0: write dequant_scale = absmax / 448 to device buffer
+    mov.u32 %r1, %tid.x;
+    mov.u32 %r2, %ctaid.x;
+    or.b32 %r14, %r1, %r2;
+    setp.ne.u32 %p4, %r14, 0;
+    @%p4 bra L_SKIP_DEQUANT;
+    div.rn.f32 %f6, %f4, %f5;
+    st.global.f32 [%rd5], %f6;
+L_SKIP_DEQUANT:
+
+    // Grid-stride loop for FP8 conversion
+    mov.u32 %r3, %ntid.x;
+    mad.lo.u32 %r1, %r2, %r3, %r1;
+
+    setp.ge.u32 %p0, %r1, %r0;
+    @%p0 bra L_DONE_DS;
+
+    cvt.u64.u32 %rd2, %r1;
+    shl.b64 %rd3, %rd2, 2;
+    add.u64 %rd3, %rd1, %rd3;
+    ld.global.f32 %f0, [%rd3];
+    mul.f32 %f0, %f0, %f3;
+
+    // FP32 to FP8 E4M3 conversion (same logic as f32_to_e4m3_scaled)
+    mov.b32 %r4, %f0;
+    shr.u32 %r5, %r4, 31;
+    bfe.u32 %r6, %r4, 23, 8;
+    and.b32 %r7, %r4, 0x007FFFFF;
+
+    setp.eq.u32 %p1, %r6, 0;
+    @%p1 bra L_ZERO_DS;
+    setp.eq.u32 %p2, %r6, 255;
+    @%p2 bra L_NANINF_DS;
+
+    sub.u32 %r8, %r6, 120;
+    setp.lt.s32 %p1, %r8, 1;
+    @%p1 bra L_ZERO_DS;
+    setp.gt.s32 %p2, %r8, 15;
+    @%p2 bra L_NANINF_DS;
+
+    shr.u32 %r9, %r7, 20;
+    bfe.u32 %r10, %r7, 19, 1;
+    and.b32 %r11, %r7, 0x0007FFFF;
+    and.b32 %r12, %r9, 1;
+    or.b32 %r13, %r11, %r12;
+    setp.ne.u32 %p3, %r13, 0;
+    and.b32 %r14, %r10, 1;
+    selp.u32 %r14, %r14, 0, %p3;
+    add.u32 %r9, %r9, %r14;
+
+    setp.gt.u32 %p3, %r9, 7;
+    @!%p3 bra L_PACK_DS;
+    mov.u32 %r9, 0;
+    add.u32 %r8, %r8, 1;
+    setp.gt.s32 %p2, %r8, 15;
+    @%p2 bra L_NANINF_DS;
+
+L_PACK_DS:
+    shl.b32 %r5, %r5, 7;
+    shl.b32 %r8, %r8, 3;
+    or.b32 %r5, %r5, %r8;
+    or.b32 %r5, %r5, %r9;
+    bra L_STORE_DS;
+
+L_ZERO_DS:
+    mov.u32 %r5, 0;
+    bra L_STORE_DS;
+
+L_NANINF_DS:
+    shl.b32 %r5, %r5, 7;
+    or.b32 %r5, %r5, 0x7E;
+
+L_STORE_DS:
+    add.u64 %rd4, %rd0, %rd2;
+    st.global.u8 [%rd4], %r5;
+
+L_DONE_DS:
+    ret;
+}
+"#;
+
 /// PMAT-053b: GPU absmax reduction kernel.
 /// Each block computes a local absmax via shared memory, then atomicMax to global result.
 /// Output buffer must be pre-zeroed (single u32 interpreted as FP32 via IEEE 754 ordering).
@@ -416,6 +536,57 @@ const F16_TO_F32_PTX: &str = r#"
     add.u64 %rd4, %rd0, %rd4;
     st.global.f32 [%rd4], %f0;
 L_DONE:
+    ret;
+}
+"#;
+
+/// PMAT-079: FP16 to FP32 conversion with device-side activation dequant scaling.
+/// Reads a single FP32 scale from a device pointer (act_dequant = act_absmax/448),
+/// multiplies each converted element by it.
+/// Weight dequant is already folded into the GEMM alpha — only act_dequant varies per request.
+const F16_TO_F32_ACT_SCALED_PTX: &str = r#"
+.version 7.5
+.target sm_75
+.address_size 64
+
+.visible .entry f16_to_f32_act_scaled(
+    .param .u64 param_dst,
+    .param .u64 param_src,
+    .param .u32 param_count,
+    .param .u64 param_act_dequant_ptr
+) {
+    .reg .u64 %rd<6>;
+    .reg .u32 %r<4>;
+    .reg .f32 %f<2>;
+    .reg .b16 %h0;
+    .reg .pred %p0;
+    ld.param.u64 %rd0, [param_dst];
+    ld.param.u64 %rd1, [param_src];
+    ld.param.u32 %r0, [param_count];
+    ld.param.u64 %rd5, [param_act_dequant_ptr];
+
+    // Read act_dequant scale from device (same for all elements)
+    ld.global.f32 %f1, [%rd5];
+
+    mov.u32 %r1, %tid.x;
+    mov.u32 %r2, %ctaid.x;
+    mov.u32 %r3, %ntid.x;
+    mad.lo.u32 %r1, %r2, %r3, %r1;
+    setp.ge.u32 %p0, %r1, %r0;
+    @%p0 bra L_DONE_AS;
+    // Load FP16 (16 bits)
+    cvt.u64.u32 %rd2, %r1;
+    shl.b64 %rd3, %rd2, 1;
+    add.u64 %rd3, %rd1, %rd3;
+    ld.global.b16 %h0, [%rd3];
+    // Convert FP16 to FP32 then scale by act_dequant
+    cvt.f32.f16 %f0, %h0;
+    mul.f32 %f0, %f0, %f1;
+    // Store as FP32 (4 bytes)
+    shl.b64 %rd4, %rd2, 2;
+    add.u64 %rd4, %rd0, %rd4;
+    st.global.f32 [%rd4], %f0;
+L_DONE_AS:
     ret;
 }
 "#;
@@ -599,6 +770,48 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// PMAT-079: Convert FP16→FP32 with device-side activation dequant scaling.
+    ///
+    /// Reads act_dequant (act_absmax/448) from a device pointer and multiplies
+    /// each converted element by it. Weight dequant is folded into GEMM alpha.
+    fn convert_f16_to_f32_act_scaled(
+        &mut self,
+        src_ptr: u64,
+        dst_ptr: u64,
+        count: u32,
+        act_dequant_ptr: u64,
+    ) -> Result<(), GpuError> {
+        let cache_key = "f16_to_f32_act_scaled";
+        if !self.modules.contains_key(cache_key) {
+            let module = self.compile_ptx(F16_TO_F32_ACT_SCALED_PTX)?;
+            self.modules.insert(cache_key.to_string(), module);
+        }
+
+        let module = self.modules.get_mut(cache_key).expect("just inserted");
+        let config = LaunchConfig::linear(count, 256);
+
+        let mut dst = dst_ptr;
+        let mut src = src_ptr;
+        let mut cnt = count;
+        let mut act_deq = act_dequant_ptr;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                "f16_to_f32_act_scaled",
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut dst) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut src) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut cnt) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut act_deq) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
     /// PMAT-053b: Launch scaled FP32→FP8 E4M3 conversion kernel.
     /// Multiplies each element by quant_scale before E4M3 conversion.
     fn convert_f32_to_e4m3_scaled(
@@ -696,6 +909,113 @@ impl CudaExecutor {
         Ok(absmax)
     }
 
+    /// PMAT-079: Compute absmax on GPU, keep result on device. No CPU sync.
+    ///
+    /// Returns the device pointer to the absmax result (u32 = f32 bits).
+    /// The persistent buffer `fp8_absmax_buf` is reused across calls.
+    fn gpu_absmax_device(&mut self, src_ptr: u64, count: u32) -> Result<u64, GpuError> {
+        if !self.modules.contains_key("absmax_reduce") {
+            let module = self.compile_ptx(ABSMAX_REDUCE_PTX)?;
+            self.modules.insert("absmax_reduce".to_string(), module);
+        }
+
+        // Allocate or reuse persistent absmax buffer
+        if self.fp8_absmax_buf.is_none() {
+            self.fp8_absmax_buf = Some(GpuBuffer::<u32>::new(&self.context, 1)?);
+        }
+        let absmax_buf = self.fp8_absmax_buf.as_mut().expect("just allocated");
+        let result_ptr = absmax_buf.as_ptr();
+        // Zero the buffer on self.stream (NOT stream 0!) to avoid race with previous
+        // matmul's conversion kernel that reads from this same buffer.
+        // SAFETY: zero_val lives until stream.synchronize or kernel completion.
+        // The zero is consumed by absmax_reduce (same stream, ordered after).
+        let zero_val = [0u32; 1];
+        unsafe {
+            absmax_buf.copy_from_host_async(&zero_val, &self.stream)?;
+        }
+
+        let module = self
+            .modules
+            .get_mut("absmax_reduce")
+            .expect("just inserted");
+        let num_blocks = ((count + 255) / 256).min(256);
+        let config = LaunchConfig {
+            grid: (num_blocks, 1, 1),
+            block: (256, 1, 1),
+            shared_mem: 256 * 4,
+        };
+
+        let mut out = result_ptr;
+        let mut src = src_ptr;
+        let mut cnt = count;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                "absmax_reduce",
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut out) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut src) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut cnt) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // No sync! Result stays on device for the next kernel to read.
+        Ok(result_ptr)
+    }
+
+    /// PMAT-079: Launch device-scaled FP32→FP8 E4M3 conversion kernel.
+    ///
+    /// Reads absmax from a device pointer (output of `gpu_absmax_device`).
+    /// Also writes `absmax/448` to `dequant_ptr` for cuBLASLt A_SCALE_POINTER.
+    fn convert_f32_to_e4m3_device_scaled(
+        &mut self,
+        src_ptr: u64,
+        dst_ptr: u64,
+        count: u32,
+        absmax_ptr: u64,
+        dequant_ptr: u64,
+    ) -> Result<(), GpuError> {
+        let cache_key = "f32_to_e4m3_device_scaled";
+        if !self.modules.contains_key(cache_key) {
+            let module = self.compile_ptx(F32_TO_E4M3_DEVICE_SCALED_PTX)?;
+            self.modules.insert(cache_key.to_string(), module);
+        }
+
+        let module = self.modules.get_mut(cache_key).expect("just inserted");
+        let num_blocks = (count + 255) / 256;
+        let config = LaunchConfig {
+            grid: (num_blocks, 1, 1),
+            block: (256, 1, 1),
+            shared_mem: 0,
+        };
+
+        let mut dst = dst_ptr;
+        let mut src = src_ptr;
+        let mut cnt = count;
+        let mut abs_ptr = absmax_ptr;
+        let mut deq_ptr = dequant_ptr;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                "f32_to_e4m3_device_scaled",
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut dst) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut src) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut cnt) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut abs_ptr) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut deq_ptr) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
     /// PMAT-053b: Get cached FP8 E4M3 weight with per-tensor scaling.
     ///
     /// On cache miss: dequant Q4K/Q6K → FP32 → absmax → scaled FP8 E4M3 → cache.
@@ -738,25 +1058,24 @@ impl CudaExecutor {
         // Convert FP32 → scaled FP8 E4M3
         self.convert_f32_to_e4m3_scaled(f32_ptr, fp8_ptr, count as u32, quant_scale)?;
 
-        // Store dequant scale on GPU for cuBLASLt scale pointer
-        let scale_buf = GpuBuffer::<f32>::from_host(&self.context, &[dequant_scale])?;
-        self.fp8_weight_scales.insert(weight_ptr, scale_buf);
+        // Store dequant scale as CPU float — used as GEMM alpha (constant, no sync needed)
+        self.fp8_weight_scales.insert(weight_ptr, dequant_scale);
 
         self.fp8_weight_cache.insert(weight_ptr, fp8_buf);
         Ok(fp8_ptr)
     }
 
-    /// PMAT-053b: cuBLASLt FP8 E4M3 GEMM with per-tensor scaling
+    /// PMAT-079: Fully async FP8 E4M3 GEMM — zero CPU syncs.
     ///
-    /// Scales inputs to FP8 range before GEMM, then post-multiplies output by combined
-    /// dequant scale. This works on CUDA 12.x where cuBLASLt descriptor-based scale
-    /// pointers (attr 21/22, added in CUDA 12.8+) are not available.
+    /// Pipeline (all on device, no CPU readback):
+    ///   1. absmax_reduce → device absmax_buf (no sync)
+    ///   2. f32_to_e4m3_device_scaled → reads absmax from device, writes FP8 + act_dequant
+    ///   3. gemm_fp8_e4m3_to_f16 → unscaled GEMM with alpha=1.0
+    ///   4. f16_to_f32_device_scaled → reads act_dequant × weight_dequant from device
     ///
-    /// Pipeline: FP32→absmax→scaled FP8→unscaled GEMM→FP16→scale_f16→FP32 output
-    /// The GEMM computes: (Act/act_max*448) × (W/w_max*448)^T
-    /// Post-multiply by (act_max*w_max/448²) to recover true values.
-    ///
-    /// Reads 1 byte/elem (vs 2 bytes/elem for HGEMM) — 2x bandwidth savings on weights.
+    /// The GEMM computes raw FP8 dot products (no scaling). The dequant is applied
+    /// during the FP16→FP32 conversion: output = f16_val × (act_absmax/448) × (w_absmax/448).
+    /// This avoids both the GPU→CPU absmax sync AND cuBLASLt scale pointer issues.
     #[allow(clippy::too_many_arguments)]
     fn cublas_prefill_fp8_gemm(
         &mut self,
@@ -778,13 +1097,8 @@ impl CudaExecutor {
         // cuBLASLt FP8 requires batch dimension aligned to 16
         let m_padded = (m + 15) & !15;
 
-        // Step 1: Compute activation absmax and scale to FP8 E4M3
+        // Step 1+2: Device-side absmax + FP8 conversion (zero CPU syncs)
         let input_actual_count = (m as usize * k as usize) as u32;
-        let act_absmax = self.gpu_absmax(packed_input_ptr, input_actual_count)?;
-        let act_absmax = if act_absmax == 0.0 { 1.0 } else { act_absmax };
-        let act_quant_scale = 448.0 / act_absmax;
-
-        // Step 2: Convert FP32 activations → scaled FP8 E4M3 into padded buffer
         let input_padded_count = m_padded as usize * k as usize;
         self.ensure_fp8_activation_scratch(input_padded_count)?;
         let input_fp8_ptr = self
@@ -793,56 +1107,43 @@ impl CudaExecutor {
             .expect("scratch just allocated")
             .as_ptr();
 
-        self.convert_f32_to_e4m3_scaled(
+        // Ensure persistent dequant buffer exists
+        if self.fp8_act_dequant_buf.is_none() {
+            self.fp8_act_dequant_buf = Some(GpuBuffer::<f32>::new(&self.context, 1)?);
+        }
+        let act_dequant_ptr = self
+            .fp8_act_dequant_buf
+            .as_ref()
+            .expect("just allocated")
+            .as_ptr();
+
+        let absmax_ptr = self.gpu_absmax_device(packed_input_ptr, input_actual_count)?;
+        self.convert_f32_to_e4m3_device_scaled(
             packed_input_ptr,
             input_fp8_ptr,
             input_actual_count,
-            act_quant_scale,
+            absmax_ptr,
+            act_dequant_ptr,
         )?;
 
-        // Look up weight dequant scale (stored by get_or_cache_fp8_weight)
-        // Weight was quantized as: w_fp8 = w * (448/w_absmax), so dequant = w_absmax/448
-        let weight_dequant = {
-            let scale_buf = self.fp8_weight_scales.get(&weight_key).ok_or_else(|| {
-                GpuError::InvalidParameter(format!(
-                    "FP8 weight scale not found for key {weight_key:#x}"
-                ))
-            })?;
-            let mut val = [0.0f32; 1];
-            scale_buf.copy_to_host(&mut val)?;
-            val[0]
-        };
-
-        // Combined dequant: GEMM output = (act*448/act_max) × (w*448/w_max)^T
-        //                                = act×w^T × (448²/(act_max×w_max))
-        // To recover true values: multiply by (act_max×w_max/448²)
-        let combined_dequant = (act_absmax * weight_dequant); // weight_dequant = w_absmax/448
-                                                              // combined_dequant = act_absmax × (w_absmax/448)
-                                                              // GEMM result already has 448 from activation scaling, so:
-                                                              // true_result = GEMM_out × act_absmax/448 × w_absmax/448 = GEMM_out × combined_dequant / 448
-                                                              // Wait — let me be precise:
-                                                              // GEMM_out[i,j] = sum_k (act[i,k] × 448/act_max) × (w[j,k] × 448/w_max)
-                                                              //               = sum_k act[i,k] × w[j,k] × 448² / (act_max × w_max)
-                                                              // true[i,j]     = sum_k act[i,k] × w[j,k]
-                                                              // So: true = GEMM_out × (act_max × w_max) / 448²
-        let post_scale = (act_absmax * weight_dequant * 448.0) / (448.0 * 448.0);
-        // Simplify: weight_dequant = w_absmax/448
-        // post_scale = act_absmax × (w_absmax/448) × 448 / 448² = act_absmax × w_absmax / 448²
-        // = act_absmax / 448 × w_absmax / 448 = act_dequant × weight_dequant
-        // Actually simpler: post_scale = (act_absmax / 448) × (w_absmax / 448)
+        // Look up weight dequant scale (CPU float, constant per weight, no sync needed)
+        let weight_dequant = *self.fp8_weight_scales.get(&weight_key).ok_or_else(|| {
+            GpuError::InvalidParameter(format!(
+                "FP8 weight scale not found for key {weight_key:#x}"
+            ))
+        })?;
 
         let t1 = if detail_trace {
             self.stream.synchronize()?;
-            eprintln!(
-                "[FP8-SCALED] act_absmax={act_absmax:.4} act_quant_scale={act_quant_scale:.4} weight_dequant={weight_dequant:.6} post_scale={post_scale:.6}"
-            );
             Some(std::time::Instant::now())
         } else {
             None
         };
 
-        // Step 3: cuBLASLt FP8 GEMM (unscaled) → FP16 output [N, m_padded]
-        // alpha = post_scale folds the dequant into the GEMM output
+        // Step 3: cuBLASLt FP8 GEMM with alpha=weight_dequant → FP16 output
+        // weight_dequant is a constant CPU float (computed once at weight cache time).
+        // This partially dequants: D = (w_max/448) × FP8(A) × FP8(B)
+        // = (448/act_max) × true_result. The act_dequant (act_max/448) is applied in step 4.
         let output_padded_count = n as usize * m_padded as usize;
         self.ensure_fp16_activation_scratch(output_padded_count)?;
         let f16_output_ptr = self
@@ -859,9 +1160,9 @@ impl CudaExecutor {
             trueno_gpu::driver::GemmOp::Trans,
             trueno_gpu::driver::GemmOp::NoTrans,
             n as i32,
-            m_padded as i32, // padded batch dimension
+            m_padded as i32,
             k as i32,
-            post_scale, // alpha = dequant scale factor
+            weight_dequant, // alpha = w_absmax/448 (constant, no sync needed)
             w_fp8_ptr,
             k as i32,
             input_fp8_ptr,
@@ -874,56 +1175,27 @@ impl CudaExecutor {
 
         let t2 = if detail_trace {
             self.stream.synchronize()?;
-
-            if let Some(drv) = trueno_gpu::driver::sys::CudaDriver::load() {
-                let mut f16_vals = [0u16; 8];
-                unsafe {
-                    (drv.cuMemcpyDtoH)(
-                        f16_vals.as_mut_ptr() as *mut std::ffi::c_void,
-                        f16_output_ptr,
-                        16,
-                    );
-                }
-                let f32_display: Vec<f32> = f16_vals
-                    .iter()
-                    .map(|&h| half::f16::from_bits(h).to_f32())
-                    .collect();
-                eprintln!(
-                    "[FP8-DIAG] GEMM FP16 out[0..8]: {:?} (raw: {:04X?})",
-                    f32_display, f16_vals
-                );
-            }
-
             Some(std::time::Instant::now())
         } else {
             None
         };
 
-        // Step 4: Convert FP16 output → FP32 (only actual M*N elements, not padding)
+        // Step 4: Convert FP16→FP32 with device-side act_dequant scaling.
+        // Reads act_dequant (act_absmax/448) from device, multiplies each element by it.
+        // Combined with step 3 alpha: D_f32 = f16_val × act_dequant = true_result.
         let output_actual_count = n as usize * m as usize;
-        self.convert_f16_to_f32(
+        self.convert_f16_to_f32_act_scaled(
             f16_output_ptr,
             packed_output_ptr,
             output_actual_count as u32,
+            act_dequant_ptr,
         )?;
 
         if let (Some(t0), Some(t1), Some(t2)) = (t0, t1, t2) {
             self.stream.synchronize()?;
             let t3 = std::time::Instant::now();
-
-            if let Some(drv) = trueno_gpu::driver::sys::CudaDriver::load() {
-                let mut f32_out = [0.0f32; 8];
-                unsafe {
-                    (drv.cuMemcpyDtoH)(
-                        f32_out.as_mut_ptr() as *mut std::ffi::c_void,
-                        packed_output_ptr,
-                        32,
-                    );
-                }
-                eprintln!("[FP8-DIAG] Output FP32[0..8]: {:?}", f32_out);
-            }
             eprintln!(
-                "[FP8-TRACE] M={} (pad={}) N={} K={}: absmax+scale={:.3}ms gemm={:.3}ms f16->f32={:.3}ms total={:.3}ms",
+                "[FP8-TRACE] M={} (pad={}) N={} K={}: absmax+convert={:.3}ms gemm={:.3}ms f16->f32+scale={:.3}ms total={:.3}ms",
                 m,
                 m_padded,
                 n,
