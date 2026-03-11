@@ -324,13 +324,15 @@ impl CudaExecutor {
         m: usize,
         vocab_size: u32,
     ) -> Result<Vec<u32>, GpuError> {
-        // Update stable buffers (async memcpy, doesn't invalidate graph)
+        // PMAT-088b: Async H2D copies on self.stream — no sync stalls before graph launch.
+        // Prior PMAT-075 used sync copy_from_host (stream 0), adding 2.8ms overhead.
+        // All host data (&inputs, &positions, seq_lens Vec) lives until stream.synchronize().
         if let Some(ref mut input_buf) = self.batched_graph_input_buf {
-            input_buf.copy_from_host(inputs)?;
+            unsafe { input_buf.copy_from_host_async(inputs, &self.stream)?; }
         }
 
         if let Some(ref mut pos_buf) = self.batched_graph_positions_buf {
-            pos_buf.copy_from_host(positions)?;
+            unsafe { pos_buf.copy_from_host_async(positions, &self.stream)?; }
         }
 
         let seq_lens: Vec<u32> = positions
@@ -346,12 +348,16 @@ impl CudaExecutor {
             })
             .collect();
         if let Some(ref mut len_buf) = self.batched_graph_seq_lens_buf {
-            len_buf.copy_from_host(&seq_lens)?;
+            unsafe { len_buf.copy_from_host_async(&seq_lens, &self.stream)?; }
         }
 
         // Also update the batched KV cache seq_lens for attention
         if let Some(ref mut seq_lens_gpu) = self.batched_seq_lens_gpu {
-            seq_lens_gpu.copy_from_host(&seq_lens)?;
+            // PMAT-088b: Use exact-M view for async copy (buffer may be high-water-mark sized)
+            let ptr = seq_lens_gpu.as_ptr();
+            let mut view = unsafe { GpuBuffer::<u32>::from_raw_parts(ptr, m) };
+            unsafe { view.copy_from_host_async(&seq_lens, &self.stream)?; }
+            std::mem::forget(view);
         }
 
         // PMAT-045: Update workspace.positions_buf (read by RoPE kernels in graph)
@@ -359,7 +365,7 @@ impl CudaExecutor {
             if pos_buf.len() >= m {
                 let mut wrapper =
                     unsafe { GpuBuffer::<u32>::from_raw_parts(pos_buf.as_ptr(), m) };
-                wrapper.copy_from_host(positions)?;
+                unsafe { wrapper.copy_from_host_async(positions, &self.stream)?; }
                 std::mem::forget(wrapper);
             }
         }
