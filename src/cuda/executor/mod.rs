@@ -458,6 +458,10 @@ pub struct CudaExecutor {
     // PMAT-045: Batched argmax result buffer (M u32s) — eliminates M-1 syncs at c>1
     batched_argmax_results: Option<GpuBuffer<u32>>,
     batched_argmax_results_cap: usize,
+    // PMAT-086: Pre-allocated input staging buffer for batched decode (grow-only).
+    // Eliminates cuMemAlloc per decode step (~0.5-2ms at M=4).
+    batched_decode_input_buf: Option<GpuBuffer<f32>>,
+    batched_decode_input_cap: usize,
     // PAR-118: Graph capture failure flag — prevents futile retry that crashes CUDA.
     // After first failure, skip capture and use eager path.
     graph_capture_failed: bool,
