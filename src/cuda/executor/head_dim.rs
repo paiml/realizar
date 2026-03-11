@@ -213,10 +213,19 @@ impl CudaExecutor {
 
         // CORRECTNESS-013: Use async H2D on self.stream for same-stream ordering.
         // copy_from_host uses stream 0 which has no sync with non-blocking streams.
+        // PMAT-088: Buffers may be over-sized from high-water-mark allocation.
+        // Create exact-sized views via from_raw_parts for copy_from_host_async.
+        let m = seq_lens.len();
         unsafe {
-            k_ptrs_buf.copy_from_host_async(&k_ptrs, &self.stream)?;
-            v_ptrs_buf.copy_from_host_async(&v_ptrs, &self.stream)?;
-            seq_lens_buf.copy_from_host_async(&seq_lens, &self.stream)?;
+            let mut k_view = GpuBuffer::<u64>::from_raw_parts(k_ptrs_buf.as_ptr(), m);
+            let mut v_view = GpuBuffer::<u64>::from_raw_parts(v_ptrs_buf.as_ptr(), m);
+            let mut s_view = GpuBuffer::<u32>::from_raw_parts(seq_lens_buf.as_ptr(), m);
+            k_view.copy_from_host_async(&k_ptrs, &self.stream)?;
+            v_view.copy_from_host_async(&v_ptrs, &self.stream)?;
+            s_view.copy_from_host_async(&seq_lens, &self.stream)?;
+            std::mem::forget(k_view);
+            std::mem::forget(v_view);
+            std::mem::forget(s_view);
         }
 
         let partials_buf = self.flash_decode_partials.as_ref().ok_or_else(|| {
