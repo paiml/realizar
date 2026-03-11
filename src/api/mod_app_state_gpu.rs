@@ -472,6 +472,15 @@ impl AppState {
         q4k_tx: tokio::sync::mpsc::Sender<apr_q4k_scheduler::AprQ4kRequest>,
         vocab: Vec<String>,
     ) -> Result<Self, RealizarError> {
+        Self::with_apr_q4k_and_vocab_eos(q4k_tx, vocab, None)
+    }
+
+    /// ALB-109: Create state for Q4K GPU inference with explicit EOS token ID.
+    pub fn with_apr_q4k_and_vocab_eos(
+        q4k_tx: tokio::sync::mpsc::Sender<apr_q4k_scheduler::AprQ4kRequest>,
+        vocab: Vec<String>,
+        eos_id: Option<u32>,
+    ) -> Result<Self, RealizarError> {
         let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>")?;
         let (audit_logger, audit_sink) = create_audit_state();
         Ok(Self {
@@ -501,7 +510,7 @@ impl AppState {
             apr_q4k_tx: Some(q4k_tx),
             apr_transformer: None,
             cached_architecture: None,
-            cached_eos_token_id: None,
+            cached_eos_token_id: eos_id,
             verbose: false,
         })
     }
@@ -580,6 +589,17 @@ impl AppState {
             return cm.model().config.eos_token_id;
         }
         None
+    }
+
+    /// ALB-109: Get EOS token IDs for Q4K generation.
+    /// Returns a list of token IDs that should stop generation.
+    pub fn model_eos_ids(&self) -> Vec<u32> {
+        if let Some(eos) = self.model_eos_token_id() {
+            vec![eos]
+        } else {
+            // Fallback: common EOS tokens (0=padding, 2=</s> for LLaMA-style)
+            vec![0, 2]
+        }
     }
 
     /// GH-152: Enable verbose request/response logging

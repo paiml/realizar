@@ -65,11 +65,16 @@ async fn try_apr_q4k_generate(
 
     let (response_tx, response_rx) = tokio::sync::oneshot::channel();
 
+    // ALB-109: Get EOS token IDs from model config or tokenizer.
+    // Qwen3 uses 151643 (<|endoftext|>), not the default 0/2.
+    let eos_ids = state.model_eos_ids();
+
     q4k_tx
         .send(AprQ4kRequest {
             prompt_ids,
             max_tokens: request.max_tokens,
             temperature: request.temperature,
+            eos_ids,
             response_tx,
         })
         .await

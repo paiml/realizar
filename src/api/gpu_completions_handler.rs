@@ -170,11 +170,15 @@ async fn try_apr_q4k_completions(
     let prompt_tokens = prompt_ids.len();
 
     let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+    // ALB-109: Get EOS token IDs from model config or tokenizer.
+    let eos_ids = state.model_eos_ids();
+
     q4k_tx
         .send(AprQ4kRequest {
             prompt_ids,
             max_tokens,
             temperature,
+            eos_ids,
             response_tx,
         })
         .await

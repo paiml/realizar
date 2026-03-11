@@ -419,9 +419,7 @@ impl AprV2Model {
             .collect();
         vocab_vec.sort_by_key(|(_, id)| *id);
 
-        let vocab: Vec<String> = vocab_vec.into_iter().map(|(token, _)| token).collect();
-
-        // Extract special tokens
+        // Extract special tokens AND merge added_tokens into vocab
         let mut bos_id = None;
         let mut eos_id = None;
 
@@ -440,9 +438,16 @@ impl AprV2Model {
                     if content == "<s>" || content == "<bos>" {
                         bos_id = Some(id);
                     }
+                    // ALB-109: Merge added_tokens into vocab so BPETokenizer can decode them.
+                    // Without this, special tokens (EOS, im_start, im_end) cause decode errors.
+                    vocab_vec.push((content.to_string(), id));
                 }
             }
         }
+
+        // Sort by ID after merging added_tokens
+        vocab_vec.sort_by_key(|(_, id)| *id);
+        let vocab: Vec<String> = vocab_vec.into_iter().map(|(token, _)| token).collect();
 
         Some((vocab, bos_id, eos_id))
     }
