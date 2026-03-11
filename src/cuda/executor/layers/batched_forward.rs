@@ -58,9 +58,11 @@ impl CudaExecutor {
             )));
         }
 
-        // 1. Upload M embeddings to GPU (PMAT-086: reuse pre-allocated buffer)
-        // Grow-only: avoids cuMemAlloc per decode step (~0.5-2ms at M=4)
-        if self.batched_decode_input_cap < expected_input_len {
+        // 1. Upload M embeddings to GPU
+        // PMAT-088: Buffer may be over-sized (high-water mark from larger M).
+        // copy_from_host requires exact length match, so reallocate on size change.
+        if self.batched_decode_input_buf.as_ref().map_or(true, |b| b.len() != expected_input_len)
+        {
             self.batched_decode_input_buf =
                 Some(GpuBuffer::new(&self.context, expected_input_len)?);
             self.batched_decode_input_cap = expected_input_len;
@@ -81,14 +83,9 @@ impl CudaExecutor {
                 GpuError::InvalidLaunchConfig("PAR-111: hidden_buf2 missing".to_string())
             })?
             .as_ptr();
-        let hidden_buf2_len = self
-            .workspace
-            .hidden_buf2
-            .as_ref()
-            .ok_or_else(|| {
-                GpuError::InvalidLaunchConfig("PAR-111: hidden_buf2 missing".to_string())
-            })?
-            .len();
+        // PMAT-088: Use logical size (M * hidden_dim), not allocated capacity.
+        // Workspace buffers use high-water mark allocation — may be larger than current M.
+        let hidden_buf2_len = expected_input_len;
 
         // 2. Process all layers with batched GEMV
         for layer_idx in 0..num_layers {

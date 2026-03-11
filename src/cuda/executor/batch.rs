@@ -321,9 +321,12 @@ DONE:
         // records the pointer passed to the kernel. Per-layer buffers are static
         // (pre-populated in init_batched_kv_cache_gpu).
         if !self.is_capturing {
-            k_ptrs_buf.copy_from_host(&k_ptrs)?;
-            v_ptrs_buf.copy_from_host(&v_ptrs)?;
-            seq_lens_buf.copy_from_host(&seq_lens)?;
+            // PMAT-088: Use copy_from_host_at(0) — buffers may be over-sized from
+            // high-water-mark allocation (e.g., allocated for M=4 but used at M=3).
+            // copy_from_host requires exact length; copy_from_host_at allows partial.
+            k_ptrs_buf.copy_from_host_at(&k_ptrs, 0)?;
+            v_ptrs_buf.copy_from_host_at(&v_ptrs, 0)?;
+            seq_lens_buf.copy_from_host_at(&seq_lens, 0)?;
         }
 
         // GH-141: Choose pointer source — per-layer (capture) or shared (non-capture)
