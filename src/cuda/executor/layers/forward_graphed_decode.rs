@@ -172,7 +172,13 @@ impl CudaExecutor {
         if self.workspace.normed_hidden_buf.is_none() {
             self.workspace.normed_hidden_buf = Some(GpuBuffer::new(&self.context, hidden_size)?);
         }
-        if self.workspace.logits_buf.is_none() {
+        // PMAT-088: Logits buffer may have been resized by batched decode (M*vocab_size).
+        // Must reallocate to exact vocab_size for M=1 graph capture, otherwise
+        // copy_to_host will fail with "Length mismatch" (host=vocab vs device=M*vocab).
+        let needs_logits = self.workspace.logits_buf.as_ref().map_or(true, |b| {
+            b.len() != vocab_size as usize
+        });
+        if needs_logits {
             self.workspace.logits_buf = Some(GpuBuffer::new(&self.context, vocab_size as usize)?);
         }
 
