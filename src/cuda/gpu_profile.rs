@@ -80,7 +80,15 @@ impl GpuProfile {
     /// but production deployments need zero env vars.
     pub fn detect(context: &CudaContext) -> Self {
         let (major, minor) = context.compute_capability().unwrap_or((7, 0));
-        let sm_target = format!("sm_{major}{minor}");
+        // Clamp to sm_90 — PTX 8.0 only supports up to sm_90 (Hopper).
+        // Newer architectures (Blackwell sm_100+, GB10 sm_121) are
+        // forward-compatible: sm_90 PTX runs correctly via driver JIT.
+        let (ptx_major, ptx_minor) = if major > 9 || (major == 9 && minor > 0) {
+            (9, 0)
+        } else {
+            (major, minor)
+        };
+        let sm_target = format!("sm_{ptx_major}{ptx_minor}");
         let has_dp4a = major > 7 || (major == 7 && minor >= 5); // sm_75+ (Turing)
         let num_sms = context.multiprocessor_count().unwrap_or(8) as u32;
 

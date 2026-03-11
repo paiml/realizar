@@ -476,6 +476,7 @@ impl AppState {
     }
 
     /// ALB-109: Create state for Q4K GPU inference with explicit EOS token ID.
+    #[cfg(feature = "cuda")]
     pub fn with_apr_q4k_and_vocab_eos(
         q4k_tx: tokio::sync::mpsc::Sender<apr_q4k_scheduler::AprQ4kRequest>,
         vocab: Vec<String>,
