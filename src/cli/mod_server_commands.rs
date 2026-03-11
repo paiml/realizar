@@ -1,4 +1,3 @@
-
 // ============================================================================
 // Server Commands (extracted from main.rs for testability)
 // WAPR-PERF-004: Gated behind "server" feature since depends on crate::api
@@ -166,17 +165,33 @@ mod server_commands {
 
             let state = crate::api::AppState::with_cuda_model_and_vocab(cuda_model, vocab)?;
 
-            // PMAT-044: Spawn continuous batch scheduler for concurrent request handling
+            // PMAT-088: Choose scheduler based on env var
             let cuda_model_arc = state.cuda_model().expect("just created").clone();
-            let batch_config = crate::api::cuda_batch_scheduler::CudaBatchConfig::default();
-            println!(
-                "  CONTINUOUS BATCHING: max_batch={}, window={}ms (PMAT-044)",
-                batch_config.max_batch, batch_config.window_ms
-            );
-            let batch_tx = crate::api::cuda_batch_scheduler::spawn_cuda_batch_scheduler(
-                cuda_model_arc,
-                batch_config,
-            );
+            let use_iteration_scheduler =
+                std::env::var("ITERATION_SCHEDULER").as_deref() == Ok("1");
+
+            let batch_tx = if use_iteration_scheduler {
+                let iter_config =
+                    crate::api::iteration_scheduler::IterationSchedulerConfig::default();
+                println!(
+                    "  ITERATION SCHEDULER: max_slots={}, prefill_chunk={} (PMAT-088)",
+                    iter_config.max_slots, iter_config.prefill_chunk_size,
+                );
+                crate::api::iteration_scheduler::spawn_iteration_scheduler(
+                    cuda_model_arc,
+                    iter_config,
+                )
+            } else {
+                let batch_config = crate::api::cuda_batch_scheduler::CudaBatchConfig::default();
+                println!(
+                    "  CONTINUOUS BATCHING: max_batch={}, window={}ms (PMAT-044)",
+                    batch_config.max_batch, batch_config.window_ms
+                );
+                crate::api::cuda_batch_scheduler::spawn_cuda_batch_scheduler(
+                    cuda_model_arc,
+                    batch_config,
+                )
+            };
             println!();
 
             Ok(state.with_cuda_batch_tx(batch_tx))
@@ -304,9 +319,10 @@ mod server_commands {
 
         // ALB-095: Check if Q4K and GPU requested — use dedicated inference thread
         #[cfg(feature = "cuda")]
-        if force_gpu || std::env::var("REALIZAR_BACKEND")
-            .map(|v| v.eq_ignore_ascii_case("cuda"))
-            .unwrap_or(false)
+        if force_gpu
+            || std::env::var("REALIZAR_BACKEND")
+                .map(|v| v.eq_ignore_ascii_case("cuda"))
+                .unwrap_or(false)
         {
             if crate::cli::inference::is_apr_q4k(model_path) {
                 return prepare_apr_q4k_serve_state(model_path);
@@ -393,9 +409,11 @@ mod server_commands {
         }
 
         // Spawn the Q4K inference thread (loads model, uploads weights to GPU)
-        let q4k_tx = apr_q4k_scheduler::spawn_apr_q4k_inference_thread(model_path)
-            .map_err(|e| crate::error::RealizarError::GpuError {
-                reason: format!("Q4K inference thread failed: {e}"),
+        let q4k_tx =
+            apr_q4k_scheduler::spawn_apr_q4k_inference_thread(model_path).map_err(|e| {
+                crate::error::RealizarError::GpuError {
+                    reason: format!("Q4K inference thread failed: {e}"),
+                }
             })?;
 
         let state = crate::api::AppState::with_apr_q4k_and_vocab_eos(q4k_tx, vocab, eos_id)?;
