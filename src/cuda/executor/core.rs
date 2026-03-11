@@ -110,6 +110,8 @@ impl CudaExecutor {
             argmax_num_blocks: 0,
             batched_argmax_results: None,
             batched_argmax_results_cap: 0,
+            batched_decode_input_buf: None,
+            batched_decode_input_cap: 0,
             // PAR-118: Graph capture failure tracking
             graph_capture_failed: false,
             prefill_graph_capture_failed: false,

@@ -38,6 +38,8 @@ pub struct BatchedDecodeState {
     pub done: Vec<bool>,
     /// Pre-allocated embedding buffer `[m × hidden_dim]`
     pub embed_buf: Vec<f32>,
+    /// PMAT-086: Pre-allocated position buffer `[m]` (avoids Vec alloc per decode step)
+    pub pos_buf: Vec<u32>,
 }
 
 impl BatchedDecodeState {
@@ -241,6 +243,7 @@ impl OwnedQuantizedModelCuda {
         self.executor.clear_decode_graph();
 
         let embed_buf = vec![0.0f32; m * hidden_dim];
+        let pos_buf: Vec<u32> = positions.iter().map(|&p| p as u32).collect();
         let done = vec![false; m];
 
         Ok(BatchedDecodeState {
@@ -261,6 +264,7 @@ impl OwnedQuantizedModelCuda {
             last_tokens,
             done,
             embed_buf,
+            pos_buf,
         })
     }
 
@@ -288,12 +292,15 @@ impl OwnedQuantizedModelCuda {
             }
         }
 
-        let pos_u32: Vec<u32> = state.positions.iter().map(|&p| p as u32).collect();
+        // PMAT-086: Reuse pre-allocated position buffer (no Vec alloc per step)
+        for (i, &p) in state.positions.iter().enumerate() {
+            state.pos_buf[i] = p as u32;
+        }
 
         if state.gen_idx < 3 {
             eprintln!(
                 "[PMAT-072] decode step {}: positions={:?}, last_tokens={:?}",
-                state.gen_idx, &pos_u32[..state.m], state.last_tokens
+                state.gen_idx, &state.pos_buf[..state.m], state.last_tokens
             );
         }
 
@@ -310,7 +317,7 @@ impl OwnedQuantizedModelCuda {
             self.executor
                 .forward_batched_to_token_ids_graphed(
                     &state.embed_buf,
-                    &pos_u32,
+                    &state.pos_buf,
                     state.num_layers,
                     state.hidden_dim as u32,
                     state.intermediate_dim as u32,
@@ -325,7 +332,7 @@ impl OwnedQuantizedModelCuda {
             self.executor
                 .forward_batched_to_token_ids(
                     &state.embed_buf,
-                    &pos_u32,
+                    &state.pos_buf,
                     state.num_layers,
                     state.hidden_dim as u32,
                     state.intermediate_dim as u32,
@@ -489,6 +496,7 @@ impl OwnedQuantizedModelCuda {
         state.done.push(false);
         state.m = new_m;
         state.embed_buf.resize(new_m * state.hidden_dim, 0.0);
+        state.pos_buf.resize(new_m, 0);
         state.max_tokens_max = state
             .max_tokens_max
             .max(state.configs.last().unwrap().max_tokens);

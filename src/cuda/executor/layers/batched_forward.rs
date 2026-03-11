@@ -58,8 +58,19 @@ impl CudaExecutor {
             )));
         }
 
-        // 1. Upload M embeddings to GPU
-        let input_buf = GpuBuffer::from_host(&self.context, inputs)?;
+        // 1. Upload M embeddings to GPU (PMAT-086: reuse pre-allocated buffer)
+        // Grow-only: avoids cuMemAlloc per decode step (~0.5-2ms at M=4)
+        if self.batched_decode_input_cap < expected_input_len {
+            self.batched_decode_input_buf =
+                Some(GpuBuffer::new(&self.context, expected_input_len)?);
+            self.batched_decode_input_cap = expected_input_len;
+        }
+        self.batched_decode_input_buf
+            .as_mut()
+            .unwrap()
+            .copy_from_host(inputs)?;
+        let input_buf_ptr = self.batched_decode_input_buf.as_ref().unwrap().as_ptr();
+        let input_buf_len = expected_input_len;
 
         // Get workspace buffer pointers to avoid borrow conflicts
         let hidden_buf2_ptr = self
@@ -92,18 +103,15 @@ impl CudaExecutor {
             let layer_weights = self.get_indexed_layer(layer_idx).clone();
 
             // Use workspace output from previous layer (or input_buf for first layer)
-            // SAFETY: hidden_buf2 is valid for the lifetime of this function
+            // SAFETY: Pointers valid from allocation, length verified, used within scope
             let layer_input_buf = if layer_idx == 0 {
-                None // Use input_buf directly
+                // PMAT-086: Use pre-allocated input buffer pointer (same pattern as hidden_buf2)
+                unsafe { GpuBuffer::<f32>::from_raw_parts(input_buf_ptr, input_buf_len) }
             } else {
-                // SAFETY: Pointer valid from allocation, length verified, used within scope
-                Some(unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) })
+                unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, hidden_buf2_len) }
             };
 
-            let layer_input = match &layer_input_buf {
-                Some(buf) => buf,
-                None => &input_buf,
-            };
+            let layer_input = &layer_input_buf;
 
             self.transformer_layer_batched(
                 layer_input,
@@ -116,10 +124,8 @@ impl CudaExecutor {
                 epsilon,
             )?;
 
-            // Prevent drop of borrowed buffer
-            if let Some(buf) = layer_input_buf {
-                std::mem::forget(buf);
-            }
+            // Prevent drop of borrowed buffer (from_raw_parts doesn't own the memory)
+            std::mem::forget(layer_input_buf);
         }
 
         self.batched_output_norm_lm_head_argmax(m, hidden_dim, vocab_size, epsilon)
@@ -189,7 +195,21 @@ impl CudaExecutor {
         let lm_head_ptr = self.lm_head_ptr;
         let lm_head_qtype = self.lm_head_qtype;
 
-        let logits_buf = GpuBuffer::new(&self.context, m * vocab_size as usize)?;
+        // PMAT-086: Reuse workspace logits buffer (grow-only, avoids cuMemAlloc per step)
+        let logits_size = m * vocab_size as usize;
+        if self.workspace.logits_buf.is_none()
+            || self
+                .workspace
+                .logits_buf
+                .as_ref()
+                .map_or(0, trueno_gpu::driver::GpuBuffer::len)
+                < logits_size
+        {
+            self.workspace.logits_buf = Some(GpuBuffer::new(&self.context, logits_size)?);
+        }
+        let logits_buf_ptr = self.workspace.logits_buf.as_ref().unwrap().as_ptr();
+        // SAFETY: logits_buf_ptr valid from workspace allocation, size verified above
+        let logits_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(logits_buf_ptr, logits_size) };
 
         let normed_hidden_buf_len = self
             .workspace
@@ -217,9 +237,13 @@ impl CudaExecutor {
 
         std::mem::forget(normed_hidden_buf_wrapper);
 
-        // PMAT-045: Batched argmax — ONE sync for all M sequences
-        self.stream.synchronize()?;
-        self.batched_gpu_argmax(logits_buf.as_ptr(), vocab_size, m)
+        // PMAT-086: Removed redundant stream.synchronize() before argmax.
+        // LM head GEMV and argmax both execute on self.stream — CUDA stream
+        // ordering guarantees GEMV completes before argmax reads logits.
+        // batched_gpu_argmax does its own sync after all 2×M kernels (reduces.rs:370).
+        let argmax_ptr = logits_buf.as_ptr();
+        std::mem::forget(logits_buf); // Non-owning wrapper — prevent double-free
+        self.batched_gpu_argmax(argmax_ptr, vocab_size, m)
     }
 
     /// PAR-121: Graph-captured batched forward pass for M sequences
