@@ -525,6 +525,13 @@ pub struct CudaExecutor {
     // PMAT-053: FP8 activation scratch for FP8 GEMM input conversion
     fp8_activation_scratch: Option<GpuBuffer<u8>>,
     fp8_activation_scratch_size: usize,
+    // PMAT-053b: Per-tensor FP8 scale factors (absmax / 448.0) for cuBLASLt scaling.
+    // Key: quantized weight GPU pointer → scale factor (same key as fp8_weight_cache).
+    // cuBLASLt uses these to recover original dynamic range during GEMM.
+    fp8_weight_scales: HashMap<u64, GpuBuffer<f32>>,
+    // PMAT-053b: Persistent activation scale buffer (single f32 on GPU).
+    // Reused across prefill GEMMs to avoid alloc-per-matmul leak.
+    fp8_act_scale_buf: Option<GpuBuffer<f32>>,
     // PMAT-064: Padded output scratch for Q4K WMMA GEMM
     // WMMA stores full 16×16 tiles — edge tiles write past the output buffer
     // when M or N is not a multiple of 16. This scratch absorbs OOB writes.
