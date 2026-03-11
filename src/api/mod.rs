@@ -54,6 +54,8 @@ use crate::{
 pub mod apr_q4k_scheduler;
 #[cfg(feature = "cuda")]
 pub mod cuda_batch_scheduler;
+#[cfg(feature = "cuda")]
+pub mod iteration_scheduler;
 mod openai_handlers;
 pub(crate) use openai_handlers::{
     openai_chat_completions_handler, openai_chat_completions_stream_handler, openai_models_handler,
