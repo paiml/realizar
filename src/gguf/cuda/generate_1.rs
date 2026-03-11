@@ -85,34 +85,70 @@ impl OwnedQuantizedModelCuda {
 
         // Reset GPU KV cache positions (lengths → 0)
         self.executor.reset_kv_cache_gpu();
-        // CORRECTNESS-013: Clear stale decode graph before batched prefill.
-        // Five-Whys: Sequential M=1 requests produce non-deterministic output.
-        // Why? Decode graph from request N replays on request N+1.
-        // Why? init_prefill_workspace/init_workspace early-return (buffer_capacity reuse).
-        // Why? Batched prefill modifies GPU state the captured graph depends on.
-        // Why? Prefill kernels write to workspace buffers at M×-sized offsets,
-        //      leaving residual state that corrupts the graph's M=1 decode path.
-        // Fix: Force graph re-capture per request (~18ms cost, negligible vs TTFT).
-        self.executor.clear_decode_graph();
         ttft_mark!("reset_gpu");
 
         let mut tokens = prompt.to_vec();
 
-        // PMAT-023: Batched prefill (default, 9x TTFT improvement).
-        let prefill_count = prompt.len() - 1;
-        if prefill_count > 0 {
-            self.run_prefill(prompt, &mut cache, prefill_count, ttft_trace)?;
-            ttft_mark!("prefill");
+        // PMAT-083: Prefill ALL tokens and extract first predicted token from LM head.
+        // This eliminates the separate first decode step (~7ms TTFT savings).
+        // Greedy sampling only (temperature==0 or top_k==1); fallback to old path for sampling.
+        let greedy = config.temperature == 0.0 || config.top_k == 1;
+        let prefill_count = if greedy { prompt.len() } else { prompt.len() - 1 };
+        let prefill_first_token = if prefill_count > 0 {
+            self.run_prefill(prompt, &mut cache, prefill_count, ttft_trace, greedy)?
+        } else {
+            None
+        };
+        ttft_mark!("prefill");
+
+        // PMAT-085: Defer graph clear to AFTER prefill (was before).
+        // cuGraphExecDestroy + cuMemFree in clear_decode_graph() contends with
+        // the CUDA driver's internal state, adding ~6ms to the first cuBLAS GEMM.
+        // The decode graph is never used during prefill (eager cuBLAS path),
+        // so we only need it cleared before the first decode step.
+        // CORRECTNESS-013: Must clear before decode loop — stale graph from
+        // request N would replay with wrong workspace pointers after
+        // force_workspace_reinit inside run_prefill.
+        self.executor.clear_decode_graph();
+
+        // Generate tokens
+        let mut position;
+        let mut last_token;
+        let first_token_offset;
+
+        if let Some(first_tok) = prefill_first_token {
+            // PMAT-083: First token came from prefill LM head — skip first decode
+            position = prompt.len(); // KV cache has ALL prompt positions
+            last_token = first_tok;
+            first_token_offset = 0; // First loop iteration generates second output token
+
+            // Emit the first token immediately
+            tokens.push(first_tok);
+            if config.stop_tokens.contains(&first_tok) {
+                return Ok(tokens);
+            }
+            if !on_token(first_tok) {
+                return Ok(tokens);
+            }
+            ttft_mark!("first_token(prefill)");
+        } else {
+            // Original path: last prompt token feeds into first decode
+            position = prompt.len() - 1;
+            last_token = prompt[prompt.len() - 1];
+            first_token_offset = 0;
         }
 
-        // Generate from last prompt token
-        let mut position = prompt.len() - 1;
-        let mut last_token = prompt[prompt.len() - 1];
-
-        for _token_num in 0..config.max_tokens {
+        let max_decode = if prefill_first_token.is_some() {
+            config.max_tokens.saturating_sub(1) // Already emitted one token
+        } else {
+            config.max_tokens
+        };
+        for _token_num in 0..max_decode {
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
                 let tok = self.forward_gpu_resident_to_token_id(last_token, &mut cache, position)?;
-                if _token_num == 0 { ttft_mark!("first_decode"); }
+                if _token_num == first_token_offset && prefill_first_token.is_none() {
+                    ttft_mark!("first_decode");
+                }
                 tok
             } else {
                 let logits = self.forward_gpu_resident(last_token, &mut cache, position)?;

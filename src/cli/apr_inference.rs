@@ -97,10 +97,13 @@ pub fn run_apr_inference(
 
     // Use proper tokenizer from sibling tokenizer.json or embedded vocab
     let model_path = Path::new(model_ref);
-    let prompt_tokens = AprV2Model::encode_text(model_path, prompt).unwrap_or_else(|| {
-        // Fallback: simple char tokenization
-        prompt.chars().map(|c| c as u32).collect()
-    });
+    let prompt_tokens = AprV2Model::encode_text(model_path, prompt)
+        .or_else(|| {
+            // ALB-107: entrenar checkpoints lack embedded tokenizer.
+            // Fall back to sibling tokenizer.json (same as decode path).
+            AprV2Model::load_tokenizer(model_path).map(|tok| tok.encode(prompt))
+        })
+        .unwrap_or_else(|| prompt.chars().map(|c| c as u32).collect());
     let prompt_len = prompt_tokens.len();
 
     tracer.trace_encode(prompt, &prompt_tokens, transformer.config.vocab_size);

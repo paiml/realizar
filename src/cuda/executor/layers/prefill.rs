@@ -1286,4 +1286,97 @@ impl CudaExecutor {
 
         Ok(())
     }
+
+    /// PMAT-083: Extract first predicted token from prefill hidden state.
+    ///
+    /// Runs output RMSNorm + LM head GEMV + GPU argmax on the last position's
+    /// hidden state (still on GPU from prefill_eager). Eliminates the separate
+    /// first decode step, saving ~7ms TTFT.
+    ///
+    /// Must be called AFTER prefill_eager but BEFORE force_workspace_reinit,
+    /// while hidden_buf2 still contains valid prefill output.
+    pub(crate) fn prefill_extract_first_token(
+        &mut self,
+        last_pos: usize,
+        hidden_dim: u32,
+        vocab_size: u32,
+        epsilon: f32,
+    ) -> Result<u32, GpuError> {
+        // 1. Get pointer to last position's hidden state in hidden_buf2
+        let hidden_buf2_ptr = self
+            .workspace
+            .hidden_buf2
+            .as_ref()
+            .ok_or_else(|| {
+                GpuError::InvalidLaunchConfig(
+                    "PMAT-083: hidden_buf2 missing for first token extraction".to_string(),
+                )
+            })?
+            .as_ptr();
+        let offset_bytes = last_pos as u64 * hidden_dim as u64 * 4; // f32 = 4 bytes
+        let last_hidden_ptr = hidden_buf2_ptr + offset_bytes;
+
+        // Create non-owning view of last position's hidden state (1 × hidden_dim)
+        let last_hidden =
+            unsafe { GpuBuffer::<f32>::from_raw_parts(last_hidden_ptr, hidden_dim as usize) };
+
+        // 2. RMSNorm (output norm)
+        let output_norm_ptr = self.output_norm_ptr;
+        let output_norm_len = self.output_norm_len;
+        if output_norm_ptr == 0 {
+            std::mem::forget(last_hidden);
+            return Err(GpuError::InvalidLaunchConfig(
+                "PMAT-083: output_norm not loaded".to_string(),
+            ));
+        }
+
+        // Allocate temporary buffer for normed output (1 × hidden_dim)
+        let normed_buf = GpuBuffer::<f32>::new(&self.context, hidden_dim as usize)?;
+        self.rmsnorm_ptr_into(
+            &last_hidden,
+            output_norm_ptr,
+            output_norm_len,
+            &normed_buf,
+            hidden_dim,
+            epsilon,
+        )?;
+        std::mem::forget(last_hidden);
+
+        // 3. LM head GEMV (vocab_size × hidden_dim → vocab_size logits)
+        let lm_head_ptr = self.lm_head_ptr;
+        let lm_head_qtype =
+            WeightQuantType::from_size(self.lm_head_len, vocab_size as usize, hidden_dim as usize)
+                .unwrap_or(self.lm_head_qtype);
+
+        if lm_head_ptr == 0 {
+            return Err(GpuError::InvalidLaunchConfig(
+                "PMAT-083: lm_head not loaded".to_string(),
+            ));
+        }
+
+        let logits_buf = GpuBuffer::<f32>::new(&self.context, vocab_size as usize)?;
+        self.q8_activation_valid = false; // LM head input differs from layer GEMVs
+        self.gemv_dispatch(
+            lm_head_qtype,
+            lm_head_ptr,
+            &normed_buf,
+            &logits_buf,
+            vocab_size,
+            hidden_dim,
+        )?;
+
+        // 4. LM head bias (if present)
+        if self.lm_head_bias_ptr != 0 && self.lm_head_bias_len > 0 {
+            let bias_buf = unsafe {
+                GpuBuffer::<f32>::from_raw_parts(self.lm_head_bias_ptr, self.lm_head_bias_len)
+            };
+            self.residual_add_into(&logits_buf, &bias_buf, &logits_buf, vocab_size)?;
+            std::mem::forget(bias_buf);
+        }
+
+        // 5. GPU argmax → token ID
+        let token = self.gpu_argmax(logits_buf.as_ptr(), vocab_size)?;
+
+        Ok(token)
+    }
 }

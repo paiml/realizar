@@ -241,12 +241,13 @@ impl OwnedQuantizedModelCuda {
         cache: &mut OwnedQuantizedKVCache,
         prefill_count: usize,
         trace: bool,
-    ) -> Result<()> {
+        extract_first_token: bool,
+    ) -> Result<Option<u32>> {
         if prefill_count == 0 {
             if trace {
                 eprintln!("[TRACE-PREFILL] Single token prompt, no prefill needed");
             }
-            return Ok(());
+            return Ok(None);
         }
 
         // GH-94: Batched prefill is default (36% throughput improvement).
@@ -268,13 +269,14 @@ impl OwnedQuantizedModelCuda {
                     prefill_start.elapsed()
                 );
             }
-            return Ok(());
+            return Ok(None);
         }
 
         // GH-94: Batched prefill (default path)
         let hidden_dim = self.model.config.hidden_dim;
         let intermediate_dim = self.model.layers[0].ffn_up_weight.out_dim;
         let num_layers = self.model.config.num_layers;
+        let vocab_size = self.model.config.vocab_size;
         let eps = self.model.config.eps;
 
         let embeddings = self.model.embed(&prompt[..prefill_count]);
@@ -299,6 +301,29 @@ impl OwnedQuantizedModelCuda {
                 operation: "prefill_all_layers_gpu".to_string(),
                 reason: format!("Batched prefill failed: {e}"),
             })?;
+
+        // PMAT-083: Extract first predicted token from prefill hidden state.
+        // Runs output RMSNorm + LM head GEMV + GPU argmax on the last position.
+        // This eliminates the separate first decode step (~7ms savings).
+        // Must happen BEFORE force_workspace_reinit (hidden_buf2 still valid).
+        let first_token = if extract_first_token {
+            let token = self
+                .executor
+                .prefill_extract_first_token(
+                    prefill_count - 1, // last position index
+                    hidden_dim as u32,
+                    vocab_size as u32,
+                    eps,
+                )
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "prefill_extract_first_token".to_string(),
+                    reason: format!("PMAT-083 first token extraction failed: {e}"),
+                })?;
+            Some(token)
+        } else {
+            None
+        };
+
         // CORRECTNESS-016: Log KV cache fingerprint after batched prefill.
         // Non-destructive: just reads the KV cache, no serial comparison.
         // Compare fingerprints across requests to detect non-determinism.
@@ -319,12 +344,6 @@ impl OwnedQuantizedModelCuda {
         }
 
         // CORRECTNESS-015: Force full workspace reinitialization after batched prefill.
-        // Five-Whys: Sequential requests produce non-deterministic graph output.
-        // Why? Graph captured after batched prefill produces wrong tokens on request 2+.
-        // Why? init_workspace early-returns (PAR-200) keeping M×-sized prefill buffers.
-        // Why? Some GPU state in reused prefill workspace corrupts graph capture.
-        // Fix: Force reallocation by resetting buffer_capacity before init_workspace.
-        // Cost: ~0.2ms workspace alloc per request (negligible vs TTFT).
         self.executor.force_workspace_reinit();
         self.executor
             .init_workspace(hidden_dim, intermediate_dim)
@@ -335,13 +354,14 @@ impl OwnedQuantizedModelCuda {
 
         if trace {
             eprintln!(
-                "[TRACE-PREFILL] Batched prefill: {} tokens in {:?} ({:.1} tok/s)",
+                "[TRACE-PREFILL] Batched prefill: {} tokens in {:?} ({:.1} tok/s){}",
                 prefill_count,
                 prefill_start.elapsed(),
-                prefill_count as f64 / prefill_start.elapsed().as_secs_f64()
+                prefill_count as f64 / prefill_start.elapsed().as_secs_f64(),
+                if first_token.is_some() { " [+LM head]" } else { "" },
             );
         }
-        Ok(())
+        Ok(first_token)
     }
 
     /// GPU-resident token generation with minimal CPU↔GPU transfers.
@@ -429,22 +449,35 @@ impl OwnedQuantizedModelCuda {
             );
         }
 
-        let prefill_count = prompt.len() - 1; // All except last (last feeds into decode)
-        self.run_prefill(prompt, &mut cache, prefill_count, config.trace)?;
+        // PMAT-083: Prefill ALL tokens and extract first token (greedy only)
+        let greedy = config.temperature == 0.0 || config.top_k == 1;
+        let prefill_count = if greedy { prompt.len() } else { prompt.len() - 1 };
+        let prefill_first_token = self.run_prefill(prompt, &mut cache, prefill_count, config.trace, greedy)?;
 
-        // Generate from last prompt token
-        let mut position = prompt.len() - 1;
-        let mut last_token = prompt[prompt.len() - 1];
+        let mut position;
+        let mut last_token;
+        let max_decode;
 
-        for _token_num in 0..config.max_tokens {
+        if let Some(first_tok) = prefill_first_token {
+            // PMAT-083: First token from prefill LM head
+            position = prompt.len();
+            last_token = first_tok;
+            tokens.push(first_tok);
+            if config.stop_tokens.contains(&first_tok) {
+                return Ok(tokens);
+            }
+            max_decode = config.max_tokens.saturating_sub(1);
+        } else {
+            position = prompt.len() - 1;
+            last_token = prompt[prompt.len() - 1];
+            max_decode = config.max_tokens;
+        }
+
+        for _token_num in 0..max_decode {
             let token_start = std::time::Instant::now();
-            // PAR-062: Use GPU argmax path for greedy sampling (150,000x data transfer reduction)
             let next_token = if config.temperature == 0.0 || config.top_k == 1 {
-                // Greedy sampling - use GPU-side argmax (4 bytes transfer vs 600KB)
                 self.forward_gpu_resident_to_token_id(last_token, &mut cache, position)?
             } else {
-                // Non-greedy sampling - need full logits for proper temperature + top-k sampling
-                // PAR-063: Resolved issue where GPU path always took top token instead of sampling
                 let logits = self.forward_gpu_resident(last_token, &mut cache, position)?;
                 OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
             };

@@ -295,16 +295,16 @@ impl CudaExecutor {
     // PAR-007: GEMV Buffer Pool (avoid per-call allocation)
     // ========================================================================
 
-    /// Ensure GEMV input buffer has exact required size
+    /// ALB-110: Ensure GEMV input buffer has at least required_size capacity.
     ///
-    /// Returns a reference to the GPU buffer pointer. The buffer is
-    /// reallocated only when the size changes (common case: same size reused).
+    /// Grow-only: allocates once at the high-water mark, reuses for all
+    /// smaller dimensions. Eliminates ~356K cuMemAlloc/cuMemFree per request
+    /// that fragment the CUDA allocator and crash after ~65 sustained completions.
     pub(crate) fn ensure_gemv_input_buffer(
         &mut self,
         required_size: usize,
     ) -> Result<u64, GpuError> {
-        // Reallocate only if size changed (common case: reuse existing buffer)
-        if self.gemv_input_size != required_size {
+        if self.gemv_input_size < required_size {
             self.gemv_input_buffer = Some(GpuBuffer::new(&self.context, required_size)?);
             self.gemv_input_size = required_size;
         }
@@ -315,12 +315,13 @@ impl CudaExecutor {
             .as_ptr())
     }
 
-    /// Ensure GEMV output buffer has exact required size
+    /// ALB-110: Ensure GEMV output buffer has at least required_size capacity.
+    /// Grow-only semantics (see ensure_gemv_input_buffer).
     pub(crate) fn ensure_gemv_output_buffer(
         &mut self,
         required_size: usize,
     ) -> Result<u64, GpuError> {
-        if self.gemv_output_size != required_size {
+        if self.gemv_output_size < required_size {
             self.gemv_output_buffer = Some(GpuBuffer::new(&self.context, required_size)?);
             self.gemv_output_size = required_size;
         }

@@ -48,6 +48,7 @@ fn try_cuda_backend(
                 prompt_ids,
                 config: q_config,
                 token_tx: tx,
+                enqueue_time: std::time::Instant::now(),
             };
             if let Err(e) = batch_tx.try_send(batch_req) {
                 return Some(fail_response(
