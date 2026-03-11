@@ -166,6 +166,7 @@ impl CudaExecutor {
             num_sms: context.multiprocessor_count().unwrap_or(8) as u32,
             // PMAT-027: Q8 activation cache starts invalid
             q8_activation_valid: false,
+            fp8_activation_cache_key: None,
             fp8_weight_scales: HashMap::new(),
             fp8_act_scale_buf: None,
             fp8_absmax_buf: None,
@@ -180,6 +181,21 @@ impl CudaExecutor {
     #[must_use]
     pub fn is_available() -> bool {
         cuda_available()
+    }
+
+    /// ALB-110: Set the CUDA context as current on the calling thread.
+    ///
+    /// CUDA contexts are thread-local state. When a `CudaExecutor` is created
+    /// on one thread and moved to another (e.g., `std::thread::spawn`), the
+    /// CUDA context is NOT automatically current on the new thread. All CUDA
+    /// driver API calls (`cuMemAlloc`, `cuStreamCreate`, kernel launches, etc.)
+    /// require a current context — without it, operations may silently corrupt
+    /// GPU state and crash after N requests.
+    ///
+    /// **Must be called** at the start of any thread that receives a moved
+    /// `CudaExecutor`, before any GPU operations.
+    pub fn make_context_current(&self) -> Result<(), GpuError> {
+        self.context.make_current()
     }
 
     /// QWEN-010: Detect optimal tile size based on GPU architecture

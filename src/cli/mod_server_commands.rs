@@ -372,21 +372,25 @@ mod server_commands {
         println!("  Mode: GPU (Q4K CUDA — ALB-095)");
 
         // Load tokenizer for the HTTP serving path
+        // ALB-109: Capture EOS token ID — Qwen3 uses 151643, not 0/2
         let model_path_obj = Path::new(model_path);
-        let vocab = AprV2Model::load_tokenizer_from_sibling(model_path_obj)
-            .map(|(v, _, _)| v)
+        let (vocab, eos_id) = AprV2Model::load_tokenizer_from_sibling(model_path_obj)
+            .map(|(v, _, eos)| (v, eos))
             .or_else(|| {
                 AprV2Model::load(model_path_obj)
                     .ok()
                     .and_then(|m| m.load_embedded_tokenizer())
-                    .map(|t| t.id_to_token.clone())
+                    .map(|t| (t.id_to_token.clone(), None))
             })
             .unwrap_or_else(|| {
                 println!("  Warning: No vocabulary found, using simple vocabulary");
-                (0..151936).map(|i| format!("token{i}")).collect()
+                ((0..151936).map(|i| format!("token{i}")).collect(), None)
             });
 
         println!("  Vocab: {} tokens", vocab.len());
+        if let Some(eos) = eos_id {
+            println!("  EOS token ID: {eos}");
+        }
 
         // Spawn the Q4K inference thread (loads model, uploads weights to GPU)
         let q4k_tx = apr_q4k_scheduler::spawn_apr_q4k_inference_thread(model_path)
@@ -394,7 +398,7 @@ mod server_commands {
                 reason: format!("Q4K inference thread failed: {e}"),
             })?;
 
-        let state = crate::api::AppState::with_apr_q4k_and_vocab(q4k_tx, vocab)?;
+        let state = crate::api::AppState::with_apr_q4k_and_vocab_eos(q4k_tx, vocab, eos_id)?;
 
         Ok(PreparedServer {
             state,

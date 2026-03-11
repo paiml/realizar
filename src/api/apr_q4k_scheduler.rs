@@ -13,6 +13,9 @@ pub struct AprQ4kRequest {
     pub max_tokens: usize,
     /// Sampling temperature (0.0 = greedy).
     pub temperature: f32,
+    /// EOS token IDs — generation stops when any of these are produced.
+    /// ALB-109: Qwen3 uses 151643 (<|endoftext|>), not 0 or 2.
+    pub eos_ids: Vec<u32>,
     /// Channel to send the response back.
     pub response_tx: tokio::sync::oneshot::Sender<Result<AprQ4kResponse, String>>,
 }
@@ -128,6 +131,15 @@ pub fn spawn_apr_q4k_inference_thread(
 
     // Spawn dedicated thread — owns executor and all CUDA state
     std::thread::spawn(move || {
+        // ALB-110: CUDA contexts are thread-local. The executor was created on
+        // the calling thread (where cuCtxSetCurrent was called). On this new
+        // thread, the context is NOT current. Without this call, CUDA driver
+        // operations (cuMemAlloc, kernel launches, cuMemFree) silently corrupt
+        // GPU state and crash after ~12-37 requests.
+        executor
+            .make_context_current()
+            .expect("Q4K inference thread: failed to set CUDA context");
+
         // Create a minimal tokio runtime just for channel recv
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -145,6 +157,7 @@ pub fn spawn_apr_q4k_inference_thread(
                     &req.prompt_ids,
                     req.max_tokens,
                     req.temperature,
+                    &req.eos_ids,
                 );
                 let _ = req.response_tx.send(result);
             }
@@ -166,6 +179,7 @@ fn generate_q4k(
     prompt_ids: &[u32],
     max_tokens: usize,
     temperature: f32,
+    eos_ids: &[u32],
 ) -> Result<AprQ4kResponse, String> {
     use crate::cli::inference::{argmax, sample_with_temperature};
     use crate::gpu::adapters::apr_q4k::forward_token_apr_q4k;
@@ -205,8 +219,8 @@ fn generate_q4k(
 
     // Autoregressive decode
     for step in 0..max_tokens.saturating_sub(1) {
-        // EOS check
-        if next_token == 0 || next_token == 2 {
+        // ALB-109: Configurable EOS — Qwen3 uses 151643, not 0/2
+        if eos_ids.contains(&next_token) {
             break;
         }
 
