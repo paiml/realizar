@@ -427,6 +427,9 @@ impl CudaExecutor {
                 != logits_size
         {
             self.workspace.logits_buf = Some(GpuBuffer::new(&self.context, logits_size)?);
+            // PMAT-088: Logits buffer reallocation invalidates M=1 decode graph
+            // (it captured a pointer to the old logits_buf address/size).
+            self.clear_decode_graph();
         }
 
         Ok(())

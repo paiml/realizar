@@ -394,6 +394,12 @@ impl OwnedQuantizedModelCuda {
         // VRAM cost: ~896 MB retained between batches (fits in 7.5 GB budget).
         // reset_batched_kv_cache_gpu zeroes contents at next batch start.
 
+        // PMAT-088: Clear M=1 decode graph after batched decode. Batched decode may have
+        // resized workspace.logits_buf to M*vocab_size, invalidating the M=1 graph's
+        // captured logits pointer. Without this, M=1 generate_gpu_resident_streaming
+        // replays a graph with stale buffer pointers → "Length mismatch" error.
+        self.executor.clear_decode_graph();
+
         // PMAT-061: Weight cache is now kept during decode (not cleared after prefill).
         // PMAT-067: Prefer FP8 cache on sm_89+ — skip FP16 cache rebuild.
         if self.executor.gpu_profile.fp8_prefill {
