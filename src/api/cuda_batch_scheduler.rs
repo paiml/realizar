@@ -16,6 +16,8 @@ pub struct CudaBatchRequest {
     pub config: QuantizedGenerateConfig,
     /// Channel to stream generated token IDs back to the HTTP handler
     pub token_tx: tokio::sync::mpsc::Sender<Result<u32, String>>,
+    /// PMAT-086: Timestamp when request was enqueued (for queue latency measurement)
+    pub enqueue_time: std::time::Instant,
 }
 
 /// PMAT-044: Batch scheduler configuration
@@ -94,23 +96,41 @@ async fn cuda_batch_scheduler_loop(
             },
         };
 
-        // Accumulate more requests within the window
+        // Accumulate more requests within the window.
+        // PMAT-086: When window_ms == 0, use non-blocking drain instead of timed wait.
+        // tokio::time::timeout_at has ~1ms minimum granularity from the timer wheel,
+        // so a 0ms window still costs ~1ms. Non-blocking try_recv has zero latency
+        // for c=1 (no queued requests) but still batches for c>1 (requests pile up
+        // during GPU processing of previous batch).
         let mut batch = vec![first];
-        let deadline =
-            tokio::time::Instant::now() + tokio::time::Duration::from_millis(config.window_ms);
+        if config.window_ms == 0 {
+            // PMAT-086: Zero-latency drain with cooperative yield.
+            // yield_now() lets other Tokio tasks complete their channel sends
+            // without blocking on a timer. This captures requests that arrived
+            // simultaneously (c>1) while adding zero overhead for c=1 (no pending tasks).
+            tokio::task::yield_now().await;
+            while batch.len() < config.max_batch {
+                match rx.try_recv() {
+                    Ok(req) => batch.push(req),
+                    Err(_) => break, // No more queued requests
+                }
+            }
+        } else {
+            let deadline =
+                tokio::time::Instant::now() + tokio::time::Duration::from_millis(config.window_ms);
 
-        while batch.len() < config.max_batch {
-            match tokio::time::timeout_at(deadline, rx.recv()).await {
-                Ok(Some(req)) => batch.push(req),
-                Ok(None) => {
-                    eprintln!("[PMAT-044] Channel closed during accumulation");
-                    // Process remaining batch then exit
-                    if !batch.is_empty() {
-                        process_cuda_batch(&model, batch, &mut rx, config.max_batch);
-                    }
-                    return;
-                },
-                Err(_timeout) => break, // Window expired
+            while batch.len() < config.max_batch {
+                match tokio::time::timeout_at(deadline, rx.recv()).await {
+                    Ok(Some(req)) => batch.push(req),
+                    Ok(None) => {
+                        eprintln!("[PMAT-044] Channel closed during accumulation");
+                        if !batch.is_empty() {
+                            process_cuda_batch(&model, batch, &mut rx, config.max_batch);
+                        }
+                        return;
+                    },
+                    Err(_timeout) => break, // Window expired
+                }
             }
         }
 
@@ -150,7 +170,21 @@ fn process_cuda_batch(
         // This is acceptable because the fast path's 3x better ITL outweighs the
         // latency benefit of mid-batch join for the second request.
         let req = batch.into_iter().next().unwrap();
+        if std::env::var("TTFT_TRACE").is_ok() {
+            eprintln!(
+                "[TTFT] {:>20}: {:>7.2}ms",
+                "queue_latency",
+                req.enqueue_time.elapsed().as_secs_f64() * 1000.0
+            );
+        }
         let mut cuda_model = model.write().expect("PMAT-044: model lock poisoned");
+        if std::env::var("TTFT_TRACE").is_ok() {
+            eprintln!(
+                "[TTFT] {:>20}: {:>7.2}ms",
+                "lock_acquired",
+                req.enqueue_time.elapsed().as_secs_f64() * 1000.0
+            );
+        }
         let result =
             cuda_model.generate_gpu_resident_streaming(&req.prompt_ids, &req.config, |token_id| {
                 req.token_tx.try_send(Ok(token_id)).is_ok()

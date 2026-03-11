@@ -456,7 +456,7 @@ impl OwnedQuantizedModelCuda {
         let saved_stride = self.executor.batched_kv_stride;
         self.executor.batched_kv_stride = 0;
         self.executor.reset_kv_cache_gpu();
-        self.run_prefill(&prompt, &mut cache, seq_len, false)?;
+        self.run_prefill(&prompt, &mut cache, seq_len, false, false)?;
         self.executor.batched_kv_stride = saved_stride;
 
         // Scatter KV from single-slot cache to batched cache at new_slot
@@ -551,7 +551,7 @@ impl OwnedQuantizedModelCuda {
         let saved_stride = self.executor.batched_kv_stride;
         self.executor.batched_kv_stride = 0;
         self.executor.reset_kv_cache_gpu();
-        self.run_prefill(&prompt, &mut cache, seq_len, false)?;
+        self.run_prefill(&prompt, &mut cache, seq_len, false, false)?;
         self.executor.batched_kv_stride = saved_stride;
 
         // Scatter KV to the RECYCLED slot index (overwrites old data)
@@ -713,7 +713,7 @@ impl OwnedQuantizedModelCuda {
                 let seq_len = prompt.len().saturating_sub(1);
 
                 self.executor.batched_kv_stride = 0;
-                self.run_prefill(prompt, &mut caches[slot_idx], seq_len, false)?;
+                self.run_prefill(prompt, &mut caches[slot_idx], seq_len, false, false)?;
 
                 self.executor.batched_kv_stride = saved_stride;
                 self.executor

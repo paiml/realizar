@@ -566,6 +566,11 @@ pub struct CudaExecutor {
     // Set to true after q8_quantize_into; callers invalidate (set false)
     // when the input buffer content changes (e.g. after RMSNorm write).
     q8_activation_valid: bool,
+    // PMAT-084: FP8 activation cache — skip redundant absmax+convert when
+    // multiple FP8 GEMMs share the same input (QKV phase, FFN gate+up).
+    // Saves 84 kernel pairs per prefill (3 per layer × 28 layers).
+    // Key: (input_ptr, element_count). Invalidated on scratch buffer realloc.
+    fp8_activation_cache_key: Option<(u64, u32)>,
     // PMAT-076: Dead slot mask for batched decode — set by batched_decode_step
     // before forward pass. Attention kernel reads seq_lens=0 for done slots,
     // triggering early-exit (zero KV iterations). Avoids wasted attention on

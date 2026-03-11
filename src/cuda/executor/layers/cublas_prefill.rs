@@ -695,6 +695,8 @@ impl CudaExecutor {
         }
         self.fp8_activation_scratch = Some(GpuBuffer::new(&self.context, count)?);
         self.fp8_activation_scratch_size = count;
+        // PMAT-084: Reallocation invalidates cached FP8 activation data
+        self.fp8_activation_cache_key = None;
         Ok(())
     }
 
@@ -1098,6 +1100,9 @@ impl CudaExecutor {
         let m_padded = (m + 15) & !15;
 
         // Step 1+2: Device-side absmax + FP8 conversion (zero CPU syncs)
+        // PMAT-084: Cache FP8 activation — skip redundant absmax+convert when
+        // multiple GEMMs share the same input (QKV phase, FFN gate+up).
+        // Saves 84 kernel pairs per prefill (3 per layer × 28 layers).
         let input_actual_count = (m as usize * k as usize) as u32;
         let input_padded_count = m_padded as usize * k as usize;
         self.ensure_fp8_activation_scratch(input_padded_count)?;
@@ -1117,14 +1122,25 @@ impl CudaExecutor {
             .expect("just allocated")
             .as_ptr();
 
-        let absmax_ptr = self.gpu_absmax_device(packed_input_ptr, input_actual_count)?;
-        self.convert_f32_to_e4m3_device_scaled(
-            packed_input_ptr,
-            input_fp8_ptr,
-            input_actual_count,
-            absmax_ptr,
-            act_dequant_ptr,
-        )?;
+        let cache_key = (packed_input_ptr, input_actual_count);
+        if self.fp8_activation_cache_key == Some(cache_key) {
+            // PMAT-084: Reuse cached FP8 activation + dequant scale.
+            // QKV phase: Q computes, K+V reuse. FFN: gate computes, up reuses.
+            // 3 hits/layer × 28 layers = 84 saved absmax+convert pairs.
+            if detail_trace {
+                eprintln!("[PMAT-084] FP8 activation cache HIT ptr={packed_input_ptr:#x} count={input_actual_count}");
+            }
+        } else {
+            let absmax_ptr = self.gpu_absmax_device(packed_input_ptr, input_actual_count)?;
+            self.convert_f32_to_e4m3_device_scaled(
+                packed_input_ptr,
+                input_fp8_ptr,
+                input_actual_count,
+                absmax_ptr,
+                act_dequant_ptr,
+            )?;
+            self.fp8_activation_cache_key = Some(cache_key);
+        }
 
         // Look up weight dequant scale (CPU float, constant per weight, no sync needed)
         let weight_dequant = *self.fp8_weight_scales.get(&weight_key).ok_or_else(|| {
@@ -1155,10 +1171,10 @@ impl CudaExecutor {
         if self.cublaslt_handle.is_none() {
             self.cublaslt_handle = Some(trueno_gpu::driver::CublasLtHandle::new()?);
         }
-        let lt_handle = self.cublaslt_handle.as_ref().expect("just created");
-        lt_handle.gemm_fp8_e4m3_to_f16(
-            trueno_gpu::driver::GemmOp::Trans,
-            trueno_gpu::driver::GemmOp::NoTrans,
+        // PMAT-086: Use cached GEMM to avoid per-call descriptor creation.
+        // 168 GEMMs per prefill × ~30μs descriptor overhead = ~5ms savings.
+        let lt_handle = self.cublaslt_handle.as_mut().expect("just created");
+        lt_handle.gemm_fp8_e4m3_to_f16_cached(
             n as i32,
             m_padded as i32,
             k as i32,
@@ -3429,6 +3445,61 @@ DONE_NORM:
         }
 
         self.stream.synchronize()?;
+
+        // PMAT-082: cuBLASLt FP8 JIT warmup — eliminate 3ms first-request latency.
+        // First cuBLASLt FP8 GEMM triggers JIT compilation; warm it here at model load.
+        if cached > 0 {
+            if self.cublaslt_handle.is_none() {
+                self.cublaslt_handle = Some(trueno_gpu::driver::CublasLtHandle::new()?);
+            }
+
+            // Use smallest realistic M (padded to 16) with the first cached FP8 weight.
+            // One GEMM is enough — cuBLASLt JIT is per-handle, not per-shape.
+            let m_warmup: i32 = 16;
+            let n_warmup = hidden_dim as i32;
+            let k_warmup = hidden_dim as i32;
+            let warmup_input_count = m_warmup as usize * k_warmup as usize;
+            let warmup_output_count = n_warmup as usize * m_warmup as usize;
+
+            // Allocate scratch BEFORE borrowing lt_handle (avoid borrow conflict)
+            self.ensure_fp8_activation_scratch(warmup_input_count)?;
+            self.ensure_fp16_activation_scratch(warmup_output_count)?;
+            let input_ptr = self
+                .fp8_activation_scratch
+                .as_ref()
+                .expect("scratch just allocated")
+                .as_ptr();
+            let output_ptr = self
+                .fp16_activation_scratch
+                .as_ref()
+                .expect("scratch just allocated")
+                .as_ptr();
+
+            // Extract weight ptr before borrowing lt_handle
+            let fp8_weight_ptr = self.fp8_weight_cache.values().next().map(|b| b.as_ptr());
+
+            if let Some(w_ptr) = fp8_weight_ptr {
+                let lt_handle = self.cublaslt_handle.as_ref().expect("just created");
+                let _ = lt_handle.gemm_fp8_e4m3_to_f16(
+                    trueno_gpu::driver::GemmOp::Trans,
+                    trueno_gpu::driver::GemmOp::NoTrans,
+                    n_warmup,
+                    m_warmup,
+                    k_warmup,
+                    1.0, // dummy alpha
+                    w_ptr,
+                    k_warmup,
+                    input_ptr,
+                    k_warmup,
+                    0.0,
+                    output_ptr,
+                    n_warmup,
+                    &self.stream,
+                );
+                self.stream.synchronize()?;
+                eprintln!("[PMAT-082] cuBLASLt FP8 JIT warmed ({n_warmup}×{m_warmup}×{k_warmup})");
+            }
+        }
 
         let elapsed = start.elapsed();
         let cache_mb = self

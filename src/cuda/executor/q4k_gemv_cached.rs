@@ -76,11 +76,6 @@ impl CudaExecutor {
             self.modules.insert(cache_key.clone(), module);
         }
 
-        let module = self
-            .modules
-            .get_mut(&cache_key)
-            .expect("module just inserted");
-
         // GH-215 FIX: Pad activations to ceil(K/256)*256 when K not 256-aligned.
         // The Q4K kernel reads activations at sb_idx*256+val_idx, which reaches
         // up to (num_super_blocks-1)*256+255. Without padding, this is an OOB read.
@@ -92,14 +87,37 @@ impl CudaExecutor {
         } else {
             std::borrow::Cow::Borrowed(input)
         };
-        let buf_input = GpuBuffer::from_host(&self.context, &padded_input)?;
-        let buf_output = GpuBuffer::<f32>::new(&self.context, n as usize)?;
 
-        let mut ptr_output = buf_output.as_ptr();
+        // ALB-110: Use grow-only pooled buffers instead of per-call allocation.
+        // Eliminates ~356K cuMemAlloc/cuMemFree per request that fragment the
+        // CUDA allocator and crash the process after ~65 sustained completions.
+        // Uses copy_*_at(offset=0) for partial copies into oversized pooled buffers.
+        self.ensure_gemv_input_buffer(padded_k)?;
+        self.ensure_gemv_output_buffer(n as usize)?;
+        self.gemv_input_buffer
+            .as_mut()
+            .expect("just ensured")
+            .copy_from_host_at(&padded_input, 0)?;
+
+        let mut ptr_input = self
+            .gemv_input_buffer
+            .as_ref()
+            .expect("just ensured")
+            .as_ptr();
+        let mut ptr_output = self
+            .gemv_output_buffer
+            .as_ref()
+            .expect("just ensured")
+            .as_ptr();
         let mut ptr_weights = weight_ptr;
-        let mut ptr_input = buf_input.as_ptr();
         let mut k_val = k;
         let mut n_val = n;
+
+        // Get module AFTER buffer setup to avoid overlapping &mut self borrows
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
 
         // SAFETY: Memory safety ensured by bounds checking and alignment
         unsafe {
@@ -118,7 +136,10 @@ impl CudaExecutor {
         }
 
         self.stream.synchronize()?;
-        buf_output.copy_to_host(output)?;
+        self.gemv_output_buffer
+            .as_ref()
+            .expect("just ensured")
+            .copy_to_host_at(output, 0)?;
 
         Ok(())
     }
