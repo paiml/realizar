@@ -168,6 +168,8 @@ impl CudaExecutor {
             q8_activation_valid: false,
             fp8_weight_scales: HashMap::new(),
             fp8_act_scale_buf: None,
+            fp8_absmax_buf: None,
+            fp8_act_dequant_buf: None,
             batched_done_mask: Vec::new(),
             hgemm_batched_decode_active: false,
             context: std::mem::ManuallyDrop::new(context), // Last field — ManuallyDrop skips cuDevicePrimaryCtxRelease - dropped last
