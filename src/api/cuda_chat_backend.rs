@@ -339,6 +339,106 @@ pub async fn openai_models_handler(State(state): State<AppState>) -> Json<OpenAI
     })
 }
 
+/// ALB-110: APR Q4K GPU chat backend via dedicated inference thread.
+///
+/// Mirrors `try_apr_q4k_completions` from gpu_completions_handler.rs but for
+/// chat format. Tokenizes chat messages, sends to Q4K scheduler, returns
+/// chat-formatted response.
+#[cfg(feature = "cuda")]
+async fn try_apr_q4k_chat_backend(
+    state: &AppState,
+    request: &ChatCompletionRequest,
+    request_id: &str,
+    trace_level: Option<&str>,
+    start: Instant,
+) -> Option<Response> {
+    use crate::api::apr_q4k_scheduler::AprQ4kRequest;
+
+    let q4k_tx = state.apr_q4k_tx()?;
+    let tokenizer = match require_tokenizer(state) {
+        Ok(t) => t,
+        Err(r) => return Some(r),
+    };
+    let arch_hint = state.model_architecture();
+    let prompt_ids =
+        match tokenize_chat_prompt(&tokenizer, &request.messages, arch_hint.as_deref(), state) {
+            Ok(ids) => ids,
+            Err(r) => return Some(r),
+        };
+    let prompt_tokens = prompt_ids.len();
+    let (max_tokens, temperature, _eos_single) =
+        chat_gen_params(request, &tokenizer, state.model_eos_token_id());
+    let eos_ids = state.model_eos_ids();
+
+    let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+
+    if q4k_tx
+        .send(AprQ4kRequest {
+            prompt_ids,
+            max_tokens,
+            temperature,
+            eos_ids,
+            response_tx,
+        })
+        .await
+        .is_err()
+    {
+        return Some(fail_response(
+            state,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Q4K thread unavailable",
+        ));
+    }
+
+    let result = match response_rx.await {
+        Ok(r) => r,
+        Err(_) => {
+            return Some(fail_response(
+                state,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Q4K thread dropped response",
+            ))
+        }
+    };
+
+    let resp = match result {
+        Ok(r) => r,
+        Err(e) => {
+            return Some(fail_response(
+                state,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Q4K generation failed: {e}"),
+            ))
+        }
+    };
+
+    let text = match tokenizer.decode(&resp.output_tokens) {
+        Ok(t) => clean_chat_output(&t),
+        Err(e) => {
+            return Some(fail_response(
+                state,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                e,
+            ))
+        }
+    };
+    let completion_tokens = resp.tokens_generated;
+    state
+        .metrics
+        .record_success(completion_tokens, start.elapsed());
+
+    Some(build_chat_response(
+        request_id.to_string(),
+        request.model.clone(),
+        text,
+        prompt_tokens,
+        completion_tokens,
+        max_tokens,
+        trace_level,
+        start.elapsed(),
+    ))
+}
+
 /// OpenAI-compatible /v1/chat/completions endpoint (supports streaming)
 pub async fn openai_chat_completions_handler(
     State(state): State<AppState>,
@@ -388,6 +488,12 @@ pub async fn openai_chat_completions_handler(
     #[cfg(feature = "cuda")]
     if let Some(r) = try_cuda_backend(&state, &request, &request_id, trace_level.as_deref(), start)
     {
+        return r;
+    }
+
+    // ALB-110: APR Q4K GPU backend via dedicated inference thread
+    #[cfg(feature = "cuda")]
+    if let Some(r) = try_apr_q4k_chat_backend(&state, &request, &request_id, trace_level.as_deref(), start).await {
         return r;
     }
 
