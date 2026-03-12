@@ -35,6 +35,9 @@ impl CudaKernels {
             KernelType::InterleavedWmmaQ4KGemm { m, k, n } => {
                 InterleavedWmmaQ4KGemmKernel::new(*m, *k, *n).emit_ptx_for_target(target)
             },
+            KernelType::W4a16WmmaQ4KGemm { m, k, n } => {
+                W4a16WmmaQ4KGemmKernel::new(*m, *k, *n).emit_ptx_for_target(target)
+            },
             KernelType::Dp4aQ4KGemm { m, n, k } => {
                 Dp4aQ4KGemmKernel::new(*m, *n, *k).emit_ptx_for_target(target)
             },
