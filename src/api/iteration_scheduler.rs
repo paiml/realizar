@@ -249,8 +249,10 @@ fn process_iteration_batch(
     // Multi-request batch — PMAT-072/073/074 step-wise decode
     let prompts: Vec<Vec<u32>> = batch.iter().map(|r| r.prompt_ids.clone()).collect();
     let configs: Vec<QuantizedGenerateConfig> = batch.iter().map(|r| r.config.clone()).collect();
-    let mut error_senders: Vec<tokio::sync::mpsc::Sender<Result<u32, String>>> =
-        batch.iter().map(|r| r.token_tx.clone()).collect();
+    // PMAT-088c: Option<Sender> so we can drop individual senders when slots finish.
+    // Both the callback's sender AND this sender must be dropped for the channel to close.
+    let mut error_senders: Vec<Option<tokio::sync::mpsc::Sender<Result<u32, String>>>> =
+        batch.iter().map(|r| Some(r.token_tx.clone())).collect();
 
     let callbacks: Vec<Box<dyn FnMut(u32) -> bool + Send>> = batch
         .into_iter()
@@ -267,7 +269,7 @@ fn process_iteration_batch(
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[PMAT-088] Setup+prefill ERROR (m={m}): {e}");
-                for tx in &error_senders {
+                for tx in error_senders.iter().flatten() {
                     let _ = tx.try_send(Err(e.to_string()));
                 }
                 return;
@@ -276,7 +278,29 @@ fn process_iteration_batch(
     };
 
     // Phase 2: Iteration-level decode loop
-    while !state.all_done() && state.gen_idx < state.max_tokens_max {
+    //
+    // PMAT-088c: Continuous batch — don't restart when all slots finish if there
+    // are pending requests. Recycle done slots instead of exiting → restarting.
+    // Without this, every batch restart costs ~20ms setup + 3×30ms slot adds = ~110ms,
+    // causing TTFT P50 = 116ms. With continuous recycling, TTFT ≈ 27ms (recycle + decode).
+    loop {
+        // Exit conditions:
+        // 1. All slots done AND no pending requests (batch truly complete)
+        // 2. gen_idx exceeded AND all slots done (safety limit)
+        if state.all_done() {
+            // Drain channel into waiting queue before deciding to exit
+            while let Ok(req) = rx.try_recv() {
+                waiting.push_back(req);
+            }
+            if waiting.is_empty() {
+                break; // No pending requests — batch complete
+            }
+            // Pending requests exist — continue loop to recycle done slots
+        }
+        if state.gen_idx >= state.max_tokens_max && state.all_done() {
+            break; // Safety limit reached
+        }
+
         *total_iterations += 1;
         let iter_start = std::time::Instant::now();
 
@@ -290,70 +314,15 @@ fn process_iteration_batch(
             // PMAT-088c: Decode-maximal scheduling — limit to 1 mid-batch join
             // per decode step. This interleaves prefill (14ms) with decode (6-13ms)
             // instead of blocking decode for N × 14ms to prefill all waiting at once.
-            // Result: slot 0 TTFT drops from 82ms to ~21ms (P50 from 82ms to ~42ms).
+            //
+            // Priority: RECYCLE done slots first, then ADD new slots.
+            // Without this priority, add_slot grows M to max_kv_slots (8) while
+            // done slots waste GPU cycles on zero embeddings.
             let mut joined_this_step = false;
 
-            // Mid-batch joins from waiting queue (1 per step)
-            if !joined_this_step && state.m < state.max_kv_slots {
-                if let Some(req) = waiting.pop_front() {
-                    let error_tx = req.token_tx.clone();
-                    let on_token: Box<dyn FnMut(u32) -> bool + Send> = {
-                        let token_tx = req.token_tx;
-                        Box::new(move |token_id: u32| -> bool {
-                            token_tx.try_send(Ok(token_id)).is_ok()
-                        })
-                    };
-                    match cuda_model.add_slot_to_batch(
-                        &mut state,
-                        req.prompt_ids,
-                        req.config,
-                        on_token,
-                    ) {
-                        Ok(()) => {
-                            error_senders.push(error_tx);
-                            joined_this_step = true;
-                        },
-                        Err(e) => {
-                            eprintln!("[PMAT-088c] Mid-batch join from waiting FAILED: {e}");
-                            let _ = error_tx.try_send(Err(e.to_string()));
-                        },
-                    }
-                }
-            }
-
-            // Mid-batch joins from rx channel (1 per step, only if no waiting join)
-            if !joined_this_step && state.m < state.max_kv_slots {
-                match rx.try_recv() {
-                    Ok(req) => {
-                        let error_tx = req.token_tx.clone();
-                        let on_token: Box<dyn FnMut(u32) -> bool + Send> = {
-                            let token_tx = req.token_tx;
-                            Box::new(move |token_id: u32| -> bool {
-                                token_tx.try_send(Ok(token_id)).is_ok()
-                            })
-                        };
-                        match cuda_model.add_slot_to_batch(
-                            &mut state,
-                            req.prompt_ids,
-                            req.config,
-                            on_token,
-                        ) {
-                            Ok(()) => {
-                                error_senders.push(error_tx);
-                                joined_this_step = true;
-                            },
-                            Err(e) => {
-                                eprintln!("[PMAT-088c] Mid-batch join from rx FAILED: {e}");
-                                let _ = error_tx.try_send(Err(e.to_string()));
-                            },
-                        }
-                    },
-                    Err(_) => {},
-                }
-            }
-
-            // PMAT-088c: Slot recycling — 1 per step (same decode-maximal policy)
-            if !joined_this_step {
+            // 1. RECYCLE done slots first (reuses existing M, no M growth)
+            let has_done_slots = state.done.iter().any(|&d| d);
+            if has_done_slots {
                 for slot_idx in 0..state.m {
                     if !state.done[slot_idx] {
                         continue;
@@ -375,7 +344,10 @@ fn process_iteration_batch(
                             req.config,
                             on_token,
                         ) {
-                            Ok(()) => error_senders[slot_idx] = error_tx,
+                            Ok(()) => {
+                                error_senders[slot_idx] = Some(error_tx);
+                                joined_this_step = true;
+                            },
                             Err(e) => {
                                 eprintln!("[PMAT-088c] Slot recycle FAILED (slot {slot_idx}): {e}");
                                 let _ = error_tx.try_send(Err(e.to_string()));
@@ -388,6 +360,37 @@ fn process_iteration_batch(
                 }
             }
 
+            // 2. ADD new slots only when no done slots to recycle
+            if !joined_this_step && !has_done_slots && state.m < state.max_kv_slots {
+                let next_req = waiting.pop_front().or_else(|| rx.try_recv().ok());
+                if let Some(req) = next_req {
+                    let error_tx = req.token_tx.clone();
+                    let on_token: Box<dyn FnMut(u32) -> bool + Send> = {
+                        let token_tx = req.token_tx;
+                        Box::new(move |token_id: u32| -> bool {
+                            token_tx.try_send(Ok(token_id)).is_ok()
+                        })
+                    };
+                    match cuda_model.add_slot_to_batch(
+                        &mut state,
+                        req.prompt_ids,
+                        req.config,
+                        on_token,
+                    ) {
+                        Ok(()) => {
+                            error_senders.push(Some(error_tx));
+                            joined_this_step = true;
+                        },
+                        Err(e) => {
+                            eprintln!("[PMAT-088c] Mid-batch join FAILED: {e}");
+                            let _ = error_tx.try_send(Err(e.to_string()));
+                        },
+                    }
+                }
+            }
+
+            let _ = joined_this_step; // suppress unused warning
+
             // Decode step
             match cuda_model.batched_decode_step(&mut state) {
                 Ok(ids) => ids,
@@ -396,7 +399,7 @@ fn process_iteration_batch(
                         "[PMAT-088] Decode step ERROR (m={}, step={}): {e}",
                         state.m, state.gen_idx
                     );
-                    for tx in &error_senders {
+                    for tx in error_senders.iter().flatten() {
                         let _ = tx.try_send(Err(e.to_string()));
                     }
                     cuda_model.batched_cleanup(&state);
@@ -407,6 +410,24 @@ fn process_iteration_batch(
 
         // Token distribution WITHOUT lock
         state.distribute_tokens(&token_ids);
+
+        // PMAT-088c: Drop callbacks AND error senders for done slots to close channels.
+        // The SSE handler waits for channel closure (ALL senders dropped) to send [DONE].
+        // Without this, continuous batching keeps senders alive → SSE never ends
+        // → probador never sends new requests → recycling never gets requests.
+        for slot_idx in 0..state.m {
+            if state.done[slot_idx]
+                && error_senders
+                    .get(slot_idx)
+                    .and_then(|o| o.as_ref())
+                    .is_some()
+            {
+                // Replace callback → drops old closure → drops one sender
+                state.on_tokens[slot_idx] = Box::new(|_| false);
+                // Drop error sender → drops second sender → channel closes
+                error_senders[slot_idx] = None;
+            }
+        }
 
         // Per-iteration metrics (first 3 only to avoid log spam)
         if *total_iterations <= 3 || state.gen_idx % 50 == 0 {
