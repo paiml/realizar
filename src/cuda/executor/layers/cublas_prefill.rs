@@ -3107,16 +3107,19 @@ DONE_NORM:
             );
         }
 
-        // PMAT-090: FP8 cuBLASLt GEMM for batched decode (M>=2) on sm_89+.
-        // Five-Whys: c=4 aggregate 257 tok/s (84% of DP4A ceiling 306).
-        // Why? Batched DP4A Q4K GEMV is compute-bound at M=4 (4× DP4A chains).
-        // Why? Each weight SB runs M independent DP4A accumulation chains.
-        // Fix: FP8 tensor cores — 1 B/elem (1.78× Q4K) but memory-bound at M=4.
-        // FP8 weight reads: 1472 MB at 192 GB/s = 7.7ms (vs DP4A 15.1ms compute).
-        // Expected: ITL ~15→~8ms, aggregate ~257→~380 tok/s (+48%).
+        // PMAT-090: FP8 cuBLASLt GEMM for batched decode on sm_89+.
+        // PMAT-093: FP8 threshold raised from M>=2 to M>=5.
+        // At M=4: FP8 conversion overhead (absmax+convert per projection) cancels
+        // tensor core gains. DP4A with fused QKV+gate+up has lower launch count.
+        // Benchmarks (yoga 4060L, 1900MHz, 60s, isolated):
+        //   c=4 FP8: 235.0 aggregate, 16.5ms ITL
+        //   c=4 DP4A: 242.1 aggregate, 15.9ms ITL (+3%)
+        //   c=8 FP8: 405.6 aggregate, 18.9ms ITL
+        //   c=8 DP4A: 329.1 aggregate, 23.4ms ITL (-19%)
+        // FP8 crossover point: ~M=5 where tensor core BW dominates conversion cost.
         // FP8 weight cache persists from prefill — no additional warmup needed.
         if self.gpu_profile.fp8_decode
-            && m >= 2
+            && m >= 5
             && !self.is_capturing
             && (qtype == WeightQuantType::Q4K || qtype == WeightQuantType::Q6K)
         {
