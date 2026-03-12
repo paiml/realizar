@@ -221,6 +221,12 @@ pub enum KernelType {
         k: u32,
         n: u32,
     },
+    /// PMAT-054B: W4A16 WMMA Q4K GEMM with pre-computed FP16 scales
+    W4a16WmmaQ4KGemm {
+        m: u32,
+        k: u32,
+        n: u32,
+    },
     /// PMAT-066: DP4A Q4K×Q8 GEMM — dequant-free prefill via int8 dot product
     Dp4aQ4KGemm {
         m: u32,

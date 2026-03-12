@@ -31,6 +31,7 @@ impl CudaKernels {
             KernelType::TensorCoreQ4KGemm { .. } => "tensor_core_q4k_gemm",
             KernelType::MultiWarpTensorCoreQ4KGemm { .. } => "mw_tensor_core_q4k_gemm",
             KernelType::InterleavedWmmaQ4KGemm { .. } => "interleaved_wmma_q4k_gemm",
+            KernelType::W4a16WmmaQ4KGemm { .. } => "w4a16_wmma_q4k_gemm",
             KernelType::Dp4aQ4KGemm { .. } => "dp4a_q4k_gemm",
             _ => return None,
         };

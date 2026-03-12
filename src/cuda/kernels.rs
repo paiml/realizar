@@ -40,7 +40,7 @@ use trueno_gpu::kernels::{
     Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel,
     RopeIndirectKernel, RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel, SiluKernel,
     SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel,
-    VectorizedQ4KGemvKernel, VectorizedRmsNormKernel, WideQ4KGemvKernel,
+    VectorizedQ4KGemvKernel, VectorizedRmsNormKernel, W4a16WmmaQ4KGemmKernel, WideQ4KGemvKernel,
 };
 
 include!("kernel_type.rs");

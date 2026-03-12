@@ -3087,17 +3087,16 @@ DONE_NORM:
         n_per_seq: u32,
         k_per_seq: u32,
     ) -> Result<(), GpuError> {
-        // PMAT-091: W4A16 coalesced WMMA GEMM for batched decode (M>=2).
+        // PMAT-054B: W4A16 WMMA GEMM with pre-computed scales for batched decode (M>=2).
+        // Pre-computed FP16 scales eliminate GGML decode on GPU (~20→5 insn/elem).
         // Reads Q4K (0.5625 B/elem) with FP16 tensor cores — best of both worlds.
-        // Interleaved weight layout fixes 864B cross-column coalescing problem.
-        // At 70% WMMA efficiency: est. ~355 tok/s c=4 aggregate.
         if self.gpu_profile.w4a16_interleaved
             && m >= 2
             && !self.is_capturing
             && qtype == WeightQuantType::Q4K
             && self.interleaved_weight_cache.contains_key(&weight_ptr)
         {
-            return self.interleaved_wmma_q4k_gemm(
+            return self.w4a16_wmma_q4k_gemm(
                 weight_ptr,
                 packed_input_ptr,
                 packed_output_ptr,
@@ -3797,8 +3796,8 @@ DONE_NORM:
 
     /// Get or create interleaved Q4K weight buffer for a given weight pointer.
     ///
-    /// Downloads Q4K bytes from GPU, repacks to column-interleaved tile layout
-    /// via `repack_q4k_interleaved()`, uploads interleaved data to new GPU buffer.
+    /// Downloads Q4K bytes from GPU, repacks to W4A16 tile layout (PMAT-054B)
+    /// via `repack_q4k_w4a16()`, uploads pre-computed scale data to new GPU buffer.
     fn get_or_cache_interleaved_weight(
         &mut self,
         weight_ptr: u64,
@@ -3820,11 +3819,11 @@ DONE_NORM:
         weight_view.copy_to_host(&mut q4k_host)?;
         std::mem::forget(weight_view); // Don't free — we don't own this memory
 
-        // Step 2: Repack on CPU
-        let interleaved = trueno_gpu::kernels::repack_q4k_interleaved(&q4k_host, n_usize, k_usize);
+        // Step 2: Repack to W4A16 format (pre-computed FP16 scales, PMAT-054B)
+        let w4a16 = trueno_gpu::kernels::repack_q4k_w4a16(&q4k_host, n_usize, k_usize);
 
-        // Step 3: Upload interleaved data to GPU
-        let il_buf = GpuBuffer::<u8>::from_host(&self.context, &interleaved)?;
+        // Step 3: Upload W4A16 data to GPU
+        let il_buf = GpuBuffer::<u8>::from_host(&self.context, &w4a16)?;
         let il_ptr = il_buf.as_ptr();
 
         self.interleaved_weight_cache.insert(weight_ptr, il_buf);
@@ -3917,6 +3916,104 @@ DONE_NORM:
         }
 
         // Copy valid [M, N] from padded buffer to actual output
+        if needs_padding {
+            self.stream.synchronize()?;
+            for row in 0..m {
+                let src_offset = row as u64 * n_padded as u64 * 4;
+                let dst_offset = row as u64 * n as u64 * 4;
+                self.stream.memcpy_dtod_sync(
+                    packed_output_ptr + dst_offset,
+                    actual_output_ptr + src_offset,
+                    n as usize * 4,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// PMAT-054B: Launch W4A16 WMMA Q4K GEMM with pre-computed FP16 scales.
+    ///
+    /// Same grid/block as PMAT-091 interleaved kernel, but Phase 2 dequant
+    /// reduced from ~20 insn + 5-8 global loads to ~5 insn + 3 loads per element.
+    /// Pre-computed eff_scale and eff_min eliminate GGML scale decoding on GPU.
+    #[allow(clippy::too_many_arguments)]
+    fn w4a16_wmma_q4k_gemm(
+        &mut self,
+        weight_ptr: u64,
+        packed_input_ptr: u64,
+        packed_output_ptr: u64,
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let w4_ptr = self
+            .interleaved_weight_cache
+            .get(&weight_ptr)
+            .expect("W4A16 weight should be cached by warmup")
+            .as_ptr();
+
+        let m_padded = (m + 31) & !31;
+        let n_padded = (n + 31) & !31;
+        let needs_padding = m_padded != m || n_padded != n;
+
+        let kernel_type = KernelType::W4a16WmmaQ4KGemm {
+            m: m_padded,
+            n: n_padded,
+            k,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("w4a16_wmma_q4k_gemm_{m_padded}_{n_padded}_{k}");
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let actual_output_ptr = if needs_padding {
+            let padded_count = m_padded as usize * n_padded as usize;
+            self.ensure_wmma_scratch(padded_count)?;
+            self.wmma_scratch
+                .as_ref()
+                .expect("wmma scratch allocated")
+                .as_ptr()
+        } else {
+            packed_output_ptr
+        };
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let grid_x = n_padded / 32;
+        let grid_y = m_padded / 32;
+        let config = LaunchConfig::grid_2d(grid_x, grid_y, 128, 1);
+
+        let mut ptr_a = packed_input_ptr;
+        let mut ptr_b = w4_ptr;
+        let mut ptr_c = actual_output_ptr;
+        let mut m_val = m;
+        let mut n_val = n;
+        let mut k_val = k;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_a) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_b) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_c) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
         if needs_padding {
             self.stream.synchronize()?;
             for row in 0..m {
