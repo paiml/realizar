@@ -97,22 +97,32 @@ async fn cuda_batch_scheduler_loop(
         };
 
         // Accumulate more requests within the window.
-        // PMAT-086: When window_ms == 0, use non-blocking drain instead of timed wait.
-        // tokio::time::timeout_at has ~1ms minimum granularity from the timer wheel,
-        // so a 0ms window still costs ~1ms. Non-blocking try_recv has zero latency
-        // for c=1 (no queued requests) but still batches for c>1 (requests pile up
-        // during GPU processing of previous batch).
+        // PMAT-095: Adaptive batch window — zero overhead at c=1, auto-batching at c>1.
+        // Phase 1: Non-blocking drain (captures requests queued during GPU processing).
+        // Phase 2: If drain found peers AND batch not full, short timed wait for stragglers.
+        // This eliminates the c=1 TTFT penalty of fixed batch windows while giving
+        // consistent M=max batches at c>1.
         let mut batch = vec![first];
         if config.window_ms == 0 {
-            // PMAT-086: Zero-latency drain with cooperative yield.
-            // yield_now() lets other Tokio tasks complete their channel sends
-            // without blocking on a timer. This captures requests that arrived
-            // simultaneously (c>1) while adding zero overhead for c=1 (no pending tasks).
+            // PMAT-086/095: Zero-latency drain with cooperative yield + adaptive wait.
             tokio::task::yield_now().await;
             while batch.len() < config.max_batch {
                 match rx.try_recv() {
                     Ok(req) => batch.push(req),
-                    Err(_) => break, // No more queued requests
+                    Err(_) => break,
+                }
+            }
+            // PMAT-095: If we found peers but haven't filled the batch, do a short
+            // timed wait. At c=1, try_recv finds nothing → skip. At c=4, try_recv
+            // finds 1-3 → wait 3ms for the last request to arrive.
+            if batch.len() > 1 && batch.len() < config.max_batch {
+                let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(3);
+                while batch.len() < config.max_batch {
+                    match tokio::time::timeout_at(deadline, rx.recv()).await {
+                        Ok(Some(req)) => batch.push(req),
+                        Ok(None) => break,
+                        Err(_timeout) => break,
+                    }
                 }
             }
         } else {
