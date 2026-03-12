@@ -3087,6 +3087,30 @@ DONE_NORM:
         n_per_seq: u32,
         k_per_seq: u32,
     ) -> Result<(), GpuError> {
+        // PMAT-090: FP8 cuBLASLt GEMM for batched decode (M>=2) on sm_89+.
+        // Five-Whys: c=4 aggregate 257 tok/s (84% of DP4A ceiling 306).
+        // Why? Batched DP4A Q4K GEMV is compute-bound at M=4 (4× DP4A chains).
+        // Why? Each weight SB runs M independent DP4A accumulation chains.
+        // Fix: FP8 tensor cores — 1 B/elem (1.78× Q4K) but memory-bound at M=4.
+        // FP8 weight reads: 1472 MB at 192 GB/s = 7.7ms (vs DP4A 15.1ms compute).
+        // Expected: ITL ~15→~8ms, aggregate ~257→~380 tok/s (+48%).
+        // FP8 weight cache persists from prefill — no additional warmup needed.
+        if self.gpu_profile.fp8_decode
+            && m >= 2
+            && !self.is_capturing
+            && (qtype == WeightQuantType::Q4K || qtype == WeightQuantType::Q6K)
+        {
+            return self.cublas_prefill_gemm(
+                qtype,
+                weight_ptr,
+                packed_input_ptr,
+                packed_output_ptr,
+                m,
+                n_per_seq,
+                k_per_seq,
+            );
+        }
+
         // PMAT-061: cuBLAS HGEMM for M>1 decode when FP16 weight cache is available.
         // Five-Whys: c=4 decode 0.56x (23.4ms/step vs llama.cpp 13.1ms).
         // Why? Batched Q4K GEMV is compute-bound at M=4 (3.25x instruction scaling).

@@ -65,6 +65,13 @@ pub struct GpuProfile {
     /// Override: FP8_PREFILL=0 to disable, FP8_PREFILL=1 to force.
     /// cuBLASLt FP8 GEMM halves weight bandwidth — TTFT improvement ~1.25x.
     pub fp8_prefill: bool,
+    /// PMAT-090: Use FP8 cuBLASLt GEMM for batched decode (M>=2).
+    /// DP4A Q4K GEMV is compute-bound at M>1 (DP4A ceiling = 306 tok/s at M=4).
+    /// FP8 (1 B/elem) reads 1.78× more than Q4K (0.5625) but tensor cores keep
+    /// it memory-bound — expected: ITL ~15→~8ms, aggregate ~257→~380 tok/s.
+    /// Auto-detected: true on sm_89+ when fp8_prefill is enabled.
+    /// Override: FP8_DECODE=0 to disable, FP8_DECODE=1 to force.
+    pub fp8_decode: bool,
     /// SM version for logging (e.g., "sm_89").
     pub sm_target: String,
     /// Numeric compute capability (major*10 + minor, e.g. 89 for sm_89).
@@ -101,6 +108,7 @@ impl GpuProfile {
 
         let cc = major as u32 * 10 + minor as u32;
         let fp8_prefill = Self::detect_fp8_prefill(cc);
+        let fp8_decode = Self::detect_fp8_decode(fp8_prefill, cc);
 
         let profile = Self {
             q4k,
@@ -110,15 +118,16 @@ impl GpuProfile {
             hgemm_decode,
             fused_gate_up,
             fp8_prefill,
+            fp8_decode,
             sm_target,
             cc,
         };
 
         eprintln!(
-            "[GpuProfile] {}: q4k={:?}, q6k={:?}, warps={}, batched_prefill={}, hgemm_decode={}, fused_gate_up={}, fp8_prefill={}, sms={}",
+            "[GpuProfile] {}: q4k={:?}, q6k={:?}, warps={}, batched_prefill={}, hgemm_decode={}, fused_gate_up={}, fp8_prefill={}, fp8_decode={}, sms={}",
             profile.sm_target, profile.q4k, profile.q6k, profile.mwv_warps,
             profile.batched_prefill, profile.hgemm_decode, profile.fused_gate_up,
-            profile.fp8_prefill, num_sms,
+            profile.fp8_prefill, profile.fp8_decode, num_sms,
         );
 
         profile
@@ -207,6 +216,20 @@ impl GpuProfile {
             Ok("0") => false,
             Ok("1") => true,
             _ => cc >= 89,
+        }
+    }
+
+    /// PMAT-090: FP8 batched decode — cuBLASLt FP8 GEMM replaces DP4A Q4K GEMV at M>=2.
+    ///
+    /// DP4A GEMV is compute-bound at M>1: 4 independent DP4A accumulation chains
+    /// saturate INT32 units. DP4A ceiling = 306 tok/s at M=4 (theoretical).
+    /// FP8 cuBLASLt reads 1.78× more BW (1 B/elem vs Q4K 0.5625) but stays
+    /// memory-bound via tensor cores. Expected: ~1.5× c=4 aggregate improvement.
+    fn detect_fp8_decode(fp8_prefill: bool, cc: u32) -> bool {
+        match std::env::var("FP8_DECODE").as_deref() {
+            Ok("0") => false,
+            Ok("1") => true,
+            _ => fp8_prefill && cc >= 89,
         }
     }
 

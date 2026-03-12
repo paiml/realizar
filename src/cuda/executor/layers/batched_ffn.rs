@@ -100,6 +100,9 @@ impl CudaExecutor {
         // Individual gate/up projections go through batched_gemv_or_gemm → cuBLAS HGEMM.
         // PMAT-088b RESULT: Even with fused gate+up preserved (hybrid), HGEMM does NOT
         // beat DP4A at M=4 (260.5 vs 261.5 tok/s). FP16's 3.5x BW penalty not compensated.
+        // PMAT-090: Skip fused DP4A gate+up when FP8 decode is active — individual
+        // projections route through batched_gemv_or_gemm → cuBLASLt FP8 GEMM.
+        // FP8 (1 B/elem) is memory-bound at M=4, beating DP4A compute ceiling.
         let use_fused_gate_up_dp4a = layer_weights.ffn_gate_qtype == WeightQuantType::Q4K
             && layer_weights.ffn_up_qtype == WeightQuantType::Q4K
             && m >= 2
@@ -107,6 +110,7 @@ impl CudaExecutor {
             && self.gpu_profile.q4k == crate::cuda::gpu_profile::Q4kVariant::HwDp4a
             && !self.is_prefilling
             && !self.hgemm_batched_decode_active
+            && !self.gpu_profile.fp8_decode
             && std::env::var("BATCHED_DP4A").as_deref() != Ok("0");
 
         if use_fused_gate_up_dp4a {
