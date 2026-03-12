@@ -72,6 +72,12 @@ pub struct GpuProfile {
     /// Auto-detected: true on sm_89+ when fp8_prefill is enabled.
     /// Override: FP8_DECODE=0 to disable, FP8_DECODE=1 to force.
     pub fp8_decode: bool,
+    /// PMAT-091: Use column-interleaved Q4K WMMA GEMM for batched decode (M>=2).
+    /// W4A16: INT4 storage (Q4K, 0.5625 B/elem) + FP16 tensor core compute.
+    /// Interleaved layout fixes 864-byte cross-column stride → perfect 128B coalescing.
+    /// At 70% WMMA efficiency: est. +34% c=4 aggregate over FP8.
+    /// Override: W4A16_INTERLEAVED=0 to disable, W4A16_INTERLEAVED=1 to force.
+    pub w4a16_interleaved: bool,
     /// SM version for logging (e.g., "sm_89").
     pub sm_target: String,
     /// Numeric compute capability (major*10 + minor, e.g. 89 for sm_89).
@@ -109,6 +115,7 @@ impl GpuProfile {
         let cc = major as u32 * 10 + minor as u32;
         let fp8_prefill = Self::detect_fp8_prefill(cc);
         let fp8_decode = Self::detect_fp8_decode(fp8_prefill, cc);
+        let w4a16_interleaved = Self::detect_w4a16_interleaved(cc);
 
         let profile = Self {
             q4k,
@@ -119,15 +126,16 @@ impl GpuProfile {
             fused_gate_up,
             fp8_prefill,
             fp8_decode,
+            w4a16_interleaved,
             sm_target,
             cc,
         };
 
         eprintln!(
-            "[GpuProfile] {}: q4k={:?}, q6k={:?}, warps={}, batched_prefill={}, hgemm_decode={}, fused_gate_up={}, fp8_prefill={}, fp8_decode={}, sms={}",
+            "[GpuProfile] {}: q4k={:?}, q6k={:?}, warps={}, batched_prefill={}, hgemm_decode={}, fused_gate_up={}, fp8_prefill={}, fp8_decode={}, w4a16_il={}, sms={}",
             profile.sm_target, profile.q4k, profile.q6k, profile.mwv_warps,
             profile.batched_prefill, profile.hgemm_decode, profile.fused_gate_up,
-            profile.fp8_prefill, profile.fp8_decode, num_sms,
+            profile.fp8_prefill, profile.fp8_decode, profile.w4a16_interleaved, num_sms,
         );
 
         profile
@@ -230,6 +238,16 @@ impl GpuProfile {
             Ok("0") => false,
             Ok("1") => true,
             _ => fp8_prefill && cc >= 89,
+        }
+    }
+
+    /// PMAT-091: W4A16 interleaved WMMA for batched decode.
+    /// Requires sm_70+ for WMMA tensor cores. Default OFF (experimental).
+    fn detect_w4a16_interleaved(cc: u32) -> bool {
+        match std::env::var("W4A16_INTERLEAVED").as_deref() {
+            Ok("0") => false,
+            Ok("1") => cc >= 70,
+            _ => false, // Default OFF until benchmarked
         }
     }
 

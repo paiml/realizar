@@ -221,6 +221,22 @@ impl OwnedQuantizedModelCuda {
             }
         }
 
+        // PMAT-091: Interleaved Q4K weight cache warmup (W4A16 WMMA GEMM)
+        if self.executor.gpu_profile.w4a16_interleaved {
+            let num_layers = self.model.config.num_layers;
+            let hidden_dim = self.model.config.hidden_dim as u32;
+            let intermediate_dim = self.model.config.intermediate_dim as u32;
+            let vocab_size = self.model.config.vocab_size as u32;
+            if let Err(e) = self.executor.warmup_interleaved_cache(
+                num_layers,
+                hidden_dim,
+                intermediate_dim,
+                vocab_size,
+            ) {
+                eprintln!("[PMAT-091] Interleaved cache warmup failed (non-fatal): {e}");
+            }
+        }
+
         // PARITY-GATE: Jidoka — stop-the-line if GPU diverges from CPU.
         // Run ONE token through both backends and compare logits.
         // If cosine similarity < 0.99, refuse to construct.

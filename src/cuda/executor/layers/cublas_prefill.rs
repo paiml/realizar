@@ -3087,6 +3087,26 @@ DONE_NORM:
         n_per_seq: u32,
         k_per_seq: u32,
     ) -> Result<(), GpuError> {
+        // PMAT-091: W4A16 coalesced WMMA GEMM for batched decode (M>=2).
+        // Reads Q4K (0.5625 B/elem) with FP16 tensor cores — best of both worlds.
+        // Interleaved weight layout fixes 864B cross-column coalescing problem.
+        // At 70% WMMA efficiency: est. ~355 tok/s c=4 aggregate.
+        if self.gpu_profile.w4a16_interleaved
+            && m >= 2
+            && !self.is_capturing
+            && qtype == WeightQuantType::Q4K
+            && self.interleaved_weight_cache.contains_key(&weight_ptr)
+        {
+            return self.interleaved_wmma_q4k_gemm(
+                weight_ptr,
+                packed_input_ptr,
+                packed_output_ptr,
+                m,
+                n_per_seq,
+                k_per_seq,
+            );
+        }
+
         // PMAT-090: FP8 cuBLASLt GEMM for batched decode (M>=2) on sm_89+.
         // Five-Whys: c=4 aggregate 257 tok/s (84% of DP4A ceiling 306).
         // Why? Batched DP4A Q4K GEMV is compute-bound at M=4 (4× DP4A chains).
@@ -3699,6 +3719,213 @@ DONE_NORM:
 
         // Update single KV cache length
         self.kv_cache_lengths.insert(layer_idx, m as usize);
+
+        Ok(())
+    }
+
+    // ========================================================================
+    // PMAT-091: Interleaved Q4K weight cache for coalesced WMMA GEMM
+    // ========================================================================
+
+    /// Warmup interleaved Q4K weight cache at model init.
+    ///
+    /// Downloads Q4K weights from GPU, repacks to column-interleaved tile layout
+    /// on CPU, re-uploads to GPU. Only runs once per model load.
+    /// Total overhead: ~200ms for 197 matrices (Q4K data ~850MB, PCIe limited).
+    pub(crate) fn warmup_interleaved_cache(
+        &mut self,
+        num_layers: usize,
+        hidden_dim: u32,
+        intermediate_dim: u32,
+        _vocab_size: u32,
+    ) -> Result<(), GpuError> {
+        let start = std::time::Instant::now();
+        let mut cached = 0usize;
+
+        let q_dim = (self.kv_num_heads * self.kv_head_dim) as u32;
+        let kv_dim = (self.kv_num_kv_heads * self.kv_head_dim) as u32;
+
+        for layer_idx in 0..num_layers {
+            if layer_idx >= self.indexed_layer_weights.len() {
+                break;
+            }
+            let lw = self.get_indexed_layer(layer_idx).clone();
+
+            let weights = [
+                (lw.attn_q_qtype, lw.attn_q_ptr, q_dim, hidden_dim),
+                (lw.attn_k_qtype, lw.attn_k_ptr, kv_dim, hidden_dim),
+                (lw.attn_v_qtype, lw.attn_v_ptr, kv_dim, hidden_dim),
+                (lw.attn_output_qtype, lw.attn_output_ptr, hidden_dim, q_dim),
+                (
+                    lw.ffn_gate_qtype,
+                    lw.ffn_gate_ptr,
+                    intermediate_dim,
+                    hidden_dim,
+                ),
+                (lw.ffn_up_qtype, lw.ffn_up_ptr, intermediate_dim, hidden_dim),
+                (
+                    lw.ffn_down_qtype,
+                    lw.ffn_down_ptr,
+                    hidden_dim,
+                    intermediate_dim,
+                ),
+            ];
+
+            for (qtype, ptr, n, k) in weights {
+                if ptr != 0 && qtype == WeightQuantType::Q4K {
+                    if !self.interleaved_weight_cache.contains_key(&ptr) {
+                        self.get_or_cache_interleaved_weight(ptr, n, k)?;
+                        cached += 1;
+                    }
+                }
+            }
+        }
+
+        // NOTE: LM head skipped — WMMA for decode only, LM head uses existing path
+
+        self.stream.synchronize()?;
+        eprintln!(
+            "[PMAT-091] Interleaved Q4K cache warmed: {} matrices in {:?}",
+            cached,
+            start.elapsed()
+        );
+        Ok(())
+    }
+
+    /// Get or create interleaved Q4K weight buffer for a given weight pointer.
+    ///
+    /// Downloads Q4K bytes from GPU, repacks to column-interleaved tile layout
+    /// via `repack_q4k_interleaved()`, uploads interleaved data to new GPU buffer.
+    fn get_or_cache_interleaved_weight(
+        &mut self,
+        weight_ptr: u64,
+        n: u32,
+        k: u32,
+    ) -> Result<u64, GpuError> {
+        if let Some(buf) = self.interleaved_weight_cache.get(&weight_ptr) {
+            return Ok(buf.as_ptr());
+        }
+
+        let n_usize = n as usize;
+        let k_usize = k as usize;
+        let num_sb = k_usize / 256;
+        let q4k_byte_count = n_usize * num_sb * 144;
+
+        // Step 1: Download Q4K bytes from GPU to CPU
+        let weight_view = unsafe { GpuBuffer::<u8>::from_raw_parts(weight_ptr, q4k_byte_count) };
+        let mut q4k_host = vec![0u8; q4k_byte_count];
+        weight_view.copy_to_host(&mut q4k_host)?;
+        std::mem::forget(weight_view); // Don't free — we don't own this memory
+
+        // Step 2: Repack on CPU
+        let interleaved = trueno_gpu::kernels::repack_q4k_interleaved(&q4k_host, n_usize, k_usize);
+
+        // Step 3: Upload interleaved data to GPU
+        let il_buf = GpuBuffer::<u8>::from_host(&self.context, &interleaved)?;
+        let il_ptr = il_buf.as_ptr();
+
+        self.interleaved_weight_cache.insert(weight_ptr, il_buf);
+        Ok(il_ptr)
+    }
+
+    /// PMAT-091: Launch interleaved WMMA Q4K GEMM for batched decode.
+    ///
+    /// Same grid/block as multi-warp WMMA but reads from column-interleaved
+    /// weight layout. Adjacent threads access adjacent qs bytes — perfect coalescing.
+    #[allow(clippy::too_many_arguments)]
+    fn interleaved_wmma_q4k_gemm(
+        &mut self,
+        weight_ptr: u64,
+        packed_input_ptr: u64,
+        packed_output_ptr: u64,
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        // Get cached interleaved weight pointer
+        let il_ptr = self
+            .interleaved_weight_cache
+            .get(&weight_ptr)
+            .expect("interleaved weight should be cached by warmup")
+            .as_ptr();
+
+        // Pad M and N to multiples of 32 for 2×2 WMMA tile safety
+        let m_padded = (m + 31) & !31;
+        let n_padded = (n + 31) & !31;
+        let needs_padding = m_padded != m || n_padded != n;
+
+        let kernel_type = KernelType::InterleavedWmmaQ4KGemm {
+            m: m_padded,
+            n: n_padded,
+            k,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("interleaved_wmma_q4k_gemm_{m_padded}_{n_padded}_{k}");
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        // If padding needed, use WMMA scratch buffer
+        let actual_output_ptr = if needs_padding {
+            let padded_count = m_padded as usize * n_padded as usize;
+            self.ensure_wmma_scratch(padded_count)?;
+            self.wmma_scratch
+                .as_ref()
+                .expect("wmma scratch allocated")
+                .as_ptr()
+        } else {
+            packed_output_ptr
+        };
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Grid: (ceil(N/32), ceil(M/32)), Block: 128 (4 warps for 2×2 WMMA tiles)
+        let grid_x = n_padded / 32;
+        let grid_y = m_padded / 32;
+        let config = LaunchConfig::grid_2d(grid_x, grid_y, 128, 1);
+
+        let mut ptr_a = packed_input_ptr;
+        let mut ptr_b = il_ptr;
+        let mut ptr_c = actual_output_ptr;
+        let mut m_val = m;
+        let mut n_val = n;
+        let mut k_val = k;
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_a) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_b) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_c) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        // Copy valid [M, N] from padded buffer to actual output
+        if needs_padding {
+            self.stream.synchronize()?;
+            for row in 0..m {
+                let src_offset = row as u64 * n_padded as u64 * 4;
+                let dst_offset = row as u64 * n as u64 * 4;
+                self.stream.memcpy_dtod_sync(
+                    packed_output_ptr + dst_offset,
+                    actual_output_ptr + src_offset,
+                    n as usize * 4,
+                )?;
+            }
+        }
 
         Ok(())
     }
