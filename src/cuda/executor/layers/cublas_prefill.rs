@@ -3087,11 +3087,14 @@ DONE_NORM:
         n_per_seq: u32,
         k_per_seq: u32,
     ) -> Result<(), GpuError> {
-        // PMAT-054B: W4A16 WMMA GEMM with pre-computed scales for batched decode (M>=2).
+        // PMAT-054B: W4A16 WMMA GEMM with pre-computed scales for batched decode (M=2-8).
         // Pre-computed FP16 scales eliminate GGML decode on GPU (~20→5 insn/elem).
-        // Reads Q4K (0.5625 B/elem) with FP16 tensor cores — best of both worlds.
+        // Only for small M (batched decode). Large M (prefill) uses FP8 cuBLASLt.
+        // M<=8 guard: WMMA 32×32 tiles waste 75-94% compute at M<8, and FP8
+        // cuBLASLt is faster at M>=5 (PMAT-093).
         if self.gpu_profile.w4a16_interleaved
             && m >= 2
+            && m <= 8
             && !self.is_capturing
             && qtype == WeightQuantType::Q4K
             && self.interleaved_weight_cache.contains_key(&weight_ptr)
