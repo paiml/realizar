@@ -66,6 +66,11 @@ impl CudaExecutor {
             gemv_output_buffer: None,
             gemv_input_size: 0,
             gemv_output_size: 0,
+            // ALB-111: Extra output buffers for batched GEMV (batch Q/K/V, gate/up)
+            gemv_output_buffer_b: None,
+            gemv_output_buffer_c: None,
+            gemv_output_size_b: 0,
+            gemv_output_size_c: 0,
             kv_cache_gpu: HashMap::new(), // PAR-018 + PAR-021: GPU-resident KV cache
             kv_cache_lengths: HashMap::new(),
             kv_cache_max_len: 0,

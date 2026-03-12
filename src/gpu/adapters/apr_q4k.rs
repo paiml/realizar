@@ -451,6 +451,180 @@ pub fn q4k_gemv(
     Ok(output)
 }
 
+/// ALB-111: Q4K GEMV with input already in the GEMV input buffer.
+/// Launches kernel, syncs, downloads. Saves redundant H2D.
+#[cfg(feature = "cuda")]
+fn q4k_gemv_reuse_input(
+    executor: &mut CudaExecutor,
+    cache_key: &str,
+    n: usize,
+    k: usize,
+) -> Result<Vec<f32>> {
+    let mut output = vec![0.0f32; n];
+    let out_ptr = executor
+        .ensure_gemv_output_buffer(n)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Output buffer: {e}"),
+        })?;
+    executor
+        .q4k_gemv_launch_to_ptr(cache_key, out_ptr, n as u32, k as u32)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Q4K GEMV launch for {cache_key}: {e}"),
+        })?;
+    executor
+        .sync_stream()
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Sync: {e}"),
+        })?;
+    executor
+        .download_gemv_output(0, &mut output)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Download: {e}"),
+        })?;
+    Ok(output)
+}
+
+/// ALB-111: Batch Q/K/V projections — shared input upload, 3 kernel launches, 1 sync.
+/// Reduces from 12 CUDA calls to 8 (saves 2 H2D + 2 syncs per layer).
+#[cfg(feature = "cuda")]
+fn q4k_batch_qkv(
+    executor: &mut CudaExecutor,
+    normed: &[f32],
+    q_key: &str,
+    k_key: &str,
+    v_key: &str,
+    q_dim: usize,
+    kv_dim: usize,
+    hidden_dim: usize,
+) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>)> {
+    // Upload input once
+    executor
+        .q4k_upload_to_input_buffer(normed, hidden_dim as u32)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Upload: {e}"),
+        })?;
+
+    // Ensure all 3 output buffers
+    let ptr_a = executor
+        .ensure_gemv_output_buffer(q_dim)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Output A: {e}"),
+        })?;
+    let ptr_b =
+        executor
+            .ensure_gemv_output_buffer_b(kv_dim)
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Output B: {e}"),
+            })?;
+    let ptr_c =
+        executor
+            .ensure_gemv_output_buffer_c(kv_dim)
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Output C: {e}"),
+            })?;
+
+    // Launch 3 kernels — no sync between them (same stream = FIFO order, different output buffers)
+    executor
+        .q4k_gemv_launch_to_ptr(q_key, ptr_a, q_dim as u32, hidden_dim as u32)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Q launch: {e}"),
+        })?;
+    executor
+        .q4k_gemv_launch_to_ptr(k_key, ptr_b, kv_dim as u32, hidden_dim as u32)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("K launch: {e}"),
+        })?;
+    executor
+        .q4k_gemv_launch_to_ptr(v_key, ptr_c, kv_dim as u32, hidden_dim as u32)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("V launch: {e}"),
+        })?;
+
+    // Single sync for all 3 kernels
+    executor
+        .sync_stream()
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Sync: {e}"),
+        })?;
+
+    // Download all 3 results
+    let mut q = vec![0.0f32; q_dim];
+    let mut k = vec![0.0f32; kv_dim];
+    let mut v = vec![0.0f32; kv_dim];
+    executor
+        .download_gemv_output(0, &mut q)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Q download: {e}"),
+        })?;
+    executor
+        .download_gemv_output(1, &mut k)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("K download: {e}"),
+        })?;
+    executor
+        .download_gemv_output(2, &mut v)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("V download: {e}"),
+        })?;
+
+    Ok((q, k, v))
+}
+
+/// ALB-111: Batch gate + up projections for one MoE expert.
+/// Shared input already uploaded. 2 kernel launches, 1 sync.
+#[cfg(feature = "cuda")]
+fn q4k_batch_gate_up(
+    executor: &mut CudaExecutor,
+    gate_key: &str,
+    up_key: &str,
+    intermediate_dim: usize,
+    hidden_dim: usize,
+) -> Result<(Vec<f32>, Vec<f32>)> {
+    // Input already uploaded by caller
+    let ptr_a = executor
+        .ensure_gemv_output_buffer(intermediate_dim)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Output A: {e}"),
+        })?;
+    let ptr_b = executor
+        .ensure_gemv_output_buffer_b(intermediate_dim)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Output B: {e}"),
+        })?;
+
+    executor
+        .q4k_gemv_launch_to_ptr(gate_key, ptr_a, intermediate_dim as u32, hidden_dim as u32)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Gate launch: {e}"),
+        })?;
+    executor
+        .q4k_gemv_launch_to_ptr(up_key, ptr_b, intermediate_dim as u32, hidden_dim as u32)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Up launch: {e}"),
+        })?;
+
+    executor
+        .sync_stream()
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Sync: {e}"),
+        })?;
+
+    let mut gate_out = vec![0.0f32; intermediate_dim];
+    let mut up_out = vec![0.0f32; intermediate_dim];
+    executor
+        .download_gemv_output(0, &mut gate_out)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Gate download: {e}"),
+        })?;
+    executor
+        .download_gemv_output(1, &mut up_out)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Up download: {e}"),
+        })?;
+
+    Ok((gate_out, up_out))
+}
+
 /// F32 GEMV helper for weights stored as F32 (embeddings, LM head).
 ///
 /// Uses CPU matmul since these weights may not be in the quantized cache.
@@ -621,30 +795,23 @@ fn moe_ffn_forward(
         vec![1.0 / num_experts_per_tok as f32; num_experts_per_tok]
     };
 
-    // Step 2: Per-expert SwiGLU
+    // Step 2: Per-expert SwiGLU — ALB-111: upload hidden_state once for all experts' gate/up
     let mut routed_out = vec![0.0f32; hidden_dim];
+
+    executor
+        .q4k_upload_to_input_buffer(hidden_state, hidden_dim as u32)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Upload: {e}"),
+        })?;
 
     for (idx, &(expert_id, _)) in top_k.iter().enumerate() {
         let gate_key = format!("model.layers.{layer_idx}.mlp.experts.{expert_id}.gate_proj.weight");
         let up_key = format!("model.layers.{layer_idx}.mlp.experts.{expert_id}.up_proj.weight");
         let down_key = format!("model.layers.{layer_idx}.mlp.experts.{expert_id}.down_proj.weight");
 
-        // gate_proj: hidden_dim → moe_intermediate
-        let gate_out = q4k_gemv(
-            executor,
-            &gate_key,
-            hidden_state,
-            moe_intermediate,
-            hidden_dim,
-        )?;
-        // up_proj: hidden_dim → moe_intermediate
-        let up_out = q4k_gemv(
-            executor,
-            &up_key,
-            hidden_state,
-            moe_intermediate,
-            hidden_dim,
-        )?;
+        // Batch gate + up (input already uploaded)
+        let (gate_out, up_out) =
+            q4k_batch_gate_up(executor, &gate_key, &up_key, moe_intermediate, hidden_dim)?;
 
         // SwiGLU: SiLU(gate) * up
         let mut act = vec![0.0f32; moe_intermediate];
@@ -655,6 +822,15 @@ fn moe_ffn_forward(
         // down_proj: moe_intermediate → hidden_dim
         let down_out = q4k_gemv(executor, &down_key, &act, hidden_dim, moe_intermediate)?;
 
+        // Re-upload hidden_state for next expert's gate/up (down_proj overwrote input buffer)
+        if idx + 1 < top_k.len() {
+            executor
+                .q4k_upload_to_input_buffer(hidden_state, hidden_dim as u32)
+                .map_err(|e| RealizarError::GpuError {
+                    reason: format!("Re-upload: {e}"),
+                })?;
+        }
+
         // Weighted accumulation
         let w = weights[idx];
         for i in 0..hidden_dim {
@@ -663,23 +839,23 @@ fn moe_ffn_forward(
     }
 
     // Step 3: Shared expert (if present — Qwen3-Coder doesn't have shared experts)
+    // ALB-111: Batched gate+up for shared expert
     let shared_gate_key = format!("model.layers.{layer_idx}.mlp.shared_expert.gate_proj.weight");
     if executor.has_quantized_weights(&shared_gate_key) {
         let shared_up_key = format!("model.layers.{layer_idx}.mlp.shared_expert.up_proj.weight");
         let shared_down_key =
             format!("model.layers.{layer_idx}.mlp.shared_expert.down_proj.weight");
 
-        let gate_out = q4k_gemv(
+        // Upload hidden_state once for shared expert gate+up
+        executor
+            .q4k_upload_to_input_buffer(hidden_state, hidden_dim as u32)
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Upload: {e}"),
+            })?;
+        let (gate_out, up_out) = q4k_batch_gate_up(
             executor,
             &shared_gate_key,
-            hidden_state,
-            moe_intermediate,
-            hidden_dim,
-        )?;
-        let up_out = q4k_gemv(
-            executor,
             &shared_up_key,
-            hidden_state,
             moe_intermediate,
             hidden_dim,
         )?;
@@ -716,6 +892,7 @@ fn moe_ffn_forward(
 }
 
 /// Dense FFN forward pass using GPU Q4K GEMVs.
+/// ALB-111: Batched gate+up (1 upload, 2 launches, 1 sync).
 #[cfg(feature = "cuda")]
 fn dense_ffn_forward(
     executor: &mut CudaExecutor,
@@ -728,20 +905,14 @@ fn dense_ffn_forward(
     let up_key = format!("model.layers.{layer_idx}.mlp.up_proj.weight");
     let down_key = format!("model.layers.{layer_idx}.mlp.down_proj.weight");
 
-    let gate_out = q4k_gemv(
-        executor,
-        &gate_key,
-        hidden_state,
-        intermediate_dim,
-        hidden_dim,
-    )?;
-    let up_out = q4k_gemv(
-        executor,
-        &up_key,
-        hidden_state,
-        intermediate_dim,
-        hidden_dim,
-    )?;
+    // Upload hidden_state once, batch gate + up
+    executor
+        .q4k_upload_to_input_buffer(hidden_state, hidden_dim as u32)
+        .map_err(|e| RealizarError::GpuError {
+            reason: format!("Upload: {e}"),
+        })?;
+    let (gate_out, up_out) =
+        q4k_batch_gate_up(executor, &gate_key, &up_key, intermediate_dim, hidden_dim)?;
 
     let mut act = vec![0.0f32; intermediate_dim];
     for i in 0..intermediate_dim {
@@ -810,14 +981,14 @@ pub fn forward_token_apr_q4k(
         // 2a. Attention RMSNorm
         let normed = rms_norm(&hidden, &layer_norm_weights[layer_idx].0, config.eps);
 
-        // 2b. Q/K/V projections (GPU Q4K GEMV)
+        // 2b. Q/K/V projections (GPU Q4K GEMV) — ALB-111: batched (1 upload, 3 launches, 1 sync)
         let q_key = format!("model.layers.{layer_idx}.self_attn.q_proj.weight");
         let k_key = format!("model.layers.{layer_idx}.self_attn.k_proj.weight");
         let v_key = format!("model.layers.{layer_idx}.self_attn.v_proj.weight");
 
-        let mut q = q4k_gemv(executor, &q_key, &normed, q_dim, hidden_dim)?;
-        let mut k = q4k_gemv(executor, &k_key, &normed, kv_dim, hidden_dim)?;
-        let v = q4k_gemv(executor, &v_key, &normed, kv_dim, hidden_dim)?;
+        let (mut q, mut k, v) = q4k_batch_qkv(
+            executor, &normed, &q_key, &k_key, &v_key, q_dim, kv_dim, hidden_dim,
+        )?;
 
         // 2b'. QK-norm (Qwen3-style): per-head RMSNorm on Q and K before RoPE
         if let Some(ref q_norm_w) = layer_norm_weights[layer_idx].2 {
@@ -854,9 +1025,14 @@ pub fn forward_token_apr_q4k(
         kv_cache_k[layer_idx].extend_from_slice(&k);
         kv_cache_v[layer_idx].extend_from_slice(&v);
 
-        // 2e. Output projection (GPU Q4K GEMV)
+        // 2e. Output projection (GPU Q4K GEMV) — ALB-111: reuse input upload
         let o_key = format!("model.layers.{layer_idx}.self_attn.o_proj.weight");
-        let attn_proj = q4k_gemv(executor, &o_key, &attn_out, hidden_dim, q_dim)?;
+        executor
+            .q4k_upload_to_input_buffer(&attn_out, q_dim as u32)
+            .map_err(|e| RealizarError::GpuError {
+                reason: format!("Upload: {e}"),
+            })?;
+        let attn_proj = q4k_gemv_reuse_input(executor, &o_key, hidden_dim, q_dim)?;
 
         // 2f. Residual
         for i in 0..hidden_dim {

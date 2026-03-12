@@ -350,10 +350,47 @@ impl CudaExecutor {
         buf.copy_to_host(output)
     }
 
+    /// ALB-111: Ensure GEMV output buffer B has at least required_size capacity.
+    /// Grow-only semantics (see ensure_gemv_input_buffer).
+    pub(crate) fn ensure_gemv_output_buffer_b(
+        &mut self,
+        required_size: usize,
+    ) -> Result<u64, GpuError> {
+        if self.gemv_output_size_b < required_size {
+            self.gemv_output_buffer_b = Some(GpuBuffer::new(&self.context, required_size)?);
+            self.gemv_output_size_b = required_size;
+        }
+        Ok(self
+            .gemv_output_buffer_b
+            .as_ref()
+            .expect("buffer just created")
+            .as_ptr())
+    }
+
+    /// ALB-111: Ensure GEMV output buffer C has at least required_size capacity.
+    /// Grow-only semantics (see ensure_gemv_input_buffer).
+    pub(crate) fn ensure_gemv_output_buffer_c(
+        &mut self,
+        required_size: usize,
+    ) -> Result<u64, GpuError> {
+        if self.gemv_output_size_c < required_size {
+            self.gemv_output_buffer_c = Some(GpuBuffer::new(&self.context, required_size)?);
+            self.gemv_output_size_c = required_size;
+        }
+        Ok(self
+            .gemv_output_buffer_c
+            .as_ref()
+            .expect("buffer just created")
+            .as_ptr())
+    }
+
     /// Get GEMV buffer pool statistics
     #[must_use]
     pub fn gemv_buffer_stats(&self) -> (usize, usize) {
-        (self.gemv_input_size * 4, self.gemv_output_size * 4) // bytes
+        // ALB-111: Include extra output buffers in total output bytes
+        let output_bytes =
+            (self.gemv_output_size + self.gemv_output_size_b + self.gemv_output_size_c) * 4;
+        (self.gemv_input_size * 4, output_bytes)
     }
 
     /// Clear GEMV buffers (releases GPU memory)
@@ -362,6 +399,11 @@ impl CudaExecutor {
         self.gemv_output_buffer = None;
         self.gemv_input_size = 0;
         self.gemv_output_size = 0;
+        // ALB-111: Clear extra output buffers
+        self.gemv_output_buffer_b = None;
+        self.gemv_output_buffer_c = None;
+        self.gemv_output_size_b = 0;
+        self.gemv_output_size_c = 0;
     }
 }
 
