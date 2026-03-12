@@ -54,6 +54,14 @@ impl OwnedQuantizedModelCuda {
                 let mut k = qkv[qkv_start + hidden_dim..qkv_start + hidden_dim + kv_dim].to_vec();
                 let v = &qkv[qkv_start + hidden_dim + kv_dim..qkv_start + hidden_dim + 2 * kv_dim];
 
+                // GH-479: Per-head QK RMSNorm (Qwen3) — before RoPE
+                if let Some(ref w) = layer.attn_q_norm_weight {
+                    ops::apply_per_head_rms_norm(&mut q, w, self.model.config.num_heads, self.model.config.eps);
+                }
+                if let Some(ref w) = layer.attn_k_norm_weight {
+                    ops::apply_per_head_rms_norm(&mut k, w, num_kv_heads, self.model.config.eps);
+                }
+
                 // GQA-aware RoPE: Q uses num_heads, K uses num_kv_heads
                 self.model
                     .apply_rope(&mut q, s, self.model.config.num_heads);
@@ -177,6 +185,14 @@ impl OwnedQuantizedModelCuda {
             let mut q = qkv[0..hidden_dim].to_vec();
             let mut k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
             let v = qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim].to_vec();
+
+            // GH-479: Per-head QK RMSNorm (Qwen3) — before RoPE
+            if let Some(ref w) = self.model.layers[layer_idx].attn_q_norm_weight {
+                ops::apply_per_head_rms_norm(&mut q, w, num_heads, eps);
+            }
+            if let Some(ref w) = self.model.layers[layer_idx].attn_k_norm_weight {
+                ops::apply_per_head_rms_norm(&mut k, w, num_kv_heads, eps);
+            }
 
             self.model
                 .apply_rope(&mut q, position, self.model.config.num_heads);
