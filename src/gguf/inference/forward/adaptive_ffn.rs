@@ -100,9 +100,10 @@ impl OwnedQuantizedModel {
         num_heads: usize,
         num_kv_heads: usize,
         head_dim: usize,
-        hidden_dim: usize,
+        q_dim: usize,
     ) -> Vec<f32> {
-        let mut expanded_v = vec![0.0f32; hidden_dim];
+        // GH-479: Output size is q_dim (= num_heads * head_dim), not hidden_dim
+        let mut expanded_v = vec![0.0f32; q_dim];
         let q_per_kv = num_heads / num_kv_heads;
         for q_head in 0..num_heads {
             let kv_head = q_head / q_per_kv;
@@ -152,6 +153,9 @@ impl OwnedQuantizedModel {
         kv_dim: usize,
         hidden_dim: usize,
     ) -> Result<()> {
+        // GH-479: q_dim may differ from hidden_dim (Qwen3 head_dim != hidden/heads)
+        let q_dim = self.config.q_dim();
+
         let start = std::time::Instant::now();
         let qkv_result = self.qkv_matmul(normed, &layer.qkv_weight)?;
         metrics.record_gpu_dispatch();
@@ -161,9 +165,10 @@ impl OwnedQuantizedModel {
             ops::add_bias(&mut qkv, bias);
         }
 
-        let mut q = qkv[0..hidden_dim].to_vec();
-        let mut k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
-        let v = qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim].to_vec();
+        // GH-479: Use q_dim (may differ from hidden_dim for Qwen3)
+        let mut q = qkv[0..q_dim].to_vec();
+        let mut k = qkv[q_dim..q_dim + kv_dim].to_vec();
+        let v = qkv[q_dim + kv_dim..q_dim + 2 * kv_dim].to_vec();
 
         // GH-279: Per-head QK RMSNorm (Qwen3) — after bias, before RoPE
         if let Some(ref q_norm) = layer.attn_q_norm_weight {
@@ -183,7 +188,7 @@ impl OwnedQuantizedModel {
         let v_cache = cache.get_v(layer_idx);
 
         let attn_out = if k_cache.is_empty() {
-            Self::expand_first_token_v(&v, self.config.num_heads, num_kv_heads, head_dim, hidden_dim)
+            Self::expand_first_token_v(&v, self.config.num_heads, num_kv_heads, head_dim, q_dim)
         } else {
             let start = std::time::Instant::now();
             let result = self.adaptive_attention_with_cache(&q, k_cache, v_cache, &k, &v)?;
@@ -252,14 +257,18 @@ impl OwnedQuantizedModel {
         kv_dim: usize,
         hidden_dim: usize,
     ) -> Result<()> {
+        // GH-479: q_dim may differ from hidden_dim (Qwen3 head_dim != hidden/heads)
+        let q_dim = self.config.q_dim();
+
         let mut qkv = self.qkv_matmul(normed, &layer.qkv_weight)?;
         if let Some(ref bias) = layer.qkv_bias {
             ops::add_bias(&mut qkv, bias);
         }
 
-        let mut q = qkv[0..hidden_dim].to_vec();
-        let mut k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
-        let v = qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim].to_vec();
+        // GH-479: Use q_dim (may differ from hidden_dim for Qwen3)
+        let mut q = qkv[0..q_dim].to_vec();
+        let mut k = qkv[q_dim..q_dim + kv_dim].to_vec();
+        let v = qkv[q_dim + kv_dim..q_dim + 2 * kv_dim].to_vec();
 
         // GH-279: Per-head QK RMSNorm (Qwen3) — after bias, before RoPE
         if let Some(ref q_norm) = layer.attn_q_norm_weight {
@@ -279,7 +288,7 @@ impl OwnedQuantizedModel {
         let v_cache = cache.get_v(layer_idx);
 
         let attn_out = if k_cache.is_empty() {
-            Self::expand_first_token_v(&v, self.config.num_heads, num_kv_heads, head_dim, hidden_dim)
+            Self::expand_first_token_v(&v, self.config.num_heads, num_kv_heads, head_dim, q_dim)
         } else {
             let cache_len = k_cache.len() / kv_dim;
             const GPU_CACHE_LEN_THRESHOLD: usize = 64;
@@ -363,10 +372,10 @@ impl OwnedQuantizedModel {
         // GH-278: Use contract-derived norm type.
         let use_rmsnorm = self.config.constraints.uses_rmsnorm();
 
-        // GQA dimensions
+        // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
         let num_kv_heads = self.config.num_kv_heads;
-        let head_dim = hidden_dim / self.config.num_heads;
-        let kv_dim = num_kv_heads * head_dim;
+        let head_dim = self.config.head_dim();
+        let kv_dim = self.config.kv_dim();
 
         // PARITY-113: Track CUDA kernel count for GPU dispatch metrics
         #[cfg(feature = "cuda")]
