@@ -291,6 +291,97 @@ fn validate_completeness(
 }
 
 // ============================================================================
+// GH-478: Resource Limit Gate
+// ============================================================================
+
+/// GH-478: Estimate F32 dequantization peak memory from tensor metadata.
+///
+/// `AprTransformer::from_apr_bytes` dequantizes ALL tensors to F32 eagerly.
+/// For quantized models, this expands data ~7x (Q4K) to ~4x (Q8_0).
+/// If the estimated peak exceeds 80% of system RAM, returns an error
+/// so callers can route to a memory-efficient loading path.
+///
+/// # Arguments
+///
+/// * `tensor_entries` — slice of `(byte_size, dtype)` for each tensor in the file
+/// * `file_size` — total file size in bytes (used for the raw Vec<u8> allocation)
+pub fn validate_f32_dequant_limits(
+    tensor_entries: &[(usize, u8)],
+    file_size: u64,
+) -> std::result::Result<(), ModelLoadError> {
+    // Estimate F32 output size: sum of (elements × 4 bytes) for each tensor
+    let mut estimated_f32_bytes: u64 = 0;
+    for &(byte_size, dtype) in tensor_entries {
+        let elements = estimate_elements(byte_size, dtype);
+        estimated_f32_bytes += elements as u64 * 4;
+    }
+
+    // Peak = file in Vec<u8> + all F32 dequantized tensors
+    let estimated_peak = file_size + estimated_f32_bytes;
+
+    let mem_total = system_memory_bytes().unwrap_or(u64::MAX);
+    let threshold = mem_total * 80 / 100;
+
+    if estimated_peak > threshold {
+        return Err(ModelLoadError {
+            gate: "resource_limits",
+            reason: format!(
+                "F32 dequant would use ~{} GB (file {} GB + dequant {} GB), \
+                 exceeds 80% of system RAM ({} GB). Use quantized inference path.",
+                estimated_peak / (1 << 30),
+                file_size / (1 << 30),
+                estimated_f32_bytes / (1 << 30),
+                mem_total / (1 << 30),
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+/// Estimate number of elements from byte size and GGML dtype.
+fn estimate_elements(byte_size: usize, dtype: u8) -> usize {
+    match dtype {
+        12 => byte_size / 144 * 256, // Q4_K: 144 bytes per 256 elements
+        14 => byte_size / 210 * 256, // Q6_K: 210 bytes per 256 elements
+        2 => byte_size / 36 * 32,    // Q8_0: 36 bytes per 32 elements
+        1 => byte_size / 2,          // F16: 2 bytes per element
+        30 => byte_size / 2,         // BF16: 2 bytes per element
+        8 => byte_size / 5 * 4,      // APR Q4: 5 bytes per 4 elements
+        9 => byte_size / 5 * 4,      // APR Q8: 5 bytes per 4 elements
+        _ => byte_size / 4,          // F32: 4 bytes per element
+    }
+}
+
+/// Convenience: check file size against system RAM for pre-dispatch routing.
+///
+/// Used by the inference dispatch layer to route large models to the quantized
+/// CPU path BEFORE reading the file. This is a fast heuristic (file_size × 8);
+/// the precise check happens in `validate_f32_dequant_limits()` after parsing.
+pub fn exceeds_f32_dequant_estimate(file_size: u64) -> bool {
+    if file_size == 0 {
+        return false;
+    }
+    let estimated_peak = file_size.saturating_mul(8);
+    let mem_total = system_memory_bytes().unwrap_or(u64::MAX);
+    estimated_peak > mem_total * 80 / 100
+}
+
+/// Read total system memory from /proc/meminfo (Linux).
+///
+/// Returns `None` on non-Linux or if /proc/meminfo is unreadable.
+pub fn system_memory_bytes() -> Option<u64> {
+    let content = std::fs::read_to_string("/proc/meminfo").ok()?;
+    for line in content.lines() {
+        if line.starts_with("MemTotal:") {
+            let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+            return Some(kb * 1024);
+        }
+    }
+    None
+}
+
+// ============================================================================
 // PMAT-285: Canonical transpose (single source of truth)
 // ============================================================================
 
@@ -524,5 +615,70 @@ mod tests {
             },
             _ => panic!("expected UnsupportedOperation"),
         }
+    }
+
+    // ================================================================
+    // GH-478: Resource limit gate tests
+    // ================================================================
+
+    #[test]
+    fn test_estimate_elements_f32() {
+        // 400 bytes of F32 = 100 elements
+        assert_eq!(estimate_elements(400, 0), 100);
+    }
+
+    #[test]
+    fn test_estimate_elements_q4k() {
+        // 144 bytes = 1 Q4K super-block = 256 elements
+        assert_eq!(estimate_elements(144, 12), 256);
+        // 2 super-blocks
+        assert_eq!(estimate_elements(288, 12), 512);
+    }
+
+    #[test]
+    fn test_estimate_elements_q6k() {
+        // 210 bytes = 1 Q6K super-block = 256 elements
+        assert_eq!(estimate_elements(210, 14), 256);
+    }
+
+    #[test]
+    fn test_estimate_elements_f16() {
+        assert_eq!(estimate_elements(200, 1), 100);
+    }
+
+    #[test]
+    fn test_estimate_elements_bf16() {
+        assert_eq!(estimate_elements(200, 30), 100);
+    }
+
+    #[test]
+    fn test_small_model_passes_resource_check() {
+        // 7B Q4K: ~4 GB file, ~28 GB F32 dequant — fits in most systems
+        let tensors: Vec<(usize, u8)> = vec![
+            (144 * 1000, 12), // Q4K tensor: 256K elements
+        ];
+        // Should pass on any system with >40 GB RAM
+        let result = validate_f32_dequant_limits(&tensors, 4_000_000_000);
+        // We can't assert pass/fail without knowing test machine RAM,
+        // but we can verify it doesn't panic
+        let _ = result;
+    }
+
+    #[test]
+    fn test_system_memory_bytes_returns_some_on_linux() {
+        // On Linux CI, /proc/meminfo should exist
+        if cfg!(target_os = "linux") {
+            let mem = system_memory_bytes();
+            assert!(
+                mem.is_some(),
+                "system_memory_bytes should return Some on Linux"
+            );
+            assert!(mem.unwrap() > 0, "system memory should be > 0");
+        }
+    }
+
+    #[test]
+    fn test_exceeds_f32_dequant_estimate_zero_file() {
+        assert!(!exceeds_f32_dequant_estimate(0));
     }
 }

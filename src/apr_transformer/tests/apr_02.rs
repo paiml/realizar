@@ -45,14 +45,16 @@ fn test_from_apr_bytes_valid_minimal_header() {
     // data_offset = 128
     data[32..40].copy_from_slice(&128u64.to_le_bytes());
 
-    // This should parse but fail when trying to load tensors
-    // (since there's no embedding tensor)
+    // GH-478: Empty metadata defaults to zero dimensions, which the contract gate
+    // now correctly rejects before weight loading. Previously fell through to
+    // "missing embedding" error.
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
-        err.contains("embedding") || err.contains("FATAL") || err.contains("not found"),
-        "Expected missing tensor error, got: {}",
+        err.contains("embedding") || err.contains("FATAL")
+            || err.contains("not found") || err.contains("contract_gate"),
+        "Expected missing tensor or contract gate error, got: {}",
         err
     );
 }

@@ -308,14 +308,16 @@ fn test_from_apr_bytes_valid_magic_apr0() {
     data[64] = b'{';
     data[65] = b'}';
 
-    // This should parse without error (uses defaults for missing tensors)
-    // But will fail because no embedding tensor found
+    // GH-478: Empty metadata defaults to zero dimensions, which the contract gate
+    // now correctly rejects before weight loading. Previously fell through to
+    // "missing embedding" error.
     let result = AprTransformer::from_apr_bytes(&data);
     assert!(result.is_err());
     let err_msg = format!("{:?}", result.unwrap_err());
     assert!(
-        err_msg.contains("embedding") || err_msg.contains("FATAL"),
-        "Should fail with missing embedding: {err_msg}"
+        err_msg.contains("embedding") || err_msg.contains("FATAL")
+            || err_msg.contains("contract_gate"),
+        "Should fail with missing embedding or contract gate: {err_msg}"
     );
 }
 

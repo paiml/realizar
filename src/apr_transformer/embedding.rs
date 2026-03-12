@@ -527,8 +527,31 @@ impl AprTransformer {
                 config.hidden_dim, config.num_layers, config.num_heads, config.num_kv_heads, config.vocab_size, config.intermediate_dim);
         }
 
+        // GH-478: Contract gate — validate architecture and dimensions before loading weights.
+        // AprTransformer was the only loading path missing this gate (GH-279 gap).
+        let _proof = crate::contract_gate::validate_model_load_basic(
+            &config.architecture,
+            config.num_layers,
+            config.hidden_dim,
+            config.num_heads,
+            config.num_kv_heads,
+            config.intermediate_dim,
+            config.vocab_size,
+        ).map_err(crate::contract_gate::gate_error)?;
+
         // Parse tensor index
         let tensors = Self::parse_apr_tensor_index(data, tensor_index_offset, data_offset, tensor_count);
+
+        // GH-478: Resource limit gate — check if F32 dequant would exceed system RAM.
+        // This fires BEFORE any weight allocation, preventing OOM.
+        let tensor_entries: Vec<(usize, u8)> = tensors
+            .values()
+            .map(|&(_, size, _, dtype)| (size, dtype))
+            .collect();
+        crate::contract_gate::validate_f32_dequant_limits(
+            &tensor_entries,
+            data.len() as u64,
+        ).map_err(crate::contract_gate::gate_error)?;
 
         // ALB-106: entrenar checkpoints store linear weights in cuBLAS column-major
         // convention. Detect via "format": "entrenar-checkpoint" metadata.
