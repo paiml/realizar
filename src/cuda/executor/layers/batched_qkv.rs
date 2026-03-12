@@ -183,7 +183,14 @@ impl CudaExecutor {
         // cuMemcpyHtoD during capture causes CUDA_ERROR_ILLEGAL_ADDRESS.
         if !self.is_capturing {
             let positions_u32: Vec<u32> = positions.to_vec();
-            positions_buf.copy_from_host(&positions_u32)?;
+            positions_buf.copy_from_host(&positions_u32).map_err(|e| {
+                GpuError::Transfer(format!(
+                    "PMAT-088c positions_buf: host={} device_view={} workspace_buf={}: {e}",
+                    positions_u32.len(),
+                    m,
+                    self.workspace.positions_buf.as_ref().map_or(0, |b| b.len()),
+                ))
+            })?;
         }
 
         if self.rope_type == 2 {
