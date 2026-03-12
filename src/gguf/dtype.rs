@@ -162,7 +162,8 @@ impl OwnedQuantizedModel {
         ));
 
         // Layers
-        let head_dim = self.config.hidden_dim / self.config.num_heads;
+        // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
+        let head_dim = self.config.head_dim();
         let kv_dim = self.config.num_kv_heads * head_dim;
 
         for (layer_idx, layer) in self.layers.iter().enumerate() {

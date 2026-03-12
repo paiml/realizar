@@ -321,7 +321,8 @@ pub fn generate_with_cache(
     }
 
     let max_seq_len = prompt.len() + config.max_tokens;
-    let head_dim = model.config.hidden_dim / model.config.num_heads;
+    // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
+    let head_dim = model.config.head_dim();
     let mut kv_cache = StreamingKVCache::new(
         model.config.num_layers,
         max_seq_len,

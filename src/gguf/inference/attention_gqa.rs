@@ -26,11 +26,12 @@ impl OwnedQuantizedModel {
         current_k: &[f32],
         current_v: &[f32],
     ) -> Vec<f32> {
-        let hidden_dim = self.config.hidden_dim;
         let num_heads = self.config.num_heads;
         let num_kv_heads = self.config.num_kv_heads;
-        let head_dim = hidden_dim / num_heads;
-        let kv_dim = num_kv_heads * head_dim;
+        // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
+        let head_dim = self.config.head_dim();
+        let q_dim = self.config.q_dim();
+        let kv_dim = self.config.kv_dim();
         let scale = 1.0 / (head_dim as f32).sqrt();
 
         // Number of Q heads that share each KV head
@@ -44,7 +45,7 @@ impl OwnedQuantizedModel {
         };
         let total_len = cache_len + 1;
 
-        let mut output = vec![0.0f32; hidden_dim];
+        let mut output = vec![0.0f32; q_dim];
 
         // Score buffer for the current group.
         // Size: q_per_kv * total_len.
@@ -129,11 +130,12 @@ impl OwnedQuantizedModel {
         current_v: &[f32],
         output: &mut [f32],
     ) {
-        let hidden_dim = self.config.hidden_dim;
         let num_heads = self.config.num_heads;
         let num_kv_heads = self.config.num_kv_heads;
-        let head_dim = hidden_dim / num_heads;
-        let kv_dim = num_kv_heads * head_dim;
+        // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
+        let head_dim = self.config.head_dim();
+        let q_dim = self.config.q_dim();
+        let kv_dim = self.config.kv_dim();
         let scale = 1.0 / (head_dim as f32).sqrt();
 
         let q_per_kv = num_heads / num_kv_heads;
@@ -146,7 +148,8 @@ impl OwnedQuantizedModel {
         let total_len = cache_len + 1;
 
         // Zero output buffer
-        output[..hidden_dim].iter_mut().for_each(|x| *x = 0.0);
+        // GH-479: Use q_dim (may differ from hidden_dim for Qwen3)
+        output[..q_dim].iter_mut().for_each(|x| *x = 0.0);
 
         // Score buffer for the current group.
         // Size: q_per_kv * total_len.
@@ -293,16 +296,17 @@ impl OwnedQuantizedModel {
     ) -> Result<Vec<f32>> {
         use crate::gpu::HybridScheduler;
 
-        let hidden_dim = self.config.hidden_dim;
         let num_heads = self.config.num_heads;
-        let head_dim = hidden_dim / num_heads;
+        // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
+        let head_dim = self.config.head_dim();
+        let q_dim = self.config.q_dim();
         let scale = 1.0 / (head_dim as f32).sqrt();
 
         // Total sequence length = cached + 1 (current)
-        let cache_len = k_cache.len() / hidden_dim;
+        let cache_len = k_cache.len() / q_dim;
         let total_len = cache_len + 1;
 
-        let mut output = vec![0.0f32; hidden_dim];
+        let mut output = vec![0.0f32; q_dim];
 
         // Create scheduler for GPU operations
         let mut scheduler = HybridScheduler::with_threshold(1000).map_err(|e| {
@@ -320,7 +324,7 @@ impl OwnedQuantizedModel {
             // Build full K matrix for this head: [total_len, head_dim]
             let mut k_full = Vec::with_capacity(total_len * head_dim);
             for pos in 0..cache_len {
-                let k_start = pos * hidden_dim + head_offset;
+                let k_start = pos * q_dim + head_offset;
                 k_full.extend_from_slice(&k_cache[k_start..k_start + head_dim]);
             }
             k_full.extend_from_slice(&current_k[head_offset..head_offset + head_dim]);
@@ -352,7 +356,7 @@ impl OwnedQuantizedModel {
 
             // Cached values
             for (pos, &weight) in scores.iter().enumerate().take(cache_len) {
-                let v_start = pos * hidden_dim + head_offset;
+                let v_start = pos * q_dim + head_offset;
                 let cached_val = &v_cache[v_start..v_start + head_dim];
                 for d in 0..head_dim {
                     out_head[d] += weight * cached_val[d];

@@ -203,7 +203,8 @@ fn load_qkv_weights(
     } else {
         // Separate Q/K/V (Qwen-style) - concatenate into fused format
         // For GQA: Q has num_heads * head_dim, K/V have num_kv_heads * head_dim
-        let head_dim = config.hidden_dim / config.num_heads;
+        // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
+        let head_dim = config.head_dim();
         let kv_dim = config.num_kv_heads * head_dim; // K/V dimension for GQA
 
         let q_weight = mapped

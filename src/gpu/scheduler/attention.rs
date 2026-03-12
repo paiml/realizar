@@ -120,7 +120,8 @@ pub fn simplified_attention(
     seq_len: usize,
 ) -> Result<Vec<f32>> {
     let hidden_dim = config.hidden_dim;
-    let head_dim = hidden_dim / config.num_heads;
+    // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
+    let head_dim = config.head_dim();
 
     let q = &qkv[..seq_len * hidden_dim];
     let k = &qkv[seq_len * hidden_dim..seq_len * 2 * hidden_dim];
