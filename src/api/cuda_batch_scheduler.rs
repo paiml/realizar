@@ -133,7 +133,8 @@ async fn cuda_batch_scheduler_loop(
             };
             if should_wait {
                 let wait_ms = if batch.len() > 1 { 3 } else { 2 };
-                let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(wait_ms);
+                let deadline =
+                    tokio::time::Instant::now() + tokio::time::Duration::from_millis(wait_ms);
                 while batch.len() < config.max_batch {
                     match tokio::time::timeout_at(deadline, rx.recv()).await {
                         Ok(Some(req)) => batch.push(req),
@@ -225,46 +226,110 @@ fn process_cuda_batch(
         return;
     }
 
-    // PMAT-072: Step-wise batched generation with per-step lock release.
-    // Lock held ~19ms per decode step instead of ~660ms for entire batch.
-    // Enables PMAT-073 mid-batch joins and reduces lock contention.
-    let prompts: Vec<Vec<u32>> = batch.iter().map(|r| r.prompt_ids.clone()).collect();
-    let configs: Vec<QuantizedGenerateConfig> = batch.iter().map(|r| r.config.clone()).collect();
+    // PMAT-099: Staggered prefill — prefill first prompt only, join rest during decode.
+    // Reduces TTFT from O(M × prefill_time) to O(1 × prefill_time) for first token.
+    // At c=4 with long prompts: TTFT 179ms → ~50ms (3.6x improvement).
+    // Override: STAGGERED_PREFILL=0 to use batched multi-prompt prefill (old behavior).
+    let staggered = std::env::var("STAGGERED_PREFILL").as_deref() != Ok("0") && m > 1;
 
-    // Keep senders for error reporting (callbacks consume batch ownership).
-    // Mutable for PMAT-073 mid-batch joins (new senders appended).
-    let mut error_senders: Vec<tokio::sync::mpsc::Sender<Result<u32, String>>> =
-        batch.iter().map(|r| r.token_tx.clone()).collect();
+    let mut pending_joins: std::collections::VecDeque<CudaBatchRequest> =
+        std::collections::VecDeque::new();
 
-    let callbacks: Vec<Box<dyn FnMut(u32) -> bool + Send>> = batch
-        .into_iter()
-        .map(|req| {
-            Box::new(move |token_id: u32| -> bool { req.token_tx.try_send(Ok(token_id)).is_ok() })
-                as Box<dyn FnMut(u32) -> bool + Send>
-        })
-        .collect();
+    // Build Phase 1 inputs: first request only (staggered) or all requests (batched)
+    let (phase1_prompts, phase1_configs, mut error_senders, phase1_callbacks) = if staggered {
+        // Split batch: first → immediate prefill, rest → pending joins
+        let mut batch_iter = batch.into_iter();
+        let first_req = batch_iter.next().unwrap();
+        pending_joins = batch_iter.collect();
+
+        let prompts = vec![first_req.prompt_ids.clone()];
+        let configs = vec![first_req.config.clone()];
+        let error_senders = vec![first_req.token_tx.clone()];
+        let first_tx = first_req.token_tx;
+        let callbacks: Vec<Box<dyn FnMut(u32) -> bool + Send>> =
+            vec![Box::new(move |token_id: u32| -> bool {
+                first_tx.try_send(Ok(token_id)).is_ok()
+            })];
+
+        eprintln!(
+            "[PMAT-099] Staggered prefill: 1 immediate + {} pending joins",
+            pending_joins.len()
+        );
+
+        (prompts, configs, error_senders, callbacks)
+    } else {
+        // All prompts prefilled together in Phase 1 (original PMAT-072 behavior)
+        let prompts: Vec<Vec<u32>> = batch.iter().map(|r| r.prompt_ids.clone()).collect();
+        let configs: Vec<QuantizedGenerateConfig> =
+            batch.iter().map(|r| r.config.clone()).collect();
+        let error_senders: Vec<tokio::sync::mpsc::Sender<Result<u32, String>>> =
+            batch.iter().map(|r| r.token_tx.clone()).collect();
+        let callbacks: Vec<Box<dyn FnMut(u32) -> bool + Send>> = batch
+            .into_iter()
+            .map(|req| {
+                Box::new(move |token_id: u32| -> bool {
+                    req.token_tx.try_send(Ok(token_id)).is_ok()
+                }) as Box<dyn FnMut(u32) -> bool + Send>
+            })
+            .collect();
+        (prompts, configs, error_senders, callbacks)
+    };
 
     // Phase 1: Setup + Prefill (under lock)
+    // Staggered: prefills 1 prompt, pre-allocates max_batch KV slots.
+    // Non-staggered: prefills all M prompts (original behavior).
     let mut state = {
         let mut cuda_model = model.write().expect("PMAT-072: model lock poisoned");
-        match cuda_model.batched_setup_and_prefill(&prompts, &configs, callbacks, max_batch) {
+        match cuda_model.batched_setup_and_prefill(
+            &phase1_prompts,
+            &phase1_configs,
+            phase1_callbacks,
+            max_batch,
+        ) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[PMAT-072] Setup+prefill ERROR (m={m}): {e}");
                 for tx in &error_senders {
                     let _ = tx.try_send(Err(e.to_string()));
                 }
+                // Also notify pending joins
+                for req in &pending_joins {
+                    let _ = req.token_tx.try_send(Err(e.to_string()));
+                }
                 return;
             },
         }
     };
 
-    // Phase 2: Decode loop with mid-batch joins (PMAT-073) and slot recycling (PMAT-074)
+    // Phase 2: Decode loop with mid-batch joins (PMAT-073/099) and slot recycling (PMAT-074)
     // Lock per step (~19ms per acquire vs ~660ms total).
-    // Between steps: (1) fill empty pre-allocated slots, (2) recycle finished slots.
+    // PMAT-099: Pending staggered joins are processed one-per-step for progressive ramp-up.
     while !state.all_done() && state.gen_idx < state.max_tokens_max {
         let token_ids = {
             let mut cuda_model = model.write().expect("PMAT-072: model lock poisoned");
+
+            // PMAT-099: Join one pending staggered slot per step (progressive ramp-up).
+            // This limits decode stall to one prefill per step instead of blocking all at once.
+            if !pending_joins.is_empty() && state.m < state.max_kv_slots {
+                let req = pending_joins.pop_front().unwrap();
+                let error_tx = req.token_tx.clone();
+                let prompt_ids = req.prompt_ids;
+                let config = req.config;
+                let token_tx = req.token_tx;
+                let on_token: Box<dyn FnMut(u32) -> bool + Send> =
+                    Box::new(move |token_id: u32| -> bool {
+                        token_tx.try_send(Ok(token_id)).is_ok()
+                    });
+                match cuda_model.add_slot_to_batch(&mut state, prompt_ids, config, on_token) {
+                    Ok(()) => {
+                        error_senders.push(error_tx);
+                    },
+                    Err(e) => {
+                        eprintln!("[PMAT-099] Staggered join FAILED: {e}");
+                        let _ = error_tx.try_send(Err(e.to_string()));
+                    },
+                }
+            }
 
             // PMAT-073: Check for pending requests to join mid-batch (fill empty slots).
             while state.m < state.max_kv_slots {
@@ -294,14 +359,19 @@ fn process_cuda_batch(
             }
 
             // PMAT-074: Slot recycling — reuse finished slots for pending requests.
-            // Iterates done slots and recycles each one that has a pending request.
-            // This is the llama.cpp continuous batching model: slots immediately refilled.
+            // Check staggered pending joins first, then external channel.
             for slot_idx in 0..state.m {
                 if !state.done[slot_idx] {
                     continue;
                 }
-                match rx.try_recv() {
-                    Ok(req) => {
+                // Try pending staggered joins first (they arrived with the initial batch)
+                let req = if !pending_joins.is_empty() {
+                    Some(pending_joins.pop_front().unwrap())
+                } else {
+                    rx.try_recv().ok()
+                };
+                match req {
+                    Some(req) => {
                         let error_tx = req.token_tx.clone();
                         let prompt_ids = req.prompt_ids;
                         let config = req.config;
@@ -322,7 +392,7 @@ fn process_cuda_batch(
                             },
                         }
                     },
-                    Err(_) => break, // No pending requests
+                    None => break, // No pending requests
                 }
             }
 
@@ -335,6 +405,10 @@ fn process_cuda_batch(
                     );
                     for tx in &error_senders {
                         let _ = tx.try_send(Err(e.to_string()));
+                    }
+                    // Notify any remaining pending joins
+                    for req in &pending_joins {
+                        let _ = req.token_tx.try_send(Err(e.to_string()));
                     }
                     // Still need cleanup under lock
                     cuda_model.batched_cleanup(&state);
