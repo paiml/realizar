@@ -183,7 +183,7 @@ impl OwnedQuantizedModel {
         .map_err(crate::contract_gate::gate_error)?;
 
         // Extract inner GGUFConfig for storage (struct field is typed GGUFConfig)
-        let config = validated.into_inner();
+        let mut config = validated.into_inner();
 
         // GH-278: Detect Conv1D layout from contract (not string matching)
         let transpose = config.constraints.needs_transpose();
@@ -193,12 +193,27 @@ impl OwnedQuantizedModel {
         let num_layers = config.num_layers;
         let intermediate_dim = config.intermediate_dim;
 
+        // GH-479: Infer explicit head_dim from Q proj tensor shape (Qwen3 head_dim != hidden/heads)
+        let q_tensor_name = "model.layers.0.self_attn.q_proj.weight";
+        let gguf_q_name = "blk.0.attn_q.weight";
+        if let Some(q_tensor) = apr.find_tensor(q_tensor_name).or_else(|| apr.find_tensor(gguf_q_name)) {
+            if q_tensor.shape.len() == 2 {
+                let q_out_dim = q_tensor.shape[0];
+                let inferred_head_dim = if config.num_heads > 0 { q_out_dim / config.num_heads } else { 0 };
+                let default_head_dim = if config.num_heads > 0 { hidden_dim / config.num_heads } else { 0 };
+                if inferred_head_dim > 0 && inferred_head_dim != default_head_dim {
+                    config.explicit_head_dim = Some(inferred_head_dim);
+                }
+            }
+        }
+
         // Load token embeddings
         let token_embedding =
             Self::load_apr_token_embedding(apr, data, data_offset, vocab_size, hidden_dim)?;
 
         // Build layers
-        let head_dim = config.head_dim();
+        // GH-479: q_dim may differ from hidden_dim (Qwen3 head_dim != hidden/heads)
+        let q_dim = config.q_dim();
         let kv_dim = config.kv_dim();
         let mut layers = Vec::with_capacity(num_layers);
 
@@ -209,6 +224,7 @@ impl OwnedQuantizedModel {
                 data_offset,
                 layer_idx,
                 hidden_dim,
+                q_dim,
                 kv_dim,
                 intermediate_dim,
                 transpose,
@@ -303,6 +319,7 @@ impl OwnedQuantizedModel {
         data_offset: usize,
         layer_idx: usize,
         hidden_dim: usize,
+        q_dim: usize,
         kv_dim: usize,
         intermediate_dim: usize,
         transpose: bool,
@@ -329,7 +346,8 @@ impl OwnedQuantizedModel {
         let gguf_attn_norm = format!("blk.{layer_idx}.attn_norm.weight");
         let gguf_ffn_norm = format!("blk.{layer_idx}.ffn_norm.weight");
 
-        let q_weight = apr_load_quantized_tensor(apr, data, data_offset, &[&hf_q, &gguf_q], hidden_dim, hidden_dim, transpose)?;
+        // GH-479: Q dim may differ from hidden_dim (Qwen3 head_dim != hidden/heads)
+        let q_weight = apr_load_quantized_tensor(apr, data, data_offset, &[&hf_q, &gguf_q], hidden_dim, q_dim, transpose)?;
         let k_weight = apr_load_quantized_tensor(apr, data, data_offset, &[&hf_k, &gguf_k], hidden_dim, kv_dim, transpose)?;
         let v_weight = apr_load_quantized_tensor(apr, data, data_offset, &[&hf_v, &gguf_v], hidden_dim, kv_dim, transpose)?;
 
@@ -361,7 +379,8 @@ impl OwnedQuantizedModel {
                 Some(combined)
             });
 
-        let o_weight = apr_load_quantized_tensor(apr, data, data_offset, &[&hf_o, &gguf_o], hidden_dim, hidden_dim, transpose)?;
+        // GH-479: O proj maps q_dim -> hidden_dim (Qwen3 q_dim != hidden_dim)
+        let o_weight = apr_load_quantized_tensor(apr, data, data_offset, &[&hf_o, &gguf_o], q_dim, hidden_dim, transpose)?;
 
         // FFN weights (gate is optional — GPT-2 has no SwiGLU gate)
         let ffn_gate_weight = apr_load_quantized_tensor(apr, data, data_offset, &[&hf_gate, &gguf_gate], hidden_dim, intermediate_dim, transpose).ok();

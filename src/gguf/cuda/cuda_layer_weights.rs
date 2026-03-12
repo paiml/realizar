@@ -301,12 +301,14 @@ impl OwnedQuantizedModelCuda {
         let hidden_dim = self.model.config.hidden_dim;
         let num_heads = self.model.config.num_heads;
         let num_kv_heads = self.model.config.num_kv_heads;
-        let head_dim = hidden_dim / num_heads;
+        // GH-479: Use config methods for head_dim/q_dim/kv_dim (Qwen3 head_dim != hidden/heads)
+        let head_dim = self.model.config.head_dim();
+        let q_dim = self.model.config.q_dim();
         let num_layers = self.model.layers.len();
         let eps = self.model.config.eps;
 
         // PAR-021: GQA support
-        let kv_dim = num_kv_heads * head_dim;
+        let kv_dim = self.model.config.kv_dim();
 
         // 1. Token embedding lookup (CPU - fast enough, single lookup)
         let mut hidden = self.model.embed(&[token_id]);
@@ -339,9 +341,10 @@ impl OwnedQuantizedModelCuda {
             }
 
             // 2c. Extract Q, K, V with GQA-aware sizes and apply RoPE
-            let mut q = qkv[0..hidden_dim].to_vec();
-            let mut k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
-            let v = qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim].to_vec();
+            // GH-479: Use q_dim (may differ from hidden_dim for Qwen3)
+            let mut q = qkv[0..q_dim].to_vec();
+            let mut k = qkv[q_dim..q_dim + kv_dim].to_vec();
+            let v = qkv[q_dim + kv_dim..q_dim + 2 * kv_dim].to_vec();
 
             // GH-479: Per-head QK RMSNorm (Qwen3) — before RoPE
             if let Some(ref w) = lw.attn_q_norm_weight {
@@ -363,7 +366,7 @@ impl OwnedQuantizedModelCuda {
                 // First token - no cache yet
                 if num_kv_heads < num_heads {
                     let q_per_kv = num_heads / num_kv_heads;
-                    let mut expanded_v = vec![0.0f32; hidden_dim];
+                    let mut expanded_v = vec![0.0f32; q_dim];
                     for q_head in 0..num_heads {
                         let kv_head = q_head / q_per_kv;
                         let v_start = kv_head * head_dim;

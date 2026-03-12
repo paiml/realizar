@@ -34,9 +34,11 @@ impl OwnedQuantizedModelCuda {
             // 2b. QKV projection (CPU - fused Q4_K for now)
             // GQA-aware dimensions: Q has num_heads, K/V have num_kv_heads
             let num_kv_heads = self.model.config.num_kv_heads;
-            let head_dim = hidden_dim / self.model.config.num_heads;
-            let kv_dim = num_kv_heads * head_dim;
-            let qkv_dim = hidden_dim + 2 * kv_dim; // Q + K + V with GQA
+            // GH-479: Use config methods for head_dim/q_dim/kv_dim (Qwen3 head_dim != hidden/heads)
+            let head_dim = self.model.config.head_dim();
+            let q_dim = self.model.config.q_dim();
+            let kv_dim = self.model.config.kv_dim();
+            let qkv_dim = q_dim + 2 * kv_dim; // Q + K + V with GQA
             let mut qkv = self.model.qkv_matmul(&normed, &layer.qkv_weight)?;
             if let Some(ref bias) = layer.qkv_bias {
                 ops::add_bias(&mut qkv, bias);
@@ -44,15 +46,15 @@ impl OwnedQuantizedModelCuda {
 
             // 2c. Attention (CPU - complex control flow)
             let seq_len = token_ids.len();
-            let mut q_all = Vec::with_capacity(seq_len * hidden_dim);
+            let mut q_all = Vec::with_capacity(seq_len * q_dim);
             let mut k_all = Vec::with_capacity(seq_len * kv_dim);
             let mut v_all = Vec::with_capacity(seq_len * kv_dim);
 
             for s in 0..seq_len {
                 let qkv_start = s * qkv_dim;
-                let mut q = qkv[qkv_start..qkv_start + hidden_dim].to_vec();
-                let mut k = qkv[qkv_start + hidden_dim..qkv_start + hidden_dim + kv_dim].to_vec();
-                let v = &qkv[qkv_start + hidden_dim + kv_dim..qkv_start + hidden_dim + 2 * kv_dim];
+                let mut q = qkv[qkv_start..qkv_start + q_dim].to_vec();
+                let mut k = qkv[qkv_start + q_dim..qkv_start + q_dim + kv_dim].to_vec();
+                let v = &qkv[qkv_start + q_dim + kv_dim..qkv_start + q_dim + 2 * kv_dim];
 
                 // GH-479: Per-head QK RMSNorm (Qwen3) — before RoPE
                 if let Some(ref w) = layer.attn_q_norm_weight {
@@ -153,8 +155,10 @@ impl OwnedQuantizedModelCuda {
         let hidden_dim = self.model.config.hidden_dim;
         let num_heads = self.model.config.num_heads;
         let num_kv_heads = self.model.config.num_kv_heads;
-        let head_dim = hidden_dim / num_heads;
-        let kv_dim = num_kv_heads * head_dim; // GQA: K/V may have fewer heads than Q
+        // GH-479: Use config methods for head_dim/q_dim/kv_dim (Qwen3 head_dim != hidden/heads)
+        let head_dim = self.model.config.head_dim();
+        let q_dim = self.model.config.q_dim();
+        let kv_dim = self.model.config.kv_dim();
         let num_layers = self.model.layers.len();
         let eps = self.model.config.eps;
 
@@ -180,11 +184,10 @@ impl OwnedQuantizedModelCuda {
             }
 
             // 2c. Extract Q, K, V and apply RoPE (GQA-aware dimensions)
-            // Q has hidden_dim = num_heads * head_dim
-            // K/V have kv_dim = num_kv_heads * head_dim (may be smaller for GQA)
-            let mut q = qkv[0..hidden_dim].to_vec();
-            let mut k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
-            let v = qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim].to_vec();
+            // GH-479: Use q_dim (may differ from hidden_dim for Qwen3)
+            let mut q = qkv[0..q_dim].to_vec();
+            let mut k = qkv[q_dim..q_dim + kv_dim].to_vec();
+            let v = qkv[q_dim + kv_dim..q_dim + 2 * kv_dim].to_vec();
 
             // GH-479: Per-head QK RMSNorm (Qwen3) — before RoPE
             if let Some(ref w) = self.model.layers[layer_idx].attn_q_norm_weight {
@@ -208,7 +211,8 @@ impl OwnedQuantizedModelCuda {
                 if num_kv_heads < num_heads {
                     // Expand V to match num_heads by repeating KV groups
                     let q_per_kv = num_heads / num_kv_heads;
-                    let mut expanded = vec![0.0f32; hidden_dim];
+                    // GH-479: Use q_dim for expanded output size
+                    let mut expanded = vec![0.0f32; q_dim];
                     for q_head in 0..num_heads {
                         let kv_head = q_head / q_per_kv;
                         let src_offset = kv_head * head_dim;
