@@ -490,7 +490,8 @@ impl OwnedQuantizedModel {
         let use_rmsnorm = self.config.constraints.uses_rmsnorm();
 
         // Pre-allocate attention output buffer - reused across all layers
-        let mut attn_out_buffer = vec![0.0f32; hidden_dim];
+        // GH-479: Use q_dim (may differ from hidden_dim for Qwen3)
+        let mut attn_out_buffer = vec![0.0f32; self.config.q_dim()];
 
         // DEBUG: Consolidated embedding trace (PMAT-260)
         self.debug_trace_embedding(&hidden, token_id, position);
@@ -530,16 +531,18 @@ impl OwnedQuantizedModel {
             // V: [kv_dim] = [num_kv_heads * head_dim]
             // Optimization: apply RoPE in-place to avoid Q/K copies
             let num_kv_heads = self.config.num_kv_heads;
-            let head_dim = hidden_dim / self.config.num_heads;
-            let kv_dim = num_kv_heads * head_dim;
+            // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
+            let head_dim = self.config.head_dim();
+            let q_dim = self.config.q_dim();
+            let kv_dim = self.config.kv_dim();
 
             // PMAT-114: Trace QKV after bias for layer 0 (PMAT-260)
             self.debug_trace_qkv_after_bias(&qkv, layer, layer_idx, hidden_dim);
 
-            // GH-279: Per-head QK RMSNorm (Qwen3) — after bias, before RoPE
+            // GH-479: Per-head QK RMSNorm (Qwen3) — after bias, before RoPE
             if let Some(ref q_norm) = layer.attn_q_norm_weight {
                 ops::apply_per_head_rms_norm(
-                    &mut qkv[0..hidden_dim],
+                    &mut qkv[0..q_dim],
                     q_norm,
                     self.config.num_heads,
                     self.config.eps,
@@ -547,7 +550,7 @@ impl OwnedQuantizedModel {
             }
             if let Some(ref k_norm) = layer.attn_k_norm_weight {
                 ops::apply_per_head_rms_norm(
-                    &mut qkv[hidden_dim..hidden_dim + kv_dim],
+                    &mut qkv[q_dim..q_dim + kv_dim],
                     k_norm,
                     num_kv_heads,
                     self.config.eps,
@@ -556,18 +559,19 @@ impl OwnedQuantizedModel {
 
             // GH-278: Skip RoPE for models with learned position embeddings (GPT-2)
             if self.config.constraints.uses_rope() {
-                self.apply_rope(&mut qkv[0..hidden_dim], position, self.config.num_heads);
+                self.apply_rope(&mut qkv[0..q_dim], position, self.config.num_heads);
                 self.apply_rope(
-                    &mut qkv[hidden_dim..hidden_dim + kv_dim],
+                    &mut qkv[q_dim..q_dim + kv_dim],
                     position,
                     num_kv_heads,
                 );
             }
 
             // Use slices to avoid copies (only copy K for cache storage)
-            let q = &qkv[0..hidden_dim];
-            let k = &qkv[hidden_dim..hidden_dim + kv_dim];
-            let v = &qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim];
+            // GH-479: Use q_dim (may differ from hidden_dim for Qwen3)
+            let q = &qkv[0..q_dim];
+            let k = &qkv[q_dim..q_dim + kv_dim];
+            let v = &qkv[q_dim + kv_dim..q_dim + 2 * kv_dim];
 
             // 2d. Get cached K/V and compute attention with GQA support
             let k_cache = cache.get_k(layer_idx);
