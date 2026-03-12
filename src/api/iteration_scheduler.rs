@@ -160,30 +160,33 @@ async fn iteration_scheduler_loop(
 
         // === SCHEDULING DECISION ===
         //
-        // Decode-maximal policy (Sarathi-Serve):
-        // 1. If batch is active: run decode step, then check for slot recycling
-        // 2. If no batch: form initial batch from waiting requests
-        // 3. Between decode steps: accept new requests via mid-batch join/recycle
+        // PMAT-088c: Decode-maximal policy (Sarathi-Serve / Orca):
+        // 1. Form initial batch with just 1 request (start decode ASAP)
+        // 2. Remaining waiting requests join via mid-batch add_slot_to_batch()
+        //    between decode steps — interleaved prefill, no decode stalls
+        // 3. Slot recycling for finished slots with pending requests
         //
-        // For Phase 1, we delegate to the existing batched decode infrastructure
-        // (PMAT-072/073/074) which already supports mid-batch joins and recycling.
-        // The iteration scheduler adds:
-        // - Proper waiting queue management
-        // - Metrics collection per iteration
-        // - Foundation for chunked prefill (Phase 3)
+        // This gives decode-maximal scheduling: slot 0 starts generating tokens
+        // immediately (~21ms TTFT) while slots 1-3 are prefilled one at a time
+        // between decode steps (~14ms prefill per slot, interleaved with ~13ms decode).
+        //
+        // Expected TTFT improvement at c=4:
+        //   Before: 82ms (all 4 prefilled upfront before any decode)
+        //   After:  ~21ms for slot 0 (14ms prefill + 6.6ms first decode)
+        //           ~35ms for slot 1, ~50ms for slot 2, ~65ms for slot 3
+        //           P50 TTFT ≈ 42ms (49% improvement)
 
         if !batch_active {
-            // Form initial batch from waiting requests (up to max_slots)
-            let batch_size = waiting.len().min(config.max_slots);
-            let batch: Vec<CudaBatchRequest> = waiting.drain(..batch_size).collect();
+            // PMAT-088c: Form initial batch with 1 request. Remaining stay in
+            // waiting queue for mid-batch joins during decode loop.
+            let batch: Vec<CudaBatchRequest> = vec![waiting.pop_front().unwrap()];
 
             total_batches += 1;
             let batch_start = std::time::Instant::now();
 
             eprintln!(
-                "[PMAT-088] Batch #{}: forming m={}, waiting={}",
+                "[PMAT-088c] Batch #{}: starting m=1 (decode-maximal), waiting={} for mid-batch join",
                 total_batches,
-                batch.len(),
                 waiting.len(),
             );
 
@@ -284,8 +287,14 @@ fn process_iteration_batch(
             // This ensures requests that arrived during previous iteration's
             // token distribution get scheduled before new channel arrivals.
 
-            // Mid-batch joins from waiting queue
-            while state.m < state.max_kv_slots {
+            // PMAT-088c: Decode-maximal scheduling — limit to 1 mid-batch join
+            // per decode step. This interleaves prefill (14ms) with decode (6-13ms)
+            // instead of blocking decode for N × 14ms to prefill all waiting at once.
+            // Result: slot 0 TTFT drops from 82ms to ~21ms (P50 from 82ms to ~42ms).
+            let mut joined_this_step = false;
+
+            // Mid-batch joins from waiting queue (1 per step)
+            if !joined_this_step && state.m < state.max_kv_slots {
                 if let Some(req) = waiting.pop_front() {
                     let error_tx = req.token_tx.clone();
                     let on_token: Box<dyn FnMut(u32) -> bool + Send> = {
@@ -300,19 +309,20 @@ fn process_iteration_batch(
                         req.config,
                         on_token,
                     ) {
-                        Ok(()) => error_senders.push(error_tx),
+                        Ok(()) => {
+                            error_senders.push(error_tx);
+                            joined_this_step = true;
+                        },
                         Err(e) => {
-                            eprintln!("[PMAT-088] Mid-batch join from waiting FAILED: {e}");
+                            eprintln!("[PMAT-088c] Mid-batch join from waiting FAILED: {e}");
                             let _ = error_tx.try_send(Err(e.to_string()));
                         },
                     }
-                } else {
-                    break;
                 }
             }
 
-            // Mid-batch joins from rx channel
-            while state.m < state.max_kv_slots {
+            // Mid-batch joins from rx channel (1 per step, only if no waiting join)
+            if !joined_this_step && state.m < state.max_kv_slots {
                 match rx.try_recv() {
                     Ok(req) => {
                         let error_tx = req.token_tx.clone();
@@ -328,47 +338,53 @@ fn process_iteration_batch(
                             req.config,
                             on_token,
                         ) {
-                            Ok(()) => error_senders.push(error_tx),
+                            Ok(()) => {
+                                error_senders.push(error_tx);
+                                joined_this_step = true;
+                            },
                             Err(e) => {
-                                eprintln!("[PMAT-088] Mid-batch join from rx FAILED: {e}");
+                                eprintln!("[PMAT-088c] Mid-batch join from rx FAILED: {e}");
                                 let _ = error_tx.try_send(Err(e.to_string()));
                             },
                         }
                     },
-                    Err(_) => break,
+                    Err(_) => {},
                 }
             }
 
-            // Slot recycling — reuse finished slots
-            for slot_idx in 0..state.m {
-                if !state.done[slot_idx] {
-                    continue;
-                }
-                // Try waiting queue first, then rx
-                let next_req = waiting.pop_front().or_else(|| rx.try_recv().ok());
-                if let Some(req) = next_req {
-                    let error_tx = req.token_tx.clone();
-                    let on_token: Box<dyn FnMut(u32) -> bool + Send> = {
-                        let token_tx = req.token_tx;
-                        Box::new(move |token_id: u32| -> bool {
-                            token_tx.try_send(Ok(token_id)).is_ok()
-                        })
-                    };
-                    match cuda_model.recycle_slot(
-                        &mut state,
-                        slot_idx,
-                        req.prompt_ids,
-                        req.config,
-                        on_token,
-                    ) {
-                        Ok(()) => error_senders[slot_idx] = error_tx,
-                        Err(e) => {
-                            eprintln!("[PMAT-088] Slot recycle FAILED (slot {slot_idx}): {e}");
-                            let _ = error_tx.try_send(Err(e.to_string()));
-                        },
+            // PMAT-088c: Slot recycling — 1 per step (same decode-maximal policy)
+            if !joined_this_step {
+                for slot_idx in 0..state.m {
+                    if !state.done[slot_idx] {
+                        continue;
                     }
-                } else {
-                    break;
+                    // Try waiting queue first, then rx
+                    let next_req = waiting.pop_front().or_else(|| rx.try_recv().ok());
+                    if let Some(req) = next_req {
+                        let error_tx = req.token_tx.clone();
+                        let on_token: Box<dyn FnMut(u32) -> bool + Send> = {
+                            let token_tx = req.token_tx;
+                            Box::new(move |token_id: u32| -> bool {
+                                token_tx.try_send(Ok(token_id)).is_ok()
+                            })
+                        };
+                        match cuda_model.recycle_slot(
+                            &mut state,
+                            slot_idx,
+                            req.prompt_ids,
+                            req.config,
+                            on_token,
+                        ) {
+                            Ok(()) => error_senders[slot_idx] = error_tx,
+                            Err(e) => {
+                                eprintln!("[PMAT-088c] Slot recycle FAILED (slot {slot_idx}): {e}");
+                                let _ = error_tx.try_send(Err(e.to_string()));
+                            },
+                        }
+                    } else {
+                        break;
+                    }
+                    break; // PMAT-088c: 1 recycle per step (decode-maximal)
                 }
             }
 
