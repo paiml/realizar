@@ -32,6 +32,9 @@ impl CudaKernels {
             KernelType::MultiWarpTensorCoreQ4KGemm { m, k, n } => {
                 MultiWarpTensorCoreQ4KGemmKernel::new(*m, *k, *n).emit_ptx_for_target(target)
             },
+            KernelType::InterleavedWmmaQ4KGemm { m, k, n } => {
+                InterleavedWmmaQ4KGemmKernel::new(*m, *k, *n).emit_ptx_for_target(target)
+            },
             KernelType::Dp4aQ4KGemm { m, n, k } => {
                 Dp4aQ4KGemmKernel::new(*m, *n, *k).emit_ptx_for_target(target)
             },

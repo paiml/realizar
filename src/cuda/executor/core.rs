@@ -153,6 +153,8 @@ impl CudaExecutor {
             fp8_weight_cache: HashMap::new(),
             fp8_activation_scratch: None,
             fp8_activation_scratch_size: 0,
+            // PMAT-091: Interleaved Q4K weight cache (warmup at model init)
+            interleaved_weight_cache: HashMap::new(),
             // PMAT-064: Q4K WMMA padded output scratch (lazy init)
             wmma_scratch: None,
             // PMAT-066: Q8 activation scratch for DP4A Q4K GEMM (lazy init)

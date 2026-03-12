@@ -547,6 +547,10 @@ pub struct CudaExecutor {
     // PMAT-079: Persistent activation dequant scale buffer (single f32 on GPU).
     // Holds act_absmax/448.0 — used as A_SCALE_POINTER for cuBLASLt scaled GEMM.
     fp8_act_dequant_buf: Option<GpuBuffer<f32>>,
+    // PMAT-091: Column-interleaved Q4K weight cache for coalesced WMMA GEMM.
+    // Key: quantized weight GPU pointer → interleaved tile buffer.
+    // Same size as original Q4K (ceil(N/16) × num_sb × 2304 bytes).
+    interleaved_weight_cache: HashMap<u64, GpuBuffer<u8>>,
     // PMAT-064: Padded output scratch for Q4K WMMA GEMM
     // WMMA stores full 16×16 tiles — edge tiles write past the output buffer
     // when M or N is not a multiple of 16. This scratch absorbs OOB writes.
