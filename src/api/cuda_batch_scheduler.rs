@@ -86,6 +86,13 @@ async fn cuda_batch_scheduler_loop(
         config.max_batch, config.window_ms
     );
 
+    // PMAT-097: Track recent batch sizes to detect concurrent traffic.
+    // When we've recently seen batches > 1, even singleton batches should
+    // wait briefly for peers to avoid starting m=1 batches that block the
+    // channel for ~1.7s (256 tokens × 6.7ms). This fixes TTFT P99.9
+    // tail latency at c=4 (1889ms → ~50ms target).
+    let mut recent_batch_gt1 = false;
+
     loop {
         // Wait for at least one request
         let first = match rx.recv().await {
@@ -112,11 +119,21 @@ async fn cuda_batch_scheduler_loop(
                     Err(_) => break,
                 }
             }
-            // PMAT-095: If we found peers but haven't filled the batch, do a short
-            // timed wait. At c=1, try_recv finds nothing → skip. At c=4, try_recv
-            // finds 1-3 → wait 3ms for the last request to arrive.
-            if batch.len() > 1 && batch.len() < config.max_batch {
-                let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(3);
+            // PMAT-095/097: Adaptive wait for batch formation.
+            // Phase 2a: If we found peers, wait 3ms for stragglers.
+            // Phase 2b (PMAT-097): If we're singleton but recently saw concurrent traffic,
+            // wait 2ms for peers. Fixes c=4 TTFT P99.9 tail (m=1 batches block 1.7s).
+            // At true c=1, recent_batch_gt1 stays false → no wait → zero overhead.
+            let should_wait = if batch.len() > 1 && batch.len() < config.max_batch {
+                true // Phase 2a: found peers, wait for more
+            } else if batch.len() == 1 && recent_batch_gt1 && config.max_batch > 1 {
+                true // Phase 2b: singleton but concurrent traffic detected
+            } else {
+                false
+            };
+            if should_wait {
+                let wait_ms = if batch.len() > 1 { 3 } else { 2 };
+                let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(wait_ms);
                 while batch.len() < config.max_batch {
                     match tokio::time::timeout_at(deadline, rx.recv()).await {
                         Ok(Some(req)) => batch.push(req),
@@ -146,6 +163,9 @@ async fn cuda_batch_scheduler_loop(
 
         let batch_size = batch.len();
         let batch_start = std::time::Instant::now();
+
+        // PMAT-097: Update concurrency hint for next batch's adaptive wait.
+        recent_batch_gt1 = batch_size > 1;
 
         // Process the batch (PMAT-073: pass rx for mid-batch joins)
         process_cuda_batch(&model, batch, &mut rx, config.max_batch);

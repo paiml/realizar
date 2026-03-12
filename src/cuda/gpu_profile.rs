@@ -159,6 +159,10 @@ impl GpuProfile {
         if std::env::var("DP4A_Q4K").is_ok() {
             return Q4kVariant::MwvDp4a;
         }
+        // PMAT-096: Force FP32 MWV variant (no Q8 quantization overhead)
+        if std::env::var("MWV_Q4K").is_ok() {
+            return Q4kVariant::Mwv;
+        }
 
         // Auto-detect: HW DP4A on any GPU with DP4A support (sm_75+)
         if has_dp4a {
