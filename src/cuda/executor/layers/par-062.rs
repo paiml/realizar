@@ -366,11 +366,13 @@ impl CudaExecutor {
         self.stream.synchronize()?;
 
         // ONE memcpy for all M results
+        // PMAT-088c: Buffer may be over-sized from high-water-mark allocation
+        // (e.g., allocated for M=4 but current batch M=2). Create exact-M view.
         let mut results = vec![0u32; m];
-        self.batched_argmax_results
-            .as_ref()
-            .unwrap()
-            .copy_to_host(&mut results[..m])?;
+        let results_ptr = self.batched_argmax_results.as_ref().unwrap().as_ptr();
+        let results_view = unsafe { GpuBuffer::<u32>::from_raw_parts(results_ptr, m) };
+        results_view.copy_to_host(&mut results[..m])?;
+        std::mem::forget(results_view);
 
         Ok(results)
     }

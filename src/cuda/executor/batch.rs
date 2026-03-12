@@ -324,9 +324,24 @@ DONE:
             // PMAT-088: Use copy_from_host_at(0) — buffers may be over-sized from
             // high-water-mark allocation (e.g., allocated for M=4 but used at M=3).
             // copy_from_host requires exact length; copy_from_host_at allows partial.
-            k_ptrs_buf.copy_from_host_at(&k_ptrs, 0)?;
-            v_ptrs_buf.copy_from_host_at(&v_ptrs, 0)?;
-            seq_lens_buf.copy_from_host_at(&seq_lens, 0)?;
+            k_ptrs_buf.copy_from_host_at(&k_ptrs, 0).map_err(|e| {
+                GpuError::Transfer(format!(
+                    "PMAT-088c k_ptrs: host={} device={}: {e}",
+                    k_ptrs.len(), k_ptrs_buf.len(),
+                ))
+            })?;
+            v_ptrs_buf.copy_from_host_at(&v_ptrs, 0).map_err(|e| {
+                GpuError::Transfer(format!(
+                    "PMAT-088c v_ptrs: host={} device={}: {e}",
+                    v_ptrs.len(), v_ptrs_buf.len(),
+                ))
+            })?;
+            seq_lens_buf.copy_from_host_at(&seq_lens, 0).map_err(|e| {
+                GpuError::Transfer(format!(
+                    "PMAT-088c seq_lens: host={} device={}: {e}",
+                    seq_lens.len(), seq_lens_buf.len(),
+                ))
+            })?;
         }
 
         // GH-141: Choose pointer source — per-layer (capture) or shared (non-capture)

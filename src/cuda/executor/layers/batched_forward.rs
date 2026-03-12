@@ -70,7 +70,12 @@ impl CudaExecutor {
         self.batched_decode_input_buf
             .as_mut()
             .unwrap()
-            .copy_from_host(inputs)?;
+            .copy_from_host(inputs)
+            .map_err(|e| GpuError::Transfer(format!(
+                "PMAT-088c batched_decode_input_buf: host={} device={}: {e}",
+                inputs.len(),
+                self.batched_decode_input_buf.as_ref().map_or(0, |b| b.len()),
+            )))?;
         let input_buf_ptr = self.batched_decode_input_buf.as_ref().unwrap().as_ptr();
         let input_buf_len = expected_input_len;
 
