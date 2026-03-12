@@ -95,6 +95,9 @@ impl OwnedQuantizedModelCuda {
             ffn_gate_weight,
             ffn_gate_cache_key,
             ffn_gate_bias,
+            // GH-479: QK norm weights
+            attn_q_norm_weight: layer.attn_q_norm_weight.clone(),
+            attn_k_norm_weight: layer.attn_k_norm_weight.clone(),
         }
     }
 
@@ -340,6 +343,14 @@ impl OwnedQuantizedModelCuda {
             let mut k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
             let v = qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim].to_vec();
 
+            // GH-479: Per-head QK RMSNorm (Qwen3) — before RoPE
+            if let Some(ref w) = lw.attn_q_norm_weight {
+                ops::apply_per_head_rms_norm(&mut q, w, num_heads, eps);
+            }
+            if let Some(ref w) = lw.attn_k_norm_weight {
+                ops::apply_per_head_rms_norm(&mut k, w, num_kv_heads, eps);
+            }
+
             self.model
                 .apply_rope(&mut q, position, self.model.config.num_heads);
             self.model.apply_rope(&mut k, position, num_kv_heads);
@@ -480,4 +491,7 @@ struct CudaLayerWeights {
     ffn_gate_weight: Option<OwnedQuantizedTensor>,
     ffn_gate_cache_key: Option<String>,
     ffn_gate_bias: Option<Vec<f32>>,
+    // GH-479: QK norm weights (Qwen3 per-head RMSNorm)
+    attn_q_norm_weight: Option<Vec<f32>>,
+    attn_k_norm_weight: Option<Vec<f32>>,
 }

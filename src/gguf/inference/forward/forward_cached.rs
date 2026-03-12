@@ -175,6 +175,15 @@ impl OwnedQuantizedModel {
         let mut k = qkv[q_dim..q_dim + k_dim].to_vec();
         let v = qkv[q_dim + k_dim..q_dim + k_dim + v_dim].to_vec();
 
+        // GH-479: Per-head QK RMSNorm (Qwen3) — contract: qk-norm-v1 §QKN-INV-007
+        // Applied AFTER projection + bias, BEFORE RoPE (Qwen3 ordering)
+        if let Some(ref q_norm_w) = layer.attn_q_norm_weight {
+            ops::apply_per_head_rms_norm(&mut q, q_norm_w, self.config.num_heads, self.config.eps);
+        }
+        if let Some(ref k_norm_w) = layer.attn_k_norm_weight {
+            ops::apply_per_head_rms_norm(&mut k, k_norm_w, self.config.num_kv_heads, self.config.eps);
+        }
+
         // GQA-DEBUG: K before/after RoPE
         if cpu_debug && (layer_idx == 0 || layer_idx == 1) && position == 0 {
             eprintln!(

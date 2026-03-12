@@ -394,8 +394,16 @@ impl OwnedQuantizedModel {
             ffn_up_bias: apr_try_load_f32(apr, data, data_offset, &hf_up_bias),
             ffn_down_weight,
             ffn_down_bias: apr_try_load_f32(apr, data, data_offset, &hf_down_bias),
-            attn_q_norm_weight: None,
-            attn_k_norm_weight: None,
+            // GH-479: QK norm weights (Qwen3 per-head RMSNorm)
+            // Contract: qk-norm-apr-loader-v1 §QKN-LOAD-002
+            attn_q_norm_weight: apr_try_load_f32(apr, data, data_offset,
+                &format!("model.layers.{layer_idx}.self_attn.q_norm.weight"))
+                .or_else(|| apr_try_load_f32(apr, data, data_offset,
+                    &format!("blk.{layer_idx}.attn_q_norm.weight"))),
+            attn_k_norm_weight: apr_try_load_f32(apr, data, data_offset,
+                &format!("model.layers.{layer_idx}.self_attn.k_norm.weight"))
+                .or_else(|| apr_try_load_f32(apr, data, data_offset,
+                    &format!("blk.{layer_idx}.attn_k_norm.weight"))),
         })
     }
 }
