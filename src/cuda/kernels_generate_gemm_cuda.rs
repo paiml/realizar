@@ -206,6 +206,9 @@ impl CudaKernels {
             KernelType::PerHeadRmsNorm { head_dim, num_heads, epsilon } => {
                 PerHeadRmsNormKernel::new(*head_dim, *num_heads).with_epsilon(*epsilon).emit_ptx_for_target(target)
             },
+            KernelType::BatchedFusedResidualRmsNorm { hidden_size, batch_size, epsilon } => {
+                BatchedFusedResidualRmsNormKernel::new(*hidden_size, *batch_size).with_epsilon(*epsilon).emit_ptx_for_target(target)
+            },
             KernelType::FusedResidualRmsNorm { hidden_size, epsilon } => {
                 FusedResidualRmsNormKernel::new(*hidden_size).with_epsilon(*epsilon).emit_ptx_for_target(target)
             },

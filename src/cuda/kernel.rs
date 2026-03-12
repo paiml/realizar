@@ -114,6 +114,7 @@ impl CudaKernels {
             KernelType::RmsNorm { .. } => "rmsnorm",
             KernelType::VectorizedRmsNorm { .. } => "rmsnorm_vectorized",
             KernelType::BatchedVectorizedRmsNorm { .. } => "batched_rmsnorm_vectorized",
+            KernelType::BatchedFusedResidualRmsNorm { .. } => "batched_fused_residual_rmsnorm",
             KernelType::PreciseRmsNorm { .. } => "rmsnorm_precise",
             KernelType::PerHeadRmsNorm { .. } => "per_head_rmsnorm",
             KernelType::FusedResidualRmsNorm { .. } => "fused_residual_rmsnorm",
