@@ -77,17 +77,19 @@ impl CudaExecutor {
             m, hidden_dim, q_dim,
         )?;
 
-        // ========== 6+7. Fused Residual + Pre-FFN RMSNorm (PMAT-092) ==========
-        // Fuses residual_add + rmsnorm into a single kernel launch.
-        // residual_out = input + hidden_buf1 (stored in input_staging for residual stream)
-        // normed_out = rmsnorm(residual_out) (stored in hidden_buf1 for FFN projections)
-        self.batched_fused_residual_rmsnorm_into(
-            input,
-            hidden_buf1,
+        // ========== 6. First Residual (PAR-114: BATCHED) ==========
+        self.batched_residual_add_into(input, hidden_buf1, input_staging, hidden_dim, m)?;
+
+        // ========== 7. Pre-FFN RMSNorm (BATCHED - PAR-112) ==========
+        // PMAT-092: Fused residual+RMSNorm kernel was FALSIFIED here — 5% regression.
+        // Root cause: Fused kernel restricts to (1,M) grid (one CTA per batch element for
+        // RMSNorm reduction), losing 6x parallelism vs separate residual_add (6×M grid).
+        // The 28 saved launches (~560μs) don't compensate for reduced BW saturation.
+        self.batched_rmsnorm_ptr_into(
             input_staging,
-            hidden_buf1,
             layer_weights.ffn_norm_ptr,
             layer_weights.ffn_norm_len,
+            hidden_buf1,
             hidden_dim,
             m,
             epsilon,
