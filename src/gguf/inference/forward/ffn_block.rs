@@ -309,18 +309,18 @@ impl OwnedQuantizedModel {
     ///
     /// Prints K-vector mean before bias addition when `APR_TRACE_LAYERS` is set
     /// and this is layer 0.
-    fn debug_trace_qkv(&self, qkv: &[f32], layer_idx: usize, hidden_dim: usize) {
+    fn debug_trace_qkv(&self, qkv: &[f32], layer_idx: usize, _hidden_dim: usize) {
         if layer_idx != 0 {
             return;
         }
         if std::env::var("APR_TRACE_LAYERS").is_err() {
             return;
         }
-        let num_kv_heads = self.config.num_kv_heads;
-        let head_dim = hidden_dim / self.config.num_heads;
-        let kv_dim = num_kv_heads * head_dim;
+        // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
+        let q_dim = self.config.q_dim();
+        let kv_dim = self.config.kv_dim();
 
-        let k = &qkv[hidden_dim..hidden_dim + kv_dim];
+        let k = &qkv[q_dim..q_dim + kv_dim];
         let k_mean: f32 = k.iter().sum::<f32>() / kv_dim as f32;
         eprintln!("[PMAT-114-GGUF] L0 K BEFORE bias: mean={:.6}", k_mean);
     }
@@ -334,21 +334,21 @@ impl OwnedQuantizedModel {
         qkv: &[f32],
         layer: &crate::gguf::OwnedQuantizedLayer,
         layer_idx: usize,
-        hidden_dim: usize,
+        _hidden_dim: usize,
     ) {
         if layer_idx != 0 || std::env::var("APR_TRACE_LAYERS").is_err() {
             return;
         }
-        let num_kv_heads = self.config.num_kv_heads;
-        let head_dim = hidden_dim / self.config.num_heads;
-        let kv_dim = num_kv_heads * head_dim;
+        // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
+        let q_dim = self.config.q_dim();
+        let kv_dim = self.config.kv_dim();
 
         eprintln!(
             "[PMAT-114-GGUF] L0 has_qkv_bias={}",
             layer.qkv_bias.is_some()
         );
         if let Some(ref bias) = layer.qkv_bias {
-            let k_bias = &bias[hidden_dim..hidden_dim + kv_dim];
+            let k_bias = &bias[q_dim..q_dim + kv_dim];
             let k_bias_mean: f32 = k_bias.iter().sum::<f32>() / kv_dim as f32;
             eprintln!(
                 "[PMAT-114-GGUF] L0 K bias mean={:.6}, first5={:?}",
@@ -357,10 +357,10 @@ impl OwnedQuantizedModel {
             );
         }
 
-        let q = &qkv[0..hidden_dim];
-        let k = &qkv[hidden_dim..hidden_dim + kv_dim];
-        let v = &qkv[hidden_dim + kv_dim..hidden_dim + 2 * kv_dim];
-        let q_mean: f32 = q.iter().sum::<f32>() / hidden_dim as f32;
+        let q = &qkv[0..q_dim];
+        let k = &qkv[q_dim..q_dim + kv_dim];
+        let v = &qkv[q_dim + kv_dim..q_dim + 2 * kv_dim];
+        let q_mean: f32 = q.iter().sum::<f32>() / q_dim as f32;
         let k_mean: f32 = k.iter().sum::<f32>() / kv_dim as f32;
         let v_mean: f32 = v.iter().sum::<f32>() / kv_dim as f32;
         eprintln!(

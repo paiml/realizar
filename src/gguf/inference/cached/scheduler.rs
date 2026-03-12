@@ -362,12 +362,13 @@ impl OwnedQuantizedModelCached {
         seq_len: usize,
         scheduler: &mut crate::gpu::HybridScheduler,
     ) -> Result<Vec<f32>> {
-        let hidden_dim = self.model.config.hidden_dim;
         let num_heads = self.model.config.num_heads;
-        let head_dim = hidden_dim / num_heads;
+        // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
+        let head_dim = self.model.config.head_dim();
+        let q_dim = num_heads * head_dim;
         let scale = 1.0 / (head_dim as f32).sqrt();
 
-        let mut output = vec![0.0f32; seq_len * hidden_dim];
+        let mut output = vec![0.0f32; seq_len * q_dim];
 
         for head in 0..num_heads {
             let head_offset = head * head_dim;
@@ -378,7 +379,7 @@ impl OwnedQuantizedModelCached {
             let mut v_h = Vec::with_capacity(seq_len * head_dim);
 
             for pos in 0..seq_len {
-                let start = pos * hidden_dim + head_offset;
+                let start = pos * q_dim + head_offset;
                 q_h.extend_from_slice(&q[start..start + head_dim]);
                 k_h.extend_from_slice(&k[start..start + head_dim]);
                 v_h.extend_from_slice(&v[start..start + head_dim]);
@@ -415,7 +416,7 @@ impl OwnedQuantizedModelCached {
 
             // Copy to output
             for pos in 0..seq_len {
-                let out_start = pos * hidden_dim + head_offset;
+                let out_start = pos * q_dim + head_offset;
                 let head_start = pos * head_dim;
                 output[out_start..out_start + head_dim]
                     .copy_from_slice(&head_output[head_start..head_start + head_dim]);

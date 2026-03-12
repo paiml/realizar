@@ -10,9 +10,10 @@ impl OwnedQuantizedModelCached {
         v: &[f32],
         seq_len: usize,
     ) -> Result<Vec<f32>> {
-        let hidden_dim = self.model.config.hidden_dim;
         let num_heads = self.model.config.num_heads;
-        let head_dim = hidden_dim / num_heads;
+        // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
+        let head_dim = self.model.config.head_dim();
+        let q_dim = num_heads * head_dim;
         let scale = 1.0 / (head_dim as f32).sqrt();
 
         // Get cached scheduler
@@ -67,7 +68,7 @@ impl OwnedQuantizedModelCached {
         }
 
         // Compute output for all heads
-        let mut output = vec![0.0f32; seq_len * hidden_dim];
+        let mut output = vec![0.0f32; seq_len * q_dim];
         for h in 0..num_heads {
             let weights_offset = h * seq_len * seq_len;
             let v_offset = h * seq_len * head_dim;
@@ -84,7 +85,7 @@ impl OwnedQuantizedModelCached {
 
             // Copy to output in original layout
             for pos in 0..seq_len {
-                let out_start = pos * hidden_dim + h * head_dim;
+                let out_start = pos * q_dim + h * head_dim;
                 let head_start = pos * head_dim;
                 output[out_start..out_start + head_dim]
                     .copy_from_slice(&head_output[head_start..head_start + head_dim]);
@@ -319,12 +320,13 @@ impl OwnedQuantizedModelCached {
         v: &[f32],
         seq_len: usize,
     ) -> Result<Vec<f32>> {
-        let hidden_dim = self.model.config.hidden_dim;
         let num_heads = self.model.config.num_heads;
-        let head_dim = hidden_dim / num_heads;
+        // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
+        let head_dim = self.model.config.head_dim();
+        let q_dim = num_heads * head_dim;
         let scale = 1.0 / (head_dim as f32).sqrt();
 
-        // Step 1: Reshape Q, K, V from [seq_len, hidden_dim] to [num_heads, seq_len, head_dim]
+        // Step 1: Reshape Q, K, V from [seq_len, q_dim] to [num_heads, seq_len, head_dim]
         let q_reshaped = self
             .model
             .reshape_for_parallel_heads(q, seq_len, num_heads, head_dim)?;
@@ -374,13 +376,13 @@ impl OwnedQuantizedModelCached {
             head_dim,
         )?;
 
-        // Step 6: Reshape back to [seq_len, hidden_dim]
-        let mut output = vec![0.0f32; seq_len * hidden_dim];
+        // Step 6: Reshape back to [seq_len, q_dim]
+        let mut output = vec![0.0f32; seq_len * q_dim];
         for h in 0..num_heads {
             let head_start = h * seq_len * head_dim;
             for pos in 0..seq_len {
                 let src_start = head_start + pos * head_dim;
-                let dst_start = pos * hidden_dim + h * head_dim;
+                let dst_start = pos * q_dim + h * head_dim;
                 output[dst_start..dst_start + head_dim]
                     .copy_from_slice(&attn_output[src_start..src_start + head_dim]);
             }

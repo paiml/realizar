@@ -31,16 +31,17 @@ impl OwnedQuantizedModel {
         current_v: &[f32],
         block_size: usize,
     ) -> Vec<f32> {
-        let hidden_dim = self.config.hidden_dim;
         let num_heads = self.config.num_heads;
-        let head_dim = hidden_dim / num_heads;
+        // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
+        let head_dim = self.config.head_dim();
+        let q_dim = self.config.q_dim();
         let scale = 1.0 / (head_dim as f32).sqrt();
 
         // Total sequence length = cached + 1 (current)
-        let cache_len = k_cache.len() / hidden_dim;
+        let cache_len = k_cache.len() / q_dim;
         let total_len = cache_len + 1;
 
-        let mut output = vec![0.0f32; hidden_dim];
+        let mut output = vec![0.0f32; q_dim];
 
         // Process each head with FlashAttention tiling
         for head in 0..num_heads {
@@ -67,7 +68,7 @@ impl OwnedQuantizedModel {
                 for pos in tile_start..tile_end {
                     if pos < cache_len {
                         // From cache
-                        let k_start = pos * hidden_dim + head_offset;
+                        let k_start = pos * q_dim + head_offset;
                         let cached_key = &k_cache[k_start..k_start + head_dim];
 
                         // Compute Q·K score
@@ -77,7 +78,7 @@ impl OwnedQuantizedModel {
                         }
                         tile_scores.push(score * scale);
 
-                        let v_start = pos * hidden_dim + head_offset;
+                        let v_start = pos * q_dim + head_offset;
                         tile_values.push(&v_cache[v_start..v_start + head_dim]);
                     } else {
                         // Current position
