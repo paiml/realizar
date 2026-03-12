@@ -311,23 +311,32 @@ fn process_iteration_batch(
             // This ensures requests that arrived during previous iteration's
             // token distribution get scheduled before new channel arrivals.
 
-            // PMAT-088c: Decode-maximal scheduling — limit to 1 mid-batch join
-            // per decode step. This interleaves prefill (14ms) with decode (6-13ms)
-            // instead of blocking decode for N × 14ms to prefill all waiting at once.
+            // PMAT-088d: Batch recycle — collect ALL done slots with waiting
+            // requests and recycle them in one prefill_multi_prompt call (~14ms
+            // total regardless of count, vs N×17ms sequential). This eliminates
+            // recycle serialization when multiple slots finish simultaneously.
             //
             // Priority: RECYCLE done slots first, then ADD new slots.
-            // Without this priority, add_slot grows M to max_kv_slots (8) while
-            // done slots waste GPU cycles on zero embeddings.
             let mut joined_this_step = false;
 
-            // 1. RECYCLE done slots first (reuses existing M, no M growth)
+            // 1. BATCH RECYCLE done slots (multi-prompt prefill, one weight read)
             let has_done_slots = state.done.iter().any(|&d| d);
             if has_done_slots {
+                let mut recycle_pairs: Vec<(
+                    usize,
+                    Vec<u32>,
+                    crate::gguf::QuantizedGenerateConfig,
+                    Box<dyn FnMut(u32) -> bool + Send>,
+                )> = Vec::new();
+                let mut recycle_error_txs: Vec<(
+                    usize,
+                    tokio::sync::mpsc::Sender<Result<u32, String>>,
+                )> = Vec::new();
+
                 for slot_idx in 0..state.m {
                     if !state.done[slot_idx] {
                         continue;
                     }
-                    // Try waiting queue first, then rx
                     let next_req = waiting.pop_front().or_else(|| rx.try_recv().ok());
                     if let Some(req) = next_req {
                         let error_tx = req.token_tx.clone();
@@ -337,26 +346,28 @@ fn process_iteration_batch(
                                 token_tx.try_send(Ok(token_id)).is_ok()
                             })
                         };
-                        match cuda_model.recycle_slot(
-                            &mut state,
-                            slot_idx,
-                            req.prompt_ids,
-                            req.config,
-                            on_token,
-                        ) {
-                            Ok(()) => {
-                                error_senders[slot_idx] = Some(error_tx);
-                                joined_this_step = true;
-                            },
-                            Err(e) => {
-                                eprintln!("[PMAT-088c] Slot recycle FAILED (slot {slot_idx}): {e}");
-                                let _ = error_tx.try_send(Err(e.to_string()));
-                            },
-                        }
+                        recycle_error_txs.push((slot_idx, error_tx));
+                        recycle_pairs.push((slot_idx, req.prompt_ids, req.config, on_token));
                     } else {
-                        break;
+                        break; // No more waiting requests
                     }
-                    break; // PMAT-088c: 1 recycle per step (decode-maximal)
+                }
+
+                if !recycle_pairs.is_empty() {
+                    match cuda_model.recycle_slots_batch(&mut state, recycle_pairs) {
+                        Ok(()) => {
+                            for (slot_idx, error_tx) in recycle_error_txs {
+                                error_senders[slot_idx] = Some(error_tx);
+                            }
+                            joined_this_step = true;
+                        },
+                        Err(e) => {
+                            eprintln!("[PMAT-088d] Batch recycle FAILED: {e}");
+                            for (_, error_tx) in &recycle_error_txs {
+                                let _ = error_tx.try_send(Err(e.to_string()));
+                            }
+                        },
+                    }
                 }
             }
 

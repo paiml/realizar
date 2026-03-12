@@ -483,6 +483,9 @@ impl CudaExecutor {
     ///
     /// Expected: 4×59ms = 236ms → ~65ms (~3.5x TTFT improvement).
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    /// PMAT-088d: `slot_indices` maps prompt_idx → batched KV cache slot.
+    /// When None, uses prompt_idx (0,1,2,...) — existing behavior.
+    /// When Some, uses slot_indices[prompt_idx] — enables recycling arbitrary slots.
     pub fn prefill_multi_prompt(
         &mut self,
         embeddings: &[f32],
@@ -493,6 +496,7 @@ impl CudaExecutor {
         hidden_dim: u32,
         intermediate_dim: u32,
         epsilon: f32,
+        slot_indices: Option<&[usize]>,
     ) -> Result<(), GpuError> {
         let m_total = positions.len();
         let num_prompts = prompt_offsets.len();
@@ -699,6 +703,8 @@ impl CudaExecutor {
                 // Attention from packed buffer + scatter to batched KV cache in one method.
                 // No intermediate single KV cache. Zero D2D copies for attention,
                 // single kernel launch for scatter.
+                // PMAT-088d: Map prompt_idx to target batched KV slot
+                let target_slot = slot_indices.map(|s| s[prompt_idx]).unwrap_or(prompt_idx);
                 self.prefill_attention_from_packed(
                     layer_idx,
                     q_buf_ptr + q_off,
@@ -708,7 +714,7 @@ impl CudaExecutor {
                     s_i as u32,
                     q_dim,
                     kv_dim,
-                    prompt_idx,
+                    target_slot,
                 )?;
             }
 

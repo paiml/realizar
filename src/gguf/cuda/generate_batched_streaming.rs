@@ -630,6 +630,151 @@ impl OwnedQuantizedModelCuda {
         Ok(())
     }
 
+    /// PMAT-088d: Batch-recycle multiple done slots using multi-prompt prefill.
+    ///
+    /// Processes all recycled prompts in a single `prefill_multi_prompt` call
+    /// (~14ms total regardless of count) instead of N sequential `recycle_slot`
+    /// calls (N × 17ms). KV is scattered directly to target batched cache slots.
+    ///
+    /// Caller must hold model write lock for the duration of this call.
+    pub fn recycle_slots_batch(
+        &mut self,
+        state: &mut BatchedDecodeState,
+        slots_and_requests: Vec<(
+            usize,
+            Vec<u32>,
+            QuantizedGenerateConfig,
+            Box<dyn FnMut(u32) -> bool + Send>,
+        )>,
+    ) -> Result<()> {
+        if slots_and_requests.is_empty() {
+            return Ok(());
+        }
+
+        // PMAT-088d: Always use prefill_multi_prompt path, even for N=1.
+        // This is faster than recycle_slot because:
+        // 1. KV scatter integrated into attention (no separate D2D copy, saves ~1ms)
+        // 2. No force_workspace_reinit (avoids CUDA malloc churn, saves ~0.5ms)
+        // 3. No CPU KV cache allocation (saves ~0.5ms)
+        // Net: ~17ms → ~15ms per recycle for N=1.
+
+        // Validate all target slots are done
+        for (slot_idx, _, _, _) in &slots_and_requests {
+            if *slot_idx >= state.m || !state.done[*slot_idx] {
+                return Err(RealizarError::UnsupportedOperation {
+                    operation: "recycle_slots_batch".to_string(),
+                    reason: format!(
+                        "PMAT-088d: slot {} not done or out of range (m={})",
+                        slot_idx, state.m
+                    ),
+                });
+            }
+        }
+
+        let prefill_start = std::time::Instant::now();
+        let num_recycles = slots_and_requests.len();
+
+        // Build multi-prompt inputs
+        let slot_indices: Vec<usize> = slots_and_requests.iter().map(|(s, _, _, _)| *s).collect();
+        let prompt_lengths: Vec<usize> = slots_and_requests
+            .iter()
+            .map(|(_, p, _, _)| p.len().saturating_sub(1))
+            .collect();
+        let m_total: usize = prompt_lengths.iter().sum();
+        let prompt_offsets: Vec<usize> = prompt_lengths
+            .iter()
+            .scan(0, |acc, &len| {
+                let off = *acc;
+                *acc += len;
+                Some(off)
+            })
+            .collect();
+
+        // Clear decode graph for prefill
+        self.executor.clear_decode_graph();
+
+        // Init workspace for M_total tokens (high-water mark, may realloc)
+        self.executor
+            .init_prefill_workspace(m_total, state.hidden_dim, state.intermediate_dim)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "recycle_slots_batch_workspace".to_string(),
+                reason: format!("PMAT-088d: workspace init for M_total={m_total}: {e}"),
+            })?;
+
+        // Embed all prompts concatenated
+        let hidden_dim = state.hidden_dim;
+        let mut all_embeddings = Vec::with_capacity(m_total * hidden_dim);
+        for (i, (_, prompt, _, _)) in slots_and_requests.iter().enumerate() {
+            let embeddings = self.model.embed(&prompt[..prompt_lengths[i]]);
+            all_embeddings.extend_from_slice(&embeddings);
+        }
+
+        // Build concatenated positions: [0..S0-1, 0..S1-1, ...]
+        let mut all_positions = Vec::with_capacity(m_total);
+        for &len in &prompt_lengths {
+            all_positions.extend(0..len as u32);
+        }
+
+        // Initialize cuBLAS for multi-prompt prefill
+        self.executor.ensure_cublas().map_err(|e| RealizarError::UnsupportedOperation {
+            operation: "recycle_slots_batch_cublas".to_string(),
+            reason: format!("PMAT-088d: cuBLAS init failed: {e}"),
+        })?;
+
+        // Run multi-prompt prefill with slot mapping — weights read ONCE,
+        // KV scattered directly to target batched cache slots
+        self.executor
+            .prefill_multi_prompt(
+                &all_embeddings,
+                &all_positions,
+                &prompt_offsets,
+                &prompt_lengths,
+                state.num_layers,
+                state.hidden_dim as u32,
+                state.intermediate_dim as u32,
+                state.eps,
+                Some(&slot_indices),
+            )
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "recycle_slots_batch_prefill".to_string(),
+                reason: format!("PMAT-088d: multi-prompt prefill failed: {e}"),
+            })?;
+
+        // Restore decode workspace
+        self.executor.clear_prefill_graphs();
+        self.executor
+            .init_batched_workspace(state.hidden_dim, state.intermediate_dim, state.m)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "recycle_slots_batch_workspace_restore".to_string(),
+                reason: format!("PMAT-088d: workspace restore for M={}: {e}", state.m),
+            })?;
+        self.executor.clear_decode_graph();
+
+        // Update state for each recycled slot
+        for (slot_idx, prompt, config, on_token) in slots_and_requests {
+            let last_token = prompt[prompt.len() - 1];
+            let seq_len = prompt.len().saturating_sub(1);
+            state.sequences[slot_idx] = prompt.clone();
+            state.prompts[slot_idx] = prompt;
+            state.configs[slot_idx] = config;
+            state.on_tokens[slot_idx] = on_token;
+            state.positions[slot_idx] = seq_len;
+            state.last_tokens[slot_idx] = last_token;
+            state.done[slot_idx] = false;
+            state.max_tokens_max = state
+                .max_tokens_max
+                .max(state.gen_idx + state.configs[slot_idx].max_tokens);
+        }
+
+        let prefill_ms = prefill_start.elapsed().as_secs_f64() * 1000.0;
+        eprintln!(
+            "[PMAT-088d] Batch recycled: {} slots {:?} (M={}), prefill {:.1}ms ({} total tokens)",
+            num_recycles, slot_indices, state.m, prefill_ms, m_total,
+        );
+
+        Ok(())
+    }
+
     fn validate_batch_args(&self, m: usize, configs_len: usize, callbacks_len: usize) -> Result<()> {
         if m > 32 {
             return Err(RealizarError::UnsupportedOperation {
@@ -726,6 +871,7 @@ impl OwnedQuantizedModelCuda {
                     hidden_dim as u32,
                     intermediate_dim as u32,
                     eps,
+                    None, // PMAT-088d: initial batch uses slot_idx == prompt_idx
                 )
                 .map_err(|e| RealizarError::UnsupportedOperation {
                     operation: "prefill_multi_prompt".to_string(),
