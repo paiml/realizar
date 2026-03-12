@@ -227,10 +227,11 @@ fn process_cuda_batch(
     }
 
     // PMAT-099: Staggered prefill — prefill first prompt only, join rest during decode.
-    // Reduces TTFT from O(M × prefill_time) to O(1 × prefill_time) for first token.
-    // At c=4 with long prompts: TTFT 179ms → ~50ms (3.6x improvement).
-    // Override: STAGGERED_PREFILL=0 to use batched multi-prompt prefill (old behavior).
-    let staggered = std::env::var("STAGGERED_PREFILL").as_deref() != Ok("0") && m > 1;
+    // FALSIFIED for short prompts: per-slot join overhead (14ms×3) exceeds batched prefill (20ms).
+    // c=4 short prompts: staggered 241 vs batched 260 aggregate (-7.3%), TTFT 87 vs 40ms (+118%).
+    // May win for long prompts (>500 tokens) — not yet tested.
+    // Default OFF. Enable: STAGGERED_PREFILL=1.
+    let staggered = std::env::var("STAGGERED_PREFILL").as_deref() == Ok("1") && m > 1;
 
     let mut pending_joins: std::collections::VecDeque<CudaBatchRequest> =
         std::collections::VecDeque::new();
