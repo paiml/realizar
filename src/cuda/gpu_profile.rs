@@ -170,14 +170,13 @@ impl GpuProfile {
         }
     }
 
-    /// MWV warp count: env var override, else 4.
-    /// PMAT-089: increased from 3→4 for better SM occupancy and latency hiding.
-    /// 4 warps = 128 threads = 8 half-warps per block.
+    /// MWV warp count: env var override, else 3.
+    /// PMAT-089: 4 warps FALSIFIED (-2% decode due to register pressure). 3 is optimal.
     fn detect_mwv_warps() -> u32 {
         std::env::var("MWV_WARPS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(4)
+            .unwrap_or(3)
     }
 
     /// Batched prefill: env var override, else always on.
