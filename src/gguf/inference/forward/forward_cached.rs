@@ -221,7 +221,8 @@ impl OwnedQuantizedModel {
         let attn_out = if k_cache.is_empty() {
             // First token - just use V directly (self-attention with single token)
             if self.config.num_kv_heads < self.config.num_heads {
-                let head_dim = hidden_dim / self.config.num_heads;
+                // GH-479: Use config.head_dim() (Qwen3 head_dim != hidden/heads)
+                let head_dim = self.config.head_dim();
                 let group_size = self.config.num_heads / self.config.num_kv_heads;
                 (0..self.config.num_heads)
                     .flat_map(|h| {
