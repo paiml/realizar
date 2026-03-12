@@ -109,8 +109,8 @@ impl GpuModelQ4 {
         let hidden_dim = self.config.hidden_dim;
         let num_heads = self.config.num_heads;
         let num_kv_heads = self.config.num_kv_heads;
-        // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
-        let head_dim = self.config.head_dim();
+        // GH-479: Use explicit_head_dim if set (Qwen3 head_dim != hidden/heads)
+        let head_dim = self.config.explicit_head_dim.unwrap_or(hidden_dim / num_heads);
         let kv_dim = num_kv_heads * head_dim;
         let qkv_dim = hidden_dim + 2 * kv_dim;
 
