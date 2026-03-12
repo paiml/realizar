@@ -144,6 +144,144 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// ALB-111: Upload input vector to GEMV input buffer.
+    /// Call once before multiple GEMV launches with the same input.
+    pub fn q4k_upload_to_input_buffer(&mut self, input: &[f32], k: u32) -> Result<(), GpuError> {
+        let padded_k = ((k as usize + 255) / 256) * 256;
+        let padded_input: std::borrow::Cow<'_, [f32]> = if padded_k > input.len() {
+            let mut padded = vec![0.0f32; padded_k];
+            padded[..input.len()].copy_from_slice(input);
+            std::borrow::Cow::Owned(padded)
+        } else {
+            std::borrow::Cow::Borrowed(input)
+        };
+        self.ensure_gemv_input_buffer(padded_k)?;
+        self.gemv_input_buffer
+            .as_mut()
+            .expect("just ensured")
+            .copy_from_host_at(&padded_input, 0)?;
+        Ok(())
+    }
+
+    /// ALB-111: Launch Q4K GEMV kernel with output to a specific device pointer.
+    /// Input must already be in gemv_input_buffer (via q4k_upload_to_input_buffer).
+    /// NO sync, NO D2H. Caller must sync and download.
+    pub fn q4k_gemv_launch_to_ptr(
+        &mut self,
+        weight_name: &str,
+        output_device_ptr: u64,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        let weight_ptr = self.get_quantized_weight_ptr(weight_name)?;
+
+        const MAX_TILED_K: u32 = 12_288;
+        let use_tiled = k.is_multiple_of(256) && k <= MAX_TILED_K;
+        let use_chunked = k.is_multiple_of(256) && k > MAX_TILED_K;
+        let outputs_per_block = 4u32;
+
+        let (kernel_type, cache_key, config) = if use_chunked {
+            let kt = KernelType::ChunkedTiledQ4KGemv {
+                k,
+                n,
+                outputs_per_block,
+            };
+            let ck = format!("chunked_tiled_q4k_gemv_{}_{}_{}", k, n, outputs_per_block);
+            let num_blocks = (n + outputs_per_block - 1) / outputs_per_block;
+            let cfg = LaunchConfig::grid_2d(num_blocks, 1, 128, 1);
+            (kt, ck, cfg)
+        } else if use_tiled {
+            let kt = KernelType::TiledQ4KGemv {
+                k,
+                n,
+                outputs_per_block,
+            };
+            let ck = format!("tiled_q4k_gemv_{}_{}_{}", k, n, outputs_per_block);
+            let num_blocks = (n + outputs_per_block - 1) / outputs_per_block;
+            let cfg = LaunchConfig::grid_2d(num_blocks, 1, 128, 1);
+            (kt, ck, cfg)
+        } else {
+            let kt = KernelType::Q4KGemv { k, n };
+            let ck = format!("q4k_gemv_{}_{}", k, n);
+            let cfg = LaunchConfig::grid_2d(n, 1, 32, 1);
+            (kt, ck, cfg)
+        };
+
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let mut ptr_input = self
+            .gemv_input_buffer
+            .as_ref()
+            .expect("must upload first via q4k_upload_to_input_buffer")
+            .as_ptr();
+        let mut ptr_output = output_device_ptr;
+        let mut ptr_weights = weight_ptr;
+        let mut k_val = k;
+        let mut n_val = n;
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// ALB-111: Synchronize the CUDA stream.
+    pub fn sync_stream(&mut self) -> Result<(), GpuError> {
+        self.stream.synchronize()
+    }
+
+    /// ALB-111: Download from a GEMV output buffer by index.
+    /// 0 = primary gemv_output_buffer, 1 = buffer B, 2 = buffer C.
+    pub fn download_gemv_output(
+        &self,
+        buf_index: usize,
+        output: &mut [f32],
+    ) -> Result<(), GpuError> {
+        let buf = match buf_index {
+            0 => self
+                .gemv_output_buffer
+                .as_ref()
+                .expect("buffer must exist"),
+            1 => self
+                .gemv_output_buffer_b
+                .as_ref()
+                .expect("buffer B must exist"),
+            2 => self
+                .gemv_output_buffer_c
+                .as_ref()
+                .expect("buffer C must exist"),
+            _ => {
+                return Err(GpuError::InvalidParameter(format!(
+                    "Invalid buffer index: {buf_index}"
+                )));
+            },
+        };
+        buf.copy_to_host_at(output, 0)
+    }
+
     /// PAR-023: Execute Q4_K GEMV with GPU buffer input/output (async, no sync)
     ///
     /// This is the async variant that keeps data on GPU. Used for pipelining

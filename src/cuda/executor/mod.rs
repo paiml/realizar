@@ -372,6 +372,11 @@ pub struct CudaExecutor {
     gemv_output_buffer: Option<GpuBuffer<f32>>,
     gemv_input_size: usize,  // Current capacity in elements
     gemv_output_size: usize, // Current capacity in elements
+    // ALB-111: Extra output buffers for batched GEMV (batch Q/K/V, gate/up)
+    gemv_output_buffer_b: Option<GpuBuffer<f32>>,
+    gemv_output_buffer_c: Option<GpuBuffer<f32>>,
+    gemv_output_size_b: usize,
+    gemv_output_size_c: usize,
     // PAR-018 + PAR-021: GPU-resident KV cache to avoid CPU->GPU transfer each token
     // Key format: "kv_{layer_idx}_{k|v}" -> GPU buffer [num_kv_heads, max_len, head_dim]
     // For GQA models, uses num_kv_heads (smaller than num_heads)
