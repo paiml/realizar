@@ -321,7 +321,8 @@ fn test_from_apr_bytes_truncated_metadata() {
 #[test]
 fn test_from_apr_bytes_no_embedding_tensor() {
     // Valid header + metadata but NO embedding tensor
-    let meta = r#"{"hidden_size": 8, "num_hidden_layers": 0, "vocab_size": 4}"#;
+    // GH-478: num_hidden_layers must be ≥1 to pass contract gate
+    let meta = r#"{"hidden_size": 8, "num_hidden_layers": 1, "num_attention_heads": 1, "num_key_value_heads": 1, "intermediate_size": 8, "vocab_size": 4}"#;
     let tensors = vec![
         TensorDef {
             name: "model.norm.weight".into(),
@@ -346,7 +347,8 @@ fn test_from_apr_bytes_no_embedding_tensor() {
 #[test]
 fn test_from_apr_bytes_no_lm_head_no_embed_for_tying() {
     // Has token_embd.weight but no lm_head.weight — exercises weight tying via token_embd
-    let meta = r#"{"hidden_size": 8, "num_hidden_layers": 0, "vocab_size": 4}"#;
+    // GH-478: num_hidden_layers must be ≥1 to pass contract gate
+    let meta = r#"{"hidden_size": 8, "num_hidden_layers": 1, "num_attention_heads": 1, "num_key_value_heads": 1, "intermediate_size": 8, "vocab_size": 4}"#;
     let tensors = vec![TensorDef {
         name: "token_embd.weight".into(),
         dtype: DTYPE_F32,

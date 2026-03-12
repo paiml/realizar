@@ -307,53 +307,30 @@ fn try_load_llama_style(
 
 /// GH-478: Check if F32 dequantization would exceed system memory.
 ///
-/// `AprTransformer::from_apr_file` reads the entire file into a `Vec<u8>` then
-/// dequantizes all Q4K tensors to F32. Peak memory ≈ file_size × 8 (raw bytes
-/// + 7x Q4K→F32 expansion). When this exceeds system RAM, the kernel OOM-kills
-/// the process before the graceful `Err(_)` fallback can trigger.
+/// Delegates to `contract_gate::exceeds_f32_dequant_estimate()` — the contract
+/// system is the single source of truth for resource limit checks.
 ///
-/// Returns `true` to route to `OwnedQuantizedModel` which keeps weights in Q4K
-/// form (7x less memory, same inference quality via fused Q4K matmul kernels).
+/// This pre-dispatch check prevents reading the file at all for large models,
+/// routing directly to `OwnedQuantizedModel` (keeps weights in Q4K form).
+/// A precise check also fires inside `from_apr_bytes()` via
+/// `validate_f32_dequant_limits()` as a safety net.
 fn exceeds_f32_dequant_limit(model_path: &std::path::Path) -> bool {
     let file_size = std::fs::metadata(model_path)
         .map(|m| m.len())
         .unwrap_or(0);
 
-    if file_size == 0 {
-        return false;
-    }
-
-    // Estimate peak memory: file in Vec<u8> + Q4K→F32 dequant (~7x expansion)
-    let estimated_peak = file_size.saturating_mul(8);
-
-    // Get system memory from /proc/meminfo (Linux); assume unlimited on other OS
-    let mem_total = system_memory_bytes().unwrap_or(u64::MAX);
-
-    // Use quantized path if peak would exceed 80% of system RAM
-    let exceeds = estimated_peak > mem_total * 80 / 100;
+    let exceeds = crate::contract_gate::exceeds_f32_dequant_estimate(file_size);
     if exceeds {
+        let mem_total = crate::contract_gate::system_memory_bytes().unwrap_or(0);
         eprintln!(
             "[GH-478] Model {} GB on disk → ~{} GB F32 dequant (system RAM: {} GB). \
              Using quantized CPU inference to avoid OOM.",
             file_size / (1 << 30),
-            estimated_peak / (1 << 30),
+            file_size.saturating_mul(8) / (1 << 30),
             mem_total / (1 << 30),
         );
     }
     exceeds
-}
-
-/// Read total system memory from /proc/meminfo (Linux).
-/// Returns None on non-Linux or if /proc/meminfo is unreadable.
-fn system_memory_bytes() -> Option<u64> {
-    let content = std::fs::read_to_string("/proc/meminfo").ok()?;
-    for line in content.lines() {
-        if line.starts_with("MemTotal:") {
-            let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
-            return Some(kb * 1024);
-        }
-    }
-    None
 }
 
 /// Run APR inference on CPU with KV-cache (PMAT-103)
