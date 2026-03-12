@@ -509,6 +509,80 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// PMAT-092: Batched fused residual add + RMSNorm
+    ///
+    /// Fuses `batched_residual_add_into` + `batched_rmsnorm_ptr_into` into a single kernel.
+    /// Saves 28 kernel launches per decode step (1 per layer × 28 layers).
+    ///
+    /// residual_out[m] = residual[m] + input[m]  (for residual stream)
+    /// normed_out[m]   = rmsnorm(residual_out[m], gamma, epsilon)  (for FFN projections)
+    ///
+    /// Grid: (1, batch_size, 1), Block: (256, 1, 1)
+    #[allow(clippy::too_many_arguments)]
+    pub fn batched_fused_residual_rmsnorm_into(
+        &mut self,
+        residual: &GpuBuffer<f32>,
+        input: &GpuBuffer<f32>,
+        residual_out: &GpuBuffer<f32>,
+        normed_out: &GpuBuffer<f32>,
+        gamma_ptr: u64,
+        gamma_len: usize,
+        hidden_size: u32,
+        batch_size: u32,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        let kernel_type = KernelType::BatchedFusedResidualRmsNorm {
+            hidden_size,
+            batch_size,
+            epsilon,
+        };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        // PTX depends on hidden_size + epsilon (immediates) but NOT batch_size (grid dim only).
+        let cache_key = format!("batched_fused_residual_rmsnorm_{}", hidden_size);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        // Grid (1, M, 1) with 256 threads per block
+        let config = LaunchConfig::grid_2d(1, batch_size, 256, 1);
+
+        // SAFETY: gamma_ptr is valid GPU allocation from indexed layer weights
+        let gamma = unsafe { GpuBuffer::<f32>::from_raw_parts(gamma_ptr, gamma_len) };
+
+        let mut ptr_residual = residual.as_ptr();
+        let mut ptr_input = input.as_ptr();
+        let mut ptr_res_out = residual_out.as_ptr();
+        let mut ptr_norm_out = normed_out.as_ptr();
+        let mut ptr_gamma = gamma.as_ptr();
+
+        // SAFETY: All pointers derived from valid GpuBuffer refs
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_residual) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_res_out) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_norm_out) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_gamma) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        std::mem::forget(gamma);
+        Ok(())
+    }
+
     /// PMAT-046: Batched bias broadcast add — adds bias[dim] to packed[M×dim] in-place.
     ///
     /// Replaces M sequential residual_add_into calls with a single kernel launch.

@@ -365,6 +365,12 @@ pub enum KernelType {
         batch_size: u32,
         epsilon: f32,
     },
+    /// PMAT-092: Batched fused residual add + RMSNorm kernel
+    BatchedFusedResidualRmsNorm {
+        hidden_size: u32,
+        batch_size: u32,
+        epsilon: f32,
+    },
     /// CORRECTNESS-013: High-precision RMSNorm kernel for CPU/GPU bit-exactness
     PreciseRmsNorm {
         hidden_size: u32,
