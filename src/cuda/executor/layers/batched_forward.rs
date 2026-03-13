@@ -128,6 +128,7 @@ impl CudaExecutor {
 
             // Prevent drop of borrowed buffer (from_raw_parts doesn't own the memory)
             std::mem::forget(layer_input_buf);
+
         }
 
         self.batched_output_norm_lm_head_argmax(m, hidden_dim, vocab_size, epsilon)
@@ -225,7 +226,12 @@ impl CudaExecutor {
         let normed_hidden_buf_wrapper =
             unsafe { GpuBuffer::<f32>::from_raw_parts(normed_hidden_ptr, normed_hidden_buf_len) };
 
-        self.batched_gemv_with_fallback(
+        // PMAT-105: Route LmHead through full dispatch chain (batched_gemv_or_gemm)
+        // instead of batched_gemv_with_fallback. At M>=5, this enables FP8 cuBLASLt
+        // GEMM which reads FP8 weights ONCE (233 MB at 1 B/elem) vs Q6K batched GEMV
+        // which reads Q6K weights M times (175 MB × M_effective with L2 sharing).
+        // At M=12: estimated ~2.3ms savings per step (3.5ms → 1.2ms, -13% ITL).
+        self.batched_gemv_or_gemm(
             lm_head_qtype,
             lm_head_ptr,
             &normed_hidden_buf_wrapper,
@@ -245,7 +251,9 @@ impl CudaExecutor {
         // batched_gpu_argmax does its own sync after all 2×M kernels (reduces.rs:370).
         let argmax_ptr = logits_buf.as_ptr();
         std::mem::forget(logits_buf); // Non-owning wrapper — prevent double-free
-        self.batched_gpu_argmax(argmax_ptr, vocab_size, m)
+        let token_ids = self.batched_gpu_argmax(argmax_ptr, vocab_size, m)?;
+
+        Ok(token_ids)
     }
 
     /// PAR-121: Graph-captured batched forward pass for M sequences
