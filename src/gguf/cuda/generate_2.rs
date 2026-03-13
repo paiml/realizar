@@ -343,8 +343,13 @@ impl OwnedQuantizedModelCuda {
             }
         }
 
-        // CORRECTNESS-015: Force full workspace reinitialization after batched prefill.
-        self.executor.force_workspace_reinit();
+        // PMAT-109: Skip force_workspace_reinit — let PAR-200 preserve buffer addresses.
+        // CORRECTNESS-015 forced reallocation after every prefill, destroying the CUDA
+        // decode graph (stale pointers). But init_prefill_workspace already clears the
+        // graph when it actually reallocates (longer prompt exceeds buffer_capacity).
+        // When PAR-200 fires (same prompt length), buffers are stable → graph persists
+        // → no cuGraphExecDestroy per request → eliminates bimodal TTFT tail.
+        // Replaces: self.executor.force_workspace_reinit();
         self.executor
             .init_workspace(hidden_dim, intermediate_dim)
             .map_err(|e| RealizarError::UnsupportedOperation {
