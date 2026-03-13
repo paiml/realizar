@@ -101,19 +101,13 @@ impl OwnedQuantizedModelCuda {
         };
         ttft_mark!("prefill");
 
-        // PMAT-085: Defer graph clear to AFTER prefill (was before).
-        // cuGraphExecDestroy + cuMemFree in clear_decode_graph() contends with
-        // the CUDA driver's internal state, adding ~6ms to the first cuBLAS GEMM.
-        // The decode graph is never used during prefill (eager cuBLAS path),
-        // so we only need it cleared before the first decode step.
-        // CORRECTNESS-013: Must clear before decode loop — stale graph from
-        // request N would replay with wrong workspace pointers after
-        // force_workspace_reinit inside run_prefill.
-        // PMAT-107 FALSIFIED: Moving clear_decode_graph AFTER first token emission
-        // caused TTFT P99 regression (42.5→60.9ms, P99.9: 43.6→611.6ms). The
-        // cuGraphExecDestroy immediately followed by graph capture in the decode
-        // loop creates CUDA driver contention worse than the pre-emission position.
-        self.executor.clear_decode_graph();
+        // PMAT-109: Graph persistence — do NOT clear decode graph here.
+        // init_prefill_workspace clears the graph only when it actually reallocates
+        // (longer prompt exceeds buffer_capacity). When PAR-200 fires (same/shorter
+        // prompt), workspace buffer addresses are stable → graph replay is valid.
+        // This eliminates cuGraphExecDestroy from every request's TTFT critical path,
+        // fixing the bimodal tail (95% at 20ms, 5% at 42ms → uniform).
+        // Supersedes: PMAT-085, CORRECTNESS-013, PMAT-107 (all addressed by PAR-200).
 
         // Generate tokens
         let mut position;
