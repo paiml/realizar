@@ -109,6 +109,10 @@ impl OwnedQuantizedModelCuda {
         // CORRECTNESS-013: Must clear before decode loop — stale graph from
         // request N would replay with wrong workspace pointers after
         // force_workspace_reinit inside run_prefill.
+        // PMAT-107 FALSIFIED: Moving clear_decode_graph AFTER first token emission
+        // caused TTFT P99 regression (42.5→60.9ms, P99.9: 43.6→611.6ms). The
+        // cuGraphExecDestroy immediately followed by graph capture in the decode
+        // loop creates CUDA driver contention worse than the pre-emission position.
         self.executor.clear_decode_graph();
 
         // Generate tokens
