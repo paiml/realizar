@@ -20,8 +20,7 @@ pub fn mwv_warp_count() -> u32 {
 // All kernel types are imported for exhaustive KernelType enum coverage
 #[allow(unused_imports)]
 use trueno_gpu::kernels::{
-    Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel,
-    BatchedFusedResidualRmsNormKernel, BatchedHwDp4aQ4KGemvKernel,
+    Activation, ArgMaxFinalKernel, ArgMaxKernel, AttentionKernel, BatchedHwDp4aQ4KGemvKernel,
     BatchedIncrementalAttentionKernel, BatchedQ4KGemvKernel, BatchedQ6KGemvKernel,
     BatchedResidualAddKernel, BatchedRopeKernel, BatchedSwigluKernel,
     BatchedVectorizedRmsNormKernel, BiasActivationKernel, ChunkedTiledQ4KGemvKernel,
@@ -30,17 +29,23 @@ use trueno_gpu::kernels::{
     FusedGateUpKernel, FusedGateUpQ4KGemvKernel, FusedGateUpSwigluHwDp4aQ4KGemvKernel,
     FusedQKVKernel, FusedResidualRmsNormKernel, FusedRmsNormGateUpSwigluQ4KKernel,
     FusedRmsNormQ4KGemvKernel, FusedSwigluKernel, GeluKernel, GemmKernel, GemvKernel,
-    HalfWarpDp4aQ4KGemvKernel, HalfWarpDp4aQ6KGemvKernel, IncrementalAttentionKernel,
-    InterleavedWmmaQ4KGemmKernel, Kernel, KvCacheScatterIndirectKernel, KvCacheScatterKernel,
-    LayerNormKernel, MultiWarpIncrementalAttentionKernel, MultiWarpQ6KGemvKernel,
-    MultiWarpTensorCoreQ4KGemmKernel, MultiWarpVectorizedQ4KGemvKernel, MwvDp4aQ4KGemvKernel,
-    PackedDp4aQ4KQ8Kernel, PerHeadRmsNormKernel, PreciseRmsNormKernel, PreciseRopeIndirectKernel,
-    Q4KDequantFp16Kernel, Q4KDequantKernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel,
-    Q4_1GemvKernel, Q5KGemvKernel, Q5KKernel, Q5_0GemvKernel, Q6KDequantKernel, Q6KGemvKernel,
-    Q6KKernel, Q8QuantizeKernel, Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel,
-    RopeIndirectKernel, RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel, SiluKernel,
-    SoftmaxKernel, TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel,
-    VectorizedQ4KGemvKernel, VectorizedRmsNormKernel, W4a16WmmaQ4KGemmKernel, WideQ4KGemvKernel,
+    HalfWarpDp4aQ4KGemvKernel, HalfWarpDp4aQ6KGemvKernel, IncrementalAttentionKernel, Kernel,
+    KvCacheScatterIndirectKernel, KvCacheScatterKernel, LayerNormKernel,
+    MultiWarpIncrementalAttentionKernel, MultiWarpQ6KGemvKernel, MultiWarpTensorCoreQ4KGemmKernel,
+    MultiWarpVectorizedQ4KGemvKernel, MwvDp4aQ4KGemvKernel, PackedDp4aQ4KQ8Kernel,
+    PerHeadRmsNormKernel, PreciseRmsNormKernel, PreciseRopeIndirectKernel, Q4KDequantFp16Kernel,
+    Q4KDequantKernel, Q4KGemvKernel, Q4KQ8DotKernel, Q4_0GemvKernel, Q4_1GemvKernel, Q5KGemvKernel,
+    Q5KKernel, Q5_0GemvKernel, Q6KDequantKernel, Q6KGemvKernel, Q6KKernel, Q8QuantizeKernel,
+    Q8_0GemvKernel, QuantizeKernel, ResidualAddKernel, RmsNormKernel, RopeIndirectKernel,
+    RopeKernel, RopeNeoxIndirectKernel, RopeNeoxKernel, SiluKernel, SoftmaxKernel,
+    TensorCoreQ4KGemmKernel, TiledQ4KGemvKernel, TrueDp4aQ4KGemvKernel, VectorizedQ4KGemvKernel,
+    VectorizedRmsNormKernel, WideQ4KGemvKernel,
+};
+// GH-143: WMMA kernel types only available on x86_64 (not on aarch64/Blackwell GB10)
+#[cfg(target_arch = "x86_64")]
+#[allow(unused_imports)]
+use trueno_gpu::kernels::{
+    BatchedFusedResidualRmsNormKernel, InterleavedWmmaQ4KGemmKernel, W4a16WmmaQ4KGemmKernel,
 };
 
 include!("kernel_type.rs");

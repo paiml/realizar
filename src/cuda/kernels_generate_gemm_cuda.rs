@@ -32,12 +32,19 @@ impl CudaKernels {
             KernelType::MultiWarpTensorCoreQ4KGemm { m, k, n } => {
                 MultiWarpTensorCoreQ4KGemmKernel::new(*m, *k, *n).emit_ptx_for_target(target)
             },
+            // GH-143: WMMA kernels only on x86_64
+            #[cfg(target_arch = "x86_64")]
             KernelType::InterleavedWmmaQ4KGemm { m, k, n } => {
                 InterleavedWmmaQ4KGemmKernel::new(*m, *k, *n).emit_ptx_for_target(target)
             },
+            #[cfg(not(target_arch = "x86_64"))]
+            KernelType::InterleavedWmmaQ4KGemm { .. } => return None,
+            #[cfg(target_arch = "x86_64")]
             KernelType::W4a16WmmaQ4KGemm { m, k, n } => {
                 W4a16WmmaQ4KGemmKernel::new(*m, *k, *n).emit_ptx_for_target(target)
             },
+            #[cfg(not(target_arch = "x86_64"))]
+            KernelType::W4a16WmmaQ4KGemm { .. } => return None,
             KernelType::Dp4aQ4KGemm { m, n, k } => {
                 Dp4aQ4KGemmKernel::new(*m, *n, *k).emit_ptx_for_target(target)
             },
@@ -209,9 +216,13 @@ impl CudaKernels {
             KernelType::PerHeadRmsNorm { head_dim, num_heads, epsilon } => {
                 PerHeadRmsNormKernel::new(*head_dim, *num_heads).with_epsilon(*epsilon).emit_ptx_for_target(target)
             },
+            // GH-143: BatchedFusedResidualRmsNormKernel only on x86_64
+            #[cfg(target_arch = "x86_64")]
             KernelType::BatchedFusedResidualRmsNorm { hidden_size, batch_size, epsilon } => {
                 BatchedFusedResidualRmsNormKernel::new(*hidden_size, *batch_size).with_epsilon(*epsilon).emit_ptx_for_target(target)
             },
+            #[cfg(not(target_arch = "x86_64"))]
+            KernelType::BatchedFusedResidualRmsNorm { .. } => return None,
             KernelType::FusedResidualRmsNorm { hidden_size, epsilon } => {
                 FusedResidualRmsNormKernel::new(*hidden_size).with_epsilon(*epsilon).emit_ptx_for_target(target)
             },

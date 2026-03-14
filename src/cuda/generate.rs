@@ -29,12 +29,19 @@ impl CudaKernels {
             KernelType::MultiWarpTensorCoreQ4KGemm { m, k, n } => {
                 MultiWarpTensorCoreQ4KGemmKernel::new(*m, *k, *n).emit_ptx()
             },
+            // GH-143: WMMA kernels only on x86_64
+            #[cfg(target_arch = "x86_64")]
             KernelType::InterleavedWmmaQ4KGemm { m, k, n } => {
                 InterleavedWmmaQ4KGemmKernel::new(*m, *k, *n).emit_ptx()
             },
+            #[cfg(not(target_arch = "x86_64"))]
+            KernelType::InterleavedWmmaQ4KGemm { .. } => return None,
+            #[cfg(target_arch = "x86_64")]
             KernelType::W4a16WmmaQ4KGemm { m, k, n } => {
                 W4a16WmmaQ4KGemmKernel::new(*m, *k, *n).emit_ptx()
             },
+            #[cfg(not(target_arch = "x86_64"))]
+            KernelType::W4a16WmmaQ4KGemm { .. } => return None,
             KernelType::Dp4aQ4KGemm { m, n, k } => Dp4aQ4KGemmKernel::new(*m, *n, *k).emit_ptx(),
             _ => return None,
         };

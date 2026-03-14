@@ -3801,6 +3801,9 @@ DONE_NORM:
     ///
     /// Downloads Q4K bytes from GPU, repacks to W4A16 tile layout (PMAT-054B)
     /// via `repack_q4k_w4a16()`, uploads pre-computed scale data to new GPU buffer.
+    ///
+    /// GH-143: Only available on x86_64 — WMMA kernels require desktop GPUs.
+    #[cfg(target_arch = "x86_64")]
     fn get_or_cache_interleaved_weight(
         &mut self,
         weight_ptr: u64,
@@ -3831,6 +3834,19 @@ DONE_NORM:
 
         self.interleaved_weight_cache.insert(weight_ptr, il_buf);
         Ok(il_ptr)
+    }
+
+    /// GH-143: Stub for non-x86_64 — WMMA interleaved weight repacking not available.
+    #[cfg(not(target_arch = "x86_64"))]
+    fn get_or_cache_interleaved_weight(
+        &mut self,
+        _weight_ptr: u64,
+        _n: u32,
+        _k: u32,
+    ) -> Result<u64, GpuError> {
+        Err(GpuError::InvalidParameter(
+            "WMMA interleaved weight repacking is only available on x86_64".to_string(),
+        ))
     }
 
     /// PMAT-091: Launch interleaved WMMA Q4K GEMM for batched decode.
