@@ -172,7 +172,7 @@ fn write_bench_json(
 
     file.write_all(
         serde_json::to_string_pretty(&json_output)
-            .expect("test")
+            .expect("JSON serialization of benchmark results failed")
             .as_bytes(),
     )
     .map_err(|e| RealizarError::IoError {
