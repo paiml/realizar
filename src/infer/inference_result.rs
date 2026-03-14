@@ -377,12 +377,23 @@ fn log_cpu_backend(verbose: bool, is_legacy: bool) {
 /// single-token probe is sufficient and avoids O(n) CPU prefill overhead.
 ///
 /// Uses the CUDA model's inner model reference to avoid requiring a separate model clone.
+/// Skip with SKIP_PARITY_GATE=1 (same env var as the cosine parity gate).
 #[cfg(feature = "cuda")]
 fn validate_gpu_first_token(
     cuda_model: &mut crate::gguf::OwnedQuantizedModelCuda,
     gen_config: &crate::gguf::QuantizedGenerateConfig,
 ) -> bool {
     use crate::gguf::OwnedQuantizedKVCache;
+
+    // SKIP_PARITY_GATE=1 bypasses both this F2 check and the cosine parity gate.
+    // Used for forward-compatible GPUs (e.g., Blackwell sm_121) where minor FP
+    // differences cause argmax disagreement but inference quality is unaffected.
+    if std::env::var("SKIP_PARITY_GATE")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
+        return true;
+    }
 
     let model = cuda_model.model();
 
