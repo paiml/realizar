@@ -312,7 +312,7 @@ mod server_commands {
     }
 
     /// Load and prepare an APR model for serving
-    fn prepare_apr_serve_state(model_path: &str, _force_gpu: bool) -> Result<PreparedServer> {
+    fn prepare_apr_serve_state(model_path: &str, force_gpu: bool) -> Result<PreparedServer> {
         use std::path::Path;
 
         println!("Loading APR model for serving...");
