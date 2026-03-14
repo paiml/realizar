@@ -93,11 +93,12 @@ impl GpuProfile {
     /// but production deployments need zero env vars.
     pub fn detect(context: &CudaContext) -> Self {
         let (major, minor) = context.compute_capability().unwrap_or((7, 0));
-        // Clamp to sm_90 — PTX 8.0 only supports up to sm_90 (Hopper).
-        // Newer architectures (Blackwell sm_100+, GB10 sm_121) are
-        // forward-compatible: sm_90 PTX runs correctly via driver JIT.
+        // GH-480: PTX source `.target` must use a version that PTX 8.0 supports (max sm_90).
+        // The CUDA JIT compiler (`CU_JIT_TARGET` in module.rs) receives the REAL
+        // compute capability (e.g. 121 for Blackwell) so it compiles natively.
+        // PTX `.target` = minimum ISA needed; JIT target = actual device.
         let (ptx_major, ptx_minor) = if major > 9 || (major == 9 && minor > 0) {
-            (9, 0)
+            (9, 0) // sm_90 is max target PTX 8.0 supports
         } else {
             (major, minor)
         };
