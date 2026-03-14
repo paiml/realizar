@@ -285,6 +285,10 @@ fn print_gpu_debug_weights(
         );
 
         let hidden_dim = transformer.config.hidden_dim;
+        if transformer.token_embedding.len() < hidden_dim {
+            eprintln!("[DEBUG] token_embedding too short ({} < {hidden_dim}), skipping weight debug", transformer.token_embedding.len());
+            return;
+        }
         let test_embedding = &transformer.token_embedding[0..hidden_dim];
 
         // CPU matmul: y = x @ W where W is [out_dim, in_dim] (transposed internally)
