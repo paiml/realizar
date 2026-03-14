@@ -76,7 +76,7 @@ impl AprTransformer {
                 fallback("hf_architecture")
                     .or_else(|| fallback("architecture"))
                     .and_then(serde_json::Value::as_str)
-                    .map(|s| s.to_lowercase())
+                    .map(str::to_lowercase)
                     .filter(|s| s != "auto" && !s.is_empty())
             })
             .unwrap_or_else(|| "unknown".to_string());
