@@ -201,7 +201,7 @@ fn try_apr_cuda_inference(
 
     // GH-373: EOS from model config + caller stop tokens + sibling tokenizer
     let stop_tokens = resolve_apr_stop_tokens(
-        &cuda_model.model().config.eos_token_id,
+        cuda_model.model().config.eos_token_id,
         &config.stop_tokens,
         &config.model_path,
     );
@@ -353,7 +353,7 @@ fn run_apr_cpu_inference(
 
     // GH-373: Resolve stop tokens from model config, caller, and sibling tokenizer
     let stop_tokens = resolve_apr_stop_tokens(
-        &validated.config.eos_token_id,
+        validated.config.eos_token_id,
         &config.stop_tokens,
         &config.model_path,
     );
@@ -442,7 +442,7 @@ fn run_apr_quantized_cpu_inference(
 
     // GH-373: Resolve stop tokens for quantized path
     let stop_tokens = resolve_apr_stop_tokens(
-        &model.config.eos_token_id,
+        model.config.eos_token_id,
         &config.stop_tokens,
         &config.model_path,
     );
@@ -482,11 +482,11 @@ fn run_apr_quantized_cpu_inference(
 /// 2. Caller-provided stop tokens (`InferenceConfig.stop_tokens`)
 /// 3. Sibling tokenizer (ChatML markers like `<|im_end|>`, `<|endoftext|>`)
 fn resolve_apr_stop_tokens(
-    model_eos: &Option<u32>,
+    model_eos: Option<u32>,
     caller_stop_tokens: &[u32],
     model_path: &std::path::Path,
 ) -> Vec<u32> {
-    let mut tokens: Vec<u32> = model_eos.into_iter().copied().collect();
+    let mut tokens: Vec<u32> = model_eos.into_iter().collect();
 
     // Caller-provided stop tokens
     for &t in caller_stop_tokens {

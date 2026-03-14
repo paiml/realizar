@@ -40,7 +40,7 @@ impl Sampler for TopKSampler {
 
         // Find the k-th largest value using partial sort — O(n) average vs O(n log n) full sort.
         // We sort a values-only Vec (4 bytes/element) instead of (usize, f32) pairs (16 bytes).
-        let mut values: Vec<f32> = data.iter().copied().collect();
+        let mut values: Vec<f32> = data.to_vec();
         values.select_nth_unstable_by(self.k - 1, |a, b| {
             b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
         });
