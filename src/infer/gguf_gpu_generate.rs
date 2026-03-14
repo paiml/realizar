@@ -198,6 +198,7 @@ fn try_apr_cuda_inference(
     if config.verbose {
         log_apr_cuda_info(&info, &cuda_model, load_ms);
     }
+    eprintln!("[GH-480-TRACE] try_apr_cuda_inference: model loaded OK, about to resolve stop tokens");
 
     // GH-373: EOS from model config + caller stop tokens + sibling tokenizer
     let stop_tokens = resolve_apr_stop_tokens(
@@ -213,9 +214,12 @@ fn try_apr_cuda_inference(
         trace: false,
     };
 
+    eprintln!("[GH-480] F2 validation starting...");
     if !validate_gpu_first_token(&mut cuda_model, &gen_config) {
+        eprintln!("[GH-480] F2 validation FAILED — falling back to CPU");
         return None;
     }
+    eprintln!("[GH-480] F2 validation PASSED — launching GPU generation");
 
     let infer_start = Instant::now();
 
@@ -223,6 +227,7 @@ fn try_apr_cuda_inference(
         Ok(t) => t,
         Err(e) => {
             let msg = e.to_string();
+            eprintln!("[GH-480] generate_gpu_resident FAILED: {msg}");
             // GH-278: Fall back to CPU for unsupported architectures (GPT-2 has no SwiGLU/RMSNorm)
             if msg.contains("not supported") || msg.contains("architecture") {
                 if config.verbose {
