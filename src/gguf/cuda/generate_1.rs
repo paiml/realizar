@@ -229,9 +229,15 @@ impl OwnedQuantizedModelCuda {
             }
         }
 
-        // Track positions per prompt
-        let mut positions: Vec<usize> = prompts.iter().map(|p| p.len() - 1).collect();
-        let mut last_tokens: Vec<u32> = prompts.iter().map(|p| p[p.len() - 1]).collect();
+        // Track positions per prompt (filter empty prompts)
+        let mut positions: Vec<usize> = prompts
+            .iter()
+            .map(|p| p.len().saturating_sub(1))
+            .collect();
+        let mut last_tokens: Vec<u32> = prompts
+            .iter()
+            .map(|p| p.last().copied().unwrap_or(0))
+            .collect();
 
         // PAR-106: Batched decode loop with weight sharing
         for _gen_idx in 0..config.max_tokens {
