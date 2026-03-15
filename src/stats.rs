@@ -103,14 +103,22 @@ pub fn analyze_log_transform(control: &[f64], treatment: &[f64], alpha: f64) -> 
 /// Standard Welch's t-test
 #[must_use]
 pub fn analyze_t_test(control: &[f64], treatment: &[f64], alpha: f64) -> AnalysisResult {
-    let n1 = control.len() as f64;
-    let n2 = treatment.len() as f64;
+    let n1 = control.len().max(1) as f64;
+    let n2 = treatment.len().max(1) as f64;
 
     let mean1 = control.iter().sum::<f64>() / n1;
     let mean2 = treatment.iter().sum::<f64>() / n2;
 
-    let var1 = control.iter().map(|x| (x - mean1).powi(2)).sum::<f64>() / (n1 - 1.0);
-    let var2 = treatment.iter().map(|x| (x - mean2).powi(2)).sum::<f64>() / (n2 - 1.0);
+    let var1 = if n1 > 1.0 {
+        control.iter().map(|x| (x - mean1).powi(2)).sum::<f64>() / (n1 - 1.0)
+    } else {
+        0.0
+    };
+    let var2 = if n2 > 1.0 {
+        treatment.iter().map(|x| (x - mean2).powi(2)).sum::<f64>() / (n2 - 1.0)
+    } else {
+        0.0
+    };
 
     let se = (var1 / n1 + var2 / n2).sqrt();
     let t_stat = (mean2 - mean1) / se;
@@ -121,7 +129,11 @@ pub fn analyze_t_test(control: &[f64], treatment: &[f64], alpha: f64) -> Analysi
     AnalysisResult {
         control_mean: mean1,
         treatment_mean: mean2,
-        effect_size: (mean2 - mean1) / mean1,
+        effect_size: if mean1.abs() > f64::EPSILON {
+            (mean2 - mean1) / mean1
+        } else {
+            0.0
+        },
         p_value,
         significant: p_value < alpha,
         method: TestMethod::TTest,

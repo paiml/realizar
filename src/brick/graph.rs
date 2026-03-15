@@ -71,10 +71,11 @@ pub fn benchmark_brick<B: ComputeBrick>(
     samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     // Statistical analysis
-    let mean = samples.iter().sum::<f64>() / samples.len() as f64;
+    let n = samples.len().max(1) as f64;
+    let mean = samples.iter().sum::<f64>() / n;
     let std =
-        (samples.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / samples.len() as f64).sqrt();
-    let cv = std / mean;
+        (samples.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n).sqrt();
+    let cv = if mean.abs() > f64::EPSILON { std / mean } else { 0.0 };
 
     let budget = brick.budget();
 
@@ -85,7 +86,7 @@ pub fn benchmark_brick<B: ComputeBrick>(
         cv,
         p50_us: percentile(&samples, 0.50),
         p99_us: percentile(&samples, 0.99),
-        tokens_per_sec: 1_000_000.0 / mean,
+        tokens_per_sec: if mean > 0.0 { 1_000_000.0 / mean } else { 0.0 },
         budget_us: budget.us_per_token,
         budget_met: mean <= budget.us_per_token,
         statistically_valid: cv <= config.max_cv,
