@@ -54,7 +54,13 @@ impl AprKVCache {
     pub fn new(config: &AprTransformerConfig) -> Self {
         let num_layers = config.num_layers;
         let num_kv_heads = config.num_kv_heads;
-        let head_dim = config.hidden_dim / config.num_heads;
+        let head_dim = config.explicit_head_dim.unwrap_or_else(|| {
+            if config.num_heads > 0 {
+                config.hidden_dim / config.num_heads
+            } else {
+                0
+            }
+        });
         // N-03 (Meyer DbC): context_length may be 0 if metadata is missing.
         // Apply a safe minimum for KV cache allocation.
         let capacity = if config.context_length > 0 {
