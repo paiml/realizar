@@ -156,6 +156,12 @@ impl ModelData {
         }
     }
 
+    /// No-op on non-Unix platforms (madvise not available).
+    #[cfg(not(all(unix, not(target_arch = "wasm32"))))]
+    pub fn release_cpu_pages(&self) -> Result<()> {
+        Ok(())
+    }
+
     /// Advise sequential access pattern (Unix only).
     ///
     /// Call before linear scan through model data.
@@ -173,6 +179,12 @@ impl ModelData {
             },
             Self::Heap(_) => Ok(()),
         }
+    }
+
+    /// No-op on non-Unix platforms (madvise not available).
+    #[cfg(not(all(unix, not(target_arch = "wasm32"))))]
+    pub fn advise_sequential(&self) -> Result<()> {
+        Ok(())
     }
 
     /// Check if this is memory-mapped data.
