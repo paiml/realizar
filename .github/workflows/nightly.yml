@@ -41,28 +41,28 @@ jobs:
             use_cross: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Checkout sibling dep — trueno (trueno, trueno-gpu, trueno-quant, trueno-cuda-edge)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: paiml/trueno
           path: deps/trueno
 
       - name: Checkout sibling dep — aprender
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: paiml/aprender
           path: deps/aprender
 
       - name: Checkout sibling dep — trueno-db
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: paiml/trueno-db
           path: deps/trueno-db
 
       - name: Checkout sibling dep — trueno-viz
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: paiml/trueno-viz
           path: deps/trueno-viz
@@ -134,7 +134,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
