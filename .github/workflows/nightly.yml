@@ -43,6 +43,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout sibling dep — trueno (trueno, trueno-gpu, trueno-quant, trueno-cuda-edge)
+        uses: actions/checkout@v4
+        with:
+          repository: paiml/trueno
+          path: ../trueno
+
+      - name: Checkout sibling dep — aprender
+        uses: actions/checkout@v4
+        with:
+          repository: paiml/aprender
+          path: ../aprender
+
+      - name: Checkout sibling dep — trueno-db
+        uses: actions/checkout@v4
+        with:
+          repository: paiml/trueno-db
+          path: ../trueno-db
+
+      - name: Checkout sibling dep — trueno-viz
+        uses: actions/checkout@v4
+        with:
+          repository: paiml/trueno-viz
+          path: ../trueno-viz
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
