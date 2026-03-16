@@ -321,6 +321,12 @@ impl AprV2Model {
         self.data.release_cpu_pages()
     }
 
+    /// No-op on non-Unix platforms (madvise not available).
+    #[cfg(not(all(unix, not(target_arch = "wasm32"))))]
+    pub fn release_cpu_pages(&self) -> Result<()> {
+        Ok(())
+    }
+
     /// Check if model is using memory-mapped I/O.
     ///
     /// Returns `true` if the model was loaded via mmap (uncompressed file).
