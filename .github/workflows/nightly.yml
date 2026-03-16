@@ -47,25 +47,42 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: paiml/trueno
-          path: ../trueno
+          path: deps/trueno
 
       - name: Checkout sibling dep — aprender
         uses: actions/checkout@v4
         with:
           repository: paiml/aprender
-          path: ../aprender
+          path: deps/aprender
 
       - name: Checkout sibling dep — trueno-db
         uses: actions/checkout@v4
         with:
           repository: paiml/trueno-db
-          path: ../trueno-db
+          path: deps/trueno-db
 
       - name: Checkout sibling dep — trueno-viz
         uses: actions/checkout@v4
         with:
           repository: paiml/trueno-viz
-          path: ../trueno-viz
+          path: deps/trueno-viz
+
+      - name: Symlink sibling deps to expected paths (unix)
+        if: runner.os != 'Windows'
+        run: |
+          ln -sf "$GITHUB_WORKSPACE/deps/trueno" "$GITHUB_WORKSPACE/../trueno"
+          ln -sf "$GITHUB_WORKSPACE/deps/aprender" "$GITHUB_WORKSPACE/../aprender"
+          ln -sf "$GITHUB_WORKSPACE/deps/trueno-db" "$GITHUB_WORKSPACE/../trueno-db"
+          ln -sf "$GITHUB_WORKSPACE/deps/trueno-viz" "$GITHUB_WORKSPACE/../trueno-viz"
+
+      - name: Symlink sibling deps to expected paths (windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          mklink /D "%GITHUB_WORKSPACE%\..\trueno" "%GITHUB_WORKSPACE%\deps\trueno"
+          mklink /D "%GITHUB_WORKSPACE%\..\aprender" "%GITHUB_WORKSPACE%\deps\aprender"
+          mklink /D "%GITHUB_WORKSPACE%\..\trueno-db" "%GITHUB_WORKSPACE%\deps\trueno-db"
+          mklink /D "%GITHUB_WORKSPACE%\..\trueno-viz" "%GITHUB_WORKSPACE%\deps\trueno-viz"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -79,8 +96,22 @@ jobs:
         if: matrix.use_cross
         run: cargo install cross --locked
 
+      - name: Prepare cross deps directory
+        if: matrix.use_cross
+        run: |
+          # Cross mounts $GITHUB_WORKSPACE but not its parent.
+          # Resolve symlinks to real paths for Docker volume mounts.
+          PARENT="$(cd "$GITHUB_WORKSPACE/.." && pwd)"
+          echo "CROSS_PARENT=$PARENT" >> "$GITHUB_ENV"
+
       - name: Build (cross)
         if: matrix.use_cross
+        env:
+          CROSS_CONTAINER_OPTS: >-
+            -v ${{ env.CROSS_PARENT }}/trueno:${{ env.CROSS_PARENT }}/trueno
+            -v ${{ env.CROSS_PARENT }}/aprender:${{ env.CROSS_PARENT }}/aprender
+            -v ${{ env.CROSS_PARENT }}/trueno-db:${{ env.CROSS_PARENT }}/trueno-db
+            -v ${{ env.CROSS_PARENT }}/trueno-viz:${{ env.CROSS_PARENT }}/trueno-viz
         run: cross build --release --target ${{ matrix.target }} --features cli
 
       - name: Build (native)
