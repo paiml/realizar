@@ -67,10 +67,13 @@ pub async fn entrypoint(cli: Cli) -> Result<()> {
             port,
             model,
             demo,
-            openai_api: _,
+            openai_api,
             batch,
             gpu,
         } => {
+            if !openai_api {
+                eprintln!("Warning: --no-openai-api is not yet implemented. OpenAI API is always enabled.");
+            }
             handlers::handle_serve(ServeConfig {
                 host,
                 port,

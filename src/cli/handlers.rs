@@ -354,14 +354,15 @@ fn print_model_list(models: &[(String, u64)], format: &str) {
 
 /// Handle the list command
 pub fn handle_list(remote: Option<&str>, format: &str) -> Result<()> {
-    println!("Available Models");
-    println!("================");
-    println!();
+    // GH-148: Headers go to stderr to avoid contaminating --format json output
+    eprintln!("Available Models");
+    eprintln!("================");
+    eprintln!();
 
     if let Some(remote_url) = remote {
-        println!("Remote registry: {remote_url}");
-        println!();
-        println!("Note: Remote registry listing requires --features registry.");
+        eprintln!("Remote registry: {remote_url}");
+        eprintln!();
+        eprintln!("Note: Remote registry listing requires --features registry.");
         return Ok(());
     }
 
@@ -371,19 +372,19 @@ pub fn handle_list(remote: Option<&str>, format: &str) -> Result<()> {
     );
 
     if !pacha_dir.exists() {
-        println!("No models found in local registry.");
-        println!();
-        println!("Pull a model:");
-        println!("  realizar pull llama3:8b");
-        println!();
-        println!("Or run a local file:");
-        println!("  realizar run ./model.gguf \"prompt\"");
+        eprintln!("No models found in local registry.");
+        eprintln!();
+        eprintln!("Pull a model:");
+        eprintln!("  realizar pull llama3:8b");
+        eprintln!();
+        eprintln!("Or run a local file:");
+        eprintln!("  realizar run ./model.gguf \"prompt\"");
         return Ok(());
     }
 
     let models_found = scan_model_directory(&pacha_dir);
     if models_found.is_empty() {
-        println!("No models found in {}", pacha_dir.display());
+        eprintln!("No models found in {}", pacha_dir.display());
     } else {
         print_model_list(&models_found, format);
     }

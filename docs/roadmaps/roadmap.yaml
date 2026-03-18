@@ -4533,3 +4533,37 @@ roadmap:
   estimated_effort: null
   labels: []
   notes: null
+- id: PMAT-812
+  github_issue: null
+  item_type: task
+  title: 'fix: entrenar compile errors block realizar pre-push gate'
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-03-14T13:46:54Z
+  updated: 2026-03-14T13:46:54Z
+  spec: null
+  acceptance_criteria:
+  - entrenar has 12 compile errors in local checkout (u64::add, scratch borrow) blocking realizar cargo check. Uncommitted WIP in entrenar needs fixing.
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
+- id: PMAT-813
+  github_issue: null
+  item_type: task
+  title: 'REA-144: fix expect(test) leftover and unchecked debug slice'
+  status: planned
+  priority: medium
+  assigned_to: null
+  created: 2026-03-14T19:04:21Z
+  updated: 2026-03-14T19:04:21Z
+  spec: null
+  acceptance_criteria:
+  - Fix display_utils.rs expect message and apr_inference.rs bounds check
+  phases: []
+  subtasks: []
+  estimated_effort: null
+  labels: []
+  notes: null
