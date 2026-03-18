@@ -395,7 +395,10 @@ pub mod uri;
 // Re-exports for convenience
 pub use arch_requirements::*;
 pub use error::{RealizarError, Result};
-pub use infer::{run_inference, InferenceConfig, InferenceResult, PreparedTokens};
+pub use infer::{
+    run_batch_inference, run_inference, BatchInferenceConfig, BatchPrompt, BatchResult, BatchStats,
+    InferenceConfig, InferenceResult, PreparedTokens,
+};
 pub use inference_trace::{InferenceTracer, ModelInfo, TraceConfig, TraceStep};
 pub use ptx_parity::{KernelDimensions, PtxParityReport};
 #[cfg(not(target_arch = "wasm32"))]
