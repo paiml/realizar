@@ -425,7 +425,10 @@ pub async fn handle_pull(model_ref: &str, force: bool, quantize: Option<&str>) -
         println!("  realizar run ./downloaded-model.gguf \"prompt\"");
     }
 
-    Ok(())
+    Err(RealizarError::UnsupportedOperation {
+        operation: "pull".to_string(),
+        reason: "Registry feature not enabled. Build with --features registry".to_string(),
+    })
 }
 
 /// Handle the push command
@@ -439,7 +442,10 @@ pub async fn handle_push(model_ref: &str, target: Option<&str>) -> Result<()> {
     }
     println!();
     println!("Enable registry support: --features registry");
-    Ok(())
+    Err(RealizarError::UnsupportedOperation {
+        operation: "push".to_string(),
+        reason: "Registry feature not enabled. Build with --features registry".to_string(),
+    })
 }
 
 include!("handlers_trace.rs");

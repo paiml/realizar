@@ -13,31 +13,41 @@ use clap::Parser;
 #[tokio::test]
 async fn test_handle_pull_default_registry() {
     let result = handle_pull("llama3:8b", false, None).await;
-    assert!(result.is_ok());
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("registry") || err.contains("Registry"), "got: {err}");
 }
 
 #[tokio::test]
 async fn test_handle_pull_force_download() {
     let result = handle_pull("llama3:8b", true, None).await;
-    assert!(result.is_ok());
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("registry") || err.contains("Registry"), "got: {err}");
 }
 
 #[tokio::test]
 async fn test_handle_pull_with_quantize() {
     let result = handle_pull("model:latest", false, Some("q4_k")).await;
-    assert!(result.is_ok());
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("registry") || err.contains("Registry"), "got: {err}");
 }
 
 #[tokio::test]
 async fn test_handle_pull_hf_prefix() {
     let result = handle_pull("hf://Qwen/Qwen2-0.5B", false, None).await;
-    assert!(result.is_ok());
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("registry") || err.contains("Registry"), "got: {err}");
 }
 
 #[tokio::test]
 async fn test_handle_pull_pacha_prefix() {
     let result = handle_pull("pacha://llama3:8b-q4k", false, None).await;
-    assert!(result.is_ok());
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("registry") || err.contains("Registry"), "got: {err}");
 }
 
 // ============================================================================
@@ -47,13 +57,17 @@ async fn test_handle_pull_pacha_prefix() {
 #[tokio::test]
 async fn test_handle_push_default_target() {
     let result = handle_push("my-model:latest", None).await;
-    assert!(result.is_ok());
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("registry") || err.contains("Registry"), "got: {err}");
 }
 
 #[tokio::test]
 async fn test_handle_push_custom_target() {
     let result = handle_push("my-model:v1", Some("pacha://registry")).await;
-    assert!(result.is_ok());
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("registry") || err.contains("Registry"), "got: {err}");
 }
 
 // ============================================================================
