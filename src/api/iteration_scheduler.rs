@@ -304,8 +304,30 @@ fn process_iteration_batch(
         *total_iterations += 1;
         let iter_start = std::time::Instant::now();
 
+        // PMAT-283: Sub-phase timing for pipelining analysis
+        static PMAT283_TIMING: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let pmat283 = *PMAT283_TIMING.get_or_init(|| {
+            std::env::var("PMAT_283_TIMING")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+        let t_lock_start = if pmat283 {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+
+        let mut t_lock_acquired = None;
+        let mut t_pre_decode = None;
+
         let token_ids = {
             let mut cuda_model = model.write().expect("PMAT-088: model lock poisoned");
+
+            t_lock_acquired = if pmat283 {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
 
             // PMAT-088: Check waiting queue FIRST, then rx channel.
             // This ensures requests that arrived during previous iteration's
@@ -402,6 +424,12 @@ fn process_iteration_batch(
 
             let _ = joined_this_step; // suppress unused warning
 
+            t_pre_decode = if pmat283 {
+                Some(std::time::Instant::now())
+            } else {
+                None
+            };
+
             // Decode step
             match cuda_model.batched_decode_step(&mut state) {
                 Ok(ids) => ids,
@@ -419,8 +447,20 @@ fn process_iteration_batch(
             }
         };
 
+        let t_lock_released = if pmat283 {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+
         // Token distribution WITHOUT lock
         state.distribute_tokens(&token_ids);
+
+        let t_distributed = if pmat283 {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
 
         // PMAT-088c: Drop callbacks AND error senders for done slots to close channels.
         // The SSE handler waits for channel closure (ALL senders dropped) to send [DONE].
@@ -437,6 +477,27 @@ fn process_iteration_batch(
                 state.on_tokens[slot_idx] = Box::new(|_| false);
                 // Drop error sender → drops second sender → channel closes
                 error_senders[slot_idx] = None;
+            }
+        }
+
+        // PMAT-283: Sub-phase timing output (first 5 then every 100)
+        if pmat283 && (*total_iterations <= 5 || state.gen_idx % 100 == 0) {
+            if let (Some(tls), Some(tla), Some(tpd), Some(tlr), Some(td)) = (
+                t_lock_start,
+                t_lock_acquired,
+                t_pre_decode,
+                t_lock_released,
+                t_distributed,
+            ) {
+                let lock_us = tla.duration_since(tls).as_micros();
+                let sched_us = tpd.duration_since(tla).as_micros();
+                let decode_us = tlr.duration_since(tpd).as_micros();
+                let dist_us = td.duration_since(tlr).as_micros();
+                let total_us = td.duration_since(tls).as_micros();
+                eprintln!(
+                    "[PMAT-283] iter={}, m={}: lock={}µs sched={}µs decode={}µs dist={}µs total={}µs",
+                    total_iterations, state.m, lock_us, sched_us, decode_us, dist_us, total_us,
+                );
             }
         }
 
