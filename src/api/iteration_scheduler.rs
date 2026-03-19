@@ -16,6 +16,7 @@
 use crate::api::cuda_batch_scheduler::CudaBatchRequest;
 #[cfg(feature = "cuda")]
 use crate::gguf::OwnedQuantizedModelCuda;
+use renacer_core::PhaseTimer;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -283,6 +284,10 @@ fn process_iteration_batch(
     // are pending requests. Recycle done slots instead of exiting → restarting.
     // Without this, every batch restart costs ~20ms setup + 3×30ms slot adds = ~110ms,
     // causing TTFT P50 = 116ms. With continuous recycling, TTFT ≈ 27ms (recycle + decode).
+
+    // PMAT-284: Uniform sub-phase timing via renacer-core PhaseTimer
+    let mut phase_timer = PhaseTimer::from_env("PMAT_283_TIMING", "PMAT-283");
+
     loop {
         // Exit conditions:
         // 1. All slots done AND no pending requests (batch truly complete)
@@ -304,30 +309,12 @@ fn process_iteration_batch(
         *total_iterations += 1;
         let iter_start = std::time::Instant::now();
 
-        // PMAT-283: Sub-phase timing for pipelining analysis
-        static PMAT283_TIMING: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let pmat283 = *PMAT283_TIMING.get_or_init(|| {
-            std::env::var("PMAT_283_TIMING")
-                .map(|v| v == "1")
-                .unwrap_or(false)
-        });
-        let t_lock_start = if pmat283 {
-            Some(std::time::Instant::now())
-        } else {
-            None
-        };
-
-        let mut t_lock_acquired = None;
-        let mut t_pre_decode = None;
+        phase_timer.start();
 
         let token_ids = {
             let mut cuda_model = model.write().expect("PMAT-088: model lock poisoned");
 
-            t_lock_acquired = if pmat283 {
-                Some(std::time::Instant::now())
-            } else {
-                None
-            };
+            phase_timer.mark("lock");
 
             // PMAT-088: Check waiting queue FIRST, then rx channel.
             // This ensures requests that arrived during previous iteration's
@@ -424,11 +411,7 @@ fn process_iteration_batch(
 
             let _ = joined_this_step; // suppress unused warning
 
-            t_pre_decode = if pmat283 {
-                Some(std::time::Instant::now())
-            } else {
-                None
-            };
+            phase_timer.mark("sched");
 
             // Decode step
             match cuda_model.batched_decode_step(&mut state) {
@@ -447,20 +430,12 @@ fn process_iteration_batch(
             }
         };
 
-        let t_lock_released = if pmat283 {
-            Some(std::time::Instant::now())
-        } else {
-            None
-        };
+        phase_timer.mark("decode");
 
         // Token distribution WITHOUT lock
         state.distribute_tokens(&token_ids);
 
-        let t_distributed = if pmat283 {
-            Some(std::time::Instant::now())
-        } else {
-            None
-        };
+        phase_timer.mark("dist");
 
         // PMAT-088c: Drop callbacks AND error senders for done slots to close channels.
         // The SSE handler waits for channel closure (ALL senders dropped) to send [DONE].
@@ -480,26 +455,8 @@ fn process_iteration_batch(
             }
         }
 
-        // PMAT-283: Sub-phase timing output (first 5 then every 100)
-        if pmat283 && (*total_iterations <= 5 || state.gen_idx % 100 == 0) {
-            if let (Some(tls), Some(tla), Some(tpd), Some(tlr), Some(td)) = (
-                t_lock_start,
-                t_lock_acquired,
-                t_pre_decode,
-                t_lock_released,
-                t_distributed,
-            ) {
-                let lock_us = tla.duration_since(tls).as_micros();
-                let sched_us = tpd.duration_since(tla).as_micros();
-                let decode_us = tlr.duration_since(tpd).as_micros();
-                let dist_us = td.duration_since(tlr).as_micros();
-                let total_us = td.duration_since(tls).as_micros();
-                eprintln!(
-                    "[PMAT-283] iter={}, m={}: lock={}µs sched={}µs decode={}µs dist={}µs total={}µs",
-                    total_iterations, state.m, lock_us, sched_us, decode_us, dist_us, total_us,
-                );
-            }
-        }
+        // PMAT-284: Uniform sub-phase timing via renacer-core PhaseTimer
+        phase_timer.emit(*total_iterations as u64, state.m);
 
         // Per-iteration metrics (first 3 only to avoid log spam)
         if *total_iterations <= 3 || state.gen_idx % 50 == 0 {

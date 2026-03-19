@@ -75,6 +75,9 @@ trueno-db = { version = "0.3", path = "../trueno-db", optional = true }
 # K-quantization formats (Q4_K, Q5_K, Q6_K) - Toyota Way: ONE source of truth
 trueno-quant = { version = "0.1", path = "../trueno/crates/trueno-quant" }
 
+# PMAT-284: Core tracing primitives (zero-dep, breaks renacer circular dep)
+renacer-core = { version = "0.1", path = "../renacer/crates/renacer-core" }
+
 # ML algorithms and .apr model format (optional for aprender model serving)
 # v0.24.1: chat templates, GGUF tokenizer preservation (local may be newer)
 aprender = { version = ">=0.27", path = "../aprender", optional = true }
