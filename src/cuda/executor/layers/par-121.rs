@@ -21,12 +21,13 @@ impl CudaExecutor {
         intermediate_dim: u32,
         vocab_size: u32,
         epsilon: f32,
+        positions: &[u32], // PMAT-285: pass real positions for realistic seq_lens
     ) -> Result<(), GpuError> {
         // PMAT-045: Pre-upload static data BEFORE capture.
         // cuMemcpyHtoD is not capturable — all host-to-device copies must happen
         // outside the capture region. Guards inside batched ops skip copy_from_host
         // when is_capturing == true.
-        self.pre_upload_batched_state_for_capture(m)?;
+        self.pre_upload_batched_state_for_capture(m, positions)?;
 
         // PMAT-045: Set capture flag so copy_from_host calls are skipped
         self.is_capturing = true;
@@ -61,14 +62,25 @@ impl CudaExecutor {
     /// PMAT-045: Pre-upload static batched state before graph capture.
     /// Uploads k_ptrs, v_ptrs, seq_lens, and positions to device buffers.
     /// These are the same buffers the graph will reference during replay.
-    fn pre_upload_batched_state_for_capture(&mut self, m: usize) -> Result<(), GpuError> {
-        // Upload dummy positions to workspace.positions_buf
-        let dummy_positions: Vec<u32> = vec![0; m];
+    fn pre_upload_batched_state_for_capture(
+        &mut self,
+        m: usize,
+        positions: &[u32], // PMAT-285: real positions for realistic seq_lens
+    ) -> Result<(), GpuError> {
+        // PMAT-285: Upload REAL positions (not dummies) to workspace.positions_buf.
+        // H-CB11 root cause: dummy positions=0 caused suboptimal kernel behavior
+        // during capture, resulting in −32% regression on replay.
+        let positions_to_upload: Vec<u32> = if positions.len() >= m {
+            positions[..m].to_vec()
+        } else {
+            // Fallback: use position 32 (realistic mid-generation) instead of 0
+            vec![32; m]
+        };
         if let Some(ref mut pos_buf) = self.workspace.positions_buf {
             if pos_buf.len() >= m {
                 let mut wrapper =
                     unsafe { GpuBuffer::<u32>::from_raw_parts(pos_buf.as_ptr(), m) };
-                wrapper.copy_from_host(&dummy_positions)?;
+                wrapper.copy_from_host(&positions_to_upload)?;
                 std::mem::forget(wrapper);
             }
         }
@@ -78,13 +90,15 @@ impl CudaExecutor {
         // batch.rs reads from these per-layer buffers instead of the shared
         // batched_k_ptrs. No need to pre-upload shared buffer here.
 
-        // Upload dummy seq_lens to batched_seq_lens_gpu
-        let dummy_lens: Vec<u32> = vec![1; m];
+        // PMAT-285: Upload REAL seq_lens (position + 1) instead of dummy vec![1; m].
+        // H-CB11 root cause: seq_lens=1 during capture caused attention kernels
+        // to see only 1 KV entry, producing wrong compute pattern for graph.
+        let real_seq_lens: Vec<u32> = positions_to_upload.iter().map(|&p| p + 1).collect();
         if let Some(ref mut seq_buf) = self.batched_seq_lens_gpu {
             if seq_buf.len() >= m {
                 let mut wrapper =
                     unsafe { GpuBuffer::<u32>::from_raw_parts(seq_buf.as_ptr(), m) };
-                wrapper.copy_from_host(&dummy_lens)?;
+                wrapper.copy_from_host(&real_seq_lens)?;
                 std::mem::forget(wrapper);
             }
         }

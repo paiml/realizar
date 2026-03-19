@@ -346,6 +346,7 @@ impl CudaExecutor {
         }
 
         // Try to capture graph
+        // PMAT-285: Pass real positions for realistic seq_lens during capture
         let capture_result = self.try_batched_graph_capture(
             m,
             num_layers,
@@ -353,6 +354,7 @@ impl CudaExecutor {
             intermediate_dim,
             vocab_size,
             epsilon,
+            positions,
         );
 
         match capture_result {
