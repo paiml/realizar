@@ -32,6 +32,9 @@ impl CudaExecutor {
         self.decode_graph = Some(graph_exec);
         self.decode_token_count = 1;
 
+        // PMAT-283: Create event for non-blocking decode completion tracking
+        self.init_decode_event()?;
+
         if verbose() {
             eprintln!(
                 "[PAR-054] ✓ CUDA graph captured successfully ({} layers + LM head)",
@@ -88,7 +91,14 @@ impl CudaExecutor {
 
         self.decode_token_count += 1;
 
-        // Sync and download
+        // PMAT-283: Record event for non-blocking completion tracking.
+        // The event is queryable via decode_event_complete() for pipelining.
+        if let Some(ref event) = self.decode_event {
+            self.stream.record_event(event)?;
+        }
+
+        // Sync and download (still blocking for now — pipelining requires
+        // iteration_scheduler restructuring to overlap token distribution)
         self.stream.synchronize()?;
         if let Some(ref logits_buf) = self.workspace.logits_buf {
             logits_buf.copy_to_host(logits)?;

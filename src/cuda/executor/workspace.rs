@@ -230,6 +230,29 @@ impl CudaExecutor {
         self.decode_graph.is_some()
     }
 
+    /// PMAT-283: Initialize the decode completion event for CPU-GPU pipelining.
+    ///
+    /// Call once after graph capture succeeds. The event is recorded after each
+    /// graph launch and can be queried non-blockingly via `decode_event_complete()`.
+    pub fn init_decode_event(&mut self) -> Result<(), GpuError> {
+        if self.decode_event.is_none() {
+            self.decode_event = Some(CudaEvent::new()?);
+        }
+        Ok(())
+    }
+
+    /// PMAT-283: Query whether the last decode step has completed (non-blocking).
+    ///
+    /// Returns `true` if the GPU has finished the last graph replay,
+    /// `false` if still in progress. Returns `true` if no event exists.
+    #[must_use]
+    pub fn decode_event_complete(&self) -> bool {
+        match &self.decode_event {
+            Some(event) => event.is_complete().unwrap_or(true),
+            None => true,
+        }
+    }
+
     /// Clear workspace buffers (releases GPU memory)
     pub fn clear_workspace(&mut self) {
         self.workspace = TransformerWorkspace::default();

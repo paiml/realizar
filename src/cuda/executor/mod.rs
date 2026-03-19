@@ -182,8 +182,8 @@ impl Drop for PoolableStream {
 }
 
 use trueno_gpu::driver::{
-    cuda_available, device_count, CaptureMode, CudaContext, CudaGraphExec, CudaModule, CudaStream,
-    GpuBuffer, LaunchConfig,
+    cuda_available, device_count, CaptureMode, CudaContext, CudaEvent, CudaGraphExec, CudaModule,
+    CudaStream, GpuBuffer, LaunchConfig,
 };
 // All kernel types are imported for API completeness
 #[allow(unused_imports)]
@@ -405,6 +405,9 @@ pub struct CudaExecutor {
     // PAR-054: CUDA Graph Capture for decode loop optimization
     // Captures ~280 kernel launches into single graph replay (~10us vs ~5.6ms)
     decode_graph: Option<CudaGraphExec>,
+    // PMAT-283: CUDA event for non-blocking decode completion
+    // Enables CPU-GPU pipelining: record after graph launch, query before next step
+    decode_event: Option<CudaEvent>,
     // PAR-054: Device-side position buffer for graph replay
     // Updated before each graph replay via async memcpy
     position_buf: Option<GpuBuffer<u32>>,
