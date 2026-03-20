@@ -105,7 +105,7 @@ impl CudaExecutor {
         let use_fused_qk_dp4a = layer_weights.attn_q_qtype == WeightQuantType::Q4K
             && layer_weights.attn_k_qtype == WeightQuantType::Q4K
             && m >= 2
-            && m <= 32
+            && m <= 8  // PMAT-287: M>8 crashes (CUDA_ERROR_ILLEGAL_ADDRESS). Keep PAR-129 limit.
             && self.gpu_profile.q4k == crate::cuda::gpu_profile::Q4kVariant::HwDp4a
             && !self.is_prefilling
             && std::env::var("BATCHED_DP4A").as_deref() != Ok("0");
