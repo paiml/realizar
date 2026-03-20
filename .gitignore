@@ -54,6 +54,7 @@ benches/comparative/results/
 # PMAT
 .pmat/backup/
 .pmat-qa/
+.pmat/baseline.json
 
 # PMAT
 .pmat/context.idx/
@@ -61,6 +62,8 @@ benches/comparative/results/
 .pmat/deps-cache.json
 .pmat/workspace.db
 .pmat/context.db
+.pmat/context.db-shm
+.pmat/context.db-wal
 .pmat/bug-hunter-cache/
 .pmat/coverage-cache.json
 
