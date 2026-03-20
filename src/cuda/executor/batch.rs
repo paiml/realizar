@@ -86,24 +86,30 @@ impl CudaExecutor {
         //   elem_idx = threadIdx.x
         //   src: src_base[seq_idx * kv_dim + head_idx * head_dim + elem_idx]
         //   dst: dst_base[seq_idx * stride + (head_idx * max_len + positions[seq_idx]) * head_dim + elem_idx]
-        let batched_scatter_key = format!("batched_kv_scatter_{}_{}_{}", num_kv_heads, head_dim, max_len);
+        // PMAT-286: Fused K+V scatter — single kernel dispatch for both K and V.
+        // Uses blockIdx.z to select K(z=0) or V(z=1). Saves 28 launches/step (1 per layer).
+        // Grid: (num_kv_heads, M, 2), Block: (head_dim, 1, 1)
+        let batched_scatter_key = format!("fused_kv_scatter_{}_{}_{}", num_kv_heads, head_dim, max_len);
         if !self.modules.contains_key(&batched_scatter_key) {
             let ptx = format!(
                 r#".version 7.0
 .target sm_70
 .address_size 64
 
-.visible .entry batched_kv_cache_scatter(
-    .param .u64 src_base,
-    .param .u64 dst_base,
+// PMAT-286: Fused K+V scatter — blockIdx.z selects K(0) or V(1)
+.visible .entry fused_kv_cache_scatter(
+    .param .u64 k_src_base,
+    .param .u64 k_dst_base,
+    .param .u64 v_src_base,
+    .param .u64 v_dst_base,
     .param .u64 positions_ptr,
     .param .u32 stride_param,
     .param .u32 kv_dim_param
 ) {{
-    .reg .u64 %rd<16>;
+    .reg .u64 %rd<20>;
     .reg .u32 %r<16>;
     .reg .f32 %f<2>;
-    .reg .pred %p;
+    .reg .pred %p, %p_kv;
 
     // elem_idx = threadIdx.x
     mov.u32 %r0, %tid.x;
@@ -111,38 +117,47 @@ impl CudaExecutor {
     mov.u32 %r1, %ctaid.x;
     // seq_idx = blockIdx.y
     mov.u32 %r2, %ctaid.y;
+    // kv_sel = blockIdx.z (0=K, 1=V)
+    mov.u32 %r10, %ctaid.z;
 
     // bounds check: elem_idx < head_dim
     setp.ge.u32 %p, %r0, {head_dim};
     @%p bra DONE;
 
+    // Select src/dst based on kv_sel
+    setp.ne.u32 %p_kv, %r10, 0;
+    ld.param.u64 %rd10, [k_src_base];
+    ld.param.u64 %rd11, [v_src_base];
+    ld.param.u64 %rd12, [k_dst_base];
+    ld.param.u64 %rd13, [v_dst_base];
+    selp.b64 %rd4, %rd11, %rd10, %p_kv;   // src = kv_sel ? v_src : k_src
+    selp.b64 %rd7, %rd13, %rd12, %p_kv;   // dst = kv_sel ? v_dst : k_dst
+
     // Load positions[seq_idx]
     ld.param.u64 %rd0, [positions_ptr];
-    mul.wide.u32 %rd1, %r2, 4;          // seq_idx * 4
+    mul.wide.u32 %rd1, %r2, 4;
     add.u64 %rd2, %rd0, %rd1;
-    ld.global.u32 %r3, [%rd2];          // pos = positions[seq_idx]
+    ld.global.u32 %r3, [%rd2];
 
     // Source: src_base + (seq_idx * kv_dim + head_idx * head_dim + elem_idx) * 4
-    ld.param.u32 %r4, [kv_dim_param];   // kv_dim
-    mul.lo.u32 %r5, %r2, %r4;           // seq_idx * kv_dim
-    mul.lo.u32 %r6, %r1, {head_dim};    // head_idx * head_dim
-    add.u32 %r5, %r5, %r6;              // + head_idx * head_dim
-    add.u32 %r5, %r5, %r0;              // + elem_idx
+    ld.param.u32 %r4, [kv_dim_param];
+    mul.lo.u32 %r5, %r2, %r4;
+    mul.lo.u32 %r6, %r1, {head_dim};
+    add.u32 %r5, %r5, %r6;
+    add.u32 %r5, %r5, %r0;
     mul.wide.u32 %rd3, %r5, 4;
-    ld.param.u64 %rd4, [src_base];
-    add.u64 %rd5, %rd4, %rd3;           // src_addr
+    add.u64 %rd5, %rd4, %rd3;
 
     // Dest: dst_base + (seq_idx * stride + (head_idx * max_len + pos) * head_dim + elem_idx) * 4
-    ld.param.u32 %r7, [stride_param];   // stride
-    mul.lo.u32 %r8, %r2, %r7;           // seq_idx * stride
-    mul.lo.u32 %r9, %r1, {max_len};     // head_idx * max_len
-    add.u32 %r9, %r9, %r3;              // + pos
-    mul.lo.u32 %r9, %r9, {head_dim};    // * head_dim
-    add.u32 %r8, %r8, %r9;              // + (head_idx * max_len + pos) * head_dim
-    add.u32 %r8, %r8, %r0;              // + elem_idx
+    ld.param.u32 %r7, [stride_param];
+    mul.lo.u32 %r8, %r2, %r7;
+    mul.lo.u32 %r9, %r1, {max_len};
+    add.u32 %r9, %r9, %r3;
+    mul.lo.u32 %r9, %r9, {head_dim};
+    add.u32 %r8, %r8, %r9;
+    add.u32 %r8, %r8, %r0;
     mul.wide.u32 %rd6, %r8, 4;
-    ld.param.u64 %rd7, [dst_base];
-    add.u64 %rd8, %rd7, %rd6;           // dst_addr
+    add.u64 %rd8, %rd7, %rd6;
 
     // Copy: dst[...] = src[...]
     ld.global.f32 %f0, [%rd5];
@@ -174,63 +189,38 @@ DONE:
             positions_gpu.copy_from_host(&positions_u32)?;
         }
 
-        let batched_scatter_config = LaunchConfig {
-            grid: (num_kv_heads as u32, m as u32, 1),
+        // PMAT-286: Fused K+V scatter — ONE launch for both K and V (saves 28 launches/step)
+        // Grid: (num_kv_heads, M, 2) — z=0 for K, z=1 for V
+        let fused_scatter_config = LaunchConfig {
+            grid: (num_kv_heads as u32, m as u32, 2),
             block: (head_dim as u32, 1, 1),
             shared_mem: 0,
         };
 
-        let batched_scatter_module = self.modules.get_mut(&batched_scatter_key).expect("module exists");
+        let fused_scatter_module = self.modules.get_mut(&batched_scatter_key).expect("module exists");
         let mut k_src_base = k_batched.as_ptr();
         let mut k_dst_base = k_cache.as_ptr();
+        let mut v_src_base = v_batched.as_ptr();
+        let mut v_dst_base = v_cache.as_ptr();
         let mut pos_ptr = positions_buf_ptr;
         let mut stride_val = stride as u32;
         let mut kv_dim_val = kv_dim as u32;
 
         // CORRECTNESS-012b: Use self.stream for ALL scatter/attention in batched path.
-        // Five-Whys: 6.7% of c=4 requests produce 0 output tokens.
-        // Why? First decode token is EOS. Why? KV cache contains garbage.
-        // Why? Scatter reads stale K/V from QKV projection. Why? QKV runs on
-        // self.stream, scatter ran on compute_stream with no inter-stream sync.
-        // Root cause: Same as CORRECTNESS-012 (kv_scatter.rs) but unfixed in batch path.
-        // Fix: Use self.stream for scatter/attention, matching the M=1 fix.
         // SAFETY: src/dst are valid GPU allocs, positions_buf populated above, stride/kv_dim bounds verified
         unsafe {
             self.stream.launch_kernel(
-                batched_scatter_module,
-                "batched_kv_cache_scatter",
-                &batched_scatter_config,
+                fused_scatter_module,
+                "fused_kv_cache_scatter",
+                &fused_scatter_config,
                 &mut [
                     std::ptr::from_mut(&mut k_src_base) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut k_dst_base) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut v_src_base) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut v_dst_base) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut pos_ptr) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut stride_val) as *mut std::ffi::c_void,
                     std::ptr::from_mut(&mut kv_dim_val) as *mut std::ffi::c_void,
-                ],
-            )?;
-        }
-
-        // Scatter V (same kernel, different src/dst)
-        let batched_scatter_module = self.modules.get_mut(&batched_scatter_key).expect("module exists");
-        let mut v_src_base = v_batched.as_ptr();
-        let mut v_dst_base = v_cache.as_ptr();
-        let mut pos_ptr2 = positions_buf_ptr;
-        let mut stride_val2 = stride as u32;
-        let mut kv_dim_val2 = kv_dim as u32;
-
-        // CORRECTNESS-012b: Same stream as K scatter (self.stream, not compute_stream)
-        // SAFETY: v_batched/v_cache are valid GPU allocs, positions_buf populated above
-        unsafe {
-            self.stream.launch_kernel(
-                batched_scatter_module,
-                "batched_kv_cache_scatter",
-                &batched_scatter_config,
-                &mut [
-                    std::ptr::from_mut(&mut v_src_base) as *mut std::ffi::c_void,
-                    std::ptr::from_mut(&mut v_dst_base) as *mut std::ffi::c_void,
-                    std::ptr::from_mut(&mut pos_ptr2) as *mut std::ffi::c_void,
-                    std::ptr::from_mut(&mut stride_val2) as *mut std::ffi::c_void,
-                    std::ptr::from_mut(&mut kv_dim_val2) as *mut std::ffi::c_void,
                 ],
             )?;
         }
