@@ -100,29 +100,60 @@ impl CudaExecutor {
         // PMAT-088b RESULT: Confirmed — fused QKV DP4A stays active regardless of HGEMM.
         // Hybrid (fused QKV DP4A + HGEMM output/down) = 260.5 vs full DP4A 261.5 tok/s.
         // HGEMM crossover fully falsified at M=4 on RTX 4060L.
-        let use_fused_qkv_dp4a = layer_weights.attn_q_qtype == WeightQuantType::Q4K
+        // PMAT-287: Relaxed from "all Q4K" to "Q+K Q4K" -- V can be Q6K.
+        // Extended from M<=8 to M<=32 (PAR-129 tiling). Saves 2 Q8 quantize/layer.
+        let use_fused_qk_dp4a = layer_weights.attn_q_qtype == WeightQuantType::Q4K
             && layer_weights.attn_k_qtype == WeightQuantType::Q4K
-            && layer_weights.attn_v_qtype == WeightQuantType::Q4K
             && m >= 2
-            && m <= 8
+            && m <= 32
             && self.gpu_profile.q4k == crate::cuda::gpu_profile::Q4kVariant::HwDp4a
             && !self.is_prefilling
             && std::env::var("BATCHED_DP4A").as_deref() != Ok("0");
 
-        if use_fused_qkv_dp4a {
-            self.batched_qkv_dp4a_q4k_gemv_into(
-                layer_weights.attn_q_ptr,
-                layer_weights.attn_k_ptr,
-                layer_weights.attn_v_ptr,
-                hidden_buf1,
-                q_buf,
-                k_buf,
-                v_buf,
-                m,
-                q_dim,
-                kv_dim,
-                hidden_dim,
-            )?;
+        if use_fused_qk_dp4a {
+            if layer_weights.attn_v_qtype == WeightQuantType::Q4K {
+                // All three Q4K -- original fused path
+                self.batched_qkv_dp4a_q4k_gemv_into(
+                    layer_weights.attn_q_ptr,
+                    layer_weights.attn_k_ptr,
+                    layer_weights.attn_v_ptr,
+                    hidden_buf1,
+                    q_buf,
+                    k_buf,
+                    v_buf,
+                    m,
+                    q_dim,
+                    kv_dim,
+                    hidden_dim,
+                )?;
+            } else {
+                // PMAT-287: Q+K are Q4K, V is Q6K -- quantize once, Q+K fused, V separate
+                let q8_blocks = (hidden_dim + 31) / 32;
+                let q8_bytes = (m * q8_blocks * 36) as usize;
+                let q8_ptr = self.workspace.q8_activation_buf.as_ref()
+                    .ok_or_else(|| GpuError::InvalidParameter("PMAT-287: q8 buf missing".into()))?
+                    .as_ptr();
+                let q8_len = self.workspace.q8_activation_buf.as_ref().unwrap().len();
+                if q8_len < q8_bytes {
+                    return Err(GpuError::InvalidParameter(format!(
+                        "PMAT-287: q8 buf too small: {q8_len} < {q8_bytes}"
+                    )));
+                }
+                let q8_buf = unsafe { GpuBuffer::<u8>::from_raw_parts(q8_ptr, q8_len) };
+                self.q8_quantize_into(hidden_buf1, &q8_buf, m * hidden_dim)?;
+                self.batched_hw_dp4a_q4k_gemv_q8_launch(
+                    layer_weights.attn_q_ptr, q8_ptr, q_buf, m, q_dim, hidden_dim,
+                )?;
+                self.batched_hw_dp4a_q4k_gemv_q8_launch(
+                    layer_weights.attn_k_ptr, q8_ptr, k_buf, m, kv_dim, hidden_dim,
+                )?;
+                std::mem::forget(q8_buf);
+                self.batched_gemv_or_gemm(
+                    layer_weights.attn_v_qtype, layer_weights.attn_v_ptr,
+                    hidden_buf1, v_buf, hidden_buf1_ptr, v_buf_ptr,
+                    m, kv_dim, hidden_dim,
+                )?;
+            }
         } else {
             self.batched_gemv_or_gemm(
                 layer_weights.attn_q_qtype, layer_weights.attn_q_ptr,
