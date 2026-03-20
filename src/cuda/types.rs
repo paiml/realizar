@@ -30,10 +30,6 @@ pub struct IndexedLayerWeights {
     pub attn_k_len: usize,
     /// K projection quantization type (Qwen 0.5B uses Q5_0)
     pub attn_k_qtype: WeightQuantType,
-    /// PMAT-287: Fused Q+K weights (concatenated, Q4K only). 0 if not fused.
-    pub fused_qk_ptr: u64,
-    /// PMAT-287: Fused Q+K weights size in bytes
-    pub fused_qk_len: usize,
     /// V projection weights device pointer (may be Q4K, Q6K, or Q8_0 quantized)
     pub attn_v_ptr: u64,
     /// V projection weights size in bytes
