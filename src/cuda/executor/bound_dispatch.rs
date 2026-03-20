@@ -107,6 +107,8 @@ mod tests {
             attn_k_ptr: 0x2000,
             attn_k_len: 512,
             attn_k_qtype: WeightQuantType::Q4K,
+            fused_qk_ptr: 0,
+            fused_qk_len: 0,
             attn_v_ptr: 0x3000,
             attn_v_len: 768,
             attn_v_qtype: WeightQuantType::Q6K,

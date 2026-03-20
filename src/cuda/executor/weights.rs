@@ -393,6 +393,8 @@ impl CudaExecutor {
                 attn_k_ptr,
                 attn_k_len,
                 attn_k_qtype,
+                fused_qk_ptr: 0, // PMAT-287: populated later if Q+K both Q4K
+                fused_qk_len: 0,
                 attn_v_ptr,
                 attn_v_len,
                 attn_v_qtype,
