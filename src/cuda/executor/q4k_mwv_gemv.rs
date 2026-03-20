@@ -587,7 +587,7 @@ impl CudaExecutor {
     ///
     /// Skips Q8_1 quantization — caller must ensure `q8_ptr` contains valid Q8_1 data
     /// for M vectors of K dimensions. Used for gate+up fusion (quantize once, launch twice).
-    pub(crate) fn batched_hw_dp4a_q4k_gemv_q8_launch(
+    fn batched_hw_dp4a_q4k_gemv_q8_launch(
         &mut self,
         weight_ptr: u64,
         q8_ptr: u64,
