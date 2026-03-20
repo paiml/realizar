@@ -299,6 +299,14 @@ impl OwnedQuantizedModelCuda {
         &mut self,
         state: &mut BatchedDecodeState,
     ) -> Result<Vec<u32>> {
+        // PMAT-286: Sub-phase timing inside decode step
+        static DECODE_PHASE_TIMER: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let timing = *DECODE_PHASE_TIMER.get_or_init(|| {
+            std::env::var("PMAT_286_TIMING").map(|v| v == "1").unwrap_or(false)
+        });
+        let mut timer = renacer_core::PhaseTimer::from_env("PMAT_286_TIMING", "PMAT-286-decode");
+        timer.start();
+
         // Embed all tokens into state's pre-allocated buffer
         for slot_idx in 0..state.m {
             let offset = slot_idx * state.hidden_dim;
@@ -311,6 +319,8 @@ impl OwnedQuantizedModelCuda {
                 );
             }
         }
+
+        timer.mark("embed");
 
         // PMAT-086: Reuse pre-allocated position buffer (no Vec alloc per step)
         for (i, &p) in state.positions.iter().enumerate() {
@@ -327,6 +337,8 @@ impl OwnedQuantizedModelCuda {
         // PMAT-076: Set dead slot mask before forward pass so attention kernel
         // can skip KV iteration for done slots (seq_lens=0 → early exit).
         self.executor.batched_done_mask = state.done.clone();
+
+        timer.mark("prep");
 
         // PMAT-056: Multi-stream root cause fixed (scatter moved to self.stream),
         // but graph replay still 25% slower than eager due to capture overhead.
@@ -364,6 +376,9 @@ impl OwnedQuantizedModelCuda {
                     reason: format!("Batched forward failed: {e}"),
                 })?
         };
+
+        timer.mark("fwd+sync+argmax");
+        timer.emit(state.gen_idx as u64, state.m);
 
         if state.gen_idx < 3 {
             eprintln!(
