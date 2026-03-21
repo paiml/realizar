@@ -7,6 +7,7 @@ mod batched;
 mod cublas_prefill;
 mod ffn;
 mod forward;
+mod graph_decode;
 mod graphed;
 mod indexed;
 mod prefill;

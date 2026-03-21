@@ -1,25 +1,27 @@
 //! PMAT-291: Transformer layer graph builder for Qwen2.5 architecture.
 //!
 //! Builds a ComputeGraph representing one transformer layer's decode step.
-//! The graph has ~12 nodes vs the current ~15 individual kernel launches per layer.
-//! Combined with CUDA graph capture across 28 layers, total dispatches drop
-//! from ~430 to ~336 (12 × 28) then to 1 graph replay.
+//! The graph has 14 nodes (1 leaf + 13 ops) vs the current ~15 individual
+//! kernel launches per layer. Combined with CUDA graph capture across 28
+//! layers, total dispatches drop from ~430 to ~392 (14 x 28) then to 1
+//! graph replay.
 
 use trueno_gpu::graph::{ComputeGraph, OpParams, TensorOp};
 
-use crate::cuda::types::{ValidatedLayerWeights, WeightQuantType};
+use crate::cuda::types::ValidatedLayerWeights;
 
 /// Build a compute graph for one transformer decoder layer (Qwen2.5 architecture).
 ///
 /// The graph represents:
 /// ```text
 /// Phase 1 (Attention):
-///   input -> rmsnorm_attn -> Q_proj -> K_proj -> V_proj -> rope -> kv_scatter -> attention -> O_proj -> residual_1
+///   input -> rmsnorm -> Q_proj -> K_proj -> V_proj -> attention(+RoPE+KV) -> O_proj -> residual_1
 /// Phase 2 (FFN):
-///   residual_1 -> rmsnorm_ffn -> gate_up_swiglu -> down_proj -> residual_2
+///   residual_1 -> rmsnorm -> gate_proj -> up_proj -> swiglu(gate,up) -> down_proj -> residual_2
 /// ```
 ///
 /// Returns the graph and the index of the final output node.
+#[allow(clippy::too_many_arguments)]
 pub fn build_layer_graph(
     layer_weights: &ValidatedLayerWeights,
     input_ptr: u64,
@@ -38,6 +40,7 @@ pub fn build_layer_graph(
     v_buf_ptr: u64,
     attn_out_ptr: u64,
     ffn_gate_ptr: u64,
+    ffn_up_ptr: u64,
     ffn_act_ptr: u64,
     input_staging_ptr: u64,
 ) -> (ComputeGraph, usize) {
@@ -97,9 +100,11 @@ pub fn build_layer_graph(
         },
     );
 
-    // 5. Attention (includes RoPE + KV scatter + incremental attention internally)
+    // 5. Attention (compound: RoPE + KV scatter + incremental attention)
+    // The dispatcher handles all sub-operations internally via dispatch_attention.
+    // Positions are passed through CudaExecutor::graph_dispatch_positions side-channel.
     let attn_out = g.add_op(
-        TensorOp::SoftMax, // SoftMax represents the full attention compound op
+        TensorOp::SoftMax,
         attn_out_ptr,
         [q_dim, 1, m, 0],
         vec![q, k, v],
@@ -145,21 +150,41 @@ pub fn build_layer_graph(
         },
     );
 
-    // 9. Gate+Up+SwiGLU (fused: gate_proj * silu(up_proj))
-    // The dispatcher maps this to fused_gate_up_swiglu kernel
-    let ffn_act = g.add_op(
-        TensorOp::Mul, // Mul represents the fused gate+up+swiglu compound op
-        ffn_act_ptr,
+    // 9. Gate projection
+    let gate = g.add_op(
+        TensorOp::MulMat,
+        ffn_gate_ptr,
         [intermediate_dim, hidden_dim, m, 0],
         vec![normed_ffn],
         OpParams {
-            weight_ptr: layer_weights.ffn_gate_ptr, // gate weights
-            gamma_ptr: layer_weights.ffn_up_ptr,    // up weights (reuse gamma field)
+            weight_ptr: layer_weights.ffn_gate_ptr,
             ..Default::default()
         },
     );
 
-    // 10. Down projection
+    // 10. Up projection
+    let up = g.add_op(
+        TensorOp::MulMat,
+        ffn_up_ptr,
+        [intermediate_dim, hidden_dim, m, 0],
+        vec![normed_ffn],
+        OpParams {
+            weight_ptr: layer_weights.ffn_up_ptr,
+            ..Default::default()
+        },
+    );
+
+    // 11. SwiGLU: gate * silu(up) — element-wise, dispatched as Mul(gate, up)
+    // The CudaExecutor dispatch_mul maps this to batched_swiglu_into.
+    let ffn_act = g.add_op(
+        TensorOp::Mul,
+        ffn_act_ptr,
+        [intermediate_dim, 1, m, 0],
+        vec![gate, up],
+        OpParams::default(),
+    );
+
+    // 12. Down projection
     let down = g.add_op(
         TensorOp::MulMat,
         hidden_buf1_ptr,
@@ -171,7 +196,7 @@ pub fn build_layer_graph(
         },
     );
 
-    // 11. Second residual: input_staging + down -> hidden_buf2
+    // 13. Second residual: input_staging + down -> hidden_buf2
     let residual_2 = g.add_op(
         TensorOp::Add,
         hidden_buf2_ptr,
@@ -186,10 +211,9 @@ pub fn build_layer_graph(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cuda::types::IndexedLayerWeights;
+    use crate::cuda::types::{IndexedLayerWeights, WeightQuantType};
 
     fn mock_weights() -> ValidatedLayerWeights {
-        // Create minimal mock weights for testing graph construction
         let raw = IndexedLayerWeights {
             attn_q_ptr: 0x10000,
             attn_q_len: 1024,
@@ -234,22 +258,15 @@ mod tests {
     fn test_layer_graph_node_count() {
         let weights = mock_weights();
         let (graph, output_idx) = build_layer_graph(
-            &weights, 0xA0000, // input
-            1536,    // hidden_dim
-            8960,    // intermediate_dim
-            1536,    // q_dim
-            256,     // kv_dim
-            4,       // m
-            1e-6,    // epsilon
-            0,       // layer_idx
-            0xB0000, 0xC0000, 0xD0000, 0xE0000, 0xF0000, 0x100000, 0x110000, 0x120000, 0x130000,
+            &weights, 0xA0000, 1536, 8960, 1536, 256, 4, 1e-6, 0, 0xB0000, 0xC0000, 0xD0000,
+            0xE0000, 0xF0000, 0x100000, 0x110000, 0x120000, 0x130000, 0x140000,
         );
 
-        // 1 leaf + 11 ops = 12 nodes total
-        assert_eq!(graph.nodes.len(), 12);
+        // 1 leaf + 13 ops = 14 nodes total
+        assert_eq!(graph.nodes.len(), 14);
         assert_eq!(graph.n_leafs, 1);
-        assert_eq!(graph.n_ops(), 11);
-        assert_eq!(output_idx, 11); // last node is residual_2
+        assert_eq!(graph.n_ops(), 13);
+        assert_eq!(output_idx, 13);
     }
 
     #[test]
@@ -259,10 +276,9 @@ mod tests {
         let weights = mock_weights();
         let (graph, _) = build_layer_graph(
             &weights, 0xA0000, 1536, 8960, 1536, 256, 4, 1e-6, 0, 0xB0000, 0xC0000, 0xD0000,
-            0xE0000, 0xF0000, 0x100000, 0x110000, 0x120000, 0x130000,
+            0xE0000, 0xF0000, 0x100000, 0x110000, 0x120000, 0x130000, 0x140000,
         );
 
-        // Use a counting dispatcher to verify launch count
         struct Counter(usize);
         impl trueno_gpu::graph::KernelDispatch for Counter {
             fn dispatch_mul_mat(
@@ -356,8 +372,8 @@ mod tests {
         let mut counter = Counter(0);
         let n = execute_graph(&graph, &mut counter).unwrap();
 
-        // 11 ops per layer: 2 rmsnorm + 5 mul_mat + 1 attention + 2 add + 1 gate_up_swiglu
-        assert_eq!(n, 11);
-        assert_eq!(counter.0, 11);
+        // 13 ops per layer: 2 rmsnorm + 7 mul_mat + 1 attention + 2 add + 1 swiglu
+        assert_eq!(n, 13);
+        assert_eq!(counter.0, 13);
     }
 }

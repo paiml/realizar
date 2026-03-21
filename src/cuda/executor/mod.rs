@@ -591,6 +591,9 @@ pub struct CudaExecutor {
     // Saves 84 kernel pairs per prefill (3 per layer × 28 layers).
     // Key: (input_ptr, element_count). Invalidated on scratch buffer realloc.
     fp8_activation_cache_key: Option<(u64, u32)>,
+    // PMAT-291: Positions side-channel for graph-based dispatch.
+    // Set before execute_graph(), read by dispatch_rope and dispatch_attention.
+    pub(crate) graph_dispatch_positions: Vec<u32>,
     // PMAT-076: Dead slot mask for batched decode — set by batched_decode_step
     // before forward pass. Attention kernel reads seq_lens=0 for done slots,
     // triggering early-exit (zero KV iterations). Avoids wasted attention on

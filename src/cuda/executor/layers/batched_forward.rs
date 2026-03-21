@@ -115,16 +115,30 @@ impl CudaExecutor {
 
             let layer_input = &layer_input_buf;
 
-            self.transformer_layer_batched(
-                layer_input,
-                layer_idx,
-                &layer_weights,
-                m as u32,
-                positions,
-                hidden_dim,
-                intermediate_dim,
-                epsilon,
-            )?;
+            // PMAT-291: Graph dispatch path (GRAPH_DISPATCH=1)
+            if self.use_graph_dispatch() {
+                self.transformer_layer_batched_graph(
+                    layer_input,
+                    layer_idx,
+                    &layer_weights,
+                    m as u32,
+                    positions,
+                    hidden_dim,
+                    intermediate_dim,
+                    epsilon,
+                )?;
+            } else {
+                self.transformer_layer_batched(
+                    layer_input,
+                    layer_idx,
+                    &layer_weights,
+                    m as u32,
+                    positions,
+                    hidden_dim,
+                    intermediate_dim,
+                    epsilon,
+                )?;
+            }
 
             // Prevent drop of borrowed buffer (from_raw_parts doesn't own the memory)
             std::mem::forget(layer_input_buf);
