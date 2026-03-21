@@ -100,6 +100,11 @@ impl CudaExecutor {
         // PMAT-088b RESULT: Confirmed — fused QKV DP4A stays active regardless of HGEMM.
         // Hybrid (fused QKV DP4A + HGEMM output/down) = 260.5 vs full DP4A 261.5 tok/s.
         // HGEMM crossover fully falsified at M=4 on RTX 4060L.
+        // PMAT-291: Skip fused QKV DP4A when FP8 cuBLASLt will fire.
+        // At M>=5, FP8 via batched_gemv_or_gemm is faster than fused DP4A
+        // (same pattern as ffn gate+up in batched_ffn.rs). Graph dispatch
+        // bypassed this and got +7.8% at c=4 — this is the direct fix.
+        let fp8_will_fire = self.gpu_profile.fp8_decode && m >= 5;
         let use_fused_qkv_dp4a = layer_weights.attn_q_qtype == WeightQuantType::Q4K
             && layer_weights.attn_k_qtype == WeightQuantType::Q4K
             && layer_weights.attn_v_qtype == WeightQuantType::Q4K
@@ -107,6 +112,7 @@ impl CudaExecutor {
             && m <= 8
             && self.gpu_profile.q4k == crate::cuda::gpu_profile::Q4kVariant::HwDp4a
             && !self.is_prefilling
+            && !fp8_will_fire
             && std::env::var("BATCHED_DP4A").as_deref() != Ok("0");
 
         if use_fused_qkv_dp4a {
