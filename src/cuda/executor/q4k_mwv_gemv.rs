@@ -528,10 +528,15 @@ impl CudaExecutor {
         // SAFETY: q8_activation_buf is pre-allocated in init_workspace and valid for this scope
         let q8_buf = unsafe { GpuBuffer::<u8>::from_raw_parts(q8_ptr, q8_len) };
 
-        // Step 1: Quantize all M activation vectors to Q8_1
-        // Treat as one long vector of M*K elements
-        let total_elements = m * k;
-        self.q8_quantize_into(input, &q8_buf, total_elements)?;
+        // PMAT-294: Check Q8 activation cache before quantizing.
+        // Skip Q8 quantize when the same input buffer was already quantized
+        // (e.g., K/V projections share input with Q, up shares with gate).
+        // Saves 3 Q8 launches per layer × 28 layers = 84 launches per step.
+        if !self.q8_activation_valid {
+            let total_elements = m * k;
+            self.q8_quantize_into(input, &q8_buf, total_elements)?;
+            self.q8_activation_valid = true;
+        }
 
         // Step 2: Launch batched HW DP4A kernel
         let num_warps = self.gpu_profile.mwv_warps;

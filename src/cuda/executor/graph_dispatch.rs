@@ -98,6 +98,10 @@ impl KernelDispatch for CudaExecutor {
             epsilon,
         )?;
 
+        // PMAT-294: Invalidate Q8 cache — RMSNorm writes new content to output buffer
+        // which the next GEMV will read as input.
+        self.q8_activation_valid = false;
+
         std::mem::forget(input_buf);
         std::mem::forget(output_buf);
         Ok(())
@@ -120,6 +124,9 @@ impl KernelDispatch for CudaExecutor {
         // hidden_dim is n_elements / m, but for residual add it's element-wise
         // Use the batched residual add with m=1 for simplicity
         self.batched_residual_add_into(&a_buf, &b_buf, &out_buf, n_elements as u32, 1)?;
+
+        // PMAT-294: Invalidate Q8 cache — residual add writes new content
+        self.q8_activation_valid = false;
 
         std::mem::forget(a_buf);
         std::mem::forget(b_buf);
@@ -256,6 +263,9 @@ impl KernelDispatch for CudaExecutor {
             }
         }
 
+        // PMAT-294: Invalidate Q8 cache — attention writes new content to attn_out
+        self.q8_activation_valid = false;
+
         std::mem::forget(q_buf);
         std::mem::forget(k_buf);
         std::mem::forget(v_buf);
@@ -292,6 +302,9 @@ impl KernelDispatch for CudaExecutor {
         // batched_swiglu_into expects (gate, up, output, dim, m).
         // For graph dispatch, we pass n_elements as dim with m=1 (flat dispatch).
         self.batched_swiglu_into(&gate_buf, &up_buf, &out_buf, n_elements as u32, 1)?;
+
+        // PMAT-294: Invalidate Q8 cache — SwiGLU writes new content to output
+        self.q8_activation_valid = false;
 
         std::mem::forget(gate_buf);
         std::mem::forget(up_buf);
