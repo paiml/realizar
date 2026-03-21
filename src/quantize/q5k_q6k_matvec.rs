@@ -116,6 +116,8 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
     let bsums = precompute_q8k_bsums(q8k_quants, super_blocks_per_row).ok();
 
     // TCB Tiling Parameters
+    // PMAT-300: Tile size sweep. 64 optimal (29.9 tok/s).
+    // 128 = 26.8, 256 = 18.7. Larger tiles hurt load balancing.
     const MIDI_TILE_M: usize = 64;
     const MICRO_TILE_M: usize = 4;
 

@@ -120,6 +120,7 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
     // TCB Tiling Parameters (from trueno::tiling::TilingConfig::cpu_avx512_vnni_q4k_q8k)
     // - Midi-tile: 64 rows (fits in L2 cache with Q8K input)
     // - Micro-tile: 4 rows (processed simultaneously sharing Q8K loads)
+    // PMAT-300: 64 optimal. 128 = -10%, 256 = -37%. Load imbalance.
     const MIDI_TILE_M: usize = 64;
     const MICRO_TILE_M: usize = 4;
 

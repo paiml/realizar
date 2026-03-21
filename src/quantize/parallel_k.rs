@@ -244,22 +244,33 @@ pub fn fused_q4k_parallel_matvec_into(
     let acts = pad_activations(activations, padded_in_dim);
     let num_superblocks = padded_in_dim / QK_K;
 
-    // PMAT-297: Q8K workspace buffers. These are small (~7KB for K=1536)
-    // and allocated once per matmul call. Future: pass workspace through
-    // inference context to avoid repeated allocation.
-    let mut q8k_scales = vec![0.0f32; num_superblocks];
-    let mut q8k_quants = vec![0i8; padded_in_dim];
+    // PMAT-300: Stack-allocate Q8K buffers for common model sizes.
+    // Avoids malloc overhead (197 calls/token).
+    const MAX_STACK_DIM: usize = 8960;
+    const MAX_STACK_SB: usize = (MAX_STACK_DIM + 255) / 256;
 
-    super::quantize_activations_q8k_into(&acts, &mut q8k_scales, &mut q8k_quants)?;
-
-    fused_q4k_q8k_parallel_matvec_into(
-        weight_data,
-        &q8k_scales,
-        &q8k_quants,
-        in_dim,
-        out_dim,
-        output,
-    )
+    if padded_in_dim <= MAX_STACK_DIM {
+        let mut scales = [0.0f32; MAX_STACK_SB];
+        let mut quants = [0i8; MAX_STACK_DIM];
+        super::quantize_activations_q8k_into(
+            &acts,
+            &mut scales[..num_superblocks],
+            &mut quants[..padded_in_dim],
+        )?;
+        fused_q4k_q8k_parallel_matvec_into(
+            weight_data,
+            &scales[..num_superblocks],
+            &quants[..padded_in_dim],
+            in_dim,
+            out_dim,
+            output,
+        )
+    } else {
+        let mut scales = vec![0.0f32; num_superblocks];
+        let mut quants = vec![0i8; padded_in_dim];
+        super::quantize_activations_q8k_into(&acts, &mut scales, &mut quants)?;
+        fused_q4k_q8k_parallel_matvec_into(weight_data, &scales, &quants, in_dim, out_dim, output)
+    }
 }
 
 /// PMAT-297: Pre-allocated workspace for CPU Q8K activation quantization.
