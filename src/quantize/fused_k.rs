@@ -349,3 +349,5 @@ include!("fused_q4k_q8k_dot_avx512vnni.rs");
 include!("horizontal.rs");
 include!("requires.rs");
 include!("q4_q8_dot_avx2.rs");
+#[cfg(target_arch = "x86_64")]
+include!("q4_q8_dot_avx512.rs");
