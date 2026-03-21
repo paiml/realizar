@@ -351,3 +351,5 @@ include!("requires.rs");
 include!("q4_q8_dot_avx2.rs");
 #[cfg(target_arch = "x86_64")]
 include!("q4_q8_dot_avx512.rs");
+#[cfg(target_arch = "x86_64")]
+include!("q4k_dot_ggml_style.rs");

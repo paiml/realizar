@@ -112,12 +112,47 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
         });
     }
 
-    // CONTRACT-DERIVED P1: Precompute Q8K bsums ONCE per token (weight-independent)
+    // PMAT-301: ggml-style dot product — eliminates 8 hsum per SB.
+    // Scale applied as i16 multiply in integer path. ONE hsum at end.
+    #[cfg(target_arch = "x86_64")]
+    let use_ggml_style = is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma");
+    #[cfg(not(target_arch = "x86_64"))]
+    let use_ggml_style = false;
+
+    if use_ggml_style {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let bsums_i16 = unsafe {
+                super::fused_k::precompute_q8k_bsums_i16(q8k_quants, super_blocks_per_row)
+            };
+
+            use rayon::prelude::*;
+            output[..out_dim]
+                .par_chunks_mut(64)
+                .enumerate()
+                .for_each(|(tile_idx, tile)| {
+                    let tile_start = tile_idx * 64;
+                    for (local, out) in tile.iter_mut().enumerate() {
+                        let row = tile_start + local;
+                        let row_ptr = weight_data.as_ptr().wrapping_add(row * bytes_per_row);
+                        *out = unsafe {
+                            super::fused_k::ggml_style_q4k_q8k_dot_avx2(
+                                row_ptr,
+                                q8k_scales,
+                                q8k_quants,
+                                &bsums_i16,
+                                super_blocks_per_row,
+                            )
+                        };
+                    }
+                });
+            return Ok(());
+        }
+    }
+
     let bsums = precompute_q8k_bsums(q8k_quants, super_blocks_per_row).ok();
 
-    // TCB Tiling Parameters
-    // PMAT-300: Tile size sweep. 64 optimal (29.9 tok/s).
-    // 128 = 26.8, 256 = 18.7. Larger tiles hurt load balancing.
+    // Fallback: original per-block hsum path
     const MIDI_TILE_M: usize = 64;
     const MICRO_TILE_M: usize = 4;
 
