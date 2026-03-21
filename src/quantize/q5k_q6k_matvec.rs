@@ -126,14 +126,19 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
                 super::fused_k::precompute_q8k_bsums_i16(q8k_quants, super_blocks_per_row)
             };
 
+            // PMAT-302: Rayon with per-thread chunks.
+            // 64 rows per chunk was optimal (PMAT-300). Large single chunks lose
+            // cache locality. Keep 64-row granularity but accept rayon overhead.
             use rayon::prelude::*;
+            let chunk_size = 64;
+
             output[..out_dim]
-                .par_chunks_mut(64)
+                .par_chunks_mut(chunk_size.max(1))
                 .enumerate()
-                .for_each(|(tile_idx, tile)| {
-                    let tile_start = tile_idx * 64;
-                    for (local, out) in tile.iter_mut().enumerate() {
-                        let row = tile_start + local;
+                .for_each(|(chunk_idx, chunk)| {
+                    let row_start = chunk_idx * chunk_size;
+                    for (local, out) in chunk.iter_mut().enumerate() {
+                        let row = row_start + local;
                         let row_ptr = weight_data.as_ptr().wrapping_add(row * bytes_per_row);
                         *out = unsafe {
                             super::fused_k::ggml_style_q4k_q8k_dot_avx2(
@@ -146,6 +151,7 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
                         };
                     }
                 });
+
             return Ok(());
         }
     }

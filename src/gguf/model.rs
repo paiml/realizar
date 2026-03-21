@@ -89,6 +89,28 @@ impl MappedGGUFModel {
             })?
         };
 
+        // PMAT-302: Advise kernel to use huge pages for weight data.
+        // Reduces TLB misses for 900MB+ model scans (4KB pages = 230K TLB entries).
+        // PMAT-302: Memory optimization for weight data.
+        // 1. Huge pages reduce TLB misses for 900MB+ scans
+        // 2. WILLNEED preloads pages into page cache
+        // 3. mlock prevents swapping
+        #[cfg(target_os = "linux")]
+        unsafe {
+            libc::madvise(
+                mmap.as_ptr() as *mut libc::c_void,
+                mmap.len(),
+                libc::MADV_HUGEPAGE,
+            );
+            libc::madvise(
+                mmap.as_ptr() as *mut libc::c_void,
+                mmap.len(),
+                libc::MADV_WILLNEED,
+            );
+            // Best-effort mlock — don't fail if RLIMIT_MEMLOCK is too low
+            libc::mlock(mmap.as_ptr() as *const libc::c_void, mmap.len());
+        }
+
         // Parse the memory-mapped data
         let model = GGUFModel::from_bytes(&mmap)?;
 
