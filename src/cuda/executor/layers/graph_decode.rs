@@ -140,10 +140,10 @@ impl CudaExecutor {
         Ok(())
     }
 
-    /// Check if graph dispatch is enabled via GRAPH_DISPATCH=1 env var.
+    /// Check if graph dispatch is enabled (default: ON, opt-out with GRAPH_DISPATCH=0).
     /// Cached after first check to avoid repeated env var lookups.
     pub(crate) fn use_graph_dispatch(&self) -> bool {
         static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *ENABLED.get_or_init(|| std::env::var("GRAPH_DISPATCH").as_deref() == Ok("1"))
+        *ENABLED.get_or_init(|| std::env::var("GRAPH_DISPATCH").as_deref() != Ok("0"))
     }
 }
