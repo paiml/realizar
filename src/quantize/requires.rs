@@ -246,19 +246,30 @@ pub(crate) unsafe fn fused_q4k_q8k_dot_4rows_avx512vnni(
         let q8_start = sb_idx * QK_K;
         let sb_start = sb_idx * SUPER_BLOCK_BYTES;
 
-        // Prefetch next superblock data (Q8K shared + 4 weight rows)
+        // PMAT-299: Deep prefetch — 2 levels to hide DRAM latency.
+        // L2 prefetch 2 SBs ahead, L1 prefetch 1 SB ahead.
+        // Each Q4K SB = 144 bytes = 3 cache lines (64B each).
+        // Tested: 2 SBs = 29.9 tok/s, 3 SBs = 29.1 (L2 pollution). 2 is optimal.
+        if sb_idx + 2 < num_super_blocks {
+            let far_sb = (sb_idx + 2) * SUPER_BLOCK_BYTES;
+            for row in 0..4 {
+                let p = row_ptrs[row].add(far_sb).cast::<i8>();
+                _mm_prefetch(p, _MM_HINT_T1);
+                _mm_prefetch(p.add(64), _MM_HINT_T1);
+                _mm_prefetch(p.add(128), _MM_HINT_T1);
+            }
+        }
         if sb_idx + 1 < num_super_blocks {
             let next_sb = (sb_idx + 1) * SUPER_BLOCK_BYTES;
             _mm_prefetch(
                 q8k_quants.as_ptr().add((sb_idx + 1) * QK_K).cast::<i8>(),
                 _MM_HINT_T0,
             );
-            // Prefetch next superblock for all 4 weight rows
             for row in 0..4 {
-                _mm_prefetch(
-                    row_ptrs[row].add(next_sb).cast::<i8>(),
-                    _MM_HINT_T0,
-                );
+                let p = row_ptrs[row].add(next_sb).cast::<i8>();
+                _mm_prefetch(p, _MM_HINT_T0);
+                _mm_prefetch(p.add(64), _MM_HINT_T0);
+                _mm_prefetch(p.add(128), _MM_HINT_T0);
             }
         }
 

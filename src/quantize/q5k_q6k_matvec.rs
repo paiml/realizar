@@ -211,6 +211,19 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
 
                 for micro_idx in 0..full_micro_tiles {
                     let row_base = midi_start + micro_idx * MICRO_TILE_M;
+
+                    // PMAT-299: Prefetch next micro-tile's weight rows
+                    #[cfg(target_arch = "x86_64")]
+                    if micro_idx + 1 < full_micro_tiles {
+                        let next_base = midi_start + (micro_idx + 1) * MICRO_TILE_M;
+                        for r in 0..4 {
+                            let p = weight_data.as_ptr().wrapping_add((next_base + r) * bytes_per_row);
+                            unsafe {
+                                std::arch::x86_64::_mm_prefetch(p.cast::<i8>(), std::arch::x86_64::_MM_HINT_T1);
+                            }
+                        }
+                    }
+
                     let row_ptrs: [*const u8; 4] = [
                         weight_data.as_ptr().wrapping_add(row_base * bytes_per_row),
                         weight_data.as_ptr().wrapping_add((row_base + 1) * bytes_per_row),
