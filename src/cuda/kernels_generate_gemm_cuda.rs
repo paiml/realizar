@@ -126,6 +126,11 @@ impl CudaKernels {
                 kernel.num_warps = *num_warps;
                 kernel.emit_ptx_for_target(target)
             },
+            KernelType::FusedFp32Q4KGemv { k, n, m, num_warps } => {
+                let mut kernel = FusedFp32Q4KGemvKernel::new(*k, *n, *m);
+                kernel.num_warps = *num_warps;
+                kernel.emit_ptx_for_target(target)
+            },
             _ => return None,
         };
         Some(ptx)

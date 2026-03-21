@@ -10,7 +10,7 @@ impl CudaExecutor {
     ///
     /// On cache miss: dequant Q4K/Q6K → FP32 → absmax → scaled FP8 E4M3 → cache.
     /// Also stores the dequant scale (absmax/448) in fp8_weight_scales for cuBLASLt.
-    fn get_or_cache_fp8_weight(
+    pub(crate) fn get_or_cache_fp8_weight(
         &mut self,
         qtype: WeightQuantType,
         weight_ptr: u64,
@@ -410,7 +410,7 @@ impl CudaExecutor {
     ///
     /// On cache miss: dequant Q4K/Q6K → FP32 scratch → convert to FP16 → cache.
     /// On cache hit: return cached FP16 pointer directly (zero dequant cost).
-    fn get_or_cache_fp16_weight(
+    pub(crate) fn get_or_cache_fp16_weight(
         &mut self,
         qtype: WeightQuantType,
         weight_ptr: u64,
@@ -1017,7 +1017,7 @@ impl CudaExecutor {
     }
 
     /// Ensure WMMA scratch buffer is large enough
-    fn ensure_wmma_scratch(&mut self, count: usize) -> Result<(), GpuError> {
+    pub(crate) fn ensure_wmma_scratch(&mut self, count: usize) -> Result<(), GpuError> {
         let need_alloc = match &self.wmma_scratch {
             Some(buf) => buf.len() < count,
             None => true,

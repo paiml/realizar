@@ -1086,7 +1086,7 @@ DONE_NORM:
         // are not reliably capturable — they may use internal workspace or
         // stream management that the graph infrastructure cannot replay.
         // Use batched GEMV (custom PTX) instead, which is always capturable.
-        let use_cublas = m >= cublas_gemm_threshold()
+        let use_cublas = m >= super::cublas_gemm_threshold()
             && (qtype == WeightQuantType::Q4K || qtype == WeightQuantType::Q6K)
             && std::env::var("CUBLAS_PREFILL").as_deref() != Ok("0")
             && !self.is_capturing;

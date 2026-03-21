@@ -253,6 +253,15 @@ pub enum KernelType {
         m: u32,
         num_warps: u32,
     },
+    /// PMAT-293: Fused FP32-input Q4K GEMV (no Q8 pre-quantize)
+    /// Reads FP32 activations directly, dequants Q4K to FP32, FMA accumulate.
+    /// Eliminates Q8 quantize launch — 1 kernel instead of 2 per projection.
+    FusedFp32Q4KGemv {
+        k: u32,
+        n: u32,
+        m: u32,
+        num_warps: u32,
+    },
     /// Q5_K quantized GEMV (fused dequantization) - PAR-003
     Q5KGemv {
         k: u32,

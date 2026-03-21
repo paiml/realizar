@@ -22,12 +22,8 @@ impl KernelDispatch for CudaExecutor {
         n: u32,
         k: u32,
     ) -> Result<(), GpuError> {
-        // Delegate to existing batched_gemv_or_gemm which auto-selects
-        // DP4A GEMV or FP8 cuBLASLt based on M and weight type.
-        // The weight_ptr and qtype come from node.params.
         let weight_ptr = node.params.weight_ptr;
 
-        // Create temporary buffer wrappers for the dispatch
         // SAFETY: pointers are valid device allocations from the graph
         let input_buf = unsafe {
             trueno_gpu::driver::GpuBuffer::<f32>::from_raw_parts(input_ptr, (m * k) as usize)
@@ -36,18 +32,30 @@ impl KernelDispatch for CudaExecutor {
             trueno_gpu::driver::GpuBuffer::<f32>::from_raw_parts(output_ptr, (m * n) as usize)
         };
 
-        // Default to Q4K -- the graph builder sets the correct qtype
-        self.batched_gemv_or_gemm(
-            crate::cuda::types::WeightQuantType::Q4K,
-            weight_ptr,
-            &input_buf,
-            &output_buf,
-            input_ptr,
-            output_ptr,
-            m,
-            n,
-            k,
-        )?;
+        // PMAT-293: Use fused FP32 Q4K GEMV when enabled.
+        // Single kernel launch (no Q8 pre-quantize) for M<5 Q4K projections.
+        // At M>=5, FP8 cuBLASLt is faster and already a single call.
+        let use_fused = Self::use_fused_fp32_gemv()
+            && m >= 1
+            && m <= 8
+            && self.gpu_profile.q4k == crate::cuda::gpu_profile::Q4kVariant::HwDp4a
+            && !self.is_prefilling;
+
+        if use_fused {
+            self.fused_fp32_q4k_gemv_into(weight_ptr, &input_buf, &output_buf, m, n, k)?;
+        } else {
+            self.batched_gemv_or_gemm(
+                crate::cuda::types::WeightQuantType::Q4K,
+                weight_ptr,
+                &input_buf,
+                &output_buf,
+                input_ptr,
+                output_ptr,
+                m,
+                n,
+                k,
+            )?;
+        }
 
         std::mem::forget(input_buf);
         std::mem::forget(output_buf);
@@ -300,5 +308,14 @@ impl KernelDispatch for CudaExecutor {
         // SiLU is handled as part of dispatch_mul (SwiGLU = gate * silu(up)).
         // Standalone SiLU nodes are not used in the current graph.
         Ok(())
+    }
+}
+
+impl CudaExecutor {
+    /// PMAT-293: Check if fused FP32 Q4K GEMV is enabled (FUSED_FP32_GEMV=1).
+    /// Cached after first check.
+    fn use_fused_fp32_gemv() -> bool {
+        static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ENABLED.get_or_init(|| std::env::var("FUSED_FP32_GEMV").as_deref() == Ok("1"))
     }
 }
