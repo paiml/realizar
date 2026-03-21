@@ -7,6 +7,7 @@
 <h1 align="center">realizar</h1>
 
 [![CI](https://github.com/paiml/realizar/actions/workflows/ci.yml/badge.svg)](https://github.com/paiml/realizar/actions/workflows/ci.yml)
+[![Documentation](https://docs.rs/realizar/badge.svg)](https://docs.rs/realizar)
 
 </div>
 
@@ -403,6 +404,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and code 
 ## MSRV
 
 Minimum Supported Rust Version: **1.89**
+
+## See Also
+
+- [Cookbook](https://github.com/paiml/apr-cookbook)
 
 ## License
 
