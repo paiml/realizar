@@ -113,28 +113,26 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
     }
 
     // CONTRACT-DERIVED P1: Precompute Q8K bsums ONCE per token (weight-independent)
-    // The offset term dmin*m*Σ(q_x) depends only on activation sub-block sums.
-    // Precomputing saves ~50 SIMD instructions per superblock per row.
     let bsums = precompute_q8k_bsums(q8k_quants, super_blocks_per_row).ok();
 
-    // TCB Tiling Parameters (from trueno::tiling::TilingConfig::cpu_avx512_vnni_q4k_q8k)
-    // - Midi-tile: 64 rows (fits in L2 cache with Q8K input)
-    // - Micro-tile: 4 rows (processed simultaneously sharing Q8K loads)
+    // TCB Tiling Parameters
     const MIDI_TILE_M: usize = 64;
     const MICRO_TILE_M: usize = 4;
 
-    // Check if we can use the optimized 4-row micro-kernel
     #[cfg(target_arch = "x86_64")]
     let use_4row_kernel =
         is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vnni");
     #[cfg(not(target_arch = "x86_64"))]
     let use_4row_kernel = false;
 
-    if use_4row_kernel && out_dim >= MICRO_TILE_M {
-        // TCB-style tiled execution with 4-row micro-kernel
-        // Process MIDI_TILE_M rows per parallel chunk to maximize Q8K sharing
+    // PMAT-298: Use rayon for all matmuls above 1 midi-tile (64 rows).
+    // Below that, sequential is faster (no thread dispatch overhead).
+    // Combined with PMAT-297 thread pool = 16 physical cores.
+    let use_parallel = out_dim > MIDI_TILE_M;
 
-        // Split output into midi-tiles for rayon parallelism
+    if use_4row_kernel && out_dim >= MICRO_TILE_M {
+        if use_parallel {
+        // TCB-style tiled execution with 4-row micro-kernel + rayon parallelism
         output[..out_dim]
             .par_chunks_mut(MIDI_TILE_M)
             .enumerate()
@@ -200,8 +198,57 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
                     };
                 }
             });
-    } else {
-        // Fallback: per-row execution with precomputed bsums
+        } else {
+            // PMAT-298: Sequential path for small matmuls (out_dim < 1024).
+            // Avoids rayon thread dispatch overhead (~10us per task).
+            for midi_idx in 0..(out_dim + MIDI_TILE_M - 1) / MIDI_TILE_M {
+                let midi_start = midi_idx * MIDI_TILE_M;
+                let midi_end = (midi_start + MIDI_TILE_M).min(out_dim);
+                let midi_rows = midi_end - midi_start;
+
+                let full_micro_tiles = midi_rows / MICRO_TILE_M;
+                let remainder = midi_rows % MICRO_TILE_M;
+
+                for micro_idx in 0..full_micro_tiles {
+                    let row_base = midi_start + micro_idx * MICRO_TILE_M;
+                    let row_ptrs: [*const u8; 4] = [
+                        weight_data.as_ptr().wrapping_add(row_base * bytes_per_row),
+                        weight_data.as_ptr().wrapping_add((row_base + 1) * bytes_per_row),
+                        weight_data.as_ptr().wrapping_add((row_base + 2) * bytes_per_row),
+                        weight_data.as_ptr().wrapping_add((row_base + 3) * bytes_per_row),
+                    ];
+
+                    #[cfg(target_arch = "x86_64")]
+                    let outputs = unsafe {
+                        fused_q4k_q8k_dot_4rows_avx512vnni(
+                            row_ptrs, bytes_per_row, q8k_scales, q8k_quants,
+                        )
+                    };
+                    #[cfg(not(target_arch = "x86_64"))]
+                    let outputs = [0.0f32; 4];
+
+                    let local_base = midi_start + micro_idx * MICRO_TILE_M;
+                    output[local_base] = outputs[0];
+                    output[local_base + 1] = outputs[1];
+                    output[local_base + 2] = outputs[2];
+                    output[local_base + 3] = outputs[3];
+                }
+
+                for r in 0..remainder {
+                    let row = midi_start + full_micro_tiles * MICRO_TILE_M + r;
+                    let row_start = row * bytes_per_row;
+                    let row_data = &weight_data[row_start..row_start + bytes_per_row];
+                    output[row] = if let Some(ref bs) = bsums {
+                        fused_q4k_q8k_dot_with_bsums_simd(row_data, q8k_scales, q8k_quants, bs)
+                            .unwrap_or(0.0)
+                    } else {
+                        fused_q4k_q8k_dot_simd(row_data, q8k_scales, q8k_quants).unwrap_or(0.0)
+                    };
+                }
+            }
+        }
+    } else if use_parallel {
+        // Fallback: per-row execution with rayon + precomputed bsums
         output[..out_dim]
             .par_chunks_mut(MIDI_TILE_M)
             .enumerate()
@@ -222,6 +269,18 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
                     };
                 }
             });
+    } else {
+        // PMAT-298: Sequential fallback for small matmuls without AVX-512
+        for row in 0..out_dim {
+            let row_start = row * bytes_per_row;
+            let row_data = &weight_data[row_start..row_start + bytes_per_row];
+            output[row] = if let Some(ref bs) = bsums {
+                fused_q4k_q8k_dot_with_bsums_simd(row_data, q8k_scales, q8k_quants, bs)
+                    .unwrap_or(0.0)
+            } else {
+                fused_q4k_q8k_dot_simd(row_data, q8k_scales, q8k_quants).unwrap_or(0.0)
+            };
+        }
     }
 
     Ok(())
