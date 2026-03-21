@@ -5338,12 +5338,14 @@ dependencies = [
 
 [[package]]
 name = "trueno-db"
-version = "0.3.15"
+version = "0.3.16"
 dependencies = [
  "anyhow",
  "arrow 54.2.1",
+ "axum",
  "batuta-common",
  "chrono",
+ "clap",
  "console_error_panic_hook",
  "dashmap",
  "js-sys",
@@ -5353,6 +5355,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "serde_yaml_ng",
  "sqlparser",
  "thiserror 2.0.18",
  "tokio",
