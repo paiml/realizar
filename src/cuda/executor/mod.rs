@@ -241,6 +241,8 @@ mod attention;
 mod bound_dispatch;
 mod core;
 mod gemm;
+/// PMAT-291: KernelDispatch implementation connecting trueno graph to realizr kernels
+mod graph_dispatch;
 mod kv_cache;
 mod layer;
 mod layers;
