@@ -1,16 +1,161 @@
 {
   "direct_count": 19,
   "transitive_count": 273,
-  "timestamp": "2026-03-21T12:59:29.407769608+00:00",
+  "timestamp": "2026-03-21T14:13:13.492103850+00:00",
   "previous": {
     "direct_count": 19,
     "transitive_count": 273,
-    "timestamp": "2026-03-21T12:58:34.912001962+00:00",
+    "timestamp": "2026-03-21T14:10:50.742135090+00:00",
     "previous": {
       "direct_count": 19,
       "transitive_count": 273,
-      "timestamp": "2026-03-21T12:56:45.914683902+00:00",
-      "previous": null
+      "timestamp": "2026-03-21T14:03:56.083211569+00:00",
+      "previous": {
+        "direct_count": 19,
+        "transitive_count": 273,
+        "timestamp": "2026-03-21T14:02:59.984693975+00:00",
+        "previous": {
+          "direct_count": 19,
+          "transitive_count": 273,
+          "timestamp": "2026-03-21T14:00:05.116943356+00:00",
+          "previous": {
+            "direct_count": 19,
+            "transitive_count": 273,
+            "timestamp": "2026-03-21T13:57:22.169728123+00:00",
+            "previous": {
+              "direct_count": 19,
+              "transitive_count": 273,
+              "timestamp": "2026-03-21T13:39:44.544797077+00:00",
+              "previous": {
+                "direct_count": 19,
+                "transitive_count": 273,
+                "timestamp": "2026-03-21T13:35:47.263282085+00:00",
+                "previous": {
+                  "direct_count": 19,
+                  "transitive_count": 273,
+                  "timestamp": "2026-03-21T13:35:04.005863521+00:00",
+                  "previous": {
+                    "direct_count": 19,
+                    "transitive_count": 273,
+                    "timestamp": "2026-03-21T13:29:03.918838654+00:00",
+                    "previous": {
+                      "direct_count": 19,
+                      "transitive_count": 273,
+                      "timestamp": "2026-03-21T13:28:59.935158734+00:00",
+                      "previous": {
+                        "direct_count": 19,
+                        "transitive_count": 273,
+                        "timestamp": "2026-03-21T13:28:37.044924221+00:00",
+                        "previous": {
+                          "direct_count": 19,
+                          "transitive_count": 273,
+                          "timestamp": "2026-03-21T13:27:55.963449519+00:00",
+                          "previous": {
+                            "direct_count": 19,
+                            "transitive_count": 273,
+                            "timestamp": "2026-03-21T13:27:52.001377766+00:00",
+                            "previous": {
+                              "direct_count": 19,
+                              "transitive_count": 273,
+                              "timestamp": "2026-03-21T13:27:48.013340795+00:00",
+                              "previous": {
+                                "direct_count": 19,
+                                "transitive_count": 273,
+                                "timestamp": "2026-03-21T13:26:26.969194869+00:00",
+                                "previous": {
+                                  "direct_count": 19,
+                                  "transitive_count": 273,
+                                  "timestamp": "2026-03-21T13:26:07.974147103+00:00",
+                                  "previous": {
+                                    "direct_count": 19,
+                                    "transitive_count": 273,
+                                    "timestamp": "2026-03-21T13:21:19.571441455+00:00",
+                                    "previous": {
+                                      "direct_count": 19,
+                                      "transitive_count": 273,
+                                      "timestamp": "2026-03-21T13:19:57.916468882+00:00",
+                                      "previous": {
+                                        "direct_count": 19,
+                                        "transitive_count": 273,
+                                        "timestamp": "2026-03-21T13:19:11.628581682+00:00",
+                                        "previous": {
+                                          "direct_count": 19,
+                                          "transitive_count": 273,
+                                          "timestamp": "2026-03-21T13:19:07.756824427+00:00",
+                                          "previous": {
+                                            "direct_count": 19,
+                                            "transitive_count": 273,
+                                            "timestamp": "2026-03-21T13:16:21.994214589+00:00",
+                                            "previous": {
+                                              "direct_count": 19,
+                                              "transitive_count": 273,
+                                              "timestamp": "2026-03-21T13:15:28.521517737+00:00",
+                                              "previous": {
+                                                "direct_count": 19,
+                                                "transitive_count": 273,
+                                                "timestamp": "2026-03-21T13:14:52.579819273+00:00",
+                                                "previous": {
+                                                  "direct_count": 19,
+                                                  "transitive_count": 273,
+                                                  "timestamp": "2026-03-21T13:14:33.711484996+00:00",
+                                                  "previous": {
+                                                    "direct_count": 19,
+                                                    "transitive_count": 273,
+                                                    "timestamp": "2026-03-21T13:14:10.383828782+00:00",
+                                                    "previous": {
+                                                      "direct_count": 19,
+                                                      "transitive_count": 273,
+                                                      "timestamp": "2026-03-21T13:09:13.430891928+00:00",
+                                                      "previous": {
+                                                        "direct_count": 19,
+                                                        "transitive_count": 273,
+                                                        "timestamp": "2026-03-21T13:00:16.232766201+00:00",
+                                                        "previous": {
+                                                          "direct_count": 19,
+                                                          "transitive_count": 273,
+                                                          "timestamp": "2026-03-21T13:00:09.193353355+00:00",
+                                                          "previous": {
+                                                            "direct_count": 19,
+                                                            "transitive_count": 273,
+                                                            "timestamp": "2026-03-21T12:59:29.407769608+00:00",
+                                                            "previous": {
+                                                              "direct_count": 19,
+                                                              "transitive_count": 273,
+                                                              "timestamp": "2026-03-21T12:58:34.912001962+00:00",
+                                                              "previous": {
+                                                                "direct_count": 19,
+                                                                "transitive_count": 273,
+                                                                "timestamp": "2026-03-21T12:56:45.914683902+00:00",
+                                                                "previous": null
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

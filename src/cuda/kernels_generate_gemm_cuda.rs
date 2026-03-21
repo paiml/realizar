@@ -131,6 +131,11 @@ impl CudaKernels {
                 kernel.num_warps = *num_warps;
                 kernel.emit_ptx_for_target(target)
             },
+            KernelType::InlineQ8Dp4aQ4KGemv { k, n, m, num_warps } => {
+                let mut kernel = InlineQ8Dp4aQ4KGemvKernel::new(*k, *n, *m);
+                kernel.num_warps = *num_warps;
+                kernel.emit_ptx_for_target(target)
+            },
             _ => return None,
         };
         Some(ptx)

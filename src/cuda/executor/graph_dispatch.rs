@@ -32,17 +32,17 @@ impl KernelDispatch for CudaExecutor {
             trueno_gpu::driver::GpuBuffer::<f32>::from_raw_parts(output_ptr, (m * n) as usize)
         };
 
-        // PMAT-293: Use fused FP32 Q4K GEMV when enabled.
-        // Single kernel launch (no Q8 pre-quantize) for M<5 Q4K projections.
-        // At M>=5, FP8 cuBLASLt is faster and already a single call.
-        let use_fused = Self::use_fused_fp32_gemv()
-            && m >= 1
+        // PMAT-295: Use inline Q8 DP4A GEMV when enabled.
+        // Single kernel launch (Q8 quantize fused into DP4A) for M=2-4 Q4K.
+        // At M>=5, FP8 cuBLASLt fires. At M=1, existing DP4A with Q8 cache works.
+        let use_inline_q8 = Self::use_inline_q8_gemv()
+            && m >= 2
             && m <= 8
             && self.gpu_profile.q4k == crate::cuda::gpu_profile::Q4kVariant::HwDp4a
             && !self.is_prefilling;
 
-        if use_fused {
-            self.fused_fp32_q4k_gemv_into(weight_ptr, &input_buf, &output_buf, m, n, k)?;
+        if use_inline_q8 {
+            self.inline_q8_dp4a_q4k_gemv_into(weight_ptr, &input_buf, &output_buf, m, n, k)?;
         } else {
             self.batched_gemv_or_gemm(
                 crate::cuda::types::WeightQuantType::Q4K,
@@ -325,10 +325,10 @@ impl KernelDispatch for CudaExecutor {
 }
 
 impl CudaExecutor {
-    /// PMAT-293: Check if fused FP32 Q4K GEMV is enabled (FUSED_FP32_GEMV=1).
+    /// PMAT-295: Check if inline Q8 DP4A GEMV is enabled (INLINE_Q8_GEMV=1).
     /// Cached after first check.
-    fn use_fused_fp32_gemv() -> bool {
+    fn use_inline_q8_gemv() -> bool {
         static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *ENABLED.get_or_init(|| std::env::var("FUSED_FP32_GEMV").as_deref() == Ok("1"))
+        *ENABLED.get_or_init(|| std::env::var("INLINE_Q8_GEMV").as_deref() == Ok("1"))
     }
 }

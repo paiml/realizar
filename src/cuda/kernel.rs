@@ -79,6 +79,7 @@ impl CudaKernels {
             | KernelType::MultiWarpBatchedQ4KGemv { .. } => "batched_q4k_gemv_warp_reduce",
             KernelType::BatchedHwDp4aQ4KGemv { .. } => "batched_hw_dp4a_q4k_gemv",
             KernelType::FusedFp32Q4KGemv { .. } => "fused_fp32_q4k_gemv",
+            KernelType::InlineQ8Dp4aQ4KGemv { .. } => "inline_q8_dp4a_q4k_gemv",
             KernelType::Q4KDequant { .. } => "q4k_dequant_to_f32",
             KernelType::Q4KDequantFp16 { .. } => "q4k_dequant_to_f16",
             KernelType::Q6KDequant { .. } => "q6k_dequant_to_f32",

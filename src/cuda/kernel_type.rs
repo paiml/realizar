@@ -262,6 +262,15 @@ pub enum KernelType {
         m: u32,
         num_warps: u32,
     },
+    /// PMAT-295: Inline Q8 DP4A Q4K GEMV (fuses Q8 quantize into DP4A)
+    /// Reads FP32 input, quantizes to INT8 in-register per-thread, then DP4A.
+    /// Saves 1 launch per projection (no separate Q8 quantize kernel).
+    InlineQ8Dp4aQ4KGemv {
+        k: u32,
+        n: u32,
+        m: u32,
+        num_warps: u32,
+    },
     /// Q5_K quantized GEMV (fused dequantization) - PAR-003
     Q5KGemv {
         k: u32,

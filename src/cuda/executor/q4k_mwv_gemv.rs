@@ -648,6 +648,68 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// PMAT-295: Inline Q8 DP4A Q4K GEMV — fuses Q8 quantize into GEMV.
+    ///
+    /// Single kernel: reads FP32 input, quantizes to INT8 per-thread, DP4A with Q4K.
+    /// No separate Q8 quantize launch needed.
+    pub fn inline_q8_dp4a_q4k_gemv_into(
+        &mut self,
+        weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        output: &GpuBuffer<f32>,
+        m: u32,
+        n: u32,
+        k: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(weight_ptr, "inline_q8_dp4a_q4k_gemv_into")?;
+
+        let num_warps = self.gpu_profile.mwv_warps;
+        let kernel_type = KernelType::InlineQ8Dp4aQ4KGemv { k, n, m, num_warps };
+        let kernel_name = self.kernels.kernel_name(&kernel_type);
+        let cache_key = format!("inline_q8_dp4a_q4k_gemv_{}_{}_{}_{}", k, n, m, num_warps);
+
+        if !self.modules.contains_key(&cache_key) {
+            let ptx = self.kernels.generate_ptx(&kernel_type);
+            let module = self.compile_ptx(&ptx)?;
+            self.modules.insert(cache_key.clone(), module);
+        }
+
+        let module = self
+            .modules
+            .get_mut(&cache_key)
+            .expect("module just inserted");
+
+        let threads = num_warps * 32;
+        let grid_x = n.min(self.num_sms * 16);
+        let config = LaunchConfig::grid_2d(grid_x, 1, threads, 1);
+
+        let mut ptr_output = output.as_ptr();
+        let mut ptr_weights = weight_ptr;
+        let mut ptr_input = input.as_ptr();
+        let mut k_val = k;
+        let mut n_val = n;
+        let mut m_val = m;
+
+        // SAFETY: All device pointers are allocated by CudaExecutor and valid.
+        unsafe {
+            self.stream.launch_kernel(
+                module,
+                kernel_name,
+                &config,
+                &mut [
+                    std::ptr::from_mut(&mut ptr_output) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_weights) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut ptr_input) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut k_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut m_val) as *mut std::ffi::c_void,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
     /// PMAT-293: Fused FP32-input Q4K GEMV (no Q8 pre-quantize).
     ///
     /// Single kernel launch: reads FP32 activations + Q4K weights, dequants to FP32,
