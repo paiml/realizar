@@ -241,6 +241,8 @@ mod attention;
 mod bound_dispatch;
 mod core;
 mod gemm;
+/// PMAT-291: Transformer layer graph builder for Qwen2.5 architecture
+mod graph_builder;
 /// PMAT-291: KernelDispatch implementation connecting trueno graph to realizr kernels
 mod graph_dispatch;
 mod kv_cache;
