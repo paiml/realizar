@@ -80,21 +80,25 @@ impl MappedGGUFModel {
             reason: format!("Failed to open {}: {}", path.as_ref().display(), e),
         })?;
 
-        // SAFETY: Memory mapping is safe as long as the file isn't modified
-        // while mapped. We only read from the mapping, never write.
+        // PMAT-304: MAP_POPULATE + MADV_RANDOM (matching llama.cpp's llama-mmap.cpp)
+        // MAP_POPULATE: synchronously pre-fault ALL pages at mmap time.
+        //   Eliminates page faults during inference (was causing DRAM stalls).
+        // MADV_RANDOM: disable sequential readahead (wastes BW on non-sequential access).
+        // MADV_HUGEPAGE: reduce TLB misses for 900MB+ scans.
+        // mlock: prevent swapping.
+        //
+        // Reference: llama.cpp llama-mmap.cpp line 424: flags |= MAP_POPULATE
+        //            llama.cpp llama-mmap.cpp line 438: POSIX_MADV_RANDOM
         let mmap = unsafe {
-            Mmap::map(&file).map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "mmap_model_file".to_string(),
-                reason: format!("Failed to mmap {}: {}", path.as_ref().display(), e),
-            })?
+            memmap2::MmapOptions::new()
+                .populate()
+                .map(&file)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "mmap_model_file".to_string(),
+                    reason: format!("Failed to mmap {}: {}", path.as_ref().display(), e),
+                })?
         };
 
-        // PMAT-302: Advise kernel to use huge pages for weight data.
-        // Reduces TLB misses for 900MB+ model scans (4KB pages = 230K TLB entries).
-        // PMAT-302: Memory optimization for weight data.
-        // 1. Huge pages reduce TLB misses for 900MB+ scans
-        // 2. WILLNEED preloads pages into page cache
-        // 3. mlock prevents swapping
         #[cfg(target_os = "linux")]
         unsafe {
             libc::madvise(
@@ -102,12 +106,12 @@ impl MappedGGUFModel {
                 mmap.len(),
                 libc::MADV_HUGEPAGE,
             );
+            // MADV_RANDOM: disable readahead — weight access is strided, not sequential
             libc::madvise(
                 mmap.as_ptr() as *mut libc::c_void,
                 mmap.len(),
-                libc::MADV_WILLNEED,
+                libc::MADV_RANDOM,
             );
-            // Best-effort mlock — don't fail if RLIMIT_MEMLOCK is too low
             libc::mlock(mmap.as_ptr() as *const libc::c_void, mmap.len());
         }
 
