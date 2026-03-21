@@ -229,11 +229,6 @@ pub fn fused_q4k_parallel_matvec_into(
     out_dim: usize,
     output: &mut [f32],
 ) -> Result<()> {
-    // Contract: cpu-q4k-activation-quant-v1.yaml
-    // Phase 1: Quantize f32 activations to Q8_K (once per matmul, amortized)
-    // Phase 2: Integer-only Q4K×Q8K dot products via fused_q4k_q8k_parallel_matvec_into
-
-    // Validate activation length matches in_dim
     if activations.len() != in_dim {
         return Err(RealizarError::InvalidShape {
             reason: format!(
@@ -246,18 +241,17 @@ pub fn fused_q4k_parallel_matvec_into(
 
     let super_blocks_per_row = in_dim.div_ceil(QK_K);
     let padded_in_dim = super_blocks_per_row * QK_K;
-
-    // Pad activations to super-block boundary
     let acts = pad_activations(activations, padded_in_dim);
-
-    // Phase 1: Pre-quantize activations to Q8_K
     let num_superblocks = padded_in_dim / QK_K;
+
+    // PMAT-297: Q8K workspace buffers. These are small (~7KB for K=1536)
+    // and allocated once per matmul call. Future: pass workspace through
+    // inference context to avoid repeated allocation.
     let mut q8k_scales = vec![0.0f32; num_superblocks];
     let mut q8k_quants = vec![0i8; padded_in_dim];
 
     super::quantize_activations_q8k_into(&acts, &mut q8k_scales, &mut q8k_quants)?;
 
-    // Phase 2: Delegate to Q4K×Q8K integer-only parallel matvec
     fused_q4k_q8k_parallel_matvec_into(
         weight_data,
         &q8k_scales,
@@ -266,6 +260,37 @@ pub fn fused_q4k_parallel_matvec_into(
         out_dim,
         output,
     )
+}
+
+/// PMAT-297: Pre-allocated workspace for CPU Q8K activation quantization.
+/// Eliminates ~588 heap allocations per token (3 allocs × 196 matmul calls).
+struct CpuQ8kWorkspace {
+    scales: Vec<f32>,
+    quants: Vec<i8>,
+}
+
+impl CpuQ8kWorkspace {
+    const fn empty() -> Self {
+        Self {
+            scales: Vec::new(),
+            quants: Vec::new(),
+        }
+    }
+
+    fn ensure_capacity(&mut self, padded_in_dim: usize) {
+        let num_superblocks = padded_in_dim / QK_K;
+        if self.scales.len() < num_superblocks {
+            self.scales.resize(num_superblocks, 0.0);
+        }
+        if self.quants.len() < padded_in_dim {
+            self.quants.resize(padded_in_dim, 0);
+        }
+    }
+
+    /// Borrow both buffers simultaneously (split borrow).
+    fn buffers_mut(&mut self, num_sb: usize, padded_dim: usize) -> (&mut [f32], &mut [i8]) {
+        (&mut self.scales[..num_sb], &mut self.quants[..padded_dim])
+    }
 }
 
 /// Parallel fused Q5_K matrix-vector multiply
