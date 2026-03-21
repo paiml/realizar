@@ -309,9 +309,10 @@ pub(crate) unsafe fn fused_q4k_q8k_dot_4rows_avx512vnni(
 
             let qs_ptr = row_data.add(16);
 
-            // Compute Q4xQ8 dot products for all 8 blocks using pre-loaded Q8K
-            // PMAT-298: AVX-512 VNNI version WIP (data layout mismatch, produces
-            // garbage). Using proven AVX2 path until layout is corrected.
+            // PMAT-298: AVX-512 dot product FALSIFIED (-16% on Cascade Lake).
+            // The 512-bit instructions cause CPU frequency downclocking from
+            // 3.2GHz to ~2.5GHz, canceling the 2x throughput benefit.
+            // Using AVX2 path which runs at full frequency.
             let block_dots = compute_q4_q8_dots_8blocks(
                 qs_ptr,
                 q8_chunk0_lo, q8_chunk0_hi, q8_chunk1_lo, q8_chunk1_hi,
