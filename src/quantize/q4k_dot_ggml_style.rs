@@ -162,7 +162,10 @@ pub(crate) unsafe fn ggml_style_q4k_q8k_dot_avx2_raw(
     _mm_cvtss_f32(sum32) + _mm_cvtss_f32(acc_m_final)
 }
 
+/// Convert f16 bits to f32 — inline SIMD, no function call.
 /// Convert f16 bits to f32.
+/// PMAT-312: Attempted inline F16C and software conversion — both WORSE.
+/// The `half` crate already uses F16C via runtime detection and is optimal.
 #[inline]
 fn f16_to_f32(h: u16) -> f32 {
     half::f16::from_bits(h).to_f32()
