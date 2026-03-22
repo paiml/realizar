@@ -402,7 +402,10 @@ impl OwnedQuantizedModel {
             );
         }
 
-        // Fallback to separate RMSNorm + matmuls for other types
+        // PMAT-309: Shared Q8K for Q4K gate+up FALSIFIED (-3.4%, 31.5 vs 32.6).
+        // The Vec allocation overhead for quantize_for_q4k_matvec (3 Vecs)
+        // offsets the saving from skipping one Q8K quantize.
+        // The per-matmul path with stack-allocated Q8K is faster.
         let normed = ops::rms_norm(input, norm_weight, eps);
         let up_out = self.fused_matmul(&normed, up_weight)?;
         let gate_out = self.fused_matmul(&normed, gate_weight)?;

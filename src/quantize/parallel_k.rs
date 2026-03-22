@@ -306,8 +306,94 @@ pub fn fused_q4k_parallel_matvec_into(
     }
 }
 
+/// PMAT-309: Pre-quantized Q8K matvec — skips Q8K quantize when caller provides it.
+///
+/// Use this when multiple matmuls share the same activation (e.g., O projection
+/// after attention, FFN down after SwiGLU). The caller quantizes ONCE and passes
+/// the Q8K data to each matmul call.
+#[allow(dead_code)]
+pub fn fused_q4k_preq8k_matvec_into(
+    weight_data: &[u8],
+    q8k_scales: &[f32],
+    q8k_quants: &[i8],
+    q8k_bsums: &[i16],
+    in_dim: usize,
+    out_dim: usize,
+    output: &mut [f32],
+) -> Result<()> {
+    let super_blocks_per_row = in_dim.div_ceil(QK_K);
+    let bytes_per_row = super_blocks_per_row * 144;
+
+    if weight_data.len() < out_dim * bytes_per_row {
+        return Err(RealizarError::InvalidShape {
+            reason: "Weight data too small".to_string(),
+        });
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+        use rayon::prelude::*;
+        let bpr = bytes_per_row;
+        let nsb = super_blocks_per_row;
+        let w_addr = weight_data.as_ptr() as usize;
+        let sc_addr = q8k_scales.as_ptr() as usize;
+        let qq_addr = q8k_quants.as_ptr() as usize;
+        let bs_addr = q8k_bsums.as_ptr() as usize;
+
+        output[..out_dim]
+            .par_chunks_mut(64)
+            .enumerate()
+            .for_each(|(ci, chunk)| {
+                let row_start = ci * 64;
+                unsafe {
+                    let w = w_addr as *const u8;
+                    let sc = sc_addr as *const f32;
+                    let qq = qq_addr as *const i8;
+                    let bs = bs_addr as *const i16;
+                    for (i, out) in chunk.iter_mut().enumerate() {
+                        let row = row_start + i;
+                        *out = super::fused_k::ggml_style_q4k_q8k_dot_avx2_raw(
+                            w.add(row * bpr),
+                            sc,
+                            qq,
+                            bs,
+                            nsb,
+                        );
+                    }
+                }
+            });
+        return Ok(());
+    }
+
+    // Fallback: use the existing parallel path
+    fused_q4k_q8k_parallel_matvec_into(weight_data, q8k_scales, q8k_quants, in_dim, out_dim, output)
+}
+
+/// Quantize FP32 activations to Q8K format + compute bsums.
+/// Returns (scales, quants, bsums) for use with fused_q4k_preq8k_matvec_into.
+#[allow(dead_code)]
+pub fn quantize_for_q4k_matvec(
+    activations: &[f32],
+    in_dim: usize,
+) -> Result<(Vec<f32>, Vec<i8>, Vec<i16>)> {
+    let super_blocks_per_row = in_dim.div_ceil(QK_K);
+    let padded_in_dim = super_blocks_per_row * QK_K;
+    let num_superblocks = padded_in_dim / QK_K;
+    let acts = pad_activations(activations, padded_in_dim);
+
+    let mut scales = vec![0.0f32; num_superblocks];
+    let mut quants = vec![0i8; padded_in_dim];
+    super::quantize_activations_q8k_into(&acts, &mut scales, &mut quants)?;
+
+    #[cfg(target_arch = "x86_64")]
+    let bsums = unsafe { super::fused_k::precompute_q8k_bsums_i16(&quants, num_superblocks) };
+    #[cfg(not(target_arch = "x86_64"))]
+    let bsums = vec![0i16; num_superblocks * 16];
+
+    Ok((scales, quants, bsums))
+}
+
 /// PMAT-297: Pre-allocated workspace for CPU Q8K activation quantization.
-/// Eliminates ~588 heap allocations per token (3 allocs × 196 matmul calls).
 struct CpuQ8kWorkspace {
     scales: Vec<f32>,
     quants: Vec<i8>,
