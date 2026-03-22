@@ -489,11 +489,13 @@ impl OwnedQuantizedModel {
         // GH-278: Use contract-derived norm type.
         let use_rmsnorm = self.config.constraints.uses_rmsnorm();
 
-        // PMAT-305: Pre-allocate workspace buffers — reused across all layers.
-        // Eliminates ~112 Vec allocations per token (4/layer × 28 layers).
+        // PMAT-305/307: Pre-allocate workspace buffers — reused across all layers.
         let mut attn_out_buffer = vec![0.0f32; self.config.q_dim()];
         let mut o_proj_buffer = vec![0.0f32; hidden_dim];
         let mut ffn_down_buffer = vec![0.0f32; hidden_dim];
+        // PMAT-307: QKV workspace — eliminates 28 Vec allocs per token
+        let qkv_dim = self.config.q_dim() + 2 * self.config.kv_dim();
+        let mut qkv_buffer = vec![0.0f32; qkv_dim];
 
         // DEBUG: Consolidated embedding trace (PMAT-260)
         self.debug_trace_embedding(&hidden, token_id, position);
@@ -503,21 +505,38 @@ impl OwnedQuantizedModel {
             // 2a+2b. Fused attention layer norm + QKV projection
             // For RMSNorm models: fuse norm + matmul to eliminate intermediate allocation
             // For LayerNorm models: use separate operations (has bias)
+            // PMAT-307: Use workspace for QKV to eliminate per-layer Vec alloc.
+            // For fused QKV weights: norm_into + matmul_into → qkv_buffer
+            let qkv_actual_dim;
             let mut qkv = if use_rmsnorm {
-                self.fused_rmsnorm_qkv_matmul(
-                    &hidden,
-                    &layer.attn_norm_weight,
-                    self.config.eps,
-                    &layer.qkv_weight,
-                )?
+                match &layer.qkv_weight {
+                    crate::gguf::quantized::OwnedQKVWeights::Fused(ref w) => {
+                        // RMSNorm → o_proj_buffer (reuse as temp), matmul → qkv_buffer
+                        ops::rms_norm_into(&hidden, &layer.attn_norm_weight, self.config.eps,
+                            &mut o_proj_buffer[..hidden_dim]);
+                        qkv_actual_dim = w.out_dim;
+                        self.fused_matmul_into(&o_proj_buffer[..hidden_dim], w,
+                            &mut qkv_buffer[..w.out_dim])?;
+                        &mut qkv_buffer[..w.out_dim]
+                    },
+                    _ => {
+                        // Separate Q/K/V: use allocating path (rayon::join needs ownership)
+                        qkv_actual_dim = 0; // unused
+                        let v = self.fused_rmsnorm_qkv_matmul(
+                            &hidden, &layer.attn_norm_weight, self.config.eps, &layer.qkv_weight)?;
+                        // Copy to qkv_buffer for uniform handling below
+                        qkv_buffer[..v.len()].copy_from_slice(&v);
+                        &mut qkv_buffer[..v.len()]
+                    },
+                }
             } else {
                 let normed = ops::layer_norm(
-                    &hidden,
-                    &layer.attn_norm_weight,
-                    layer.attn_norm_bias.as_deref(),
-                    self.config.eps,
-                );
-                self.qkv_matmul(&normed, &layer.qkv_weight)?
+                    &hidden, &layer.attn_norm_weight,
+                    layer.attn_norm_bias.as_deref(), self.config.eps);
+                let v = self.qkv_matmul(&normed, &layer.qkv_weight)?;
+                qkv_actual_dim = 0;
+                qkv_buffer[..v.len()].copy_from_slice(&v);
+                &mut qkv_buffer[..v.len()]
             };
 
             // PMAT-114: Trace QKV BEFORE bias (PMAT-260)
