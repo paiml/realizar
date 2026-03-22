@@ -917,3 +917,12 @@ The RAG index includes 335 documents across:
 Index auto-updates via post-commit hooks and `ora-fresh` on shell login.
 To manually check freshness: `ora-fresh`
 To force full reindex: `batuta oracle --rag-index --force`
+
+## SSC Training / Blackwell: Inference NOT Affected (2026-03-22)
+
+- **Inference is NOT affected** by the Blackwell training JIT bug (trueno#200)
+- **realizar uses cuBLAS (GPU) or trueno SIMD (CPU)** for all GEMMs — pre-compiled kernels, no JIT
+- **NF4 fused kernel and cuBLAS backward kernels** are training-only (entrenar) — realizar never calls them
+- **When the SSC model ships**: realizar loads the LoRA adapter via standard PEFT/safetensors path — no special Blackwell handling needed
+- **Trained model (LoRA adapter)**: Architecture-independent — works on any GPU or CPU
+- **Key tickets**: trueno#200 (Blackwell JIT), trueno#203 (pre-compiled kernels), entrenar#300 (cuBLAS backward)
