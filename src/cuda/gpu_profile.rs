@@ -219,16 +219,21 @@ impl GpuProfile {
         *q4k == Q4kVariant::HwDp4a
     }
 
-    /// PMAT-053b: FP8 prefill — default ON for sm_89+ (Ada/Hopper).
+    /// PMAT-053b: FP8 prefill — default ON for sm_89+ (Ada/Hopper), OFF for Blackwell.
     ///
     /// FP8 E4M3 weights are 1 B/elem vs FP16's 2 B/elem — halves weight bandwidth.
     /// Per-tensor absmax scaling recovers dynamic range (TTFT 46.4→35.5ms, 1.31x).
     /// Override: FP8_PREFILL=0 to disable, FP8_PREFILL=1 to force on older GPUs.
+    ///
+    /// GH-542: Blackwell (sm_100+, cc >= 100) uses a different FP8 implementation.
+    /// cuBLASLt FP8 E4M3 GEMM kernels compiled for Ada/Hopper write to invalid
+    /// memory on sm_121, poisoning the CUDA context during cache warmup.
+    /// Disable FP8 on Blackwell until native sm_100+ FP8 kernels are implemented.
     fn detect_fp8_prefill(cc: u32) -> bool {
         match std::env::var("FP8_PREFILL").as_deref() {
             Ok("0") => false,
             Ok("1") => true,
-            _ => cc >= 89,
+            _ => cc >= 89 && cc < 100,
         }
     }
 
@@ -238,11 +243,13 @@ impl GpuProfile {
     /// saturate INT32 units. DP4A ceiling = 306 tok/s at M=4 (theoretical).
     /// FP8 cuBLASLt reads 1.78× more BW (1 B/elem vs Q4K 0.5625) but stays
     /// memory-bound via tensor cores. Expected: ~1.5× c=4 aggregate improvement.
+    ///
+    /// GH-542: Excluded on Blackwell (cc >= 100) — see detect_fp8_prefill.
     fn detect_fp8_decode(fp8_prefill: bool, cc: u32) -> bool {
         match std::env::var("FP8_DECODE").as_deref() {
             Ok("0") => false,
             Ok("1") => true,
-            _ => fp8_prefill && cc >= 89,
+            _ => fp8_prefill && cc >= 89 && cc < 100,
         }
     }
 

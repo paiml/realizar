@@ -1326,10 +1326,13 @@ DONE_NORM:
         intermediate_dim: u32,
         vocab_size: u32,
     ) -> Result<(), GpuError> {
-        if self.gpu_profile.cc < 89 {
+        // GH-542: FP8 E4M3 cuBLASLt GEMM requires Ada/Hopper (sm_89-sm_90).
+        // Blackwell (sm_100+, cc >= 100) has incompatible FP8 tensor cores that
+        // cause CUDA_ERROR_ILLEGAL_ADDRESS during warmup, poisoning the context.
+        if self.gpu_profile.cc < 89 || self.gpu_profile.cc >= 100 {
             eprintln!(
-                "[PMAT-053] FP8 cache skipped: requires sm_89+ (have {})",
-                self.gpu_profile.sm_target
+                "[PMAT-053] FP8 cache skipped: requires sm_89-sm_9x (have {}, cc={})",
+                self.gpu_profile.sm_target, self.gpu_profile.cc
             );
             return Ok(());
         }
