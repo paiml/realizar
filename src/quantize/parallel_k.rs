@@ -242,10 +242,43 @@ pub fn fused_q4k_parallel_matvec_into(
     let super_blocks_per_row = in_dim.div_ceil(QK_K);
     let padded_in_dim = super_blocks_per_row * QK_K;
     let acts = pad_activations(activations, padded_in_dim);
-    let num_superblocks = padded_in_dim / QK_K;
 
-    // PMAT-300: Stack-allocate Q8K buffers for common model sizes.
-    // Avoids malloc overhead (197 calls/token).
+    // PMAT-305: Direct FP32 parallel matmul — skip Q8K quantization entirely.
+    // PMAT-304 showed realizr IPC 1.60 vs llama.cpp 1.01: we burn too many
+    // cycles on Q8K quantize + scale extraction. Direct FP32 dequant×multiply
+    // eliminates Q8K overhead and matches llama.cpp's CPU dot product pattern.
+    //
+    // The direct path uses fused_q4k_dot_simd which dequants Q4K to FP32 and
+    // multiplies with FP32 activations — same as ggml's scalar fallback.
+    // On bandwidth-bound workloads, this is no slower than Q8K+maddubs because
+    // the activation data fits in L1 cache regardless of format.
+    // PMAT-305: Direct FP32 FALSIFIED (-17%, 25.4 vs 30.8 tok/s).
+    // Q8K + maddubs (32 muls/insn) beats FP32 fmadd (8 muls/insn).
+    // The Q8K quantize overhead is small vs 4x multiply throughput gain.
+    let use_direct_fp32 = std::env::var("DIRECT_FP32_GEMV").as_deref() == Ok("1");
+
+    if use_direct_fp32 {
+        use rayon::prelude::*;
+        const SB_BYTES: usize = 144;
+        let bytes_per_row = super_blocks_per_row * SB_BYTES;
+
+        output[..out_dim]
+            .par_chunks_mut(64)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                let row_base = chunk_idx * 64;
+                for (i, out) in chunk.iter_mut().enumerate() {
+                    let row = row_base + i;
+                    let row_start = row * bytes_per_row;
+                    let row_data = &weight_data[row_start..row_start + bytes_per_row];
+                    *out = super::fused_k::fused_q4k_dot_simd(row_data, &acts).unwrap_or(0.0);
+                }
+            });
+        return Ok(());
+    }
+
+    // Fallback: Q8K quantize + integer dot product (DIRECT_FP32_GEMV=0)
+    let num_superblocks = padded_in_dim / QK_K;
     const MAX_STACK_DIM: usize = 8960;
     const MAX_STACK_SB: usize = (MAX_STACK_DIM + 255) / 256;
 
