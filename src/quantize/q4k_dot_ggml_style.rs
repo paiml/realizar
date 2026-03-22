@@ -34,11 +34,33 @@ static K_SCALE_SHUFFLE_K4: [u8; 256] = [
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2", enable = "fma")]
 #[inline]
+/// PMAT-306: Raw pointer variant — zero slice overhead in the hot loop.
 pub(crate) unsafe fn ggml_style_q4k_q8k_dot_avx2(
-    weight_row: *const u8,   // Q4K row: num_sb * 144 bytes
-    q8k_scales: &[f32],      // Q8K per-SB scales
-    q8k_quants: &[i8],       // Q8K quantized values
-    q8k_bsums: &[i16],       // Pre-computed Q8K sub-block sums [num_sb * 16]
+    weight_row: *const u8,
+    q8k_scales: &[f32],
+    q8k_quants: &[i8],
+    q8k_bsums: &[i16],
+    num_super_blocks: usize,
+) -> f32 {
+    // Delegate to raw-pointer inner function for zero overhead
+    ggml_style_q4k_q8k_dot_avx2_raw(
+        weight_row,
+        q8k_scales.as_ptr(),
+        q8k_quants.as_ptr(),
+        q8k_bsums.as_ptr(),
+        num_super_blocks,
+    )
+}
+
+/// PMAT-306: Inner loop with raw pointers — no slice indexing, no bounds checks.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+unsafe fn ggml_style_q4k_q8k_dot_avx2_raw(
+    weight_row: *const u8,
+    q8k_scales_ptr: *const f32,
+    q8k_quants_ptr: *const i8,
+    q8k_bsums_ptr: *const i16,
     num_super_blocks: usize,
 ) -> f32 {
     #[allow(clippy::wildcard_imports)]
@@ -57,13 +79,13 @@ pub(crate) unsafe fn ggml_style_q4k_q8k_dot_avx2(
 
     for sb in 0..num_super_blocks {
         let sb_ptr = weight_row.add(sb * SB_BYTES);
-        let q8_offset = sb * QK_K;
 
-        // Read Q4K header: d (f16), dmin (f16)
         let d_raw = (sb_ptr as *const u16).read_unaligned();
         let dmin_raw = (sb_ptr.add(2) as *const u16).read_unaligned();
-        let d = q8k_scales[sb] * f16_to_f32(d_raw);
-        let dmin = -q8k_scales[sb] * f16_to_f32(dmin_raw);
+        // Raw pointer read — no bounds check
+        let q8_scale = *q8k_scales_ptr.add(sb);
+        let d = q8_scale * f16_to_f32(d_raw);
+        let dmin = -q8_scale * f16_to_f32(dmin_raw);
 
         // Decode packed 6-bit scales (ggml's utmp trick)
         let mut utmp = [0u32; 4];
@@ -80,8 +102,7 @@ pub(crate) unsafe fn ggml_style_q4k_q8k_dot_avx2(
         );
 
         // Min correction via pre-computed bsums (ggml pattern).
-        // bsums has 16 x i16 per SB (one per 16-value sub-block).
-        let bsums_ptr = q8k_bsums.as_ptr().add(sb * 16);
+        let bsums_ptr = q8k_bsums_ptr.add(sb * 16);
         let q8sums = _mm256_loadu_si256(bsums_ptr.cast::<__m256i>());
         let q8s = _mm_hadd_epi16(
             _mm256_extracti128_si256(q8sums, 0),
@@ -98,7 +119,7 @@ pub(crate) unsafe fn ggml_style_q4k_q8k_dot_avx2(
         let mut sumi = _mm256_setzero_si256();
 
         let qs_ptr = sb_ptr.add(16);
-        let q8_ptr = q8k_quants.as_ptr().add(q8_offset);
+        let q8_ptr = q8k_quants_ptr.add(sb * QK_K);
 
         // Inner loop: 4 chunks of 64 values each
         for j in 0..4usize {
