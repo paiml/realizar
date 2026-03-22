@@ -489,9 +489,11 @@ impl OwnedQuantizedModel {
         // GH-278: Use contract-derived norm type.
         let use_rmsnorm = self.config.constraints.uses_rmsnorm();
 
-        // Pre-allocate attention output buffer - reused across all layers
-        // GH-479: Use q_dim (may differ from hidden_dim for Qwen3)
+        // PMAT-305: Pre-allocate workspace buffers — reused across all layers.
+        // Eliminates ~112 Vec allocations per token (4/layer × 28 layers).
         let mut attn_out_buffer = vec![0.0f32; self.config.q_dim()];
+        let mut o_proj_buffer = vec![0.0f32; hidden_dim];
+        let mut ffn_down_buffer = vec![0.0f32; hidden_dim];
 
         // DEBUG: Consolidated embedding trace (PMAT-260)
         self.debug_trace_embedding(&hidden, token_id, position);
@@ -601,29 +603,29 @@ impl OwnedQuantizedModel {
             // 2e. Store K and V in cache for future tokens
             cache.append(layer_idx, k, v);
 
-            // 2f. Attention output projection
-            let mut attn_output = self.fused_matmul(&attn_out_buffer, &layer.attn_output_weight)?;
+            // 2f. Attention output projection → o_proj_buffer (PMAT-305: no alloc)
+            self.fused_matmul_into(&attn_out_buffer, &layer.attn_output_weight, &mut o_proj_buffer)?;
             if let Some(ref bias) = layer.attn_output_bias {
-                ops::add_bias(&mut attn_output, bias);
+                ops::add_bias(&mut o_proj_buffer, bias);
             }
 
             // 2g. Residual connection
             for i in 0..hidden_dim {
-                hidden[i] += attn_output[i];
+                hidden[i] += o_proj_buffer[i];
             }
 
             // 2h+2i. FFN with optional layer norm and SwiGLU/GELU activation
             let ffn_activated = self.single_cache_ffn_block(&hidden, layer_idx, use_rmsnorm)?;
 
-            // 2j. FFN down projection
-            let mut ffn_output = self.fused_matmul(&ffn_activated, &layer.ffn_down_weight)?;
+            // 2j. FFN down projection → ffn_down_buffer (PMAT-305: no alloc)
+            self.fused_matmul_into(&ffn_activated, &layer.ffn_down_weight, &mut ffn_down_buffer)?;
             if let Some(ref bias) = layer.ffn_down_bias {
-                ops::add_bias(&mut ffn_output, bias);
+                ops::add_bias(&mut ffn_down_buffer, bias);
             }
 
             // Residual
             for i in 0..hidden_dim {
-                hidden[i] += ffn_output[i];
+                hidden[i] += ffn_down_buffer[i];
             }
 
             // DEBUG: Consolidated per-layer output trace (PMAT-260)

@@ -394,3 +394,5 @@ impl OwnedQuantizedModel {
 
 include!("forward_fused_q4k.rs");
 include!("forward_profiled.rs");
+include!("cpu_workspace.rs");
+include!("forward_decode_lean.rs");
