@@ -596,8 +596,9 @@ impl CudaExecutor {
         self.ensure_cublas()?;
 
         // PMAT-053/067: FP8 E4M3 GEMM — 1 byte/elem (2x BW savings vs HGEMM)
-        // Auto-enabled on sm_89+ (Ada Lovelace). Override: FP8_PREFILL=0 to disable.
-        if self.gpu_profile.fp8_prefill && self.gpu_profile.cc >= 89 {
+        // Auto-enabled on sm_89+ (Ada Lovelace/Hopper). Override: FP8_PREFILL=0 to disable.
+        // GH-542: Excluded on Blackwell (cc >= 100) — FP8 E4M3 kernels incompatible.
+        if self.gpu_profile.fp8_prefill && self.gpu_profile.cc >= 89 && self.gpu_profile.cc < 100 {
             let w_fp8_ptr = self.get_or_cache_fp8_weight(qtype, weight_ptr, n, k)?;
             return self.cublas_prefill_fp8_gemm(
                 w_fp8_ptr,
