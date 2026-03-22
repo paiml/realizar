@@ -118,6 +118,22 @@ pub fn spawn_apr_q4k_inference_thread(
         layer_norm_weights.push((attn_norm, ffn_norm, q_norm, k_norm));
     }
 
+    // PMAT-315: Extract QKV biases (required for Qwen2, optional for LLaMA/Mistral)
+    let mut layer_qkv_biases: Vec<(Option<Vec<f32>>, Option<Vec<f32>>, Option<Vec<f32>>)> =
+        Vec::with_capacity(config.num_layers);
+    for layer_idx in 0..config.num_layers {
+        let q_bias = model
+            .get_tensor_f32(&format!("model.layers.{layer_idx}.self_attn.q_proj.bias"))
+            .ok();
+        let k_bias = model
+            .get_tensor_f32(&format!("model.layers.{layer_idx}.self_attn.k_proj.bias"))
+            .ok();
+        let v_bias = model
+            .get_tensor_f32(&format!("model.layers.{layer_idx}.self_attn.v_proj.bias"))
+            .ok();
+        layer_qkv_biases.push((q_bias, k_bias, v_bias));
+    }
+
     // Release mmap pages — weights are on GPU now
     let _ = model.release_cpu_pages();
 
@@ -154,6 +170,7 @@ pub fn spawn_apr_q4k_inference_thread(
                     &embedding_weight,
                     &output_norm_weight,
                     &layer_norm_weights,
+                    &layer_qkv_biases,
                     &req.prompt_ids,
                     req.max_tokens,
                     req.temperature,
@@ -176,6 +193,7 @@ fn generate_q4k(
     embedding_weight: &[f32],
     output_norm_weight: &[f32],
     layer_norm_weights: &[(Vec<f32>, Vec<f32>, Option<Vec<f32>>, Option<Vec<f32>>)],
+    layer_qkv_biases: &[(Option<Vec<f32>>, Option<Vec<f32>>, Option<Vec<f32>>)],
     prompt_ids: &[u32],
     max_tokens: usize,
     temperature: f32,
@@ -200,6 +218,7 @@ fn generate_q4k(
             embedding_weight,
             output_norm_weight,
             layer_norm_weights,
+            layer_qkv_biases,
             &mut kv_cache_k,
             &mut kv_cache_v,
             token_id,
@@ -231,6 +250,7 @@ fn generate_q4k(
             embedding_weight,
             output_norm_weight,
             layer_norm_weights,
+            layer_qkv_biases,
             &mut kv_cache_k,
             &mut kv_cache_v,
             next_token,

@@ -960,6 +960,7 @@ pub fn forward_token_apr_q4k(
     embedding_weight: &[f32],
     output_norm_weight: &[f32],
     layer_norm_weights: &[(Vec<f32>, Vec<f32>, Option<Vec<f32>>, Option<Vec<f32>>)],
+    layer_qkv_biases: &[(Option<Vec<f32>>, Option<Vec<f32>>, Option<Vec<f32>>)],
     kv_cache_k: &mut Vec<Vec<f32>>, // [num_layers][kv_len * kv_dim]
     kv_cache_v: &mut Vec<Vec<f32>>,
     token_id: u32,
@@ -986,9 +987,28 @@ pub fn forward_token_apr_q4k(
         let k_key = format!("model.layers.{layer_idx}.self_attn.k_proj.weight");
         let v_key = format!("model.layers.{layer_idx}.self_attn.v_proj.weight");
 
-        let (mut q, mut k, v) = q4k_batch_qkv(
+        let (mut q, mut k, mut v) = q4k_batch_qkv(
             executor, &normed, &q_key, &k_key, &v_key, q_dim, kv_dim, hidden_dim,
         )?;
+
+        // PMAT-315: Add QKV biases (required for Qwen2, Phi; no-op for LLaMA/Mistral)
+        if let Some((ref q_bias, ref k_bias, ref v_bias)) = layer_qkv_biases.get(layer_idx) {
+            if let Some(qb) = q_bias {
+                for (qi, bi) in q.iter_mut().zip(qb.iter()) {
+                    *qi += *bi;
+                }
+            }
+            if let Some(kb) = k_bias {
+                for (ki, bi) in k.iter_mut().zip(kb.iter()) {
+                    *ki += *bi;
+                }
+            }
+            if let Some(vb) = v_bias {
+                for (vi, bi) in v.iter_mut().zip(vb.iter()) {
+                    *vi += *bi;
+                }
+            }
+        }
 
         // 2b'. QK-norm (Qwen3-style): per-head RMSNorm on Q and K before RoPE
         if let Some(ref q_norm_w) = layer_norm_weights[layer_idx].2 {
