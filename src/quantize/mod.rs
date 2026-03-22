@@ -71,6 +71,7 @@ pub mod format_trait;
 pub mod fused_gate_up;
 pub mod fused_k;
 pub mod fused_q5k_q6k;
+pub(crate) mod gemv_pool;
 pub mod generic_dot;
 pub mod generic_matvec;
 pub mod parallel_dequant;

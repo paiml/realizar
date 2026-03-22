@@ -132,7 +132,10 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
             let bpr = bytes_per_row;
             let nsb = super_blocks_per_row;
 
-            // PMAT-308: Lean rayon dispatch — C-style inner loop with raw _raw variant.
+            // PMAT-310: GEMV pool FALSIFIED (deadlock under concurrent requests).
+            // Barrier-based pool + Mutex for work distribution = deadlock when
+            // HTTP handler thread contends with pool threads on barriers.
+            // Rayon's work-stealing, despite overhead, handles concurrency correctly.
             use rayon::prelude::*;
             let w_addr = weight_data.as_ptr() as usize;
             let sc_addr = q8k_scales.as_ptr() as usize;
