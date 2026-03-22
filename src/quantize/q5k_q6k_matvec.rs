@@ -132,19 +132,27 @@ pub fn fused_q4k_q8k_parallel_matvec_into(
             let bpr = bytes_per_row;
             let nsb = super_blocks_per_row;
 
+            // PMAT-308: Lean rayon dispatch — C-style inner loop with raw _raw variant.
             use rayon::prelude::*;
+            let w_addr = weight_data.as_ptr() as usize;
+            let sc_addr = q8k_scales.as_ptr() as usize;
+            let qq_addr = q8k_quants.as_ptr() as usize;
+            let bs_addr = bsums_i16.as_ptr() as usize;
+
             output[..out_dim]
                 .par_chunks_mut(64)
                 .enumerate()
                 .for_each(|(ci, chunk)| {
-                    let base = ci * 64;
-                    for (i, out) in chunk.iter_mut().enumerate() {
-                        let row = base + i;
-                        // SAFETY: bounds validated at function entry (lines 94-113).
-                        unsafe {
-                            let row_ptr = weight_data.as_ptr().add(row * bpr);
-                            *out = super::fused_k::ggml_style_q4k_q8k_dot_avx2(
-                                row_ptr, q8k_scales, q8k_quants, &bsums_i16, nsb,
+                    let row_start = ci * 64;
+                    unsafe {
+                        let w = w_addr as *const u8;
+                        let sc = sc_addr as *const f32;
+                        let qq = qq_addr as *const i8;
+                        let bs = bs_addr as *const i16;
+                        for (i, out) in chunk.iter_mut().enumerate() {
+                            let row = row_start + i;
+                            *out = super::fused_k::ggml_style_q4k_q8k_dot_avx2_raw(
+                                w.add(row * bpr), sc, qq, bs, nsb,
                             );
                         }
                     }

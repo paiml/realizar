@@ -56,7 +56,7 @@ pub(crate) unsafe fn ggml_style_q4k_q8k_dot_avx2(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2", enable = "fma")]
 #[inline]
-unsafe fn ggml_style_q4k_q8k_dot_avx2_raw(
+pub(crate) unsafe fn ggml_style_q4k_q8k_dot_avx2_raw(
     weight_row: *const u8,
     q8k_scales_ptr: *const f32,
     q8k_quants_ptr: *const i8,
