@@ -84,7 +84,7 @@ impl GemvPool {
         // SAFETY: f lives until we call end_barrier.wait() below
         let f_static: &'static (dyn Fn(usize, usize) + Send + Sync) =
             unsafe { std::mem::transmute(f_ref) };
-        let boxed: WorkFn = Box::new(move |a, b| f_static(a, b));
+        let boxed: WorkFn = Box::new(move |a, b| (*f_static)(a, b));
 
         {
             let mut guard = self.shared.work.lock().unwrap();

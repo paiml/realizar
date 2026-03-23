@@ -61,6 +61,30 @@ pub enum PagedCacheError {
         /// Sequence ID
         seq_id: u64,
     },
+
+    /// Unknown sequence ID
+    #[error("Unknown sequence: {0:?}")]
+    UnknownSequence(SeqId),
+
+    /// Position out of bounds for sequence
+    #[error("Out of bounds: seq {seq_id:?} pos {position}, allocated {allocated}")]
+    OutOfBounds {
+        /// Sequence ID
+        seq_id: SeqId,
+        /// Requested position
+        position: usize,
+        /// Allocated capacity
+        allocated: usize,
+    },
+
+    /// Not enough free pages
+    #[error("Out of pages: need {requested}, have {available}")]
+    OutOfPages {
+        /// Pages requested
+        requested: usize,
+        /// Pages available
+        available: usize,
+    },
 }
 
 /// Unique sequence identifier

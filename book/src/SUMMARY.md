@@ -193,6 +193,7 @@
 - [TDG Score](./quality/tdg.md)
 - [Rust Project Score (132.9/134 A+)](./quality/rust-project-score.md)
 - [Continuous Integration](./quality/ci.md)
+- [Provable Contracts](./quality/contracts.md)
 
 # Performance
 

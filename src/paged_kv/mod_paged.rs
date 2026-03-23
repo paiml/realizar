@@ -441,4 +441,42 @@ impl PagedKvCache {
 
         false
     }
+
+    /// Map a (sequence, position) pair to a flat slot index.
+    ///
+    /// Contract: paged-kv-cache-v1 / slot_mapping
+    pub fn slot(&self, seq_id: SeqId, position: usize) -> Result<usize, PagedCacheError> {
+        let page_idx = position / self.block_size;
+        let offset = position % self.block_size;
+        let pages = self
+            .page_tables
+            .get(&seq_id)
+            .ok_or(PagedCacheError::UnknownSequence(seq_id))?;
+        if page_idx >= pages.len() {
+            return Err(PagedCacheError::OutOfBounds {
+                seq_id,
+                position,
+                allocated: pages.len() * self.block_size,
+            });
+        }
+        let page_id = pages[page_idx];
+        Ok(page_id.value() as usize * self.block_size + offset)
+    }
+
+    /// Allocate a contiguous block of pages from the free list.
+    ///
+    /// Contract: paged-kv-cache-v1 / block_allocation
+    pub fn allocate_blocks(&mut self, num_blocks: usize) -> Result<Vec<PageId>, PagedCacheError> {
+        if self.free_pages.len() < num_blocks {
+            return Err(PagedCacheError::OutOfPages {
+                requested: num_blocks,
+                available: self.free_pages.len(),
+            });
+        }
+        let allocated: Vec<PageId> = (0..num_blocks)
+            .map(|_| self.free_pages.pop_front().unwrap())
+            .collect();
+        self.stats.used_pages += allocated.len() as u64;
+        Ok(allocated)
+    }
 }

@@ -3,6 +3,9 @@
 //! `OwnedQuantizedModelCached` uses RefCell for interior mutability,
 //! suitable for single-threaded inference without HTTP serving.
 
+#[cfg(feature = "gpu")]
+use provable_contracts_macros::contract;
+
 use crate::error::{RealizarError, Result};
 use crate::gguf::{
     OwnedQKVWeights, OwnedQuantizedModel, OwnedQuantizedTensor, QuantizedGenerateConfig,
