@@ -183,4 +183,25 @@ impl CudaExecutor {
     ) -> Result<usize, GpuError> {
         self.incremental_attention_into_inner(layer_idx, q_gpu, k_gpu, v_gpu, out_gpu, true)
     }
+
+    /// Paged attention — equivalent to incremental attention for contiguous sequences.
+    ///
+    /// Contract: paged-kv-cache-v1 / paged_contiguous_equivalence
+    /// Invariant: |paged_attention(q, block_table) - incremental_attention(q, kv_cache)| < eps
+    ///
+    /// Currently delegates to incremental_attention_into. When the paged KV cache
+    /// GPU kernel is implemented, this will dispatch through block_table indirection.
+    pub fn paged_attention_into(
+        &mut self,
+        layer_idx: usize,
+        q_gpu: &GpuBuffer<f32>,
+        k_gpu: &GpuBuffer<f32>,
+        v_gpu: &GpuBuffer<f32>,
+        out_gpu: &GpuBuffer<f32>,
+    ) -> Result<usize, GpuError> {
+        // Paged ≡ contiguous for single-sequence (no block table indirection needed).
+        // When multi-tenant paged attention is wired, this will use block_table
+        // to gather KV pages instead of linear stride.
+        self.incremental_attention_into(layer_idx, q_gpu, k_gpu, v_gpu, out_gpu)
+    }
 }
