@@ -7,6 +7,7 @@ impl OwnedQuantizedModel {
     /// Same computation as `forward()` but uses pre-allocated workspace buffers.
     /// Only supports seq_len=1 (single token decode). Falls back to `forward()`
     /// for prefill (seq_len > 1).
+    #[allow(private_interfaces)]
     pub fn forward_decode_lean(
         &self,
         token_ids: &[u32],
@@ -34,7 +35,7 @@ impl OwnedQuantizedModel {
         }
 
         // 2. Process layers with workspace buffers
-        for (_layer_idx, layer) in self.layers.iter().enumerate() {
+        for layer in &self.layers {
             // 2a. Pre-attention RMSNorm → buf_hidden_a
             if use_rmsnorm {
                 ops::rms_norm_into(

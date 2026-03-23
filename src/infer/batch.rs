@@ -439,8 +439,8 @@ where
             .map_err(|e| RealizarError::IoError { message: format!("Flush error: {}", e) })?;
 
         if prompt_idx % 10 == 0 {
-            eprintln!("[batch] {}/{} processed ({} ok, {} failed)",
-                prompt_idx, "?", stats.successful, stats.failed);
+            eprintln!("[batch] {prompt_idx}/? processed ({} ok, {} failed)",
+                stats.successful, stats.failed);
         }
     }
 

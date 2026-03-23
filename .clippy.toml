@@ -8,8 +8,6 @@ cognitive-complexity-threshold = 20
 # Type complexity threshold
 type-complexity-threshold = 250
 
-# Disallowed methods: ban panicking operations in production code (CB-503)
-disallowed-methods = [
-    { path = "core::option::Option::unwrap", reason = "use .expect() with context or handle None" },
-    { path = "core::result::Result::unwrap", reason = "use .expect() with context or propagate with ?" },
-]
+# Disallowed methods (Cloudflare-class defect prevention)
+# Note: disallowed-methods removed — unwrap_used at workspace level
+disallowed-methods = []
