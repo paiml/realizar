@@ -11,6 +11,7 @@ use crate::quantize::{dequantize_q4_k, dequantize_q5_k, dequantize_q6_k};
 ///
 /// Returns a map of weight name → (F32 data, rows, cols) ready for
 /// `WgslForwardPass::upload_weight()`.
+#[provable_contracts_macros::contract("wgpu-forward-pass-v1", equation = "dequant_correctness")]
 pub fn dequant_model_weights(
     model: &OwnedQuantizedModel,
 ) -> Result<Vec<(String, Vec<f32>, usize, usize)>> {

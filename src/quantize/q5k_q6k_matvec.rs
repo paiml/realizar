@@ -76,6 +76,7 @@ pub fn fused_q6k_parallel_matvec_into(
 ///
 /// Contract: quantized-dot-product-v1.yaml — precomputes Q8K bsums once per
 /// token for the fallback path (4-row AVX512 VNNI path has internal precomputation).
+#[provable_contracts_macros::contract("q4k-cross-backend-parity-v1", equation = "dot_product_epsilon")]
 pub fn fused_q4k_q8k_parallel_matvec_into(
     weight_data: &[u8],
     q8k_scales: &[f32],
