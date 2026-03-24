@@ -304,9 +304,17 @@ fn emit_contract_bindings() {
 
     let total = implemented + partial + not_implemented;
     println!(
-        "cargo:warning=[contract] Summary: {implemented}/{total} implemented, \
-         {partial} partial, {not_implemented} gaps (WarnOnGaps policy)"
+        "cargo:warning=[contract] AllImplemented: {implemented}/{total} implemented, \
+         {partial} partial, {not_implemented} gaps"
     );
+
+    // AllImplemented policy: fail build on any not_implemented gap
+    if not_implemented > 0 {
+        panic!(
+            "[contract] AllImplemented policy violation: {not_implemented} binding(s) are \
+             not_implemented. Fix: implement the binding or update binding.yaml status."
+        );
+    }
 
     // Set metadata env vars for the proc macro
     println!("cargo:rustc-env=CONTRACT_BINDING_SOURCE=binding.yaml");
