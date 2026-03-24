@@ -84,6 +84,34 @@ impl GGUFModel {
         }
     }
 
+    /// PMAT-341: Get BPE merge rules from metadata.
+    ///
+    /// Returns merge pairs as (first, second) tuples.
+    /// Uses "tokenizer.ggml.merges" key from GGUF metadata.
+    #[must_use]
+    pub fn merge_rules(&self) -> Option<Vec<(String, String)>> {
+        if let Some(GGUFValue::Array(arr)) = self.metadata.get("tokenizer.ggml.merges") {
+            let merges: Vec<(String, String)> = arr
+                .iter()
+                .filter_map(|v| {
+                    if let GGUFValue::String(s) = v {
+                        let parts: Vec<&str> = s.splitn(2, ' ').collect();
+                        if parts.len() == 2 {
+                            Some((parts[0].to_string(), parts[1].to_string()))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if merges.is_empty() { None } else { Some(merges) }
+        } else {
+            None
+        }
+    }
+
     /// Decode token IDs to text using vocabulary
     ///
     /// Returns decoded string. Unknown tokens are replaced with "�".
