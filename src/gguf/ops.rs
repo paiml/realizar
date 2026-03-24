@@ -16,6 +16,7 @@
 //! - `argmax`: Find index of maximum value
 //! - `softmax`: Numerically stable softmax
 
+use provable_contracts_macros::contract;
 use trueno::Vector as TruenoVector;
 
 // =============================================================================
@@ -34,6 +35,7 @@ use trueno::Vector as TruenoVector;
 ///
 /// # Returns
 /// Normalized output [seq_len * hidden_dim]
+#[contract("forward-pass-v1", equation = "rms_norm")]
 pub fn rms_norm(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
     let hidden_dim = weight.len();
     let seq_len = input.len() / hidden_dim;
@@ -257,6 +259,7 @@ pub fn argmax(logits: &[f32]) -> u32 {
 ///
 /// # Arguments
 /// * `logits` - Input logits (modified in-place to probabilities)
+#[contract("sampling-v1", equation = "softmax_inplace")]
 pub fn softmax(logits: &mut [f32]) {
     // Find max for numerical stability
     let max_val = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);

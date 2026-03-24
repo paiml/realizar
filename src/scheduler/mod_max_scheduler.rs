@@ -107,6 +107,17 @@ impl Scheduler {
         Ok(output)
     }
 
+    /// Schedule one step (alias for schedule).
+    ///
+    /// Contract: continuous-batching-v1 / token_budget
+    pub fn schedule_step(
+        &mut self,
+        kv_cache: &mut PagedKvCache,
+        eos_token: u32,
+    ) -> Result<SchedulerOutput, SchedulerError> {
+        self.schedule(kv_cache, eos_token)
+    }
+
     /// Update scheduler after generation iteration
     pub fn update_after_iteration(&mut self, generated_tokens: &HashMap<u64, u32>) {
         for (&request_id, &token) in generated_tokens {

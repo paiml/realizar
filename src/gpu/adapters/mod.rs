@@ -23,6 +23,8 @@ mod apr_q4;
 mod apr_q4_tests;
 #[cfg(feature = "cuda")]
 pub mod apr_q4k;
+/// PMAT-333: WGPU adapter — dequantize quantized model for WGPU inference
+pub mod wgpu_adapter;
 #[cfg(test)]
 mod tests;
 

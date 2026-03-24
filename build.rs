@@ -244,6 +244,9 @@ fn main() {
 
     // Phase 2: Contract binding env vars
     emit_contract_bindings();
+
+    // Phase 3: Contract assertion env vars from per-equation YAML
+    emit_contract_assertions();
 }
 
 /// Phase 2: Read binding.yaml and emit CONTRACT_* env vars for the proc macro.
@@ -301,9 +304,17 @@ fn emit_contract_bindings() {
 
     let total = implemented + partial + not_implemented;
     println!(
-        "cargo:warning=[contract] Summary: {implemented}/{total} implemented, \
-         {partial} partial, {not_implemented} gaps (WarnOnGaps policy)"
+        "cargo:warning=[contract] AllImplemented: {implemented}/{total} implemented, \
+         {partial} partial, {not_implemented} gaps"
     );
+
+    // AllImplemented policy: fail build on any not_implemented gap
+    if not_implemented > 0 {
+        panic!(
+            "[contract] AllImplemented policy violation: {not_implemented} binding(s) are \
+             not_implemented. Fix: implement the binding or update binding.yaml status."
+        );
+    }
 
     // Set metadata env vars for the proc macro
     println!("cargo:rustc-env=CONTRACT_BINDING_SOURCE=binding.yaml");
@@ -702,4 +713,69 @@ fn generate_tensor_names_file() {
 
     std::fs::write(&out_path, include_str!("src/tensor_names_fallback.rs"))
         .expect("Failed to write tensor_names_generated.rs");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 3: Contract assertion env vars from per-equation YAML
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize, Default)]
+struct ContractYaml {
+    #[serde(default)]
+    equations: BTreeMap<String, EquationYaml>,
+}
+
+#[derive(Deserialize, Default)]
+struct EquationYaml {
+    #[serde(default)]
+    preconditions: Vec<String>,
+    #[serde(default)]
+    postconditions: Vec<String>,
+}
+
+fn emit_contract_assertions() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("contracts");
+    if !dir.exists() {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    let (mut tp, mut tq) = (0usize, 0usize);
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.extension().and_then(|e| e.to_str()) != Some("yaml") {
+            continue;
+        }
+        println!("cargo:rerun-if-changed={}", p.display());
+        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("x");
+        let Ok(c) = std::fs::read_to_string(&p) else {
+            continue;
+        };
+        let Ok(y): Result<ContractYaml, _> = serde_yaml_ng::from_str(&c) else {
+            continue;
+        };
+        let su = stem.to_uppercase().replace('-', "_");
+        for (eq, e) in &y.equations {
+            let eu = eq.to_uppercase().replace('-', "_");
+            let k = format!("CONTRACT_{su}_{eu}");
+            if !e.preconditions.is_empty() {
+                println!("cargo:rustc-env={k}_PRE_COUNT={}", e.preconditions.len());
+                for (i, v) in e.preconditions.iter().enumerate() {
+                    println!("cargo:rustc-env={k}_PRE_{i}={v}");
+                }
+                tp += e.preconditions.len();
+            }
+            if !e.postconditions.is_empty() {
+                println!("cargo:rustc-env={k}_POST_COUNT={}", e.postconditions.len());
+                for (i, v) in e.postconditions.iter().enumerate() {
+                    println!("cargo:rustc-env={k}_POST_{i}={v}");
+                }
+                tq += e.postconditions.len();
+            }
+        }
+    }
+    println!(
+        "cargo:warning=[contract] Assertions: {tp} preconditions, {tq} postconditions from YAML"
+    );
 }
