@@ -72,6 +72,16 @@ pub fn dequant_model_weights(
             }
         }
 
+        // PMAT-342: QKV biases (required for Qwen2)
+        if let Some(ref bias) = layer.qkv_bias {
+            // Fused QKV bias: split into q_bias, k_bias, v_bias
+            if bias.len() >= q_dim + 2 * kv_dim {
+                weights.push((format!("{prefix}.q_bias"), bias[..q_dim].to_vec(), 1, q_dim));
+                weights.push((format!("{prefix}.k_bias"), bias[q_dim..q_dim + kv_dim].to_vec(), 1, kv_dim));
+                weights.push((format!("{prefix}.v_bias"), bias[q_dim + kv_dim..q_dim + 2 * kv_dim].to_vec(), 1, kv_dim));
+            }
+        }
+
         // O projection
         weights.push((
             format!("{prefix}.o_proj"),
