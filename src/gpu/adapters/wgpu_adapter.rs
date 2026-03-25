@@ -115,9 +115,20 @@ pub fn dequant_model_weights(
         hidden,
     ));
 
+    // PMAT-345: Weight layout analysis.
+    // GGUF stores [ne0, ne1] with data layout data[i0 + i1*ne0].
+    // For a weight W with GGUF dims [in_dim, out_dim]:
+    //   data[in + out*in_dim] → this IS row-major [out_dim, in_dim]
+    // The dequant_tensor produces data in this same order.
+    // Our (rows=out_dim, cols=in_dim) labels match the data layout.
+    // WGSL GEMV: w[row * K + col] = data[out * in_dim + in] ← CORRECT
+    // NO TRANSPOSE NEEDED — GGUF layout is already row-major for [out, in].
+    //
+    // Previous transpose was WRONG — it double-transposed, causing garbled output.
+
     let total_bytes: usize = weights.iter().map(|(_, d, _, _)| d.len() * 4).sum();
     eprintln!(
-        "[PMAT-333] Dequantized {} weights, {:.1} MB F32",
+        "[PMAT-345] Dequantized + transposed {} weights, {:.1} MB F32",
         weights.len(),
         total_bytes as f64 / 1e6,
     );
