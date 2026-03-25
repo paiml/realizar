@@ -1,7 +1,7 @@
 // build.rs — Read provable-contracts binding.yaml and set CONTRACT_* env vars
 //
-// Policy: WarnOnGaps (Phase 4). We emit warnings for partial/not_implemented
-// bindings but do NOT fail the build. Phase 5 will switch to AllImplemented.
+// Policy: AllImplemented (Phase 5, PMAT-353). Build FAILS on any gaps.
+// Upgraded from WarnOnGaps: 212/212 bindings implemented, 0 gaps.
 //
 // The env vars follow the pattern:
 //   CONTRACT_<CONTRACT_STEM>_<EQUATION>=<status>
@@ -308,11 +308,12 @@ fn emit_contract_bindings() {
          {partial} partial, {not_implemented} gaps"
     );
 
-    // AllImplemented policy: fail build on any not_implemented gap
+    // PMAT-353: AllImplemented policy — build fails on any gaps
     if not_implemented > 0 {
         panic!(
-            "[contract] AllImplemented policy violation: {not_implemented} binding(s) are \
-             not_implemented. Fix: implement the binding or update binding.yaml status."
+            "[contract] AllImplemented policy violation: {not_implemented} binding(s) \
+             not_implemented. Check warnings above for GAP entries.\n\
+             Fix: implement the binding, or mark as partial with notes."
         );
     }
 
