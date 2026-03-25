@@ -11,6 +11,7 @@ use crate::quantize::{dequantize_q4_k, dequantize_q5_k, dequantize_q6_k};
 ///
 /// Returns a map of weight name → (F32 data, rows, cols) ready for
 /// `WgslForwardPass::upload_weight()`.
+#[provable_contracts_macros::contract("wgpu-forward-pass-v1", equation = "dequant_correctness")]
 pub fn dequant_model_weights(
     model: &OwnedQuantizedModel,
 ) -> Result<Vec<(String, Vec<f32>, usize, usize)>> {
@@ -41,12 +42,7 @@ pub fn dequant_model_weights(
         ));
 
         if let Some(ref ffn_norm) = layer.ffn_norm_weight {
-            weights.push((
-                format!("{prefix}.ffn_norm"),
-                ffn_norm.clone(),
-                1,
-                hidden,
-            ));
+            weights.push((format!("{prefix}.ffn_norm"), ffn_norm.clone(), 1, hidden));
         }
 
         // QKV weights — dequantize from quantized format
@@ -64,12 +60,27 @@ pub fn dequant_model_weights(
                 weights.push((format!("{prefix}.q_proj"), q_data, q_dim, hidden));
                 weights.push((format!("{prefix}.k_proj"), k_data, kv_dim, hidden));
                 weights.push((format!("{prefix}.v_proj"), v_data, kv_dim, hidden));
-            }
+            },
             crate::gguf::OwnedQKVWeights::Separate { q, k, v } => {
-                weights.push((format!("{prefix}.q_proj"), dequant_tensor(q)?, q_dim, hidden));
-                weights.push((format!("{prefix}.k_proj"), dequant_tensor(k)?, kv_dim, hidden));
-                weights.push((format!("{prefix}.v_proj"), dequant_tensor(v)?, kv_dim, hidden));
-            }
+                weights.push((
+                    format!("{prefix}.q_proj"),
+                    dequant_tensor(q)?,
+                    q_dim,
+                    hidden,
+                ));
+                weights.push((
+                    format!("{prefix}.k_proj"),
+                    dequant_tensor(k)?,
+                    kv_dim,
+                    hidden,
+                ));
+                weights.push((
+                    format!("{prefix}.v_proj"),
+                    dequant_tensor(v)?,
+                    kv_dim,
+                    hidden,
+                ));
+            },
         }
 
         // PMAT-342: QKV biases (required for Qwen2)
@@ -77,8 +88,18 @@ pub fn dequant_model_weights(
             // Fused QKV bias: split into q_bias, k_bias, v_bias
             if bias.len() >= q_dim + 2 * kv_dim {
                 weights.push((format!("{prefix}.q_bias"), bias[..q_dim].to_vec(), 1, q_dim));
-                weights.push((format!("{prefix}.k_bias"), bias[q_dim..q_dim + kv_dim].to_vec(), 1, kv_dim));
-                weights.push((format!("{prefix}.v_bias"), bias[q_dim + kv_dim..q_dim + 2 * kv_dim].to_vec(), 1, kv_dim));
+                weights.push((
+                    format!("{prefix}.k_bias"),
+                    bias[q_dim..q_dim + kv_dim].to_vec(),
+                    1,
+                    kv_dim,
+                ));
+                weights.push((
+                    format!("{prefix}.v_bias"),
+                    bias[q_dim + kv_dim..q_dim + 2 * kv_dim].to_vec(),
+                    1,
+                    kv_dim,
+                ));
             }
         }
 
@@ -138,7 +159,7 @@ pub fn dequant_model_weights(
 
     let total_bytes: usize = weights.iter().map(|(_, d, _, _)| d.len() * 4).sum();
     eprintln!(
-        "[PMAT-345] Dequantized + transposed {} weights, {:.1} MB F32",
+        "[PMAT-333] Dequantized {} weights, {:.1} MB F32",
         weights.len(),
         total_bytes as f64 / 1e6,
     );
@@ -158,21 +179,19 @@ fn dequant_tensor(tensor: &crate::gguf::OwnedQuantizedTensor) -> Result<Vec<f32>
         GGUF_TYPE_Q4_K => dequantize_q4_k(&tensor.data),
         GGUF_TYPE_Q6_K => dequantize_q6_k(&tensor.data),
         GGUF_TYPE_Q5_K => dequantize_q5_k(&tensor.data),
-        GGUF_TYPE_F32 => {
-            Ok(tensor.data
-                .chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect())
-        }
-        GGUF_TYPE_F16 => {
-            Ok(tensor.data
-                .chunks_exact(2)
-                .map(|c| {
-                    let bits = u16::from_le_bytes([c[0], c[1]]);
-                    half::f16::from_bits(bits).to_f32()
-                })
-                .collect())
-        }
+        GGUF_TYPE_F32 => Ok(tensor
+            .data
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect()),
+        GGUF_TYPE_F16 => Ok(tensor
+            .data
+            .chunks_exact(2)
+            .map(|c| {
+                let bits = u16::from_le_bytes([c[0], c[1]]);
+                half::f16::from_bits(bits).to_f32()
+            })
+            .collect()),
         other => Err(RealizarError::FormatError {
             reason: format!("Unsupported quantization type {} for WGPU dequant", other),
         }),
