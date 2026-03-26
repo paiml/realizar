@@ -76,6 +76,9 @@ impl CudaExecutor {
                 eprintln!(
                     "[PAR-054] Graph capture failed: {:?}, using non-graphed path (no retry)", e
                 );
+                // PMAT-374: Sync stream + re-upload input (capture modified workspace state)
+                let _ = self.stream.synchronize();
+                self.prepare_graph_buffers(input, position, hidden_dim, vocab_size)?;
                 self.forward_all_layers_gpu_to_logits(
                     input, logits, position, num_layers, hidden_dim,
                     intermediate_dim, vocab_size, epsilon,
@@ -98,10 +101,11 @@ impl CudaExecutor {
         vocab_size: u32,
         epsilon: f32,
     ) -> Result<Option<Result<(), GpuError>>, GpuError> {
-        // PAR-054: Environment variable to disable CUDA graphs
-        static GRAPH_DISABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let graph_disabled = *GRAPH_DISABLED.get_or_init(|| {
-            std::env::var("CUDA_GRAPH_DISABLE")
+        // PMAT-374: CUDA graph capture disabled by default — poisons context on driver
+        // 590.48.01 (sm_89). Opt-in with CUDA_GRAPH_ENABLE=1.
+        static GRAPH_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let graph_disabled = !*GRAPH_ENABLED.get_or_init(|| {
+            std::env::var("CUDA_GRAPH_ENABLE")
                 .map(|v| v == "1")
                 .unwrap_or(false)
         });

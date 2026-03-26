@@ -1,6 +1,7 @@
 impl CudaExecutor {
 
     /// PAR-054: Try to capture CUDA graph
+    /// PMAT-374: If capture fails, ensure stream returns to non-capture state.
     fn try_graph_capture(
         &mut self,
         num_layers: usize,
@@ -10,7 +11,9 @@ impl CudaExecutor {
         epsilon: f32,
     ) -> Result<(), GpuError> {
         // Begin graph capture
-        self.stream.begin_capture(CaptureMode::Global)?;
+        // PMAT-374: Use ThreadLocal instead of Global to avoid poisoning
+        // the entire CUDA context if capture fails (driver 590.48.01 bug).
+        self.stream.begin_capture(CaptureMode::ThreadLocal)?;
 
         // Run workspace forward pass (all kernels will be captured)
         let capture_result = self.forward_workspace_captured(
@@ -21,8 +24,16 @@ impl CudaExecutor {
             epsilon,
         );
 
-        // End capture regardless of result
-        let graph = self.stream.end_capture()?;
+        // End capture regardless of result — MUST be called to leave capture mode
+        let graph = match self.stream.end_capture() {
+            Ok(g) => g,
+            Err(e) => {
+                // PMAT-374: end_capture failed — stream may be stuck in capture mode.
+                // Synchronize to force clean state before returning error.
+                let _ = self.stream.synchronize();
+                return Err(e);
+            }
+        };
 
         // Check capture result
         capture_result?;
