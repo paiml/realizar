@@ -167,6 +167,57 @@ pub fn dequant_model_weights(
     Ok(weights)
 }
 
+/// PMAT-364: Extract raw Q4K weight bytes for fused dequant+GEMV on GPU.
+/// Returns (name, raw_bytes, rows, cols) for Q4K tensors only. Other types skipped.
+pub fn raw_q4k_weights(
+    model: &OwnedQuantizedModel,
+) -> Vec<(String, Vec<u8>, usize, usize)> {
+    const GGUF_TYPE_Q4_K: u32 = 12;
+    let config = &model.config;
+    let hidden = config.hidden_dim;
+    let num_heads = config.num_heads;
+    let num_kv_heads = config.num_kv_heads;
+    let head_dim = config.head_dim();
+    let intermediate = config.intermediate_dim;
+    let q_dim = num_heads * head_dim;
+    let kv_dim = num_kv_heads * head_dim;
+    let mut raw = Vec::new();
+
+    for (i, layer) in model.layers().iter().enumerate() {
+        let prefix = format!("layer.{i}");
+        // Only extract Q4K projection weights (skip norms, biases)
+        let projections: Vec<(&str, &crate::gguf::OwnedQuantizedTensor, usize, usize)> = vec![
+            ("o_proj", &layer.attn_output_weight, hidden, q_dim),
+            ("up_proj", &layer.ffn_up_weight, intermediate, hidden),
+            ("down_proj", &layer.ffn_down_weight, hidden, intermediate),
+        ];
+        if let Some(ref gate) = layer.ffn_gate_weight {
+            raw.push((format!("{prefix}.gate_proj"), gate.data.clone(), intermediate, hidden));
+        }
+        for (name, tensor, rows, cols) in projections {
+            if tensor.qtype == GGUF_TYPE_Q4_K {
+                raw.push((format!("{prefix}.{name}"), tensor.data.clone(), rows, cols));
+            }
+        }
+        // QKV: handle separate weights
+        match &layer.qkv_weight {
+            crate::gguf::OwnedQKVWeights::Separate { q, k, v } => {
+                if q.qtype == GGUF_TYPE_Q4_K {
+                    raw.push((format!("{prefix}.q_proj"), q.data.clone(), q_dim, hidden));
+                }
+                if k.qtype == GGUF_TYPE_Q4_K {
+                    raw.push((format!("{prefix}.k_proj"), k.data.clone(), kv_dim, hidden));
+                }
+                if v.qtype == GGUF_TYPE_Q4_K {
+                    raw.push((format!("{prefix}.v_proj"), v.data.clone(), kv_dim, hidden));
+                }
+            }
+            _ => {}
+        }
+    }
+    raw
+}
+
 /// Dequantize a single OwnedQuantizedTensor to F32
 fn dequant_tensor(tensor: &crate::gguf::OwnedQuantizedTensor) -> Result<Vec<f32>> {
     const GGUF_TYPE_Q4_K: u32 = 12;

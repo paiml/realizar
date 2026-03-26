@@ -37,7 +37,8 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check after RMSNorm (skip during graph capture)
-        if !skip_debug && layer_idx < 4 {
+        // GH-559: Extended to layers 10-12 to debug no-op layers
+        if !skip_debug && (layer_idx < 4 || (layer_idx >= 10 && layer_idx <= 12)) {
             self.stream.synchronize()?;
             let mut rmsnorm_out = vec![0.0f32; hidden_buf1.len()];
             hidden_buf1.copy_to_host(&mut rmsnorm_out)?;
@@ -137,12 +138,11 @@ impl CudaExecutor {
         self.apply_qk_norm(q_buf, k_buf, layer_weights, epsilon)?;
 
         // PAR-058-DEBUG: Check Q/K/V after projections (skip during graph capture)
+        // GH-559: Extended to layers 10-12 to debug no-op layers
         if !skip_debug
-            && (layer_idx == 0
-                || layer_idx == 1
-                || layer_idx == 2
-                || layer_idx == 3
-                || layer_idx == 5)
+            && (layer_idx < 4
+                || layer_idx == 5
+                || (layer_idx >= 10 && layer_idx <= 12))
         {
             self.stream.synchronize()?;
             eprintln!(

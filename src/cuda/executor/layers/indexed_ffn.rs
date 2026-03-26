@@ -57,7 +57,7 @@ impl CudaExecutor {
             )?;
         }
 
-        if !skip_debug && layer_idx < 4 {
+        if !skip_debug && (layer_idx < 4 || (layer_idx >= 10 && layer_idx <= 12)) {
             self.debug_check_buf(ffn_act_buf, "SwiGLU", layer_idx)?;
         }
 
@@ -99,7 +99,7 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check FFN down output (skip during graph capture)
-        if !skip_debug && layer_idx < 4 {
+        if !skip_debug && (layer_idx < 4 || (layer_idx >= 10 && layer_idx <= 12)) {
             self.debug_check_buf(hidden_buf1, "FFN down", layer_idx)?;
         }
 
@@ -115,8 +115,14 @@ impl CudaExecutor {
             self.stop_brick_timer(timer_res2, 1);
         }
 
+        // GH-559: Force stream sync after final residual to ensure hidden_buf2 is
+        // fully written before the next layer reads it. On Blackwell sm_121, the
+        // CUDA JIT may not guarantee same-stream ordering for all kernel types.
+        // Without this sync, layers 13-27 see stale hidden_buf2 data (no-op layers).
+        self.stream.synchronize()?;
+
         // PAR-058-DEBUG: Check layer output (skip during graph capture)
-        if !skip_debug && layer_idx < 10 {
+        if !skip_debug && (layer_idx < 10 || (layer_idx >= 10 && layer_idx <= 12)) {
             self.debug_check_buf(hidden_buf2, "Layer output", layer_idx)?;
         }
 

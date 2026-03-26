@@ -25,17 +25,10 @@ impl CudaExecutor {
         } else {
             None
         };
-        let _seq_len = if skip_debug {
-            self.incremental_attention_into_for_capture(
-                layer_idx,
-                q_buf,
-                k_buf,
-                v_buf,
-                attn_out_buf,
-            )?
-        } else {
-            self.incremental_attention_into(layer_idx, q_buf, k_buf, v_buf, attn_out_buf)?
-        };
+        // GH-559 DIAGNOSTIC: Force non-capture attention path to test if
+        // incremental_attention_into_for_capture has a bug on sm_121.
+        // The _for_capture variant may produce wrong results on Blackwell.
+        let _seq_len = self.incremental_attention_into(layer_idx, q_buf, k_buf, v_buf, attn_out_buf)?;
         if profiling {
             self.stop_brick_id(timer_attn, 1);
         }
@@ -46,6 +39,17 @@ impl CudaExecutor {
             self.compute_stream.synchronize()?;
             self.debug_check_buf(attn_out_buf, "Attn", layer_idx)?;
         }
+
+        // GH-559 ROOT CAUSE FIX: Synchronize compute_stream before output projection.
+        // Attention runs on compute_stream, output projection reads attn_out_buf on self.stream.
+        // Without this sync, output projection reads stale/incomplete attention data, causing
+        // layers to produce garbage (no-op layers where output == input).
+        // Five-Whys: GPU wrong logits → layers 13-27 are no-ops → attn_out_buf stale →
+        // compute_stream not synced → race condition between attention and output projection.
+        if layer_idx == 0 {
+            eprintln!("[GH-559-FIX] compute_stream sync ACTIVE in phase_attention.rs");
+        }
+        self.compute_stream.synchronize()?;
 
         // PMAT-027: Invalidate Q8 cache — input is now attn_out_buf (different from QKV's hidden_buf1).
         self.q8_activation_valid = false;

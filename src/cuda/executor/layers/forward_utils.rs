@@ -62,6 +62,28 @@ impl CudaExecutor {
         epsilon: f32,
         position: u32,
     ) -> Result<(), GpuError> {
+        // GH-559: Per-layer debug (moved OnceLock here for early use)
+        static DEBUG_LAYERS_EARLY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let debug_layers_early = *DEBUG_LAYERS_EARLY.get_or_init(|| {
+            std::env::var("GPU_DEBUG_ALL_LAYERS")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+
+        // GH-559: Check embedding upload
+        if debug_layers_early {
+            let n = (hidden_dim as usize).min(hidden_gpu.len());
+            let mut host = vec![0.0f32; n];
+            if hidden_gpu.copy_to_host(&mut host).is_ok() {
+                let sum: f32 = host.iter().sum();
+                let rms = (host.iter().map(|x| x * x).sum::<f32>() / n as f32).sqrt();
+                eprintln!(
+                    "[GH-559] Layer 0 INPUT (hidden_gpu embed): sum={:.6}, rms={:.6}, first5={:?}",
+                    sum, rms, &host[..5.min(n)]
+                );
+            }
+        }
+
         // Layer 0: input from external hidden_gpu
         // PAR-070: Pass explicit position for RoPE and KV cache
         if num_layers > 0 {
@@ -75,6 +97,30 @@ impl CudaExecutor {
                 epsilon,
                 position,
             )?;
+        }
+
+        // GH-559: Per-layer debug checksum for GPU parity diagnosis
+        static DEBUG_LAYERS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let debug_layers = *DEBUG_LAYERS.get_or_init(|| {
+            std::env::var("GPU_DEBUG_ALL_LAYERS")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+
+        // GH-559: Check layer 0 output
+        if debug_layers {
+            if let Some(ref buf2) = self.workspace.hidden_buf2 {
+                let n = (hidden_dim as usize).min(buf2.len());
+                let mut host = vec![0.0f32; n];
+                if buf2.copy_to_host(&mut host).is_ok() {
+                    let sum: f32 = host.iter().sum();
+                    let rms = (host.iter().map(|x| x * x).sum::<f32>() / n as f32).sqrt();
+                    eprintln!(
+                        "[GH-559] Layer 0/28 OUTPUT (hidden_buf2): sum={:.6}, rms={:.6}, first5={:?}",
+                        sum, rms, &host[..5.min(n)]
+                    );
+                }
+            }
         }
 
         // Layers 1+: input from hidden_buf2 (output of previous layer)
@@ -99,6 +145,26 @@ impl CudaExecutor {
             // SAFETY: Memory safety ensured by bounds checking and alignment
             // SAFETY: Pointer valid from allocation, length verified, used within scope
             let input_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(buf_ptr, buf_len) };
+
+            // GH-559: Download hidden state checksum BEFORE this layer
+            if debug_layers {
+                let mut host_buf = vec![0.0f32; buf_len.min(hidden_dim as usize)];
+                if input_buf.copy_to_host(&mut host_buf).is_ok() {
+                    let sum: f32 = host_buf.iter().sum();
+                    let rms: f32 = (host_buf.iter().map(|x| x * x).sum::<f32>()
+                        / host_buf.len() as f32)
+                        .sqrt();
+                    eprintln!(
+                        "[GH-559] Layer {}/{} input: sum={:.6}, rms={:.6}, first5={:?}",
+                        layer_idx,
+                        num_layers,
+                        sum,
+                        rms,
+                        &host_buf[..5.min(host_buf.len())]
+                    );
+                }
+            }
+
             // PAR-070: Pass explicit position for RoPE and KV cache
             self.transformer_layer_workspace(
                 &input_buf,
