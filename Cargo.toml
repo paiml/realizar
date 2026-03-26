@@ -213,6 +213,9 @@ serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
 
 [dev-dependencies]
+# Contract trait enforcement (Section 23)
+provable-contracts = { path = "../provable-contracts/crates/provable-contracts" }
+
 # Visual regression testing framework (playbooks, TUI testing, GPU pixel verification)
 jugar-probar = { version = "0.4", features = ["tui", "gpu"] }
 
