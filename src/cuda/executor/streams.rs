@@ -115,7 +115,16 @@ impl CudaExecutor {
     ///
     /// Returns a buffer that can be used with async copy and GEMM operations.
     pub fn allocate_buffer(&self, len: usize) -> Result<GpuBuffer<f32>, GpuError> {
-        GpuBuffer::new(&self.context, len)
+        if self.use_managed_memory() {
+            GpuBuffer::new_managed(&self.context, len)
+        } else {
+            GpuBuffer::new(&self.context, len)
+        }
+    }
+
+    /// PMAT-394: Use managed memory on Grace Blackwell (cc >= 120) for zero-copy.
+    fn use_managed_memory(&self) -> bool {
+        self.gpu_profile.cc >= 120
     }
 
     /// Async copy from host to GPU buffer on transfer stream (PARITY-038)
