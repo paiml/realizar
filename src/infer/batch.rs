@@ -78,8 +78,15 @@ pub struct BatchStats {
 struct BatchModel {
     #[cfg(feature = "cuda")]
     gpu: Option<crate::gguf::OwnedQuantizedModelCuda>,
+    /// GH-560: wgpu (Vulkan) fallback for batch inference
+    #[cfg(feature = "gpu")]
+    wgpu: Option<WgpuBatchState>,
     cpu: Option<crate::gguf::OwnedQuantizedModel>,
 }
+
+// GH-560: wgpu batch state extracted to batch_wgpu.rs (< 500 line gate)
+#[cfg(feature = "gpu")]
+include!("batch_wgpu.rs");
 
 impl BatchModel {
     fn generate(
@@ -95,6 +102,13 @@ impl BatchModel {
                 .map_err(|e| {
                     RealizarError::InferenceError(format!("GPU generation failed: {}", e))
                 });
+        }
+
+        // GH-560: wgpu fallback before CPU
+        #[cfg(feature = "gpu")]
+        if let Some(ref mut wgpu) = self.wgpu {
+            return wgpu.generate(input_tokens, config)
+                .map(|tokens| (tokens, true));
         }
 
         if let Some(ref cpu) = self.cpu {
@@ -179,17 +193,22 @@ where
     let vocab_size = model.config.vocab_size;
     let batch_model = init_batch_model(model, &stop_tokens, config)?;
 
-    // If GPU consumed the model, reload for CPU
-    let batch_model = if batch_model.cpu.is_none() {
+    // If no backend has the model, reload for CPU
+    let has_gpu_gguf = {
+        let mut has = false;
         #[cfg(feature = "cuda")]
-        if batch_model.gpu.is_none() {
-            let m = OwnedQuantizedModel::from_mapped(&mapped)?;
-            BatchModel { gpu: None, cpu: Some(m) }
-        } else {
-            batch_model
+        { has = has || batch_model.gpu.is_some(); }
+        #[cfg(feature = "gpu")]
+        { has = has || batch_model.wgpu.is_some(); }
+        has
+    };
+    let batch_model = if batch_model.cpu.is_none() && !has_gpu_gguf {
+        let m = OwnedQuantizedModel::from_mapped(&mapped)?;
+        BatchModel {
+            #[cfg(feature = "cuda")] gpu: None,
+            #[cfg(feature = "gpu")] wgpu: None,
+            cpu: Some(m),
         }
-        #[cfg(not(feature = "cuda"))]
-        batch_model
     } else {
         batch_model
     };
@@ -241,17 +260,22 @@ where
     let arch = model.config.architecture.clone();
     let batch_model = init_batch_model(model, &stop_tokens, config)?;
 
-    // If GPU consumed the model, reload for CPU
-    let batch_model = if batch_model.cpu.is_none() {
+    // If no backend has the model, reload for CPU
+    let has_gpu_backend = {
+        let mut has = false;
         #[cfg(feature = "cuda")]
-        if batch_model.gpu.is_none() {
-            let m = OwnedQuantizedModel::from_apr(&mapped_apr)?;
-            BatchModel { gpu: None, cpu: Some(m) }
-        } else {
-            batch_model
+        { has = has || batch_model.gpu.is_some(); }
+        #[cfg(feature = "gpu")]
+        { has = has || batch_model.wgpu.is_some(); }
+        has
+    };
+    let batch_model = if batch_model.cpu.is_none() && !has_gpu_backend {
+        let m = OwnedQuantizedModel::from_apr(&mapped_apr)?;
+        BatchModel {
+            #[cfg(feature = "cuda")] gpu: None,
+            #[cfg(feature = "gpu")] wgpu: None,
+            cpu: Some(m),
         }
-        #[cfg(not(feature = "cuda"))]
-        batch_model
     } else {
         batch_model
     };
@@ -274,12 +298,30 @@ where
     run_batch_loop(config, reader, &mut writer, &stop_tokens, model_load_ms, batch_model, &encode, &decode)
 }
 
+
 /// Initialize batch model with GPU/CPU fallback.
 fn init_batch_model(
     model: crate::gguf::OwnedQuantizedModel,
     stop_tokens: &[u32],
     config: &BatchInferenceConfig,
 ) -> Result<BatchModel> {
+    // GH-560: wgpu batch disabled until fused QKV + OOM issues resolved.
+    // wgpu single-prompt works (cosine=0.999863). Batch needs Q4K shader (PMAT-363).
+    // Enable with WGPU_BATCH=1 for testing.
+    #[cfg(feature = "gpu")]
+    if !config.no_gpu && !model_has_legacy_quant(&model)
+        && std::env::var("WGPU_BATCH").map(|v| v == "1").unwrap_or(false)
+    {
+        if let Some(wgpu_state) = try_init_wgpu_batch(&model, config) {
+            return Ok(BatchModel {
+                #[cfg(feature = "cuda")]
+                gpu: None,
+                wgpu: Some(wgpu_state),
+                cpu: None,
+            });
+        }
+    }
+
     #[cfg(feature = "cuda")]
     {
         if !config.no_gpu && !model_has_legacy_quant(&model) {
@@ -297,26 +339,52 @@ fn init_batch_model(
                         stop_tokens: stop_tokens.to_vec(), trace: false,
                     };
                     if validate_gpu_first_token(&mut cuda_model, &probe_config) {
-                        return Ok(BatchModel { gpu: Some(cuda_model), cpu: None });
+                        return Ok(BatchModel { gpu: Some(cuda_model), #[cfg(feature = "gpu")] wgpu: None, cpu: None });
                     }
-                    eprintln!("[batch] GPU validation failed, falling back to CPU");
-                    return Ok(BatchModel { gpu: None, cpu: None });
+                    eprintln!("[batch] CUDA validation failed, trying wgpu...");
+                    let model = cuda_model.into_model();
+                    // GH-560: wgpu batch disabled (fused QKV + OOM). CPU fallback.
+                    return Ok(BatchModel { gpu: None, #[cfg(feature = "gpu")] wgpu: None, cpu: Some(model) });
                 }
                 Err(e) => {
                     if config.verbose {
-                        eprintln!("[batch] GPU unavailable: {}, using CPU", e);
+                        eprintln!("[batch] CUDA unavailable: {}, trying wgpu...", e);
                     }
-                    return Ok(BatchModel { gpu: None, cpu: None });
+                    let model = e.into_model();
+                    // GH-560: wgpu batch disabled (fused QKV + OOM). CPU fallback.
+                    return Ok(BatchModel { gpu: None, #[cfg(feature = "gpu")] wgpu: None, cpu: Some(model) });
                 }
             }
         }
-        return Ok(BatchModel { gpu: None, cpu: Some(model) });
+
+        // No GPU attempted — use CPU directly
+        // GH-560: Try wgpu before CPU
+        #[cfg(feature = "gpu")]
+        if !config.no_gpu {
+            if let Some(wgpu_state) = try_init_wgpu_batch(&model, config) {
+                return Ok(BatchModel {
+                    #[cfg(feature = "cuda")]
+                    gpu: None,
+                    #[cfg(feature = "gpu")]
+                    wgpu: Some(wgpu_state),
+                    cpu: None,
+                });
+            }
+        }
+
+        return Ok(BatchModel {
+            #[cfg(feature = "cuda")]
+            gpu: None,
+            #[cfg(feature = "gpu")]
+            wgpu: None,
+            cpu: Some(model),
+        });
     }
 
     #[cfg(not(feature = "cuda"))]
     {
         let _ = (stop_tokens, config);
-        Ok(BatchModel { cpu: Some(model) })
+        Ok(BatchModel { #[cfg(feature = "gpu")] wgpu: None, cpu: Some(model) })
     }
 }
 

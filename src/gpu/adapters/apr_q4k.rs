@@ -966,6 +966,9 @@ pub fn forward_token_apr_q4k(
     token_id: u32,
     position: usize,
 ) -> Result<Vec<f32>> {
+    // Contract: inference-pipeline-v1.yaml precondition (pv codegen)
+    contract_pre_prefill_phase!(embedding_weight);
+
     let hidden_dim = config.hidden_dim;
     let num_heads = config.num_heads;
     let num_kv_heads = config.num_kv_heads;

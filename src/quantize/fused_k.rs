@@ -58,6 +58,9 @@ use crate::error::{RealizarError, Result};
 /// let result = fused_q4k_dot(&weights_q4k, &activations)?;
 /// ```
 pub fn fused_q4k_dot(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
+    // Contract: matmul-kernel-v1.yaml precondition (pv codegen)
+    contract_pre_matmul!(activations);
+
     const SUPER_BLOCK_BYTES: usize = 144;
 
     // Validate Q4_K data length
