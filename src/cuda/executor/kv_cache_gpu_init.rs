@@ -16,7 +16,6 @@ impl CudaExecutor {
     /// * `head_dim` - Dimension per head
     /// * `max_len` - Maximum sequence length to support
     /// PMAT-399: Compute maximum batch size that fits in available GPU memory.
-    /// Returns the largest batch_size where KV cache fits in free memory with margin.
     pub fn compute_max_batch_for_memory(
         &self,
         num_layers: usize,
@@ -24,17 +23,9 @@ impl CudaExecutor {
         head_dim: usize,
         max_len: usize,
     ) -> usize {
-        let driver = match trueno_gpu::driver::context::get_driver() {
-            Ok(d) => d,
-            Err(_) => return 4, // fallback
-        };
-        let mut free: usize = 0;
-        let mut total: usize = 0;
-        unsafe { (driver.cuMemGetInfo)(&mut free, &mut total) };
-
-        // KV cache per slot per layer: 2 (K+V) × num_kv_heads × max_len × head_dim × 4 bytes
-        let kv_per_slot_per_layer = 2 * num_kv_heads * max_len * head_dim * 4;
-        let kv_per_slot = kv_per_slot_per_layer * num_layers;
+        let (free, _total) = self.context.memory_info().unwrap_or((8 * 1024 * 1024 * 1024, 0));
+        // KV cache per slot: 2 (K+V) × num_kv_heads × max_len × head_dim × 4 bytes × num_layers
+        let kv_per_slot = 2 * num_kv_heads * max_len * head_dim * 4 * num_layers;
         // Reserve 2 GB for workspace + prefill buffers
         let available = free.saturating_sub(2 * 1024 * 1024 * 1024);
         let max_batch = if kv_per_slot > 0 { available / kv_per_slot } else { 32 };
