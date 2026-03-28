@@ -188,8 +188,11 @@ impl OwnedQuantizedModelCuda {
         // request (303ms cold-start), inflating TTFT P50 from 25ms to 50.9ms.
         // Pre-populating at model init moves cost to startup (one-time).
         // PMAT-067: Skip FP16 cache when FP8 is active — saves ~1.5 GB VRAM.
+        // PMAT-400: Skip FP16 cache on unified memory (cc>=120) — saves 61 GB for 32B model.
+        let skip_fp16_unified = self.executor.gpu_profile.cc >= 120;
         if std::env::var("HGEMM_PREFILL").as_deref() != Ok("0")
             && !self.executor.gpu_profile.fp8_prefill
+            && !skip_fp16_unified
         {
             let num_layers = self.model.config.num_layers;
             let hidden_dim = self.model.config.hidden_dim as u32;
