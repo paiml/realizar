@@ -32,7 +32,12 @@ impl CudaExecutor {
     ///
     /// Returns error if GPU allocation or transfer fails.
     pub fn load_weights(&mut self, name: &str, weights: &[f32]) -> Result<usize, GpuError> {
-        let buf = GpuBuffer::from_host(&self.context, weights)?;
+        // PMAT-396: On unified memory (cc>=120), register mmap'd pages directly
+        let buf = if self.gpu_profile.cc >= 120 {
+            unsafe { GpuBuffer::from_host_registered(weights.as_ptr() as *mut f32, weights.len())? }
+        } else {
+            GpuBuffer::from_host(&self.context, weights)?
+        };
         let size_bytes = buf.size_bytes();
         self.weight_cache.insert(name.to_string(), buf);
         Ok(size_bytes)
@@ -108,7 +113,12 @@ impl CudaExecutor {
         data: &[u8],
         qtype: u32,
     ) -> Result<usize, GpuError> {
-        let buf = GpuBuffer::from_host(&self.context, data)?;
+        // PMAT-396: On unified memory (cc>=120), register mmap'd pages directly
+        let buf = if self.gpu_profile.cc >= 120 {
+            unsafe { GpuBuffer::from_host_registered(data.as_ptr() as *mut u8, data.len())? }
+        } else {
+            GpuBuffer::from_host(&self.context, data)?
+        };
         let size_bytes = buf.size_bytes();
         self.quantized_weight_cache.insert(name.to_string(), buf);
         self.quantized_weight_types.insert(name.to_string(), qtype);
