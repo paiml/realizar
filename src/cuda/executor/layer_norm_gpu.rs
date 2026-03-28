@@ -150,6 +150,39 @@ impl CudaExecutor {
         hidden_size: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
+        // GH-559 DIAGNOSTIC: CPU RMSNorm bypass for Blackwell
+        static CPU_RMSNORM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let use_cpu_rmsnorm = *CPU_RMSNORM.get_or_init(|| {
+            let mode = std::env::var("CPU_RMSNORM")
+                .map(|v| v == "1")
+                .unwrap_or(false);
+            if mode {
+                eprintln!("[GH-559] CPU_RMSNORM=1: RMSNorm computed on CPU (diagnostic bypass)");
+            }
+            mode
+        });
+
+        if use_cpu_rmsnorm {
+            self.stream.synchronize()?;
+            let n = hidden_size as usize;
+            let mut input_host = vec![0.0f32; n];
+            let mut gamma_host = vec![0.0f32; n];
+            input.copy_to_host(&mut input_host)?;
+            gamma.copy_to_host(&mut gamma_host)?;
+            let sq_sum: f32 = input_host.iter().map(|x| x * x).sum();
+            let rms = (sq_sum / n as f32 + epsilon).sqrt();
+            let mut output_host = vec![0.0f32; n];
+            for i in 0..n {
+                output_host[i] = (input_host[i] / rms) * gamma_host[i];
+            }
+            // Copy result to GPU output buffer
+            let temp = GpuBuffer::from_host(&self.context, &output_host)?;
+            let zeros = GpuBuffer::<f32>::new(&self.context, n)?;
+            self.residual_add_into(&temp, &zeros, output, hidden_size)?;
+            self.stream.synchronize()?;
+            return Ok(());
+        }
+
         // CORRECTNESS-013: Check if precise mode is requested
         static PRECISE_MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         let use_precise = *PRECISE_MODE.get_or_init(|| {
@@ -164,8 +197,20 @@ impl CudaExecutor {
             mode
         });
 
+        // GH-559: On Blackwell sm_121, use single-warp RmsNorm (32 threads)
+        // to isolate whether the vectorized (256 thread) kernel has a bug.
+        let use_simple = self.gpu_profile.cc >= 120;
+
         // Choose kernel type based on mode
-        let (kernel_type, cache_key) = if use_precise {
+        let (kernel_type, cache_key) = if use_simple {
+            (
+                KernelType::RmsNorm {
+                    hidden_size,
+                    epsilon,
+                },
+                format!("rmsnorm_simple_{}", hidden_size),
+            )
+        } else if use_precise {
             (
                 KernelType::PreciseRmsNorm {
                     hidden_size,
@@ -187,6 +232,9 @@ impl CudaExecutor {
 
         if !self.modules.contains_key(&cache_key) {
             let ptx = self.kernels.generate_ptx(&kernel_type);
+            if use_simple {
+                eprintln!("[GH-559] RmsNorm PTX ({} bytes)", ptx.len());
+            }
             let module = self.compile_ptx(&ptx)?;
             self.modules.insert(cache_key.clone(), module);
         }
@@ -196,8 +244,9 @@ impl CudaExecutor {
             .get_mut(&cache_key)
             .expect("module just inserted");
 
-        // PAR-081: 256 threads (8 warps) for better parallelism
-        let config = LaunchConfig::grid_2d(1, 1, 256, 1);
+        // PAR-081: 256 threads for vectorized, 32 threads for simple
+        let threads = if use_simple { 32 } else { 256 };
+        let config = LaunchConfig::grid_2d(1, 1, threads, 1);
 
         let mut ptr_input = input.as_ptr();
         let mut ptr_output = output.as_ptr();

@@ -500,6 +500,28 @@ impl OwnedQuantizedModel {
         // DEBUG: Consolidated embedding trace (PMAT-260)
         self.debug_trace_embedding(&hidden, token_id, position);
 
+        // GH-559 DIAGNOSTIC: Dump CPU hidden state per layer for GPU comparison
+        static CPU_LAYER_DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let cpu_layer_debug = *CPU_LAYER_DEBUG.get_or_init(|| {
+            std::env::var("CPU_LAYER_DEBUG")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+        });
+
+        // GH-559: Dump CPU RMSNorm output for Layer 0 comparison with GPU
+        if cpu_layer_debug {
+            let gamma = &self.layers[0].attn_norm_weight;
+            let sum_sq: f32 = hidden.iter().map(|x| x * x).sum();
+            let rms = (sum_sq / hidden.len() as f32 + self.config.eps).sqrt();
+            let normed: Vec<f32> = hidden.iter().zip(gamma.iter())
+                .map(|(x, g)| (x / rms) * g)
+                .collect();
+            eprintln!(
+                "[GH-559-CPU] Layer 0 RMSNorm: rms={:.6}, first5={:?}",
+                rms, &normed[..5.min(normed.len())]
+            );
+        }
+
         // 2. Process through transformer layers
         for (layer_idx, layer) in self.layers.iter().enumerate() {
             // 2a+2b. Fused attention layer norm + QKV projection
@@ -649,6 +671,29 @@ impl OwnedQuantizedModel {
 
             // DEBUG: Consolidated per-layer output trace (PMAT-260)
             self.debug_trace_layer_output(&hidden, layer_idx);
+
+            // GH-559 DIAGNOSTIC: Dump CPU hidden state per layer
+            if cpu_layer_debug {
+                let sum: f32 = hidden.iter().sum();
+                let rms: f32 = (hidden.iter().map(|x| x * x).sum::<f32>() / hidden.len() as f32).sqrt();
+                eprintln!(
+                    "[GH-559-CPU] Layer {}/{} output: sum={:.6}, rms={:.6}, first5={:?}",
+                    layer_idx, self.layers.len(), sum, rms,
+                    &hidden[..5.min(hidden.len())]
+                );
+                // GH-559: For Layer 0, dump elements at Q4K super-block boundaries (every 256)
+                if layer_idx == 0 {
+                    for sb in 0..(hidden.len() / 256) {
+                        let idx = sb * 256;
+                        let end = (idx + 5).min(hidden.len());
+                        let sb_sum: f32 = hidden[idx..idx+256.min(hidden.len()-idx)].iter().sum();
+                        eprintln!(
+                            "[GH-559-CPU] L0 sb{}: idx={}, sum={:.4}, vals={:?}",
+                            sb, idx, sb_sum, &hidden[idx..end]
+                        );
+                    }
+                }
+            }
         }
 
         // Advance cache position after processing all layers

@@ -305,12 +305,12 @@ fn init_batch_model(
     stop_tokens: &[u32],
     config: &BatchInferenceConfig,
 ) -> Result<BatchModel> {
-    // GH-560: wgpu batch disabled until fused QKV + OOM issues resolved.
-    // wgpu single-prompt works (cosine=0.999863). Batch needs Q4K shader (PMAT-363).
-    // Enable with WGPU_BATCH=1 for testing.
+    // GH-560 FIXED (2026-03-28): wgpu batch works after FFN buffer + KV cache fix.
+    // Try wgpu before CUDA to avoid CUDA JIT overhead + parity gate on sm_121.
+    // Disable with WGPU_BATCH=0 to skip wgpu and go straight to CUDA.
     #[cfg(feature = "gpu")]
     if !config.no_gpu && !model_has_legacy_quant(&model)
-        && std::env::var("WGPU_BATCH").map(|v| v == "1").unwrap_or(false)
+        && std::env::var("WGPU_BATCH").map(|v| v != "0").unwrap_or(true)
     {
         if let Some(wgpu_state) = try_init_wgpu_batch(&model, config) {
             return Ok(BatchModel {
@@ -343,7 +343,11 @@ fn init_batch_model(
                     }
                     eprintln!("[batch] CUDA validation failed, trying wgpu...");
                     let model = cuda_model.into_model();
-                    // GH-560: wgpu batch disabled (fused QKV + OOM). CPU fallback.
+                    // GH-560 FIXED: wgpu batch works. Try wgpu before CPU fallback.
+                    #[cfg(feature = "gpu")]
+                    if let Some(wgpu_state) = try_init_wgpu_batch(&model, config) {
+                        return Ok(BatchModel { gpu: None, wgpu: Some(wgpu_state), cpu: None });
+                    }
                     return Ok(BatchModel { gpu: None, #[cfg(feature = "gpu")] wgpu: None, cpu: Some(model) });
                 }
                 Err(e) => {
@@ -351,7 +355,11 @@ fn init_batch_model(
                         eprintln!("[batch] CUDA unavailable: {}, trying wgpu...", e);
                     }
                     let model = e.into_model();
-                    // GH-560: wgpu batch disabled (fused QKV + OOM). CPU fallback.
+                    // GH-560 FIXED: wgpu batch works. Try wgpu before CPU fallback.
+                    #[cfg(feature = "gpu")]
+                    if let Some(wgpu_state) = try_init_wgpu_batch(&model, config) {
+                        return Ok(BatchModel { gpu: None, wgpu: Some(wgpu_state), cpu: None });
+                    }
                     return Ok(BatchModel { gpu: None, #[cfg(feature = "gpu")] wgpu: None, cpu: Some(model) });
                 }
             }

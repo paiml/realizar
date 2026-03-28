@@ -42,10 +42,18 @@ impl CudaExecutor {
 
         // PAR-058-DEBUG: Check attention output (skip during graph capture)
         // Note: attention runs on compute_stream, so sync that first
-        if !skip_debug && layer_idx < 4 {
+        if !skip_debug && (layer_idx < 4 || (layer_idx >= 10 && layer_idx <= 12)) {
             self.compute_stream.synchronize()?;
             self.debug_check_buf(attn_out_buf, "Attn", layer_idx)?;
         }
+
+        // GH-559 ROOT CAUSE FIX: Synchronize compute_stream before output projection.
+        // Attention runs on compute_stream, output projection reads attn_out_buf on self.stream.
+        // Without this sync, output projection reads stale/incomplete attention data, causing
+        // layers to produce garbage (no-op layers where output == input).
+        // Five-Whys: GPU wrong logits → layers 13-27 are no-ops → attn_out_buf stale →
+        // compute_stream not synced → race condition between attention and output projection.
+        self.compute_stream.synchronize()?;
 
         // PMAT-027: Invalidate Q8 cache — input is now attn_out_buf (different from QKV's hidden_buf1).
         self.q8_activation_valid = false;
@@ -66,7 +74,7 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check output projection (skip during graph capture)
-        if !skip_debug && layer_idx < 4 {
+        if !skip_debug && (layer_idx < 4 || (layer_idx >= 10 && layer_idx <= 12)) {
             self.debug_check_buf(hidden_buf1, "Output proj", layer_idx)?;
         }
 
@@ -85,7 +93,7 @@ impl CudaExecutor {
         }
 
         // PAR-058-DEBUG: Check residual1 output (skip during graph capture)
-        if !skip_debug && layer_idx < 4 {
+        if !skip_debug && (layer_idx < 4 || (layer_idx >= 10 && layer_idx <= 12)) {
             self.debug_check_buf(input_staging, "Residual1", layer_idx)?;
         }
 

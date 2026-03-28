@@ -186,6 +186,21 @@ macro_rules! contract_pre_alibi_slopes {
     }};
 }
 
+// Auto-generated from contracts/apr-checkpoint-v1.yaml — DO NOT EDIT
+// Contract: apr-checkpoint-v1
+
+/// Preconditions for equation `identity`.
+/// Call at function entry: `contract_pre_identity!(input_expr)`
+macro_rules! contract_pre_identity {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract identity: precondition violated — input must not be empty"
+        );
+    }};
+}
+
 // Auto-generated from contracts/apr-format-invariants-v1.yaml — DO NOT EDIT
 // Contract: apr-format-invariants-v1
 
@@ -348,6 +363,21 @@ macro_rules! contract_pre_ma_filter {
         debug_assert!(
             !_contract_input.is_empty(),
             "Contract ma_filter: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/attention-head-extraction-v1.yaml — DO NOT EDIT
+// Contract: attention-head-extraction-v1
+
+/// Preconditions for equation `identity`.
+/// Call at function entry: `contract_pre_identity!(input_expr)`
+macro_rules! contract_pre_identity {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract identity: precondition violated — input must not be empty"
         );
     }};
 }
@@ -532,6 +562,45 @@ macro_rules! contract_pre_simd_only_threshold {
     }};
 }
 
+// Auto-generated from contracts/batch-training-v1.yaml — DO NOT EDIT
+// Contract: batch-training-v1
+
+/// Preconditions for equation `batch_loss`.
+/// Call at function entry: `contract_pre_batch_loss!(input_expr)`
+macro_rules! contract_pre_batch_loss {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract batch_loss: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `gradient_accumulation`.
+/// Call at function entry: `contract_pre_gradient_accumulation!(input_expr)`
+macro_rules! contract_pre_gradient_accumulation {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract gradient_accumulation: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `gradient_clipping`.
+/// Call at function entry: `contract_pre_gradient_clipping!(input_expr)`
+macro_rules! contract_pre_gradient_clipping {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract gradient_clipping: precondition violated — input must not be empty"
+        );
+    }};
+}
+
 // Auto-generated from contracts/batched-beam-search-v1.yaml — DO NOT EDIT
 // Contract: batched-beam-search-v1
 
@@ -699,6 +768,45 @@ macro_rules! contract_pre_bidirectional_attention {
         debug_assert!(
             !_contract_input.is_empty(),
             "Contract bidirectional_attention: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/blake3-state-v1.yaml — DO NOT EDIT
+// Contract: blake3-state-v1
+
+/// Preconditions for equation `composite_hash`.
+/// Call at function entry: `contract_pre_composite_hash!(input_expr)`
+macro_rules! contract_pre_composite_hash {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract composite_hash: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `hash_file`.
+/// Call at function entry: `contract_pre_hash_file!(input_expr)`
+macro_rules! contract_pre_hash_file {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract hash_file: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `hash_string`.
+/// Call at function entry: `contract_pre_hash_string!(input_expr)`
+macro_rules! contract_pre_hash_string {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract hash_string: precondition violated — input must not be empty"
         );
     }};
 }
@@ -964,6 +1072,72 @@ macro_rules! contract_pre_tokenizer_adequacy {
     }};
 }
 
+// Auto-generated from contracts/codegen-dispatch-v1.yaml — DO NOT EDIT
+// Contract: codegen-dispatch-v1
+
+/// Preconditions for equation `apply_script`.
+/// Call at function entry: `contract_pre_apply_script!(input_expr)`
+macro_rules! contract_pre_apply_script {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract apply_script: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `check_script`.
+/// Call at function entry: `contract_pre_check_script!(input_expr)`
+macro_rules! contract_pre_check_script {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract check_script: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `state_query_script`.
+/// Call at function entry: `contract_pre_state_query_script!(input_expr)`
+macro_rules! contract_pre_state_query_script {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract state_query_script: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/comply-check-v1.yaml — DO NOT EDIT
+// Contract: comply-check-v1
+
+/// Preconditions for equation `aggregate_score`.
+/// Call at function entry: `contract_pre_aggregate_score!(input_expr)`
+macro_rules! contract_pre_aggregate_score {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract aggregate_score: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `run_checks`.
+/// Call at function entry: `contract_pre_run_checks!(input_expr)`
+macro_rules! contract_pre_run_checks {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract run_checks: precondition violated — input must not be empty"
+        );
+    }};
+}
+
 // Auto-generated from contracts/configuration-v1.yaml — DO NOT EDIT
 // Contract: configuration-v1
 
@@ -975,6 +1149,33 @@ macro_rules! contract_pre_configuration {
         debug_assert!(
             !_contract_input.is_empty(),
             "Contract configuration: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/context-generation-v1.yaml — DO NOT EDIT
+// Contract: context-generation-v1
+
+/// Preconditions for equation `generate_context`.
+/// Call at function entry: `contract_pre_generate_context!(input_expr)`
+macro_rules! contract_pre_generate_context {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract generate_context: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `index_persistence`.
+/// Call at function entry: `contract_pre_index_persistence!(input_expr)`
+macro_rules! contract_pre_index_persistence {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract index_persistence: precondition violated — input must not be empty"
         );
     }};
 }
@@ -1229,6 +1430,72 @@ macro_rules! contract_pre_log_softmax {
     }};
 }
 
+// Auto-generated from contracts/cuda-classify-training-v1.yaml — DO NOT EDIT
+// Contract: cuda-classify-training-v1
+
+/// Preconditions for equation `device_dispatch`.
+/// Call at function entry: `contract_pre_device_dispatch!(input_expr)`
+macro_rules! contract_pre_device_dispatch {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract device_dispatch: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `gpu_forward`.
+/// Call at function entry: `contract_pre_gpu_forward!(input_expr)`
+macro_rules! contract_pre_gpu_forward {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract gpu_forward: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `weight_roundtrip`.
+/// Call at function entry: `contract_pre_weight_roundtrip!(input_expr)`
+macro_rules! contract_pre_weight_roundtrip {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract weight_roundtrip: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/dag-ordering-v1.yaml — DO NOT EDIT
+// Contract: dag-ordering-v1
+
+/// Preconditions for equation `kahn_sort`.
+/// Call at function entry: `contract_pre_kahn_sort!(input_expr)`
+macro_rules! contract_pre_kahn_sort {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract kahn_sort: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `topological_sort`.
+/// Call at function entry: `contract_pre_topological_sort!(input_expr)`
+macro_rules! contract_pre_topological_sort {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract topological_sort: precondition violated — input must not be empty"
+        );
+    }};
+}
+
 // Auto-generated from contracts/decision-tree-v1.yaml — DO NOT EDIT
 // Contract: decision-tree-v1
 
@@ -1291,6 +1558,69 @@ macro_rules! contract_pre_display_format {
         debug_assert!(
             !_contract_input.is_empty(),
             "Contract display_format: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/distributed-training-v1.yaml — DO NOT EDIT
+// Contract: distributed-training-v1
+
+/// Preconditions for equation `gradient_allreduce`.
+/// Call at function entry: `contract_pre_gradient_allreduce!(input_expr)`
+macro_rules! contract_pre_gradient_allreduce {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract gradient_allreduce: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `lora_gradient_size`.
+/// Call at function entry: `contract_pre_lora_gradient_size!(input_expr)`
+macro_rules! contract_pre_lora_gradient_size {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract lora_gradient_size: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `sharding`.
+/// Call at function entry: `contract_pre_sharding!(input_expr)`
+macro_rules! contract_pre_sharding {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract sharding: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `swiglu_ffn`.
+/// Call at function entry: `contract_pre_swiglu_ffn!(input_expr)`
+macro_rules! contract_pre_swiglu_ffn {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract swiglu_ffn: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `weighted_loss`.
+/// Call at function entry: `contract_pre_weighted_loss!(input_expr)`
+macro_rules! contract_pre_weighted_loss {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract weighted_loss: precondition violated — input must not be empty"
         );
     }};
 }
@@ -1539,6 +1869,45 @@ macro_rules! contract_pre_encoder_layer {
     }};
 }
 
+// Auto-generated from contracts/encoder-roundtrip-v1.yaml — DO NOT EDIT
+// Contract: encoder-roundtrip-v1
+
+/// Preconditions for equation `emit_posix`.
+/// Call at function entry: `contract_pre_emit_posix!(input_expr)`
+macro_rules! contract_pre_emit_posix {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract emit_posix: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `emit_purified`.
+/// Call at function entry: `contract_pre_emit_purified!(input_expr)`
+macro_rules! contract_pre_emit_purified {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract emit_purified: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `roundtrip`.
+/// Call at function entry: `contract_pre_roundtrip!(input_expr)`
+macro_rules! contract_pre_roundtrip {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract roundtrip: precondition violated — input must not be empty"
+        );
+    }};
+}
+
 // Auto-generated from contracts/error-handling-v1.yaml — DO NOT EDIT
 // Contract: error-handling-v1
 
@@ -1550,6 +1919,33 @@ macro_rules! contract_pre_error_handling {
         debug_assert!(
             !_contract_input.is_empty(),
             "Contract error_handling: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/execution-safety-v1.yaml — DO NOT EDIT
+// Contract: execution-safety-v1
+
+/// Preconditions for equation `atomic_write`.
+/// Call at function entry: `contract_pre_atomic_write!(input_expr)`
+macro_rules! contract_pre_atomic_write {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract atomic_write: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `jidoka_stop`.
+/// Call at function entry: `contract_pre_jidoka_stop!(input_expr)`
+macro_rules! contract_pre_jidoka_stop {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract jidoka_stop: precondition violated — input must not be empty"
         );
     }};
 }
@@ -1862,6 +2258,67 @@ macro_rules! contract_pre_gelu_tanh_approx {
         debug_assert!(
             !_contract_input.is_empty(),
             "Contract gelu_tanh_approx: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/gemm-backward-tiled-v1.yaml — DO NOT EDIT
+// Contract: gemm-backward-tiled-v1
+
+/// Preconditions for equation `backward_a_gemm`.
+/// Call at function entry: `contract_pre_backward_a_gemm!(input_expr)`
+macro_rules! contract_pre_backward_a_gemm {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract backward_a_gemm: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `backward_b_gemm`.
+/// Call at function entry: `contract_pre_backward_b_gemm!(input_expr)`
+macro_rules! contract_pre_backward_b_gemm {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract backward_b_gemm: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `shared_memory_per_tile`.
+/// Call at function entry: `contract_pre_shared_memory_per_tile!(input_expr)`
+macro_rules! contract_pre_shared_memory_per_tile {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract shared_memory_per_tile: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `tiled_gemm_arithmetic_intensity`.
+/// Call at function entry: `contract_pre_tiled_gemm_arithmetic_intensity!(input_expr)`
+macro_rules! contract_pre_tiled_gemm_arithmetic_intensity {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(!_contract_input.is_empty(),
+            "Contract tiled_gemm_arithmetic_intensity: precondition violated — input must not be empty");
+    }};
+}
+
+/// Preconditions for equation `unrolled_instruction_ratio`.
+/// Call at function entry: `contract_pre_unrolled_instruction_ratio!(input_expr)`
+macro_rules! contract_pre_unrolled_instruction_ratio {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract unrolled_instruction_ratio: precondition violated — input must not be empty"
         );
     }};
 }
@@ -2554,6 +3011,21 @@ macro_rules! contract_pre_iterator {
     }};
 }
 
+// Auto-generated from contracts/kernel-fusion-v1.yaml — DO NOT EDIT
+// Contract: kernel-fusion-v1
+
+/// Preconditions for equation `identity`.
+/// Call at function entry: `contract_pre_identity!(input_expr)`
+macro_rules! contract_pre_identity {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract identity: precondition violated — input must not be empty"
+        );
+    }};
+}
+
 // Auto-generated from contracts/kernel-launch-budget-v1.yaml — DO NOT EDIT
 // Contract: kernel-launch-budget-v1
 
@@ -2742,6 +3214,21 @@ macro_rules! contract_pre_zero_input_identity {
         debug_assert!(
             !_contract_input.is_empty(),
             "Contract zero_input_identity: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/layer-parity-v1.yaml — DO NOT EDIT
+// Contract: layer-parity-v1
+
+/// Preconditions for equation `identity`.
+/// Call at function entry: `contract_pre_identity!(input_expr)`
+macro_rules! contract_pre_identity {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract identity: precondition violated — input must not be empty"
         );
     }};
 }
@@ -2999,6 +3486,21 @@ macro_rules! contract_pre_task_vector {
     }};
 }
 
+// Auto-generated from contracts/lora-gradient-flow-v1.yaml — DO NOT EDIT
+// Contract: lora-gradient-flow-v1
+
+/// Preconditions for equation `identity`.
+/// Call at function entry: `contract_pre_identity!(input_expr)`
+macro_rules! contract_pre_identity {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract identity: precondition violated — input must not be empty"
+        );
+    }};
+}
+
 // Auto-generated from contracts/loss-functions-v1.yaml — DO NOT EDIT
 // Contract: loss-functions-v1
 
@@ -3113,6 +3615,81 @@ macro_rules! contract_pre_quantized_dot {
         debug_assert!(
             !_contract_input.is_empty(),
             "Contract quantized_dot: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/memory-safety-v1.yaml — DO NOT EDIT
+// Contract: memory-safety-v1
+
+/// Preconditions for equation `bounds_safety`.
+/// Call at function entry: `contract_pre_bounds_safety!(input_expr)`
+macro_rules! contract_pre_bounds_safety {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract bounds_safety: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `drop_safety`.
+/// Call at function entry: `contract_pre_drop_safety!(input_expr)`
+macro_rules! contract_pre_drop_safety {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract drop_safety: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `escape_analysis`.
+/// Call at function entry: `contract_pre_escape_analysis!(input_expr)`
+macro_rules! contract_pre_escape_analysis {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract escape_analysis: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `lifetime_safety`.
+/// Call at function entry: `contract_pre_lifetime_safety!(input_expr)`
+macro_rules! contract_pre_lifetime_safety {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract lifetime_safety: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `ownership_invariant`.
+/// Call at function entry: `contract_pre_ownership_invariant!(input_expr)`
+macro_rules! contract_pre_ownership_invariant {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract ownership_invariant: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `use_after_move`.
+/// Call at function entry: `contract_pre_use_after_move!(input_expr)`
+macro_rules! contract_pre_use_after_move {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract use_after_move: precondition violated — input must not be empty"
         );
     }};
 }
@@ -3745,6 +4322,45 @@ macro_rules! contract_pre_power_iteration {
     }};
 }
 
+// Auto-generated from contracts/parser-soundness-v1.yaml — DO NOT EDIT
+// Contract: parser-soundness-v1
+
+/// Preconditions for equation `lex`.
+/// Call at function entry: `contract_pre_lex!(input_expr)`
+macro_rules! contract_pre_lex {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract lex: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `parse`.
+/// Call at function entry: `contract_pre_parse!(input_expr)`
+macro_rules! contract_pre_parse {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract parse: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `semantic_analyze`.
+/// Call at function entry: `contract_pre_semantic_analyze!(input_expr)`
+macro_rules! contract_pre_semantic_analyze {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract semantic_analyze: precondition violated — input must not be empty"
+        );
+    }};
+}
+
 // Auto-generated from contracts/pca-v1.yaml — DO NOT EDIT
 // Contract: pca-v1
 
@@ -3843,6 +4459,21 @@ macro_rules! contract_pre_vllm_parity {
         debug_assert!(
             !_contract_input.is_empty(),
             "Contract vllm_parity: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/pipeline-cache-v1.yaml — DO NOT EDIT
+// Contract: pipeline-cache-v1
+
+/// Preconditions for equation `identity`.
+/// Call at function entry: `contract_pre_identity!(input_expr)`
+macro_rules! contract_pre_identity {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract identity: precondition violated — input must not be empty"
         );
     }};
 }
@@ -4018,6 +4649,93 @@ macro_rules! contract_pre_qk_rmsnorm {
     }};
 }
 
+// Auto-generated from contracts/qlora-hyperparameters-v1.yaml — DO NOT EDIT
+// Contract: qlora-hyperparameters-v1
+
+/// Preconditions for equation `effective_batch_size`.
+/// Call at function entry: `contract_pre_effective_batch_size!(input_expr)`
+macro_rules! contract_pre_effective_batch_size {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract effective_batch_size: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `epoch_count_imbalanced`.
+/// Call at function entry: `contract_pre_epoch_count_imbalanced!(input_expr)`
+macro_rules! contract_pre_epoch_count_imbalanced {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract epoch_count_imbalanced: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `gradient_clip_bound`.
+/// Call at function entry: `contract_pre_gradient_clip_bound!(input_expr)`
+macro_rules! contract_pre_gradient_clip_bound {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract gradient_clip_bound: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `learning_rate_scaling`.
+/// Call at function entry: `contract_pre_learning_rate_scaling!(input_expr)`
+macro_rules! contract_pre_learning_rate_scaling {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract learning_rate_scaling: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `lora_alpha_ratio`.
+/// Call at function entry: `contract_pre_lora_alpha_ratio!(input_expr)`
+macro_rules! contract_pre_lora_alpha_ratio {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract lora_alpha_ratio: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `seq_len_from_data`.
+/// Call at function entry: `contract_pre_seq_len_from_data!(input_expr)`
+macro_rules! contract_pre_seq_len_from_data {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract seq_len_from_data: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `warmup_fraction`.
+/// Call at function entry: `contract_pre_warmup_fraction!(input_expr)`
+macro_rules! contract_pre_warmup_fraction {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract warmup_fraction: precondition violated — input must not be empty"
+        );
+    }};
+}
+
 // Auto-generated from contracts/quantization-ordering-v1.yaml — DO NOT EDIT
 // Contract: quantization-ordering-v1
 
@@ -4065,6 +4783,21 @@ macro_rules! contract_pre_size_ordering {
         debug_assert!(
             !_contract_input.is_empty(),
             "Contract size_ordering: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/quantized-dot-product-v1.yaml — DO NOT EDIT
+// Contract: quantized-dot-product-v1
+
+/// Preconditions for equation `identity`.
+/// Call at function entry: `contract_pre_identity!(input_expr)`
+macro_rules! contract_pre_identity {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract identity: precondition violated — input must not be empty"
         );
     }};
 }
@@ -4215,6 +4948,57 @@ macro_rules! contract_pre_swiglu_ratio {
         debug_assert!(
             !_contract_input.is_empty(),
             "Contract swiglu_ratio: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/qwen2-weight-loading-v1.yaml — DO NOT EDIT
+// Contract: qwen2-weight-loading-v1
+
+/// Preconditions for equation `kv_projection`.
+/// Call at function entry: `contract_pre_kv_projection!(input_expr)`
+macro_rules! contract_pre_kv_projection {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract kv_projection: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `q_projection`.
+/// Call at function entry: `contract_pre_q_projection!(input_expr)`
+macro_rules! contract_pre_q_projection {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract q_projection: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `swiglu_expansion`.
+/// Call at function entry: `contract_pre_swiglu_expansion!(input_expr)`
+macro_rules! contract_pre_swiglu_expansion {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract swiglu_expansion: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `total_parameters`.
+/// Call at function entry: `contract_pre_total_parameters!(input_expr)`
+macro_rules! contract_pre_total_parameters {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract total_parameters: precondition violated — input must not be empty"
         );
     }};
 }
@@ -4807,6 +5591,45 @@ macro_rules! contract_pre_predict {
     }};
 }
 
+// Auto-generated from contracts/recipe-determinism-v1.yaml — DO NOT EDIT
+// Contract: recipe-determinism-v1
+
+/// Preconditions for equation `expand_recipe`.
+/// Call at function entry: `contract_pre_expand_recipe!(input_expr)`
+macro_rules! contract_pre_expand_recipe {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract expand_recipe: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `validate_input_type`.
+/// Call at function entry: `contract_pre_validate_input_type!(input_expr)`
+macro_rules! contract_pre_validate_input_type {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract validate_input_type: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `validate_inputs`.
+/// Call at function entry: `contract_pre_validate_inputs!(input_expr)`
+macro_rules! contract_pre_validate_inputs {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract validate_inputs: precondition violated — input must not be empty"
+        );
+    }};
+}
+
 // Auto-generated from contracts/rmsnorm-kernel-v1.yaml — DO NOT EDIT
 // Contract: rmsnorm-kernel-v1
 
@@ -5010,6 +5833,57 @@ macro_rules! contract_pre_format_parity {
     }};
 }
 
+// Auto-generated from contracts/safety-classifier-v1.yaml — DO NOT EDIT
+// Contract: safety-classifier-v1
+
+/// Preconditions for equation `classify_filesystem`.
+/// Call at function entry: `contract_pre_classify_filesystem!(input_expr)`
+macro_rules! contract_pre_classify_filesystem {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract classify_filesystem: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `classify_injection`.
+/// Call at function entry: `contract_pre_classify_injection!(input_expr)`
+macro_rules! contract_pre_classify_injection {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract classify_injection: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `classify_secrets`.
+/// Call at function entry: `contract_pre_classify_secrets!(input_expr)`
+macro_rules! contract_pre_classify_secrets {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract classify_secrets: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `lint_shell`.
+/// Call at function entry: `contract_pre_lint_shell!(input_expr)`
+macro_rules! contract_pre_lint_shell {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract lint_shell: precondition violated — input must not be empty"
+        );
+    }};
+}
+
 // Auto-generated from contracts/sampling-algorithms-v1.yaml — DO NOT EDIT
 // Contract: sampling-algorithms-v1
 
@@ -5057,6 +5931,96 @@ macro_rules! contract_pre_top_p {
         debug_assert!(
             !_contract_input.is_empty(),
             "Contract top_p: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/score-composite-v1.yaml — DO NOT EDIT
+// Contract: score-composite-v1
+
+/// Preconditions for equation `geometric_mean`.
+/// Call at function entry: `contract_pre_geometric_mean!(input_expr)`
+macro_rules! contract_pre_geometric_mean {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract geometric_mean: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `grade_from_score`.
+/// Call at function entry: `contract_pre_grade_from_score!(input_expr)`
+macro_rules! contract_pre_grade_from_score {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract grade_from_score: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/semantic-equivalence-v1.yaml — DO NOT EDIT
+// Contract: semantic-equivalence-v1
+
+/// Preconditions for equation `comprehension_equivalence`.
+/// Call at function entry: `contract_pre_comprehension_equivalence!(input_expr)`
+macro_rules! contract_pre_comprehension_equivalence {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract comprehension_equivalence: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `control_flow_equivalence`.
+/// Call at function entry: `contract_pre_control_flow_equivalence!(input_expr)`
+macro_rules! contract_pre_control_flow_equivalence {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract control_flow_equivalence: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `expression_equivalence`.
+/// Call at function entry: `contract_pre_expression_equivalence!(input_expr)`
+macro_rules! contract_pre_expression_equivalence {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract expression_equivalence: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `observational_equivalence`.
+/// Call at function entry: `contract_pre_observational_equivalence!(input_expr)`
+macro_rules! contract_pre_observational_equivalence {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract observational_equivalence: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `statement_equivalence`.
+/// Call at function entry: `contract_pre_statement_equivalence!(input_expr)`
+macro_rules! contract_pre_statement_equivalence {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract statement_equivalence: precondition violated — input must not be empty"
         );
     }};
 }
@@ -5419,6 +6383,33 @@ macro_rules! contract_post_swiglu {
     }};
 }
 
+// Auto-generated from contracts/tdg-scoring-v1.yaml — DO NOT EDIT
+// Contract: tdg-scoring-v1
+
+/// Preconditions for equation `calculate_tdg`.
+/// Call at function entry: `contract_pre_calculate_tdg!(input_expr)`
+macro_rules! contract_pre_calculate_tdg {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract calculate_tdg: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `letter_grade`.
+/// Call at function entry: `contract_pre_letter_grade!(input_expr)`
+macro_rules! contract_pre_letter_grade {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract letter_grade: precondition violated — input must not be empty"
+        );
+    }};
+}
+
 // Auto-generated from contracts/tensor-inventory-v1.yaml — DO NOT EDIT
 // Contract: tensor-inventory-v1
 
@@ -5482,6 +6473,21 @@ macro_rules! contract_pre_tied_embeddings {
     }};
 }
 
+// Auto-generated from contracts/tensor-layout-v1.yaml — DO NOT EDIT
+// Contract: tensor-layout-v1
+
+/// Preconditions for equation `identity`.
+/// Call at function entry: `contract_pre_identity!(input_expr)`
+macro_rules! contract_pre_identity {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract identity: precondition violated — input must not be empty"
+        );
+    }};
+}
+
 // Auto-generated from contracts/tensor-names-v1.yaml — DO NOT EDIT
 // Contract: tensor-names-v1
 
@@ -5505,6 +6511,21 @@ macro_rules! contract_pre_name_resolution {
         debug_assert!(
             !_contract_input.is_empty(),
             "Contract name_resolution: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/tensor-rc-data-v1.yaml — DO NOT EDIT
+// Contract: tensor-rc-data-v1
+
+/// Preconditions for equation `identity`.
+/// Call at function entry: `contract_pre_identity!(input_expr)`
+macro_rules! contract_pre_identity {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract identity: precondition violated — input must not be empty"
         );
     }};
 }
@@ -5587,6 +6608,75 @@ macro_rules! contract_pre_tied_lm_head {
     }};
 }
 
+// Auto-generated from contracts/tiled-matmul-shader-v1.yaml — DO NOT EDIT
+// Contract: tiled-matmul-shader-v1
+
+/// Preconditions for equation `identity`.
+/// Call at function entry: `contract_pre_identity!(input_expr)`
+macro_rules! contract_pre_identity {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract identity: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/tokenizer-loading-v1.yaml — DO NOT EDIT
+// Contract: tokenizer-loading-v1
+
+/// Preconditions for equation `identity`.
+/// Call at function entry: `contract_pre_identity!(input_expr)`
+macro_rules! contract_pre_identity {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract identity: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/training-loop-v1.yaml — DO NOT EDIT
+// Contract: training-loop-v1
+
+/// Preconditions for equation `ema_loss`.
+/// Call at function entry: `contract_pre_ema_loss!(input_expr)`
+macro_rules! contract_pre_ema_loss {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract ema_loss: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `val_split`.
+/// Call at function entry: `contract_pre_val_split!(input_expr)`
+macro_rules! contract_pre_val_split {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract val_split: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `warmup_lr`.
+/// Call at function entry: `contract_pre_warmup_lr!(input_expr)`
+macro_rules! contract_pre_warmup_lr {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract warmup_lr: precondition violated — input must not be empty"
+        );
+    }};
+}
+
 // Auto-generated from contracts/transpose-kernel-v1.yaml — DO NOT EDIT
 // Contract: transpose-kernel-v1
 
@@ -5598,6 +6688,69 @@ macro_rules! contract_pre_transpose {
         debug_assert!(
             !_contract_input.is_empty(),
             "Contract transpose: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Auto-generated from contracts/type-preservation-v1.yaml — DO NOT EDIT
+// Contract: type-preservation-v1
+
+/// Preconditions for equation `container_preservation`.
+/// Call at function entry: `contract_pre_container_preservation!(input_expr)`
+macro_rules! contract_pre_container_preservation {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract container_preservation: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `copy_semantics`.
+/// Call at function entry: `contract_pre_copy_semantics!(input_expr)`
+macro_rules! contract_pre_copy_semantics {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract copy_semantics: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `numeric_semantics`.
+/// Call at function entry: `contract_pre_numeric_semantics!(input_expr)`
+macro_rules! contract_pre_numeric_semantics {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract numeric_semantics: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `type_inference`.
+/// Call at function entry: `contract_pre_type_inference!(input_expr)`
+macro_rules! contract_pre_type_inference {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract type_inference: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+/// Preconditions for equation `type_map`.
+/// Call at function entry: `contract_pre_type_map!(input_expr)`
+macro_rules! contract_pre_type_map {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract type_map: precondition violated — input must not be empty"
         );
     }};
 }
@@ -5641,4 +6794,19 @@ macro_rules! contract_pre_nan_inf_rejection {
     }};
 }
 
-// Total: 441 preconditions, 18 postconditions from 131 contracts
+// Auto-generated from contracts/wgpu-resident-weights-v1.yaml — DO NOT EDIT
+// Contract: wgpu-resident-weights-v1
+
+/// Preconditions for equation `identity`.
+/// Call at function entry: `contract_pre_identity!(input_expr)`
+macro_rules! contract_pre_identity {
+    ($input:expr) => {{
+        let _contract_input = &$input;
+        debug_assert!(
+            !_contract_input.is_empty(),
+            "Contract identity: precondition violated — input must not be empty"
+        );
+    }};
+}
+
+// Total: 530 preconditions, 18 postconditions from 165 contracts

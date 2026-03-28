@@ -51,7 +51,7 @@ pub fn dequant_model_weights(
 
         match &layer.qkv_weight {
             crate::gguf::OwnedQKVWeights::Fused(tensor) => {
-                let f32_data = dequant_tensor(tensor)?;
+                let f32_data = dequant_tensor_public(tensor)?;
                 let total_out = q_dim + 2 * kv_dim;
                 // Split fused QKV into separate Q, K, V
                 let q_data = f32_data[..q_dim * hidden].to_vec();
@@ -64,19 +64,19 @@ pub fn dequant_model_weights(
             crate::gguf::OwnedQKVWeights::Separate { q, k, v } => {
                 weights.push((
                     format!("{prefix}.q_proj"),
-                    dequant_tensor(q)?,
+                    dequant_tensor_public(q)?,
                     q_dim,
                     hidden,
                 ));
                 weights.push((
                     format!("{prefix}.k_proj"),
-                    dequant_tensor(k)?,
+                    dequant_tensor_public(k)?,
                     kv_dim,
                     hidden,
                 ));
                 weights.push((
                     format!("{prefix}.v_proj"),
-                    dequant_tensor(v)?,
+                    dequant_tensor_public(v)?,
                     kv_dim,
                     hidden,
                 ));
@@ -106,7 +106,7 @@ pub fn dequant_model_weights(
         // O projection
         weights.push((
             format!("{prefix}.o_proj"),
-            dequant_tensor(&layer.attn_output_weight)?,
+            dequant_tensor_public(&layer.attn_output_weight)?,
             hidden,
             q_dim,
         ));
@@ -115,20 +115,20 @@ pub fn dequant_model_weights(
         if let Some(ref gate) = layer.ffn_gate_weight {
             weights.push((
                 format!("{prefix}.gate_proj"),
-                dequant_tensor(gate)?,
+                dequant_tensor_public(gate)?,
                 intermediate,
                 hidden,
             ));
         }
         weights.push((
             format!("{prefix}.up_proj"),
-            dequant_tensor(&layer.ffn_up_weight)?,
+            dequant_tensor_public(&layer.ffn_up_weight)?,
             intermediate,
             hidden,
         ));
         weights.push((
             format!("{prefix}.down_proj"),
-            dequant_tensor(&layer.ffn_down_weight)?,
+            dequant_tensor_public(&layer.ffn_down_weight)?,
             hidden,
             intermediate,
         ));
@@ -141,7 +141,7 @@ pub fn dequant_model_weights(
     // LM head
     weights.push((
         "lm_head".to_string(),
-        dequant_tensor(model.lm_head_weight())?,
+        dequant_tensor_public(model.lm_head_weight())?,
         config.vocab_size,
         hidden,
     ));
@@ -169,9 +169,7 @@ pub fn dequant_model_weights(
 
 /// PMAT-364: Extract raw Q4K weight bytes for fused dequant+GEMV on GPU.
 /// Returns (name, raw_bytes, rows, cols) for Q4K tensors only. Other types skipped.
-pub fn raw_q4k_weights(
-    model: &OwnedQuantizedModel,
-) -> Vec<(String, Vec<u8>, usize, usize)> {
+pub fn raw_q4k_weights(model: &OwnedQuantizedModel) -> Vec<(String, Vec<u8>, usize, usize)> {
     const GGUF_TYPE_Q4_K: u32 = 12;
     let config = &model.config;
     let hidden = config.hidden_dim;
@@ -192,7 +190,12 @@ pub fn raw_q4k_weights(
             ("down_proj", &layer.ffn_down_weight, hidden, intermediate),
         ];
         if let Some(ref gate) = layer.ffn_gate_weight {
-            raw.push((format!("{prefix}.gate_proj"), gate.data.clone(), intermediate, hidden));
+            raw.push((
+                format!("{prefix}.gate_proj"),
+                gate.data.clone(),
+                intermediate,
+                hidden,
+            ));
         }
         for (name, tensor, rows, cols) in projections {
             if tensor.qtype == GGUF_TYPE_Q4_K {
@@ -211,15 +214,16 @@ pub fn raw_q4k_weights(
                 if v.qtype == GGUF_TYPE_Q4_K {
                     raw.push((format!("{prefix}.v_proj"), v.data.clone(), kv_dim, hidden));
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
     raw
 }
 
 /// Dequantize a single OwnedQuantizedTensor to F32
-fn dequant_tensor(tensor: &crate::gguf::OwnedQuantizedTensor) -> Result<Vec<f32>> {
+/// GH-560: Public per-tensor dequantization for streaming wgpu weight upload.
+pub fn dequant_tensor_public(tensor: &crate::gguf::OwnedQuantizedTensor) -> Result<Vec<f32>> {
     const GGUF_TYPE_Q4_K: u32 = 12;
     const GGUF_TYPE_Q6_K: u32 = 14;
     const GGUF_TYPE_Q5_K: u32 = 13;

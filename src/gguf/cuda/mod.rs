@@ -189,7 +189,9 @@ impl OwnedQuantizedModelCuda {
         // Pre-populating at model init moves cost to startup (one-time).
         // PMAT-067: Skip FP16 cache when FP8 is active — saves ~1.5 GB VRAM.
         // PMAT-400: Skip FP16 cache on unified memory (cc>=120) — saves 61 GB for 32B model.
-        let skip_fp16_unified = self.executor.gpu_profile.cc >= 120;
+        // PMAT-409: Override with FORCE_FP16_CACHE=1 for 7B on GB10 (2.9 GB, restores prefill perf).
+        let skip_fp16_unified = self.executor.gpu_profile.cc >= 120
+            && std::env::var("FORCE_FP16_CACHE").as_deref() != Ok("1");
         if std::env::var("HGEMM_PREFILL").as_deref() != Ok("0")
             && !self.executor.gpu_profile.fp8_prefill
             && !skip_fp16_unified
@@ -327,7 +329,10 @@ impl OwnedQuantizedModelCuda {
         // PMAT-399: Auto-size max_batch if env var not set
         if std::env::var("CUDA_MAX_BATCH").is_err() {
             let auto_batch = executor.compute_max_batch_for_memory(
-                num_layers, num_kv_heads, head_dim, max_seq_len,
+                num_layers,
+                num_kv_heads,
+                head_dim,
+                max_seq_len,
             );
             eprintln!("[PMAT-399] Auto-sized CUDA_MAX_BATCH={auto_batch} (no env var set)");
             // Store for scheduler to pick up

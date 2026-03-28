@@ -11,8 +11,8 @@ fn main() {
 
 #[cfg(feature = "cuda")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQuantizedModelCuda};
     use realizar::apr::MappedAprModel;
+    use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, OwnedQuantizedModelCuda};
 
     let path = std::env::var("MODEL_PATH").unwrap_or_else(|_| {
         "/home/noah/models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf".to_string()
@@ -32,11 +32,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         realizar::format::ModelFormat::Apr { .. } => {
             let mapped = MappedAprModel::from_path(std::path::Path::new(&path))?;
             OwnedQuantizedModel::from_apr(&mapped)?
-        }
+        },
         _ => {
             let mapped = MappedGGUFModel::from_path(&path)?;
             OwnedQuantizedModel::from_mapped(&mapped)?
-        }
+        },
     };
 
     let token_id = 791u32;

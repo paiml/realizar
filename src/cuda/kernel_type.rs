@@ -400,6 +400,11 @@ pub enum KernelType {
         hidden_size: u32,
         epsilon: f32,
     },
+    /// GH-559: Shared-memory RMSNorm (no warp shuffles) for Blackwell sm_121
+    SharedMemRmsNorm {
+        hidden_size: u32,
+        epsilon: f32,
+    },
     /// GH-280: Per-head QK RMSNorm (Qwen3)
     PerHeadRmsNorm {
         head_dim: u32,

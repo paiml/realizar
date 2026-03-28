@@ -119,6 +119,16 @@ impl CudaExecutor {
                         "[GH-559] Layer 0/28 OUTPUT (hidden_buf2): sum={:.6}, rms={:.6}, first5={:?}",
                         sum, rms, &host[..5.min(n)]
                     );
+                    // GH-559: Dump per-super-block sums to find divergent region
+                    for sb in 0..(n / 256) {
+                        let idx = sb * 256;
+                        let end = (idx + 5).min(n);
+                        let sb_sum: f32 = host[idx..idx+256.min(n-idx)].iter().sum();
+                        eprintln!(
+                            "[GH-559-GPU] L0 sb{}: idx={}, sum={:.4}, vals={:?}",
+                            sb, idx, sb_sum, &host[idx..end]
+                        );
+                    }
                 }
             }
         }

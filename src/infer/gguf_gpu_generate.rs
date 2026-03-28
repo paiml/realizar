@@ -1,4 +1,111 @@
 
+/// GH-559: Try wgpu (Vulkan) generation as fallback when CUDA JIT fails.
+/// Uses trueno's WgslForwardPass with dequantized F32 weights.
+/// Proven: cosine=0.999863 on Blackwell sm_121.
+#[cfg(feature = "gpu")]
+fn try_wgpu_generate(
+    model: &crate::gguf::OwnedQuantizedModel,
+    input_tokens: &[u32],
+    gen_config: &crate::gguf::QuantizedGenerateConfig,
+    verbose: bool,
+) -> Result<(Vec<u32>, bool)> {
+    use crate::gpu::adapters::wgpu_adapter;
+
+    if !trueno::backends::gpu::GpuDevice::is_available() {
+        return Err(RealizarError::InferenceError("wgpu not available".into()));
+    }
+
+    let gpu = trueno::backends::gpu::GpuDevice::new()
+        .map_err(|e| RealizarError::InferenceError(format!("wgpu init: {e}")))?;
+
+    if verbose {
+        eprintln!("Backend: wgpu (Vulkan)");
+    }
+
+    let config = model.config();
+    let hidden_dim = config.hidden_dim;
+    let num_layers = config.num_layers;
+    let num_heads = config.num_heads;
+    let num_kv_heads = config.num_kv_heads;
+    let head_dim = hidden_dim / num_heads;
+    let intermediate_dim = config.intermediate_dim;
+    let vocab_size = config.vocab_size;
+    let eps = config.eps;
+    let kv_dim = num_kv_heads * head_dim;
+
+    // Create forward pass and upload dequantized weights
+    let mut fwd = trueno::backends::gpu::WgslForwardPass::new(
+        gpu.device, gpu.queue,
+        hidden_dim, num_heads, num_kv_heads, head_dim, intermediate_dim,
+    );
+
+    let weights = wgpu_adapter::dequant_model_weights(model)?;
+    for (name, data, _rows, _cols) in &weights {
+        fwd.upload_weight(name, data);
+    }
+    // KV cache initialized by caller (no init_kv_cache needed — API change)
+
+    // Get output norm and LM head weights
+    let output_norm = model.output_norm_weight();
+    let lm_head_f32: Vec<f32> = weights.iter()
+        .find(|(n, _, _, _)| n == "lm_head")
+        .map(|(_, d, _, _)| d.clone())
+        .unwrap_or_default();
+
+    // KV caches
+    let max_seq = gen_config.max_tokens + input_tokens.len() + 16;
+    let mut kv_caches: Vec<(Vec<f32>, Vec<f32>)> = (0..num_layers)
+        .map(|_| (vec![0.0f32; max_seq * kv_dim], vec![0.0f32; max_seq * kv_dim]))
+        .collect();
+
+    // Autoregressive generation
+    let mut output_tokens = input_tokens.to_vec();
+    let stop_tokens = &gen_config.stop_tokens;
+
+    for step in 0..gen_config.max_tokens {
+        let token_id = *output_tokens.last().unwrap();
+        let position = output_tokens.len() - 1;
+        let seq_len_before = if step == 0 { 0 } else { position };
+
+        // Forward pass through all layers
+        let mut hidden = model.embed(&[token_id]);
+        for layer_idx in 0..num_layers {
+            let prefix = format!("layer.{layer_idx}");
+            let (ref mut kv_k, ref mut kv_v) = kv_caches[layer_idx];
+            fwd.forward_layer(
+                &mut hidden, &prefix, position, kv_k, kv_v,
+            ).map_err(|e| RealizarError::InferenceError(format!("wgpu layer {layer_idx}: {e}")))?;
+        }
+
+        // Output norm + LM head (CPU — small cost)
+        let sq_sum: f32 = hidden.iter().map(|x| x * x).sum();
+        let rms = (sq_sum / hidden.len() as f32 + eps).sqrt();
+        let normed: Vec<f32> = hidden.iter().zip(output_norm.iter())
+            .map(|(x, g)| (x / rms) * g)
+            .collect();
+
+        // Argmax (greedy)
+        let mut best_idx = 0u32;
+        let mut best_val = f32::NEG_INFINITY;
+        for i in 0..vocab_size {
+            let row = &lm_head_f32[i * hidden_dim..(i + 1) * hidden_dim];
+            let logit: f32 = row.iter().zip(normed.iter()).map(|(w, x)| w * x).sum();
+            if logit > best_val {
+                best_val = logit;
+                best_idx = i as u32;
+            }
+        }
+
+        output_tokens.push(best_idx);
+
+        if stop_tokens.contains(&best_idx) {
+            break;
+        }
+    }
+
+    Ok((output_tokens, true)) // true = used GPU (wgpu)
+}
+
 /// Try GGUF GPU generation. Takes model by value to avoid expensive clone (~1GB).
 /// Returns `Ok(result)` on GPU success, `Err(model)` to return model for CPU fallback.
 #[cfg(feature = "cuda")]
@@ -64,6 +171,20 @@ fn run_gguf_generate(
         model
     };
 
+    // GH-559: wgpu fallback — try Vulkan compute before CPU.
+    // Proven: wgpu cosine=0.999863 on Blackwell sm_121 where CUDA JIT fails.
+    eprintln!("[GH-559] wgpu fallback check: no_gpu={}, legacy={}", config.no_gpu, has_legacy_quant);
+    if !config.no_gpu && !has_legacy_quant {
+        match try_wgpu_generate(&model, input_tokens, gen_config, config.verbose) {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                if config.verbose {
+                    eprintln!("Backend: CPU (wgpu unavailable: {})", e);
+                }
+            }
+        }
+    }
+
     log_cpu_backend(config.verbose, has_legacy_quant);
     let tokens = model
         .generate_with_cache(input_tokens, gen_config)
@@ -99,8 +220,182 @@ fn run_apr_inference(
         }
     }
 
+    // GH-559: wgpu fallback for APR models — try Vulkan before CPU.
+    #[cfg(feature = "gpu")]
+    if !config.no_gpu {
+        match try_apr_wgpu_inference(config, input_tokens, input_token_count, load_start) {
+            Some(Ok(result)) => return Ok(result),
+            Some(Err(e)) => {
+                if config.verbose {
+                    eprintln!("Backend: CPU (wgpu failed: {})", e);
+                }
+            }
+            None => {
+                if config.verbose {
+                    eprintln!("Backend: CPU (wgpu not available)");
+                }
+            }
+        }
+    }
+
     // CPU fallback: AprTransformer with RoPE and SwiGLU
     run_apr_cpu_inference(config, input_tokens, input_token_count, load_start)
+}
+
+/// GH-559: Try wgpu (Vulkan) inference for APR models.
+/// Returns None if wgpu not available, Some(Result) if attempted.
+#[cfg(feature = "gpu")]
+fn try_apr_wgpu_inference(
+    config: &InferenceConfig,
+    input_tokens: &[u32],
+    input_token_count: usize,
+    load_start: Instant,
+) -> Option<Result<InferenceResult>> {
+    use crate::apr::MappedAprModel;
+    use crate::gpu::adapters::wgpu_adapter;
+    use trueno::backends::gpu::GpuDevice;
+
+    if !GpuDevice::is_available() {
+        return None;
+    }
+
+    let gpu = match GpuDevice::new() {
+        Ok(g) => g,
+        Err(e) => {
+            if config.verbose {
+                eprintln!("[GH-559] wgpu init failed: {}", e);
+            }
+            return None;
+        }
+    };
+
+    if config.verbose {
+        eprintln!("Backend: wgpu (Vulkan)");
+    }
+
+    // Load model
+    let mapped = match MappedAprModel::from_path(&config.model_path) {
+        Ok(m) => m,
+        Err(_) => return None,
+    };
+    let model = match crate::gguf::OwnedQuantizedModel::from_apr(&mapped) {
+        Ok(m) => m,
+        Err(_) => return None,
+    };
+
+    let cfg = model.config();
+    let hidden_dim = cfg.hidden_dim;
+    let num_layers = cfg.num_layers;
+    let num_heads = cfg.num_heads;
+    let num_kv_heads = cfg.num_kv_heads;
+    let head_dim = hidden_dim / num_heads;
+    let intermediate_dim = cfg.intermediate_dim;
+    let vocab_size = cfg.vocab_size;
+    let eps = cfg.eps;
+    let kv_dim = num_kv_heads * head_dim;
+    // Resolve stop tokens from model config + sibling tokenizer
+    let mut stop_toks: Vec<u32> = cfg.eos_token_id.into_iter().collect();
+    let extra = crate::infer::resolve_apr_stop_tokens(
+        cfg.eos_token_id, &[], &config.model_path,
+    );
+    for t in &extra {
+        if !stop_toks.contains(t) { stop_toks.push(*t); }
+    }
+    let gen_config = crate::gguf::QuantizedGenerateConfig {
+        max_tokens: config.max_tokens,
+        temperature: 0.0,
+        top_k: 1,
+        stop_tokens: stop_toks,
+        trace: false,
+    };
+
+    // Dequantize and upload weights
+    let weights = match wgpu_adapter::dequant_model_weights(&model) {
+        Ok(w) => w,
+        Err(e) => return Some(Err(e)),
+    };
+
+    let mut fwd = trueno::backends::gpu::WgslForwardPass::new(
+        gpu.device, gpu.queue,
+        hidden_dim, num_heads, num_kv_heads, head_dim, intermediate_dim,
+    );
+
+    for (name, data, _rows, _cols) in &weights {
+        fwd.upload_weight(name, data);
+    }
+    // KV cache initialized by caller (no init_kv_cache needed — API change)
+
+    let output_norm = model.output_norm_weight();
+    let lm_head_f32: Vec<f32> = weights.iter()
+        .find(|(n, _, _, _)| n == "lm_head")
+        .map(|(_, d, _, _)| d.clone())
+        .unwrap_or_default();
+
+    let max_seq = gen_config.max_tokens + input_tokens.len() + 16;
+    let mut kv_caches: Vec<(Vec<f32>, Vec<f32>)> = (0..num_layers)
+        .map(|_| (vec![0.0f32; max_seq * kv_dim], vec![0.0f32; max_seq * kv_dim]))
+        .collect();
+
+    let model_load_ms = load_start.elapsed().as_millis() as f64;
+
+    // Autoregressive generation
+    let infer_start = Instant::now();
+    let mut output_tokens = input_tokens.to_vec();
+    let stop_tokens = &gen_config.stop_tokens;
+
+    for step in 0..gen_config.max_tokens {
+        let token_id = *output_tokens.last().unwrap();
+        let position = output_tokens.len() - 1;
+
+        let mut hidden = model.embed(&[token_id]);
+        for layer_idx in 0..num_layers {
+            let prefix = format!("layer.{layer_idx}");
+            let (ref mut kv_k, ref mut kv_v) = kv_caches[layer_idx];
+            if let Err(e) = fwd.forward_layer(&mut hidden, &prefix, position, kv_k, kv_v) {
+                return Some(Err(RealizarError::InferenceError(format!("wgpu layer {layer_idx}: {e}"))));
+            }
+        }
+
+        // Output norm (apply RMSNorm with output_norm gamma)
+        let sq_sum: f32 = hidden.iter().map(|x| x * x).sum();
+        let rms = (sq_sum / hidden.len() as f32 + eps).sqrt();
+        let normed: Vec<f32> = hidden.iter().zip(output_norm.iter())
+            .map(|(x, g)| (x / rms) * g)
+            .collect();
+
+        // LM head argmax (CPU matmul)
+        let mut best_idx = 0u32;
+        let mut best_val = f32::NEG_INFINITY;
+        for i in 0..vocab_size {
+            let row = &lm_head_f32[i * hidden_dim..(i + 1) * hidden_dim];
+            let logit: f32 = row.iter().zip(normed.iter()).map(|(w, x)| w * x).sum();
+            if logit > best_val {
+                best_val = logit;
+                best_idx = i as u32;
+            }
+        }
+
+        output_tokens.push(best_idx);
+        if stop_tokens.contains(&best_idx) { break; }
+    }
+
+    let inference_ms = infer_start.elapsed().as_millis() as f64;
+    let tokens_generated = output_tokens.len() - input_token_count;
+
+    // Decode tokens
+    let text = crate::infer::decode_apr_tokens(&config.model_path, &output_tokens[input_token_count..]);
+
+    Some(Ok(InferenceResult {
+        text,
+        tokens: output_tokens,
+        input_token_count,
+        generated_token_count: tokens_generated,
+        inference_ms,
+        load_ms: model_load_ms,
+        tok_per_sec: if inference_ms > 0.0 { tokens_generated as f64 / (inference_ms / 1000.0) } else { 0.0 },
+        format: "APR".to_string(),
+        used_gpu: true,
+    }))
 }
 
 /// GH-318: Map APR architecture string to chat template hint using contract.

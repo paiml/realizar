@@ -36,6 +36,20 @@ impl CudaExecutor {
             self.stop_brick_id(timer_rmsnorm1, 1);
         }
 
+        // GH-559: Dump GPU input sum-of-squares for Layer 0 to verify RMS computation
+        if !skip_debug && layer_idx == 0 {
+            self.stream.synchronize()?;
+            let mut input_host = vec![0.0f32; hidden_dim as usize];
+            input.copy_to_host(&mut input_host)?;
+            let input_sum: f32 = input_host.iter().sum();
+            let input_sq_sum: f32 = input_host.iter().map(|x| x * x).sum();
+            let cpu_rms = (input_sq_sum / hidden_dim as f32 + epsilon).sqrt();
+            eprintln!(
+                "[GH-559-RMS] L0 input: sum={:.6}, sq_sum={:.10}, cpu_rms={:.10}, first5={:?}",
+                input_sum, input_sq_sum, cpu_rms, &input_host[..5.min(input_host.len())]
+            );
+        }
+
         // PAR-058-DEBUG: Check after RMSNorm (skip during graph capture)
         // GH-559: Extended to layers 10-12 to debug no-op layers
         if !skip_debug && (layer_idx < 4 || (layer_idx >= 10 && layer_idx <= 12)) {
