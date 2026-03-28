@@ -59,7 +59,15 @@
 #![deny(missing_docs)]
 #![deny(clippy::all)]
 #![warn(clippy::pedantic)]
-#![allow(dead_code, unused_imports, unused_variables, unused_comparisons, unused_mut, unused_assignments, unused_doc_comments)]
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    unused_comparisons,
+    unused_mut,
+    unused_assignments,
+    unused_doc_comments
+)]
 #![allow(clippy::wildcard_imports)]
 #![allow(clippy::enum_glob_use)]
 #![allow(clippy::explicit_iter_loop)]
@@ -141,6 +149,10 @@
 #![allow(clippy::field_reassign_with_default)] // Allow field reassign after default
 
 #[cfg(feature = "server")]
+// Contract assertions from YAML (pv codegen)
+#[macro_use]
+#[allow(unused_macros)]
+mod generated_contracts;
 pub mod api;
 /// Aprender .apr format support (PRIMARY inference format)
 ///
