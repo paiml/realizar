@@ -4,12 +4,20 @@
 /// Dequantized weights uploaded to GPU once, reused across all prompts.
 /// Embedding lookup uses mmap'd model file — zero heap allocation.
 ///
-/// Five-whys root cause (OOM):
+/// Five-whys root cause (OOM, GH-560):
 ///   1. Why OOM? 56 GB peak during init
 ///   2. Why 56 GB? dequant_model_weights() called TWICE (28 GB each)
 ///   3. Why twice? First for upload loop, second for lm_head extraction
 ///   4. Why separate? into_iter() consumed the Vec, couldn't find lm_head after
 ///   5. Why not extract inline? Oversight — fixed by extracting during iteration
+///
+/// Five-whys root cause (garbage output, GH-560):
+///   1. Why garbage? Attention produces near-uniform scores → random tokens
+///   2. Why uniform? KV cache has max_seq zero-vectors before actual K/V data
+///   3. Why zeros? generate() zeroed cache contents but didn't clear length
+///   4. Why wrong length? Pre-allocated vec![0.0; max_seq * kv_dim] starts at full length
+///   5. Why full length? forward_layer uses extend_from_slice + len()/kv_dim for seq_len
+///   Fix: Vec::with_capacity (empty, pre-alloc) + clear() (reset length to 0)
 
 // Included from batch.rs via include!() — shares the same module scope.
 
@@ -46,10 +54,12 @@ impl WgpuBatchState {
         let mapped = crate::apr::MappedAprModel::from_path(&self.model_path)?;
         let embed_model = crate::gguf::OwnedQuantizedModel::from_apr(&mapped)?;
 
-        // Reset KV caches
+        // Reset KV caches — clear() resets length to 0 (capacity retained).
+        // forward_layer uses extend_from_slice + len()/kv_dim to derive seq_len,
+        // so length MUST be 0 at start. Zeroing contents preserves wrong length.
         for (k, v) in &mut self.kv_caches {
-            k.iter_mut().for_each(|x| *x = 0.0);
-            v.iter_mut().for_each(|x| *x = 0.0);
+            k.clear();
+            v.clear();
         }
 
         let mut output_tokens = input_tokens.to_vec();
@@ -180,9 +190,11 @@ fn try_init_wgpu_batch(
     // Initialize GPU KV caches
     fwd.init_kv_cache(num_layers);
 
+    // KV caches: start empty (length 0), pre-allocate capacity to avoid reallocs.
+    // forward_layer appends via extend_from_slice and derives seq_len from len().
     let max_seq = config.max_tokens + 128;
     let kv_caches: Vec<(Vec<f32>, Vec<f32>)> = (0..num_layers)
-        .map(|_| (vec![0.0f32; max_seq * kv_dim], vec![0.0f32; max_seq * kv_dim]))
+        .map(|_| (Vec::with_capacity(max_seq * kv_dim), Vec::with_capacity(max_seq * kv_dim)))
         .collect();
 
     Some(WgpuBatchState {
