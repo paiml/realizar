@@ -321,6 +321,16 @@ impl OwnedQuantizedModelCuda {
             });
         }
 
+        // PMAT-399: Auto-size max_batch if env var not set
+        if std::env::var("CUDA_MAX_BATCH").is_err() {
+            let auto_batch = executor.compute_max_batch_for_memory(
+                num_layers, num_kv_heads, head_dim, max_seq_len,
+            );
+            eprintln!("[PMAT-399] Auto-sized CUDA_MAX_BATCH={auto_batch} (no env var set)");
+            // Store for scheduler to pick up
+            std::env::set_var("CUDA_MAX_BATCH", auto_batch.to_string());
+        }
+
         // PAR-118: Initialize Flash Decoding for split-K attention acceleration.
         // Five-Whys: batched_incremental_attention uses Grid=(num_heads,M,1) Block=(32,1,1)
         // = only 896 threads on RTX 4090 for 7B (28 heads). Flash Decoding splits KV cache

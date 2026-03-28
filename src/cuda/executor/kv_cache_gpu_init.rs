@@ -15,6 +15,37 @@ impl CudaExecutor {
     /// * `num_kv_heads` - Number of key-value heads (for GQA, <= num_heads)
     /// * `head_dim` - Dimension per head
     /// * `max_len` - Maximum sequence length to support
+    /// PMAT-399: Compute maximum batch size that fits in available GPU memory.
+    /// Returns the largest batch_size where KV cache fits in free memory with margin.
+    pub fn compute_max_batch_for_memory(
+        &self,
+        num_layers: usize,
+        num_kv_heads: usize,
+        head_dim: usize,
+        max_len: usize,
+    ) -> usize {
+        let driver = match trueno_gpu::driver::context::get_driver() {
+            Ok(d) => d,
+            Err(_) => return 4, // fallback
+        };
+        let mut free: usize = 0;
+        let mut total: usize = 0;
+        unsafe { (driver.cuMemGetInfo)(&mut free, &mut total) };
+
+        // KV cache per slot per layer: 2 (K+V) × num_kv_heads × max_len × head_dim × 4 bytes
+        let kv_per_slot_per_layer = 2 * num_kv_heads * max_len * head_dim * 4;
+        let kv_per_slot = kv_per_slot_per_layer * num_layers;
+        // Reserve 2 GB for workspace + prefill buffers
+        let available = free.saturating_sub(2 * 1024 * 1024 * 1024);
+        let max_batch = if kv_per_slot > 0 { available / kv_per_slot } else { 32 };
+        let clamped = max_batch.clamp(1, 32);
+        eprintln!(
+            "[PMAT-399] Memory fit: {:.1} GB free, {:.1} GB/slot KV, max_batch={}",
+            free as f64 / 1e9, kv_per_slot as f64 / 1e9, clamped,
+        );
+        clamped
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn init_kv_cache_gpu(
         &mut self,
