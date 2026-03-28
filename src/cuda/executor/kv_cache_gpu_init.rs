@@ -37,6 +37,7 @@ impl CudaExecutor {
         clamped
     }
 
+    /// Initialize per-layer KV cache on GPU for single-sequence inference.
     #[allow(clippy::too_many_arguments)]
     pub fn init_kv_cache_gpu(
         &mut self,
