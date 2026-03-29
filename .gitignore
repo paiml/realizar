@@ -69,3 +69,4 @@ benches/comparative/results/
 
 # Machine-specific Cargo config (target-dir, linker paths)
 .cargo/config.toml
+src/generated_contracts.rs
