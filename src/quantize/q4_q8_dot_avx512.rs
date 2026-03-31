@@ -16,6 +16,7 @@
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f", enable = "avx512bw")]
 #[inline]
+#[allow(unsafe_op_in_unsafe_fn)]
 pub(crate) unsafe fn compute_q4_q8_dots_8blocks_avx512(
     qs_ptr: *const u8,
     q8_ptr: *const i8,
@@ -108,6 +109,7 @@ pub(crate) unsafe fn compute_q4_q8_dots_8blocks_avx512(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f", enable = "avx512bw")]
 #[inline]
+#[allow(unsafe_op_in_unsafe_fn)]
 pub(crate) unsafe fn compute_q8_sums_avx512(q8_ptr: *const i8) -> [i32; 8] {
     use std::arch::x86_64::*;
 
@@ -134,6 +136,7 @@ pub(crate) unsafe fn compute_q8_sums_avx512(q8_ptr: *const i8) -> [i32; 8] {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
+#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn hsum_256(v: std::arch::x86_64::__m256i) -> i32 {
     use std::arch::x86_64::*;
     let sum128 = _mm_add_epi32(_mm256_castsi256_si128(v), _mm256_extracti128_si256(v, 1));
