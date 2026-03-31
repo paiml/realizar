@@ -3,6 +3,7 @@
 //! Contains forward_single_with_cache and forward_single_with_cache_adaptive.
 //! These are the decode-phase entry points for autoregressive generation.
 
+use crate::brick::BrickProfiler;
 use crate::error::Result;
 use crate::gguf::ops;
 #[cfg(feature = "gpu")]
@@ -13,3 +14,4 @@ use crate::gguf::{
 };
 
 include!("results.rs");
+include!("forward_single_profiled.rs");

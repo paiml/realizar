@@ -157,6 +157,16 @@ impl OwnedQuantizedModel {
         let mut cache = OwnedQuantizedKVCache::from_config(&self.config, max_seq_len);
         let mut tokens = prompt.to_vec();
 
+        // GH-104: BrickProfiler for per-operation timing in autoregressive path
+        let mut profiler = if config.trace {
+            BrickProfiler::new()
+        } else {
+            BrickProfiler::disabled()
+        };
+        if config.trace {
+            profiler.set_num_layers(self.config.num_layers);
+        }
+
         // PMAT-TRACE-GGUF-001: Trace config info
         if config.trace {
             eprintln!(
@@ -174,8 +184,17 @@ impl OwnedQuantizedModel {
         // The logits from processing token[n-1] at position n-1 predict token[n]
         let prefill_start = std::time::Instant::now();
         let mut logits = Vec::new();
-        for (pos, &token_id) in prompt.iter().enumerate() {
-            logits = self.forward_single_with_cache(token_id, &mut cache, pos)?;
+        if config.trace {
+            profiler.start_inference();
+            for (pos, &token_id) in prompt.iter().enumerate() {
+                logits = self.forward_single_with_cache_profiled(
+                    token_id, &mut cache, pos, &mut profiler,
+                )?;
+            }
+        } else {
+            for (pos, &token_id) in prompt.iter().enumerate() {
+                logits = self.forward_single_with_cache(token_id, &mut cache, pos)?;
+            }
         }
         if config.trace {
             eprintln!(
@@ -251,7 +270,13 @@ impl OwnedQuantizedModel {
             // Get logits for next iteration by forwarding the newly sampled token
             // Position is prompt.len() + gen_idx (where token was just added)
             let position = prompt.len() + gen_idx;
-            logits = self.forward_single_with_cache(next_token, &mut cache, position)?;
+            if config.trace {
+                logits = self.forward_single_with_cache_profiled(
+                    next_token, &mut cache, position, &mut profiler,
+                )?;
+            } else {
+                logits = self.forward_single_with_cache(next_token, &mut cache, position)?;
+            }
 
             // PMAT-TRACE-GGUF-001: Per-token timing
             if config.trace {
@@ -260,6 +285,35 @@ impl OwnedQuantizedModel {
                     position,
                     self.config.num_layers,
                     token_start.elapsed()
+                );
+            }
+        }
+
+        // GH-104: Print BrickProfiler report when tracing is enabled
+        if config.trace {
+            profiler.stop_inference();
+            let generated = tokens.len().saturating_sub(prompt.len());
+            profiler.set_tokens(prompt.len() + generated);
+            let report = profiler.report();
+            eprintln!("[BRICK-PROFILE] === Autoregressive Path Profile ===");
+            eprintln!(
+                "[BRICK-PROFILE] Total: {:.2}ms, {} tokens ({} prefill + {} decode), {:.1} tok/s",
+                report.total_inference_us / 1000.0,
+                report.tokens_processed,
+                prompt.len(),
+                generated,
+                report.throughput_tok_s,
+            );
+            let breakdown = report.percentage_breakdown();
+            for (name, stats) in report.sorted_by_time() {
+                let pct = breakdown.get(name).copied().unwrap_or(0.0);
+                eprintln!(
+                    "[BRICK-PROFILE]   {:<20} {:>8.2}ms ({:>5.1}%)  avg={:.1}us  count={}",
+                    name,
+                    stats.total_us / 1000.0,
+                    pct,
+                    stats.avg_us,
+                    stats.count,
                 );
             }
         }
@@ -309,6 +363,16 @@ impl OwnedQuantizedModel {
         let mut cache = OwnedQuantizedKVCache::from_config(&self.config, max_seq_len);
         let mut tokens = prompt.to_vec();
 
+        // GH-104: BrickProfiler for per-operation timing in streaming path
+        let mut profiler = if config.trace {
+            BrickProfiler::new()
+        } else {
+            BrickProfiler::disabled()
+        };
+        if config.trace {
+            profiler.set_num_layers(self.config.num_layers);
+        }
+
         // PMAT-TRACE-GGUF-001: Trace config info
         if config.trace {
             eprintln!(
@@ -325,8 +389,17 @@ impl OwnedQuantizedModel {
         // Process prompt tokens (prefill)
         let prefill_start = std::time::Instant::now();
         let mut logits = Vec::new();
-        for (pos, &token_id) in prompt.iter().enumerate() {
-            logits = self.forward_single_with_cache(token_id, &mut cache, pos)?;
+        if config.trace {
+            profiler.start_inference();
+            for (pos, &token_id) in prompt.iter().enumerate() {
+                logits = self.forward_single_with_cache_profiled(
+                    token_id, &mut cache, pos, &mut profiler,
+                )?;
+            }
+        } else {
+            for (pos, &token_id) in prompt.iter().enumerate() {
+                logits = self.forward_single_with_cache(token_id, &mut cache, pos)?;
+            }
         }
         if config.trace {
             eprintln!(
@@ -369,7 +442,13 @@ impl OwnedQuantizedModel {
 
             // Get logits for next iteration
             let position = prompt.len() + gen_idx;
-            logits = self.forward_single_with_cache(next_token, &mut cache, position)?;
+            if config.trace {
+                logits = self.forward_single_with_cache_profiled(
+                    next_token, &mut cache, position, &mut profiler,
+                )?;
+            } else {
+                logits = self.forward_single_with_cache(next_token, &mut cache, position)?;
+            }
 
             // PMAT-TRACE-GGUF-001: Per-token timing
             if config.trace {
@@ -378,6 +457,35 @@ impl OwnedQuantizedModel {
                     position,
                     self.config.num_layers,
                     token_start.elapsed()
+                );
+            }
+        }
+
+        // GH-104: Print BrickProfiler report when tracing is enabled
+        if config.trace {
+            profiler.stop_inference();
+            let generated = tokens.len().saturating_sub(prompt.len());
+            profiler.set_tokens(prompt.len() + generated);
+            let report = profiler.report();
+            eprintln!("[BRICK-PROFILE] === Streaming Path Profile ===");
+            eprintln!(
+                "[BRICK-PROFILE] Total: {:.2}ms, {} tokens ({} prefill + {} decode), {:.1} tok/s",
+                report.total_inference_us / 1000.0,
+                report.tokens_processed,
+                prompt.len(),
+                generated,
+                report.throughput_tok_s,
+            );
+            let breakdown = report.percentage_breakdown();
+            for (name, stats) in report.sorted_by_time() {
+                let pct = breakdown.get(name).copied().unwrap_or(0.0);
+                eprintln!(
+                    "[BRICK-PROFILE]   {:<20} {:>8.2}ms ({:>5.1}%)  avg={:.1}us  count={}",
+                    name,
+                    stats.total_us / 1000.0,
+                    pct,
+                    stats.avg_us,
+                    stats.count,
                 );
             }
         }
