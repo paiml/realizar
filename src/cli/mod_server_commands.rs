@@ -473,6 +473,7 @@ mod server_commands {
     /// * `batch_mode` - Enable batch processing (requires 'gpu' feature)
     /// * `force_gpu` - Force CUDA backend (requires 'cuda' feature)
     /// * `openai_api` - Enable OpenAI-compatible API at /v1/* (GH-148)
+    /// * `trace` - GH-103: Enable inference tracing (propagates into QuantizedGenerateConfig.trace)
     pub async fn serve_model(
         host: &str,
         port: u16,
@@ -480,13 +481,22 @@ mod server_commands {
         batch_mode: bool,
         force_gpu: bool,
         openai_api: bool,
+        trace: bool,
     ) -> Result<()> {
         // Prepare server state (testable)
         let prepared = prepare_serve_state(model_path, batch_mode, force_gpu)?;
 
+        // GH-103: Wire trace flag into AppState
+        let state = if trace {
+            eprintln!("Tracing: ENABLED (--trace flag)");
+            prepared.state.with_trace(true)
+        } else {
+            prepared.state
+        };
+
         // GH-148: Create router with OpenAI API flag
         let router_config = crate::api::RouterConfig { openai_api };
-        let app = crate::api::create_router_with_config(prepared.state, router_config);
+        let app = crate::api::create_router_with_config(state, router_config);
 
         // Parse and validate address
         let addr: std::net::SocketAddr = format!("{host}:{port}").parse().map_err(|e| {

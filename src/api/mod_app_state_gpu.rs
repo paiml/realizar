@@ -59,6 +59,7 @@ impl AppState {
             cached_architecture: None,
             cached_eos_token_id: None,
             verbose: false,
+            trace: false,
         })
     }
 
@@ -109,6 +110,7 @@ impl AppState {
             cached_architecture: None,
             cached_eos_token_id: None,
             verbose: false,
+            trace: false,
         })
     }
 
@@ -163,6 +165,7 @@ impl AppState {
             cached_architecture: None,
             cached_eos_token_id: None,
             verbose: false,
+            trace: false,
         })
     }
 
@@ -224,6 +227,7 @@ impl AppState {
             cached_architecture: arch,
             cached_eos_token_id: eos,
             verbose: false,
+            trace: false,
         })
     }
 
@@ -274,6 +278,7 @@ impl AppState {
             cached_architecture: arch,
             cached_eos_token_id: eos,
             verbose: false,
+            trace: false,
         })
     }
 
@@ -329,6 +334,7 @@ impl AppState {
             cached_architecture: None,
             cached_eos_token_id: None,
             verbose: false,
+            trace: false,
         })
     }
 
@@ -513,6 +519,7 @@ impl AppState {
             cached_architecture: None,
             cached_eos_token_id: eos_id,
             verbose: false,
+            trace: false,
         })
     }
 
@@ -614,6 +621,26 @@ impl AppState {
     #[must_use]
     pub fn is_verbose(&self) -> bool {
         self.verbose
+    }
+
+    /// GH-103: Enable inference tracing (propagates into QuantizedGenerateConfig.trace)
+    #[must_use]
+    pub fn with_trace(mut self, trace: bool) -> Self {
+        self.trace = trace;
+        self
+    }
+
+    /// GH-103: Check if inference tracing is enabled (server-wide default)
+    #[must_use]
+    pub fn is_trace_enabled(&self) -> bool {
+        self.trace
+    }
+
+    /// GH-103: Resolve trace flag from server-wide default OR per-request X-Trace-Level header.
+    /// Returns true if either the server was started with --trace or the request has a trace header.
+    #[must_use]
+    pub fn should_trace(&self, trace_level: Option<&str>) -> bool {
+        self.trace || trace_level.is_some()
     }
 }
 

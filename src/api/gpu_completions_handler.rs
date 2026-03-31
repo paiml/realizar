@@ -37,7 +37,7 @@ fn try_gpu_completions(
         temperature,
         top_k: 1,
         stop_tokens: Vec::new(),
-        trace: false,
+        trace: state.is_trace_enabled(),
     };
 
     let mut gpu_model = gpu_model_lock.write().map_err(|e| {

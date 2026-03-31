@@ -313,7 +313,7 @@ async fn try_cached_completions(
         temperature,
         top_k: if temperature == 0.0 { 1 } else { 40 },
         stop_tokens: Vec::new(),
-        trace: false,
+        trace: state.is_trace_enabled(),
     };
 
     // IMP-126: adaptive generation when dispatch_metrics available
@@ -382,7 +382,7 @@ fn try_quantized_completions(
         temperature,
         top_k: if temperature == 0.0 { 1 } else { 40 },
         stop_tokens: Vec::new(),
-        trace: false,
+        trace: state.is_trace_enabled(),
     };
 
     let generated = quantized_model

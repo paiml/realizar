@@ -141,6 +141,11 @@ pub enum Commands {
         /// Force GPU acceleration (requires CUDA feature)
         #[arg(long)]
         gpu: bool,
+
+        /// Enable inference tracing (GH-103: propagates into QuantizedGenerateConfig.trace)
+        /// Per-request tracing can also be activated via X-Trace-Level header
+        #[arg(long)]
+        trace: bool,
     },
     /// Run performance benchmarks (wraps cargo bench)
     Bench {
@@ -264,6 +269,8 @@ pub struct ServeConfig {
     pub gpu: bool,
     /// Enable OpenAI-compatible API at /v1/* (GH-148)
     pub openai_api: bool,
+    /// GH-103: Enable inference tracing (propagates into QuantizedGenerateConfig.trace)
+    pub trace: bool,
 }
 
 /// Handle the serve command
@@ -279,6 +286,7 @@ pub async fn handle_serve(config: ServeConfig) -> Result<()> {
             config.batch,
             config.gpu,
             config.openai_api,
+            config.trace,
         )
         .await
     } else {

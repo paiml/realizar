@@ -70,8 +70,10 @@ pub async fn entrypoint(cli: Cli) -> Result<()> {
             openai_api,
             batch,
             gpu,
+            trace,
         } => {
             // GH-148: openai_api flag now wired through to router
+            // GH-103: trace flag propagates into QuantizedGenerateConfig.trace
             handlers::handle_serve(ServeConfig {
                 host,
                 port,
@@ -80,6 +82,7 @@ pub async fn entrypoint(cli: Cli) -> Result<()> {
                 batch,
                 gpu,
                 openai_api,
+                trace,
             })
             .await
         },

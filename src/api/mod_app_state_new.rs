@@ -40,6 +40,7 @@ impl AppState {
             cached_architecture: None,
             cached_eos_token_id: None,
             verbose: false,
+            trace: false,
         }
     }
 
@@ -95,6 +96,7 @@ impl AppState {
             cached_architecture: None,
             cached_eos_token_id: None,
             verbose: false,
+            trace: false,
         })
     }
 
@@ -191,6 +193,7 @@ impl AppState {
             cached_architecture: None,
             cached_eos_token_id: None,
             verbose: false,
+            trace: false,
         }
     }
 
@@ -259,6 +262,7 @@ impl AppState {
             cached_architecture: None,
             cached_eos_token_id: None,
             verbose: false,
+            trace: false,
         })
     }
 
@@ -309,6 +313,7 @@ impl AppState {
             cached_architecture: None,
             cached_eos_token_id: None,
             verbose: false,
+            trace: false,
         })
     }
 
@@ -364,6 +369,7 @@ impl AppState {
             cached_architecture: None,
             cached_eos_token_id: None,
             verbose: false,
+            trace: false,
         })
     }
 
@@ -414,6 +420,7 @@ impl AppState {
             cached_architecture: None,
             cached_eos_token_id: None,
             verbose: false,
+            trace: false,
         })
     }
 
@@ -477,6 +484,7 @@ impl AppState {
             cached_architecture: None,
             cached_eos_token_id: None,
             verbose: false,
+            trace: false,
         })
     }
 }

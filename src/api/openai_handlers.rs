@@ -303,7 +303,7 @@ fn try_gpu_backend(
         temperature,
         top_k: if temperature == 0.0 { 1 } else { 40 },
         stop_tokens: vec![eos_token_id as usize],
-        trace: false,
+        trace: state.should_trace(trace_level),
     };
 
     let mut model = match gpu_model_lock.write() {
@@ -392,7 +392,7 @@ fn try_cached_backend(
         temperature,
         top_k: if temperature == 0.0 { 1 } else { 40 },
         stop_tokens: vec![eos_token_id],
-        trace: false,
+        trace: state.should_trace(trace_level),
     };
 
     let generated = match cached_model

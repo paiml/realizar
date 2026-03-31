@@ -36,7 +36,7 @@ fn try_cuda_backend(
         temperature,
         top_k: if temperature == 0.0 { 1 } else { 40 },
         stop_tokens: vec![eos_token_id],
-        trace: false,
+        trace: state.should_trace(trace_level),
     };
 
     if request.stream {
@@ -145,7 +145,7 @@ fn try_quantized_backend(
         temperature,
         top_k: if temperature == 0.0 { 1 } else { 40 },
         stop_tokens: vec![eos_token_id],
-        trace: false,
+        trace: state.should_trace(trace_level),
     };
 
     if request.stream {

@@ -164,6 +164,8 @@ pub struct AppState {
     cached_eos_token_id: Option<u32>,
     /// GH-152: Enable verbose request/response logging
     verbose: bool,
+    /// GH-103: Enable inference tracing (propagates into QuantizedGenerateConfig.trace)
+    trace: bool,
 }
 
 /// Helper to create default audit infrastructure

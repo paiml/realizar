@@ -274,6 +274,7 @@ mod tests {
             batch: true,
             gpu: true,
             openai_api: true,
+            trace: false,
         };
 
         let debug_str = format!("{:?}", config);
@@ -292,6 +293,7 @@ mod tests {
             batch: false,
             gpu: false,
             openai_api: true,
+            trace: false,
         };
 
         let cloned = config.clone();
