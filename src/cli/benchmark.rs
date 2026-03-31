@@ -170,14 +170,16 @@ fn write_bench_json(
         message: format!("Failed to create output file {output_path}: {e}"),
     })?;
 
-    file.write_all(
-        serde_json::to_string_pretty(&json_output)
-            .expect("test")
-            .as_bytes(),
-    )
-    .map_err(|e| RealizarError::IoError {
-        message: format!("Failed to write to output file {output_path}: {e}"),
+    let json_str = serde_json::to_string_pretty(&json_output).map_err(|e| {
+        RealizarError::IoError {
+            message: format!("Failed to serialize benchmark results to JSON: {e}"),
+        }
     })?;
+
+    file.write_all(json_str.as_bytes())
+        .map_err(|e| RealizarError::IoError {
+            message: format!("Failed to write to output file {output_path}: {e}"),
+        })?;
 
     println!();
     println!("Benchmark results written to: {output_path}");
