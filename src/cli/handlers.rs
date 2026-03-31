@@ -262,13 +262,15 @@ pub struct ServeConfig {
     pub demo: bool,
     pub batch: bool,
     pub gpu: bool,
+    /// Enable OpenAI-compatible API at /v1/* (GH-148)
+    pub openai_api: bool,
 }
 
 /// Handle the serve command
 #[cfg(feature = "server")]
 pub async fn handle_serve(config: ServeConfig) -> Result<()> {
     if config.demo {
-        super::serve_demo(&config.host, config.port).await
+        super::serve_demo(&config.host, config.port, config.openai_api).await
     } else if let Some(model_path) = config.model {
         super::serve_model(
             &config.host,
@@ -276,6 +278,7 @@ pub async fn handle_serve(config: ServeConfig) -> Result<()> {
             &model_path,
             config.batch,
             config.gpu,
+            config.openai_api,
         )
         .await
     } else {
@@ -395,34 +398,35 @@ pub fn handle_list(remote: Option<&str>, format: &str) -> Result<()> {
 /// Handle the pull command
 #[allow(clippy::unused_async)]
 pub async fn handle_pull(model_ref: &str, force: bool, quantize: Option<&str>) -> Result<()> {
-    println!("Pulling model: {model_ref}");
+    // GH-148: Status messages to stderr to avoid contaminating structured output
+    eprintln!("Pulling model: {model_ref}");
     if force {
-        println!("  Force: re-downloading even if cached");
+        eprintln!("  Force: re-downloading even if cached");
     }
     if let Some(q) = quantize {
-        println!("  Quantize: {q}");
+        eprintln!("  Quantize: {q}");
     }
-    println!();
+    eprintln!();
 
     if let Some(hf_path) = model_ref.strip_prefix("hf://") {
-        println!("Source: HuggingFace Hub");
-        println!("Model: {hf_path}");
-        println!();
-        println!("Enable registry support: --features registry");
-        println!("Or manual download:");
-        println!("  huggingface-cli download {hf_path}");
+        eprintln!("Source: HuggingFace Hub");
+        eprintln!("Model: {hf_path}");
+        eprintln!();
+        eprintln!("Enable registry support: --features registry");
+        eprintln!("Or manual download:");
+        eprintln!("  huggingface-cli download {hf_path}");
     } else if let Some(pacha_path) = model_ref.strip_prefix("pacha://") {
-        println!("Source: Pacha Registry");
-        println!("Model: {pacha_path}");
-        println!();
-        println!("Enable registry support: --features registry");
+        eprintln!("Source: Pacha Registry");
+        eprintln!("Model: {pacha_path}");
+        eprintln!();
+        eprintln!("Enable registry support: --features registry");
     } else {
-        println!("Source: Default registry (Pacha)");
-        println!("Model: {model_ref}");
-        println!();
-        println!("Enable registry support: --features registry");
-        println!("Or download manually and use:");
-        println!("  realizar run ./downloaded-model.gguf \"prompt\"");
+        eprintln!("Source: Default registry (Pacha)");
+        eprintln!("Model: {model_ref}");
+        eprintln!();
+        eprintln!("Enable registry support: --features registry");
+        eprintln!("Or download manually and use:");
+        eprintln!("  realizar run ./downloaded-model.gguf \"prompt\"");
     }
 
     Err(RealizarError::UnsupportedOperation {
@@ -434,14 +438,15 @@ pub async fn handle_pull(model_ref: &str, force: bool, quantize: Option<&str>) -
 /// Handle the push command
 #[allow(clippy::unused_async)]
 pub async fn handle_push(model_ref: &str, target: Option<&str>) -> Result<()> {
-    println!("Pushing model: {model_ref}");
+    // GH-148: Status messages to stderr to avoid contaminating structured output
+    eprintln!("Pushing model: {model_ref}");
     if let Some(t) = target {
-        println!("  Target: {t}");
+        eprintln!("  Target: {t}");
     } else {
-        println!("  Target: default Pacha registry");
+        eprintln!("  Target: default Pacha registry");
     }
-    println!();
-    println!("Enable registry support: --features registry");
+    eprintln!();
+    eprintln!("Enable registry support: --features registry");
     Err(RealizarError::UnsupportedOperation {
         operation: "push".to_string(),
         reason: "Registry feature not enabled. Build with --features registry".to_string(),

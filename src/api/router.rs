@@ -26,13 +26,36 @@ pub struct AuditResponse {
     pub record: AuditRecord,
 }
 
-/// Create the API router
+/// Router configuration options (GH-148: wire openai_api flag)
+#[derive(Debug, Clone)]
+pub struct RouterConfig {
+    /// Enable OpenAI-compatible API at /v1/* (default: true)
+    pub openai_api: bool,
+}
+
+impl Default for RouterConfig {
+    fn default() -> Self {
+        Self { openai_api: true }
+    }
+}
+
+/// Create the API router with default options (OpenAI API enabled)
 ///
 /// # Arguments
 ///
 /// * `state` - Application state with model and tokenizer
 pub fn create_router(state: AppState) -> Router {
-    Router::new()
+    create_router_with_config(state, RouterConfig::default())
+}
+
+/// Create the API router with explicit configuration (GH-148)
+///
+/// # Arguments
+///
+/// * `state` - Application state with model and tokenizer
+/// * `config` - Router configuration (controls which route groups are enabled)
+pub fn create_router_with_config(state: AppState, config: RouterConfig) -> Router {
+    let mut router = Router::new()
         // Health and metrics
         .route("/health", get(health_handler))
         .route("/metrics", get(metrics_handler))
@@ -50,30 +73,36 @@ pub fn create_router(state: AppState) -> Router {
         .route("/realize/batch", post(batch_generate_handler))
         .route("/realize/embed", post(realize_embed_handler))
         .route("/realize/model", get(realize_model_handler))
-        .route("/realize/reload", post(realize_reload_handler))
-        // OpenAI-compatible API (v1) - spec §5.1
-        .route("/v1/models", get(openai_models_handler))
-        .route("/v1/completions", post(openai_completions_handler))
-        .route(
-            "/v1/chat/completions",
-            post(openai_chat_completions_handler),
-        )
-        .route(
-            "/v1/chat/completions/stream",
-            post(openai_chat_completions_stream_handler),
-        )
-        .route("/v1/embeddings", post(openai_embeddings_handler))
-        // APR-specific API (spec §15.1)
-        .route("/v1/predict", post(apr_predict_handler))
-        .route("/v1/explain", post(apr_explain_handler))
-        .route("/v1/audit/:request_id", get(apr_audit_handler))
-        // GPU batch inference API (PARITY-022)
-        .route("/v1/gpu/warmup", post(gpu_warmup_handler))
-        .route("/v1/gpu/status", get(gpu_status_handler))
-        .route("/v1/batch/completions", post(gpu_batch_completions_handler))
-        // TUI monitoring API (PARITY-107)
-        .route("/v1/metrics", get(server_metrics_handler))
-        .with_state(state)
+        .route("/realize/reload", post(realize_reload_handler));
+
+    // GH-148: OpenAI-compatible API conditionally enabled
+    if config.openai_api {
+        router = router
+            // OpenAI-compatible API (v1) - spec §5.1
+            .route("/v1/models", get(openai_models_handler))
+            .route("/v1/completions", post(openai_completions_handler))
+            .route(
+                "/v1/chat/completions",
+                post(openai_chat_completions_handler),
+            )
+            .route(
+                "/v1/chat/completions/stream",
+                post(openai_chat_completions_stream_handler),
+            )
+            .route("/v1/embeddings", post(openai_embeddings_handler))
+            // APR-specific API (spec §15.1)
+            .route("/v1/predict", post(apr_predict_handler))
+            .route("/v1/explain", post(apr_explain_handler))
+            .route("/v1/audit/:request_id", get(apr_audit_handler))
+            // GPU batch inference API (PARITY-022)
+            .route("/v1/gpu/warmup", post(gpu_warmup_handler))
+            .route("/v1/gpu/status", get(gpu_status_handler))
+            .route("/v1/batch/completions", post(gpu_batch_completions_handler))
+            // TUI monitoring API (PARITY-107)
+            .route("/v1/metrics", get(server_metrics_handler));
+    }
+
+    router.with_state(state)
 }
 
 /// Health check handler

@@ -6,7 +6,7 @@
     #[tokio::test]
     async fn test_serve_model_invalid_extension() {
         // Test that unsupported file extensions return error
-        let result = serve_model("127.0.0.1", 8080, "/nonexistent/model.xyz", false, false).await;
+        let result = serve_model("127.0.0.1", 8080, "/nonexistent/model.xyz", false, false, true).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("Unsupported file extension"));
@@ -15,7 +15,7 @@
     #[tokio::test]
     async fn test_serve_model_nonexistent_gguf() {
         // Test that nonexistent GGUF file returns error
-        let result = serve_model("127.0.0.1", 8080, "/nonexistent/model.gguf", false, false).await;
+        let result = serve_model("127.0.0.1", 8080, "/nonexistent/model.gguf", false, false, true).await;
         assert!(result.is_err());
         // Should fail during GGUF loading
         let err = result.unwrap_err();
@@ -35,6 +35,7 @@
             "/nonexistent/model.safetensors",
             false,
             false,
+            true,
         )
         .await;
         assert!(result.is_err());
@@ -47,7 +48,7 @@
     #[tokio::test]
     async fn test_serve_model_nonexistent_apr() {
         // Test that nonexistent APR file returns error
-        let result = serve_model("127.0.0.1", 8080, "/nonexistent/model.apr", false, false).await;
+        let result = serve_model("127.0.0.1", 8080, "/nonexistent/model.apr", false, false, true).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(

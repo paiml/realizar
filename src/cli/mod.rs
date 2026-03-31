@@ -71,9 +71,7 @@ pub async fn entrypoint(cli: Cli) -> Result<()> {
             batch,
             gpu,
         } => {
-            if !openai_api {
-                eprintln!("Warning: --no-openai-api is not yet implemented. OpenAI API is always enabled.");
-            }
+            // GH-148: openai_api flag now wired through to router
             handlers::handle_serve(ServeConfig {
                 host,
                 port,
@@ -81,6 +79,7 @@ pub async fn entrypoint(cli: Cli) -> Result<()> {
                 demo,
                 batch,
                 gpu,
+                openai_api,
             })
             .await
         },

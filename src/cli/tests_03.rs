@@ -273,6 +273,7 @@ mod tests {
             demo: false,
             batch: true,
             gpu: true,
+            openai_api: true,
         };
 
         let debug_str = format!("{:?}", config);
@@ -290,6 +291,7 @@ mod tests {
             demo: true,
             batch: false,
             gpu: false,
+            openai_api: true,
         };
 
         let cloned = config.clone();

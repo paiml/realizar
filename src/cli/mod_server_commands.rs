@@ -472,18 +472,21 @@ mod server_commands {
     /// * `model_path` - Path to model file (.gguf, .safetensors, or .apr)
     /// * `batch_mode` - Enable batch processing (requires 'gpu' feature)
     /// * `force_gpu` - Force CUDA backend (requires 'cuda' feature)
+    /// * `openai_api` - Enable OpenAI-compatible API at /v1/* (GH-148)
     pub async fn serve_model(
         host: &str,
         port: u16,
         model_path: &str,
         batch_mode: bool,
         force_gpu: bool,
+        openai_api: bool,
     ) -> Result<()> {
         // Prepare server state (testable)
         let prepared = prepare_serve_state(model_path, batch_mode, force_gpu)?;
 
-        // Create router
-        let app = crate::api::create_router(prepared.state);
+        // GH-148: Create router with OpenAI API flag
+        let router_config = crate::api::RouterConfig { openai_api };
+        let app = crate::api::create_router_with_config(prepared.state, router_config);
 
         // Parse and validate address
         let addr: std::net::SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
@@ -492,24 +495,29 @@ mod server_commands {
             }
         })?;
 
-        // Print server info
-        println!("Server listening on http://{addr}");
-        println!();
-        println!("Endpoints:");
-        println!("  GET  /health         - Health check");
-        println!("  POST /v1/completions - OpenAI-compatible completions");
-        if prepared.batch_mode_enabled {
-            println!("  POST /v1/batch/completions - GPU batch completions (PARITY-022)");
-            println!("  POST /v1/gpu/warmup  - Warmup GPU cache");
-            println!("  GET  /v1/gpu/status  - GPU status");
+        // GH-148: Server info to stderr to avoid stdout contamination
+        eprintln!("Server listening on http://{addr}");
+        eprintln!();
+        eprintln!("Endpoints:");
+        eprintln!("  GET  /health         - Health check");
+        if openai_api {
+            eprintln!("  POST /v1/completions - OpenAI-compatible completions");
         }
-        println!("  POST /generate       - Generate text (Q4_K fused)");
-        println!();
+        if prepared.batch_mode_enabled && openai_api {
+            eprintln!("  POST /v1/batch/completions - GPU batch completions (PARITY-022)");
+            eprintln!("  POST /v1/gpu/warmup  - Warmup GPU cache");
+            eprintln!("  GET  /v1/gpu/status  - GPU status");
+        }
+        eprintln!("  POST /generate       - Generate text (Q4_K fused)");
+        if !openai_api {
+            eprintln!("  (OpenAI-compatible /v1/* routes disabled)");
+        }
+        eprintln!();
 
         if prepared.batch_mode_enabled {
-            println!("M4 Parity Target: 192 tok/s at concurrency >= 4");
-            println!("Benchmark with: wrk -t4 -c4 -d30s http://{addr}/v1/completions");
-            println!();
+            eprintln!("M4 Parity Target: 192 tok/s at concurrency >= 4");
+            eprintln!("Benchmark with: wrk -t4 -c4 -d30s http://{addr}/v1/completions");
+            eprintln!();
         }
 
         // Bind and serve
@@ -533,13 +541,16 @@ mod server_commands {
     /// Start a demo inference server (no model required)
     ///
     /// This is useful for testing the API without loading a real model.
-    pub async fn serve_demo(host: &str, port: u16) -> Result<()> {
+    /// * `openai_api` - Enable OpenAI-compatible API at /v1/* (GH-148)
+    pub async fn serve_demo(host: &str, port: u16, openai_api: bool) -> Result<()> {
         use std::net::SocketAddr;
 
-        println!("Starting Realizar inference server (demo mode)...");
+        // GH-148: Server info to stderr to avoid stdout contamination
+        eprintln!("Starting Realizar inference server (demo mode)...");
 
         let state = crate::api::AppState::demo()?;
-        let app = crate::api::create_router(state);
+        let router_config = crate::api::RouterConfig { openai_api };
+        let app = crate::api::create_router_with_config(state, router_config);
 
         let addr: SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
             crate::error::RealizarError::InvalidShape {
@@ -547,16 +558,19 @@ mod server_commands {
             }
         })?;
 
-        println!("Server listening on http://{addr}");
-        println!();
-        println!("Endpoints:");
-        println!("  GET  /health   - Health check");
-        println!("  POST /tokenize - Tokenize text");
-        println!("  POST /generate - Generate text");
-        println!();
-        println!("Example:");
-        println!("  curl http://{addr}/health");
-        println!();
+        eprintln!("Server listening on http://{addr}");
+        eprintln!();
+        eprintln!("Endpoints:");
+        eprintln!("  GET  /health   - Health check");
+        eprintln!("  POST /tokenize - Tokenize text");
+        eprintln!("  POST /generate - Generate text");
+        if !openai_api {
+            eprintln!("  (OpenAI-compatible /v1/* routes disabled)");
+        }
+        eprintln!();
+        eprintln!("Example:");
+        eprintln!("  curl http://{addr}/health");
+        eprintln!();
 
         let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
             crate::error::RealizarError::InvalidShape {

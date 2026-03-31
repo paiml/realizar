@@ -4,7 +4,7 @@
     async fn test_serve_model_delegates_to_prepare_serve_state() {
         // Test that serve_model returns the same error as prepare_serve_state
         // for invalid extensions
-        let result = serve_model("127.0.0.1", 8080, "/nonexistent/model.xyz", false, false).await;
+        let result = serve_model("127.0.0.1", 8080, "/nonexistent/model.xyz", false, false, true).await;
         assert!(result.is_err());
 
         // The error should match what prepare_serve_state returns

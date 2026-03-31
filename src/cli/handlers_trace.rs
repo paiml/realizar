@@ -125,6 +125,7 @@ mod tests {
             demo: true,
             batch: false,
             gpu: false,
+            openai_api: true,
         };
         assert_eq!(config.host, "127.0.0.1");
         assert_eq!(config.port, 8080);

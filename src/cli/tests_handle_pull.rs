@@ -105,6 +105,7 @@ async fn test_handle_serve_stub_without_feature() {
         demo: false,
         batch: false,
         gpu: false,
+        openai_api: true,
     };
     // Without server feature, should return error
     #[cfg(not(feature = "server"))]
@@ -167,6 +168,7 @@ fn test_serve_config_demo_mode() {
         demo: true,
         batch: false,
         gpu: false,
+        openai_api: true,
     };
     assert!(config.demo);
     assert!(config.model.is_none());
@@ -183,6 +185,7 @@ fn test_serve_config_model_mode() {
         demo: false,
         batch: true,
         gpu: true,
+        openai_api: true,
     };
     assert!(!config.demo);
     assert_eq!(config.model.as_deref(), Some("model.gguf"));
@@ -420,6 +423,7 @@ fn test_serve_config_debug() {
         demo: true,
         batch: false,
         gpu: false,
+        openai_api: true,
     };
     let debug = format!("{config:?}");
     assert!(debug.contains("localhost"));
