@@ -173,7 +173,7 @@ fn run_gguf_generate(
 
     // GH-559: wgpu fallback — try Vulkan compute before CPU.
     // Proven: wgpu cosine=0.999863 on Blackwell sm_121 where CUDA JIT fails.
-    eprintln!("[GH-559] wgpu fallback check: no_gpu={}, legacy={}", config.no_gpu, has_legacy_quant);
+    #[cfg(feature = "gpu")]
     if !config.no_gpu && !has_legacy_quant {
         match try_wgpu_generate(&model, input_tokens, gen_config, config.verbose) {
             Ok(result) => return Ok(result),
