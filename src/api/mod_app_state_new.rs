@@ -33,6 +33,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             cuda_model: None,
             #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
+            #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
@@ -88,6 +90,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
             #[cfg(feature = "cuda")]
@@ -186,6 +190,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             cuda_model: None,
             #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
+            #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
@@ -255,6 +261,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             cuda_model: None,
             #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
+            #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
@@ -305,6 +313,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
             #[cfg(feature = "cuda")]
@@ -362,6 +372,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             cuda_model: None,
             #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
+            #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
@@ -412,6 +424,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
             #[cfg(feature = "cuda")]
@@ -476,6 +490,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
             #[cfg(feature = "cuda")]

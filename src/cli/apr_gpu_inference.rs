@@ -110,13 +110,31 @@ pub fn run_apr_inference_gpu_q4k(
     }
 
     // Extract F32 weights needed on CPU: embedding, output_norm, per-layer norms
-    let embedding_weight = model.get_tensor_f32("model.embed_tokens.weight").map_err(|e| {
+    // #170: Use find_tensor_name for GGUF/SafeTensors/HF name resolution
+    let embed_name = model.find_tensor_name(&[
+        "model.embed_tokens.weight",
+        "embed_tokens.weight",
+        "transformer.wte.weight",
+        "tok_embeddings.weight",
+        "token_embd.weight",
+    ]).map_err(|e| crate::error::RealizarError::FormatError {
+        reason: format!("Missing embedding weight: {e}"),
+    })?;
+    let embedding_weight = model.get_tensor_f32(&embed_name).map_err(|e| {
         crate::error::RealizarError::FormatError {
             reason: format!("Missing embedding weight: {e}"),
         }
     })?;
 
-    let output_norm_weight = model.get_tensor_f32("model.norm.weight").map_err(|e| {
+    let norm_name = model.find_tensor_name(&[
+        "model.norm.weight",
+        "norm.weight",
+        "transformer.ln_f.weight",
+        "output_norm.weight",
+    ]).map_err(|e| crate::error::RealizarError::FormatError {
+        reason: format!("Missing output norm weight: {e}"),
+    })?;
+    let output_norm_weight = model.get_tensor_f32(&norm_name).map_err(|e| {
         crate::error::RealizarError::FormatError {
             reason: format!("Missing output norm weight: {e}"),
         }
@@ -125,18 +143,30 @@ pub fn run_apr_inference_gpu_q4k(
     let mut layer_norm_weights: Vec<(Vec<f32>, Vec<f32>, Option<Vec<f32>>, Option<Vec<f32>>)> =
         Vec::with_capacity(config.num_layers);
     for layer_idx in 0..config.num_layers {
-        let attn_norm = model
-            .get_tensor_f32(&format!("model.layers.{layer_idx}.input_layernorm.weight"))
-            .map_err(|e| crate::error::RealizarError::FormatError {
+        let attn_norm_name = model.find_tensor_name(&[
+            &format!("model.layers.{layer_idx}.input_layernorm.weight"),
+            &format!("layers.{layer_idx}.input_layernorm.weight"),
+            &format!("blk.{layer_idx}.attn_norm.weight"),
+        ]).map_err(|e| crate::error::RealizarError::FormatError {
+            reason: format!("Missing attn norm weight layer {layer_idx}: {e}"),
+        })?;
+        let attn_norm = model.get_tensor_f32(&attn_norm_name).map_err(|e| {
+            crate::error::RealizarError::FormatError {
                 reason: format!("Missing attn norm weight layer {layer_idx}: {e}"),
-            })?;
-        let ffn_norm = model
-            .get_tensor_f32(&format!(
-                "model.layers.{layer_idx}.post_attention_layernorm.weight"
-            ))
-            .map_err(|e| crate::error::RealizarError::FormatError {
+            }
+        })?;
+        let ffn_norm_name = model.find_tensor_name(&[
+            &format!("model.layers.{layer_idx}.post_attention_layernorm.weight"),
+            &format!("layers.{layer_idx}.post_attention_layernorm.weight"),
+            &format!("blk.{layer_idx}.ffn_norm.weight"),
+        ]).map_err(|e| crate::error::RealizarError::FormatError {
+            reason: format!("Missing FFN norm weight layer {layer_idx}: {e}"),
+        })?;
+        let ffn_norm = model.get_tensor_f32(&ffn_norm_name).map_err(|e| {
+            crate::error::RealizarError::FormatError {
                 reason: format!("Missing FFN norm weight layer {layer_idx}: {e}"),
-            })?;
+            }
+        })?;
         // QK-norm weights (Qwen3-style, optional)
         let q_norm = model
             .get_tensor_f32(&format!("model.layers.{layer_idx}.self_attn.q_norm.weight"))

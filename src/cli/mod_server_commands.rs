@@ -270,13 +270,55 @@ mod server_commands {
     }
 
     /// Load and prepare a SafeTensors model for serving
-    fn prepare_safetensors_serve_state(model_path: &str) -> Result<PreparedServer> {
-        use crate::safetensors_infer::SafetensorsToAprConverter;
+    fn prepare_safetensors_serve_state(model_path: &str, force_gpu: bool) -> Result<PreparedServer> {
         use std::path::Path;
 
         println!("Loading SafeTensors model for serving...");
-
         let model_path_obj = Path::new(model_path);
+
+        // #169: GPU path via SafeTensorsCudaModel (format parity with GGUF)
+        #[cfg(feature = "cuda")]
+        if force_gpu {
+            use crate::safetensors_cuda::SafeTensorsCudaModel;
+
+            println!("  Mode: GPU (SafeTensors CUDA — #169 format parity)");
+            let mut cuda_model = SafeTensorsCudaModel::load(model_path_obj, 0).map_err(|e| {
+                crate::error::RealizarError::UnsupportedOperation {
+                    operation: "safetensors_cuda_load".to_string(),
+                    reason: format!("Failed to load SafeTensors for GPU: {e}"),
+                }
+            })?;
+
+            let vocab_size = cuda_model.config().vocab_size;
+            #[allow(clippy::map_unwrap_or)]
+            let vocab = crate::apr::AprV2Model::load_tokenizer_from_sibling(model_path_obj)
+                .map(|(v, _, _)| v)
+                .unwrap_or_else(|| {
+                    println!("  Warning: No tokenizer.json found, using simple vocabulary");
+                    (0..vocab_size).map(|i| format!("token{i}")).collect()
+                });
+
+            println!("  Vocab size: {}", vocab.len());
+
+            let state = crate::api::AppState::with_safetensors_cuda_model_and_vocab(
+                cuda_model, vocab,
+            )?;
+
+            return Ok(PreparedServer {
+                state,
+                batch_mode_enabled: false,
+                model_type: ModelType::SafeTensors,
+            });
+        }
+
+        #[cfg(not(feature = "cuda"))]
+        if force_gpu {
+            eprintln!("Warning: --gpu flag requires 'cuda' feature for SafeTensors. Falling back to CPU.");
+        }
+
+        // CPU fallback path
+        use crate::safetensors_infer::SafetensorsToAprConverter;
+
         let transformer = SafetensorsToAprConverter::convert(model_path_obj).map_err(|e| {
             crate::error::RealizarError::UnsupportedOperation {
                 operation: "convert_safetensors".to_string(),
@@ -447,7 +489,7 @@ mod server_commands {
         if model_path.ends_with(".gguf") {
             prepare_gguf_serve_state(model_path, batch_mode, force_gpu)
         } else if model_path.ends_with(".safetensors") {
-            prepare_safetensors_serve_state(model_path)
+            prepare_safetensors_serve_state(model_path, force_gpu)
         } else if model_path.ends_with(".apr") {
             prepare_apr_serve_state(model_path, force_gpu)
         } else {

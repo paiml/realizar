@@ -52,6 +52,8 @@ impl AppState {
             #[cfg(feature = "cuda")]
             cuda_model: None,
             #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
+            #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
@@ -102,6 +104,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
             #[cfg(feature = "cuda")]
@@ -157,6 +161,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
             #[cfg(feature = "cuda")]
@@ -220,6 +226,8 @@ impl AppState {
             #[cfg(feature = "gpu")]
             batch_config: None,
             cuda_model: Some(Arc::new(std::sync::RwLock::new(cuda_model))),
+            #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
             cuda_batch_tx: None,
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
@@ -270,6 +278,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: Some(Arc::new(std::sync::RwLock::new(cuda_model))),
+            #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
             #[cfg(feature = "cuda")]
@@ -326,6 +336,8 @@ impl AppState {
             batch_config: None,
             #[cfg(feature = "cuda")]
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
             #[cfg(feature = "cuda")]
             cuda_batch_tx: None,
             #[cfg(feature = "cuda")]
@@ -513,11 +525,58 @@ impl AppState {
             #[cfg(feature = "gpu")]
             batch_config: None,
             cuda_model: None,
+            #[cfg(feature = "cuda")]
+            safetensors_cuda_model: None,
             cuda_batch_tx: None,
             apr_q4k_tx: Some(q4k_tx),
             apr_transformer: None,
             cached_architecture: None,
             cached_eos_token_id: eos_id,
+            verbose: false,
+            trace: false,
+        })
+    }
+
+    /// #169: Create state with SafeTensors CUDA model for GPU-accelerated inference
+    #[cfg(feature = "cuda")]
+    pub fn with_safetensors_cuda_model_and_vocab(
+        model: crate::safetensors_cuda::SafeTensorsCudaModel,
+        vocab: Vec<String>,
+    ) -> Result<Self, RealizarError> {
+        let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>")?;
+        let metrics = Arc::new(MetricsCollector::new());
+        let (audit_logger, audit_sink) = create_audit_state();
+
+        Ok(Self {
+            model: None,
+            tokenizer: Some(Arc::new(tokenizer)),
+            cache: None,
+            cache_key: None,
+            metrics,
+            registry: None,
+            default_model_id: None,
+            apr_model: None,
+            audit_logger,
+            audit_sink,
+            #[cfg(feature = "gpu")]
+            gpu_model: None,
+            quantized_model: None,
+            #[cfg(feature = "gpu")]
+            cached_model: None,
+            #[cfg(feature = "gpu")]
+            dispatch_metrics: None,
+            #[cfg(feature = "gpu")]
+            batch_request_tx: None,
+            #[cfg(feature = "gpu")]
+            batch_config: None,
+            cuda_model: None,
+            #[cfg(feature = "cuda")]
+            safetensors_cuda_model: Some(Arc::new(std::sync::Mutex::new(model))),
+            cuda_batch_tx: None,
+            apr_q4k_tx: None,
+            apr_transformer: None,
+            cached_architecture: None,
+            cached_eos_token_id: None,
             verbose: false,
             trace: false,
         })
