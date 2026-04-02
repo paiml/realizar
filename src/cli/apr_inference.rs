@@ -46,6 +46,8 @@ pub fn run_apr_inference(
         use std::path::Path;
 
         let model_path = Path::new(model_ref);
+
+        // Load APR via MappedAprModel for weight data
         let mapped = MappedAprModel::from_path(model_path).map_err(|e| {
             crate::error::RealizarError::FormatError { reason: format!("APR load failed: {e}") }
         })?;
@@ -55,11 +57,10 @@ pub fn run_apr_inference(
         let mut cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(model, 0, 4096)
             .map_err(|e| e.error)?;
 
-        let tokenizer = crate::apr::AprV2Model::load_tokenizer(model_path)
-            .ok_or_else(|| crate::error::RealizarError::FormatError {
-                reason: "No tokenizer found".to_string(),
-            })?;
-        let input_ids = tokenizer.encode(prompt);
+        // Tokenize using embedded APR tokenizer (same as CPU path)
+        let input_ids = crate::apr::AprV2Model::encode_text(model_path, prompt)
+            .or_else(|| crate::apr::AprV2Model::load_tokenizer(model_path).map(|t| t.encode(prompt)))
+            .unwrap_or_else(|| prompt.chars().map(|c| c as u32).collect());
 
         let gen_config = QuantizedGenerateConfig {
             max_tokens,
@@ -69,7 +70,12 @@ pub fn run_apr_inference(
             trace: false,
         };
         let output_ids = cuda_model.generate_gpu_resident(&input_ids, &gen_config)?;
-        let output_text = tokenizer.decode(&output_ids);
+        // Decode using APR tokenizer
+        let output_text = crate::apr::AprV2Model::load(model_path)
+            .ok()
+            .and_then(|m| m.load_embedded_tokenizer())
+            .map(|tok| tok.decode(&output_ids))
+            .unwrap_or_else(|| output_ids.iter().map(|&id| format!("[{}]", id)).collect());
         print!("{output_text}");
         return Ok(());
     }

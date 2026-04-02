@@ -278,27 +278,8 @@ async fn run_model_command(
         },
     }
 
-    // ALB-099: GPU Q4K APR path uses mmap internally — skip the 17 GB std::fs::read.
-    // dhat profiling showed this single allocation was 17.4 GB peak host RAM.
-    #[cfg(feature = "cuda")]
-    if force_gpu && crate::cli::inference::is_apr_q4k(model_ref) {
-        if let Some(prompt_text) = prompt {
-            let formatted_prompt =
-                format_model_prompt(model_ref, prompt_text, system_prompt, raw_mode);
-            return crate::cli::inference::run_apr_inference_gpu_q4k(
-                model_ref,
-                &formatted_prompt,
-                max_tokens,
-                temperature,
-                format,
-                verbose,
-                trace_config,
-            );
-        } else {
-            println!("Interactive mode - use a prompt argument");
-            return Ok(());
-        }
-    }
+    // #170: Disabled broken Q4K APR GPU shortcut (run_apr_inference_gpu_q4k produces garbage).
+    // Falls through to dispatch_inference → run_apr_inference → from_apr → OwnedQuantizedModelCuda.
 
     let file_data = std::fs::read(model_ref).map_err(|e| RealizarError::UnsupportedOperation {
         operation: "read_model".to_string(),
