@@ -393,6 +393,7 @@ fn try_cached_backend(
         top_k: if temperature == 0.0 { 1 } else { 40 },
         stop_tokens: vec![eos_token_id],
         trace: state.should_trace(trace_level),
+            ..Default::default()
     };
 
     let generated = match cached_model

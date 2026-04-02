@@ -321,6 +321,7 @@ fn test_parity006a_batch_generate_exists() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     let results = cached
@@ -373,6 +374,7 @@ fn test_parity006b_single_prompt_optimization() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     // Non-batch generation

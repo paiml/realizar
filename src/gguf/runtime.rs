@@ -26,11 +26,19 @@ pub struct QuantizedGenerateConfig {
     pub temperature: f32,
     /// Top-k sampling (1 = greedy)
     pub top_k: usize,
+    /// Top-p (nucleus) sampling threshold
+    pub top_p: f32,
+    /// Random seed for sampling
+    pub seed: u64,
+    /// Repetition penalty (1.0 = no penalty)
+    pub repeat_penalty: f32,
+    /// Number of recent tokens to consider for repetition penalty
+    pub repeat_last_n: usize,
     /// Stop token IDs
     pub stop_tokens: Vec<u32>,
     /// Enable inference tracing (PMAT-TRACE-GGUF-001)
-    /// When true, outputs [TRACE-CACHE] messages showing per-position timing
     pub trace: bool,
+    ..Default::default()
 }
 
 impl Default for QuantizedGenerateConfig {
@@ -39,8 +47,13 @@ impl Default for QuantizedGenerateConfig {
             max_tokens: 64,
             temperature: 0.0,
             top_k: 1,
+            top_p: 1.0,
+            seed: 42,
+            repeat_penalty: 1.0,
+            repeat_last_n: 64,
             stop_tokens: Vec::new(),
             trace: false,
+            ..Default::default()
         }
     }
 }
@@ -55,6 +68,7 @@ impl QuantizedGenerateConfig {
             top_k: 1,
             stop_tokens: Vec::new(),
             trace: false,
+            ..Default::default()
         }
     }
 

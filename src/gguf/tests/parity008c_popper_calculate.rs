@@ -118,6 +118,7 @@ fn test_parity008e_benchmark_reproducibility() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     let prompt = vec![1u32, 2, 3];

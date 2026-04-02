@@ -337,6 +337,7 @@ fn init_batch_model(
                     let probe_config = QuantizedGenerateConfig {
                         max_tokens: 1, temperature: 0.0, top_k: 1,
                         stop_tokens: stop_tokens.to_vec(), trace: false,
+            ..Default::default()
                     };
                     if validate_gpu_first_token(&mut cuda_model, &probe_config) {
                         return Ok(BatchModel { gpu: Some(cuda_model), #[cfg(feature = "gpu")] wgpu: None, cpu: None });
@@ -472,6 +473,7 @@ where
         let gen_config = QuantizedGenerateConfig {
             max_tokens, temperature: config.temperature, top_k: config.top_k,
             stop_tokens: stop_tokens.to_vec(), trace: false,
+            ..Default::default()
         };
 
         let infer_start = Instant::now();

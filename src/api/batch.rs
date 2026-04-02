@@ -23,6 +23,7 @@ fn try_quantized_generate(
         },
         stop_tokens: vec![eos_id(&tokenizer, state.model_eos_token_id())],
         trace: state.is_trace_enabled(),
+        ..Default::default()
     };
 
     // GH-95: Use generate_with_cache for O(n) autoregressive generation.
@@ -328,6 +329,7 @@ fn try_cuda_batch_generate(
         },
         stop_tokens: vec![eos_id(&tokenizer, state.model_eos_token_id())],
         trace: state.is_trace_enabled(),
+        ..Default::default()
     };
 
     let mut results = Vec::with_capacity(request.prompts.len());

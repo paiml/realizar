@@ -68,6 +68,7 @@ pub fn run_apr_inference(
             top_k: 1,
             stop_tokens: vec![151645, 151643],
             trace: false,
+            ..Default::default()
         };
         let output_ids = cuda_model.generate_gpu_resident(&input_ids, &gen_config)?;
         // Decode using APR tokenizer

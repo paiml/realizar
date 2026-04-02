@@ -206,6 +206,7 @@ fn try_apr_cuda_inference(
         top_k: 1,
         stop_tokens: model_eos,
         trace: false,
+            ..Default::default()
     };
 
     if !validate_gpu_first_token(&mut cuda_model, &gen_config) {

@@ -29,6 +29,7 @@ fn test_imp_125b_adaptive_matches_standard() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     let prompt = vec![1u32, 2, 3];
@@ -78,6 +79,7 @@ fn test_imp_125c_tracks_metrics_during_generation() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     let prompt = vec![1u32, 2, 3, 4, 5];
@@ -127,6 +129,7 @@ fn test_imp_125d_long_generation_uses_gpu() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     let prompt = vec![1u32, 2, 3, 4, 5];
@@ -381,6 +384,7 @@ fn test_parity002e_generate_with_batched_prefill() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     let prompt = vec![1u32, 2, 3, 4];

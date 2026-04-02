@@ -36,6 +36,7 @@ async fn process_batch(
             top_k: first.top_k,
             stop_tokens: Vec::new(),
             trace: false,
+            ..Default::default()
         };
 
         // Run batch generation with GPU FFN (PARITY-021)
@@ -88,6 +89,7 @@ async fn process_batch(
                     top_k: request.top_k,
                     stop_tokens: Vec::new(),
                     trace: false,
+            ..Default::default()
                 };
 
                 // Generate
@@ -262,6 +264,7 @@ pub async fn gpu_batch_completions_handler(
         top_k: request.top_k,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     let start = Instant::now();
@@ -420,6 +423,7 @@ fn try_cuda_generate(
         },
         stop_tokens: vec![eos_id(&tokenizer, state.model_eos_token_id())],
         trace: false,
+                ..Default::default()
     };
 
     let mut cuda_model = cuda_model_lock.write().map_err(|_| {

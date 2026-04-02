@@ -30,6 +30,7 @@ fn test_parity006c_batch_output_validity() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     let results = cached
@@ -117,6 +118,7 @@ fn test_parity006e_batch_performance_comparison() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     let prompts = vec![
@@ -189,6 +191,7 @@ fn test_parity006f_empty_prompts_error() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     // Empty batch should error
@@ -359,6 +362,7 @@ fn test_parity007f_realizar_benchmark() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     let prompt = vec![1u32, 2, 3, 4, 5];

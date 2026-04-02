@@ -422,6 +422,7 @@ fn test_imp_125a_generate_with_cache_adaptive() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     let prompt = vec![1u32, 2, 3]; // 3-token prompt

@@ -307,6 +307,7 @@ fn try_apr_wgpu_inference(
         top_k: 1,
         stop_tokens: stop_toks,
         trace: false,
+            ..Default::default()
     };
 
     // Dequantize and upload weights
@@ -507,6 +508,7 @@ fn try_apr_cuda_inference(
         top_k: 1,
         stop_tokens,
         trace: false,
+            ..Default::default()
     };
 
     eprintln!("[GH-480] F2 validation starting...");
@@ -753,6 +755,7 @@ fn run_apr_quantized_cpu_inference(
         top_k: config.top_k,
         stop_tokens,
         trace: config.trace,
+            ..Default::default()
     };
 
     let infer_start = Instant::now();

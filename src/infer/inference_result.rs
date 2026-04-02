@@ -213,6 +213,7 @@ fn run_gguf_inference(
         top_k: config.top_k,
         stop_tokens,
         trace: config.trace,
+            ..Default::default()
     };
 
     let infer_start = Instant::now();

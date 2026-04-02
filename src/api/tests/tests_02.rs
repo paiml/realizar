@@ -155,6 +155,7 @@ fn test_imp_126b_cached_sync_has_generate_adaptive() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     // Verify method exists by calling it (result may fail due to test model size)

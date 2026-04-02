@@ -94,6 +94,7 @@ pub fn run_gguf_inference_gpu(
         top_k: if temperature <= 0.01 { 1 } else { 40 },
         stop_tokens,
         trace: false,
+            ..Default::default()
     };
 
     // PAR-047: Use generate_full_cuda_with_cache for maximum GPU acceleration

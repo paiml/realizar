@@ -38,6 +38,7 @@ fn test_imp_132a_adaptive_attention_records_cpu_latency() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     // Generate tokens to trigger CPU dispatches (cache < 64 tokens)
@@ -89,6 +90,7 @@ fn test_imp_132b_latency_values_are_reasonable() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     // Generate tokens
@@ -140,6 +142,7 @@ fn test_imp_132c_latency_count_matches_dispatch_count() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     // Generate tokens
@@ -193,6 +196,7 @@ fn test_imp_132d_gpu_dispatches_record_latency() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+            ..Default::default()
     };
 
     // Generate enough tokens to trigger GPU dispatch (cache >= 64 tokens)

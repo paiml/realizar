@@ -148,6 +148,7 @@ fn test_imp_121c_generate_with_adaptive_attention() {
         top_k: 1,
         stop_tokens: Vec::new(),
         trace: false,
+            ..Default::default()
     };
 
     // Generate with adaptive attention (should use CPU for short prompts)
