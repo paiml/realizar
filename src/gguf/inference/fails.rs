@@ -90,15 +90,66 @@ impl OwnedQuantizedModel {
 
     /// Top-k sampling with temperature
     pub fn sample_topk(logits: &[f32], temperature: f32, top_k: usize) -> u32 {
-        // Apply temperature
-        let scaled: Vec<f32> = logits.iter().map(|&x| x / temperature).collect();
+        Self::sample_advanced(logits, temperature, top_k, 0.0, 1.0, 0, &[])
+    }
 
-        // Get top-k indices
+    /// F-CLIPARITY-01: Advanced sampling matching Candle's capabilities.
+    /// Supports top-k, top-p (nucleus), repeat penalty — matching
+    /// candle/candle-examples/examples/quantized-qwen2-instruct/main.rs.
+    /// PMAT-381 (top-p), PMAT-383/384 (repeat penalty).
+    pub fn sample_advanced(
+        logits: &[f32],
+        temperature: f32,
+        top_k: usize,
+        top_p: f32,
+        repeat_penalty: f32,
+        repeat_last_n: usize,
+        recent_tokens: &[u32],
+    ) -> u32 {
+        // 1. Apply repeat penalty (PMAT-383/384, matching Candle's apply_repeat_penalty)
+        let mut penalized: Vec<f32> = logits.to_vec();
+        if repeat_penalty != 1.0 && !recent_tokens.is_empty() {
+            let start = recent_tokens.len().saturating_sub(repeat_last_n);
+            for &token in &recent_tokens[start..] {
+                let idx = token as usize;
+                if idx < penalized.len() {
+                    if penalized[idx] > 0.0 {
+                        penalized[idx] /= repeat_penalty;
+                    } else {
+                        penalized[idx] *= repeat_penalty;
+                    }
+                }
+            }
+        }
+
+        // 2. Apply temperature
+        let scaled: Vec<f32> = penalized.iter().map(|&x| x / temperature).collect();
+
+        // 3. Top-k: sort and truncate
         let mut indexed: Vec<(usize, f32)> = scaled.iter().copied().enumerate().collect();
         indexed.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
-        indexed.truncate(top_k);
+        if top_k > 0 {
+            indexed.truncate(top_k);
+        }
 
-        // Softmax over top-k
+        // 4. Top-p (nucleus sampling, PMAT-381): keep smallest set with cumulative prob >= top_p
+        if top_p > 0.0 && top_p < 1.0 {
+            let max_val = indexed.first().map_or(0.0, |(_, v)| *v);
+            let exp_vals: Vec<f32> = indexed.iter().map(|(_, v)| (v - max_val).exp()).collect();
+            let total: f32 = exp_vals.iter().sum();
+            let mut cumulative = 0.0;
+            let mut cutoff = indexed.len();
+            for (i, &ev) in exp_vals.iter().enumerate() {
+                cumulative += ev / total;
+                if cumulative >= top_p {
+                    cutoff = i + 1;
+                    break;
+                }
+            }
+            indexed.truncate(cutoff);
+        }
+
+        // 5. Softmax over filtered set
         let max_val = indexed.first().map_or(0.0, |(_, v)| *v);
         let exp_sum: f32 = indexed.iter().map(|(_, v)| (v - max_val).exp()).sum();
         let probs: Vec<(usize, f32)> = indexed
@@ -106,7 +157,7 @@ impl OwnedQuantizedModel {
             .map(|(i, v)| (*i, (v - max_val).exp() / exp_sum))
             .collect();
 
-        // Sample from probability distribution with proper randomness
+        // 6. Sample
         let mut rng = rand::thread_rng();
         let r: f32 = rng.gen();
 

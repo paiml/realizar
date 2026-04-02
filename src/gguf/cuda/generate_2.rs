@@ -484,7 +484,16 @@ impl OwnedQuantizedModelCuda {
                 self.forward_gpu_resident_to_token_id(last_token, &mut cache, position)?
             } else {
                 let logits = self.forward_gpu_resident(last_token, &mut cache, position)?;
-                OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
+                // F-CLIPARITY-01: Use advanced sampling with top-p + repeat penalty
+                OwnedQuantizedModel::sample_advanced(
+                    &logits,
+                    config.temperature,
+                    config.top_k,
+                    config.top_p,
+                    config.repeat_penalty,
+                    config.repeat_last_n,
+                    &tokens[prompt.len()..], // recent generated tokens only
+                )
             };
 
             if config.trace {
