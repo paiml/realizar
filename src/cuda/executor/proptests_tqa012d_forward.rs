@@ -360,33 +360,30 @@ fn test_tqa013b_workspace_and_indexed_weights() {
     println!("T-QA-013b: Workspace and indexed weights checks PASSED");
 }
 
-/// T-QA-013c: Test CUDA graph disable env var
+/// T-QA-013c: Test CUDA graph opt-in behavior (CUDA_GRAPH_ENABLE)
 ///
-/// Verifies that the CUDA_GRAPH_DISABLE environment variable path is exercised.
+/// CONTRACT: cuda-graph-safety-v1 FALSIFY-CGS-003/004
+/// Verifies that graph capture is opt-in only (CUDA_GRAPH_ENABLE=1).
+/// Default (no env var) must NOT attempt graph capture.
 #[test]
 #[serial]
-fn test_tqa013c_graph_disable_env_var() {
+fn test_tqa013c_graph_opt_in_only() {
     if !CudaExecutor::is_available() {
         println!("T-QA-013c: CUDA not available, skipping");
         return;
     }
 
-    // Set env var to disable graphs
-    std::env::set_var("CUDA_GRAPH_DISABLE", "1");
+    // Without CUDA_GRAPH_ENABLE, graphs should never be captured
+    std::env::remove_var("CUDA_GRAPH_ENABLE");
 
-    // Create executor - env var is read lazily
     let executor = CudaExecutor::new(0).expect("CUDA executor");
 
-    // Just verify executor was created (env var affects forward pass path selection)
     assert!(
         !executor.has_decode_graph(),
-        "T-QA-013c: No graph should be captured when disabled"
+        "T-QA-013c: No graph should be captured without CUDA_GRAPH_ENABLE=1"
     );
 
-    // Clean up env var
-    std::env::remove_var("CUDA_GRAPH_DISABLE");
-
-    println!("T-QA-013c: CUDA_GRAPH_DISABLE env var handling PASSED");
+    println!("T-QA-013c: CUDA graph opt-in enforcement PASSED (cuda-graph-safety-v1)");
 }
 
 /// T-QA-013d: Test graphed forward with incomplete state (falls back to non-graphed)
