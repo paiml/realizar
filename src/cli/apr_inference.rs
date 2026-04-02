@@ -37,20 +37,11 @@ pub fn run_apr_inference(
     let _ = (force_gpu, verbose);
 
     // PMAT-106: GPU path for APR models
+    // #170: ALL APR models use OwnedQuantizedModel::from_apr → GGUF CUDA path.
+    // The Q4K-specific forward_token_apr_q4k is DISABLED — it produces garbage
+    // due to a converter bug in GgufToAprQ4KConverter (candle-vs-apr #170).
     #[cfg(feature = "cuda")]
     if force_gpu {
-        // ALB-095: Route Q4K APR models through quantized GPU path
-        if is_apr_q4k(model_ref) {
-            return run_apr_inference_gpu_q4k(
-                model_ref,
-                prompt,
-                max_tokens,
-                temperature,
-                format,
-                verbose,
-                trace_config,
-            );
-        }
         return run_apr_inference_gpu(
             model_ref,
             file_data,
