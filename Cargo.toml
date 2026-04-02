@@ -103,7 +103,7 @@ trueno-db = { version = "0.3", path = "../trueno-db", optional = true }
 trueno-quant = { version = "0.1", path = "../trueno/crates/trueno-quant" }
 
 # Contract macros for pre/post-condition enforcement (zero cost in release)
-provable-contracts-macros = { path = "../provable-contracts/crates/provable-contracts-macros" }
+provable-contracts-macros = { version = "0.2", path = "../provable-contracts/crates/provable-contracts-macros" }
 
 # PMAT-284: Core tracing primitives (zero-dep, breaks renacer circular dep)
 renacer-core = { version = "0.1", path = "../renacer/crates/renacer-core" }
@@ -214,7 +214,7 @@ serde_yaml_ng = "0.10"
 
 [dev-dependencies]
 # Contract trait enforcement (Section 23)
-provable-contracts = { path = "../provable-contracts/crates/provable-contracts" }
+provable-contracts = { version = "0.2", path = "../provable-contracts/crates/provable-contracts" }
 
 # Visual regression testing framework (playbooks, TUI testing, GPU pixel verification)
 jugar-probar = { version = "0.4", features = ["tui", "gpu"] }
