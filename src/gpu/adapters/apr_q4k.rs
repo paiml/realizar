@@ -128,13 +128,13 @@ fn normalize_tensor_name(name: &str) -> String {
                 "attn_v.weight" => format!("model.layers.{layer_num}.self_attn.v_proj.weight"),
                 "attn_output.weight" => {
                     format!("model.layers.{layer_num}.self_attn.o_proj.weight")
-                }
+                },
                 "attn_norm.weight" => {
                     format!("model.layers.{layer_num}.input_layernorm.weight")
-                }
+                },
                 "ffn_norm.weight" => {
                     format!("model.layers.{layer_num}.post_attention_layernorm.weight")
-                }
+                },
                 "ffn_gate.weight" => format!("model.layers.{layer_num}.mlp.gate_proj.weight"),
                 "ffn_up.weight" => format!("model.layers.{layer_num}.mlp.up_proj.weight"),
                 "ffn_down.weight" => format!("model.layers.{layer_num}.mlp.down_proj.weight"),
@@ -145,10 +145,10 @@ fn normalize_tensor_name(name: &str) -> String {
                 // Q/K norms (Qwen3)
                 "attn_q_norm.weight" => {
                     format!("model.layers.{layer_num}.self_attn.q_norm.weight")
-                }
+                },
                 "attn_k_norm.weight" => {
                     format!("model.layers.{layer_num}.self_attn.k_norm.weight")
-                }
+                },
                 _ => return name.to_string(),
             };
             return mapped;
@@ -184,7 +184,7 @@ fn norm_alias(hf_name: &str) -> Option<String> {
                 "input_layernorm.weight" => Some(format!("apr.layer_{layer_num}.attn_norm")),
                 "post_attention_layernorm.weight" => {
                     Some(format!("apr.layer_{layer_num}.ffn_norm"))
-                }
+                },
                 _ => None,
             };
         }
@@ -299,11 +299,12 @@ pub fn upload_apr_q4k_weights(
 
                 if norm_name.contains("norm") {
                     // Cache under HF name
-                    let uploaded = executor.cache_rmsnorm_gamma(norm_name, &floats).map_err(|e| {
-                        RealizarError::GpuError {
-                            reason: format!("Failed to cache norm {norm_name}: {e}"),
-                        }
-                    })?;
+                    let uploaded =
+                        executor
+                            .cache_rmsnorm_gamma(norm_name, &floats)
+                            .map_err(|e| RealizarError::GpuError {
+                                reason: format!("Failed to cache norm {norm_name}: {e}"),
+                            })?;
                     total_bytes += uploaded;
                     // Also cache under apr.layer_N.* alias (#168)
                     if let Some(alias) = norm_alias(norm_name) {
@@ -330,11 +331,12 @@ pub fn upload_apr_q4k_weights(
 
                 if norm_name.contains("norm") {
                     // Cache under HF name
-                    let uploaded = executor.cache_rmsnorm_gamma(norm_name, &floats).map_err(|e| {
-                        RealizarError::GpuError {
-                            reason: format!("Failed to cache F16 norm {norm_name}: {e}"),
-                        }
-                    })?;
+                    let uploaded =
+                        executor
+                            .cache_rmsnorm_gamma(norm_name, &floats)
+                            .map_err(|e| RealizarError::GpuError {
+                                reason: format!("Failed to cache F16 norm {norm_name}: {e}"),
+                            })?;
                     total_bytes += uploaded;
                     // Also cache under apr.layer_N.* alias (#168)
                     if let Some(alias) = norm_alias(norm_name) {
