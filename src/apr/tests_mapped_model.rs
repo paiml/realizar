@@ -420,7 +420,8 @@
 
     #[test]
     fn test_tensor_entry_from_binary_all_dtypes() {
-        // GH-191 FIX: dtype bytes now use GGML type IDs
+        // GH-191 FIX / GH-438: dtype bytes use GGML type IDs,
+        // except 8/9 which are APR-native types (not GGML Q8_0/Q8_1)
         let dtypes = [
             (0u8, "F32"),
             (1, "F16"),
@@ -428,8 +429,8 @@
             (3, "Q4_1"),  // GGML type 3
             (6, "Q5_0"),  // GGML type 6
             (7, "Q5_1"),  // GGML type 7
-            (8, "Q8_0"),  // GGML type 8
-            (9, "Q8_1"),  // GGML type 9
+            (8, "q4"),    // GH-438: APR-native Q4 (legacy ID, was GGML Q8_0)
+            (9, "q8"),    // GH-438: APR-native Q8 (legacy ID, was GGML Q8_1)
             (10, "Q2_K"), // GGML type 10
             (11, "Q3_K"), // GGML type 11
             (12, "Q4_K"), // GGML type 12

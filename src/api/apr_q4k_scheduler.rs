@@ -91,24 +91,58 @@ pub fn spawn_apr_q4k_inference_thread(
     );
 
     // Extract CPU-side weights (embedding, norms)
-    let embedding_weight = model
-        .get_tensor_f32("model.embed_tokens.weight")
+    // Use find_tensor_name to handle GGUF/SafeTensors/HF naming variants (#167)
+    let embed_name = model
+        .find_tensor_name(&[
+            "model.embed_tokens.weight",
+            "embed_tokens.weight",
+            "transformer.wte.weight",
+            "embeddings.word_embeddings.weight",
+            "tok_embeddings.weight",
+            "token_embd.weight",
+        ])
         .map_err(|e| format!("Missing embedding: {e}"))?;
+    let embedding_weight = model
+        .get_tensor_f32(&embed_name)
+        .map_err(|e| format!("Missing embedding: {e}"))?;
+
+    let norm_name = model
+        .find_tensor_name(&[
+            "model.norm.weight",
+            "norm.weight",
+            "transformer.ln_f.weight",
+            "output_norm.weight",
+        ])
+        .map_err(|e| format!("Missing output norm: {e}"))?;
     let output_norm_weight = model
-        .get_tensor_f32("model.norm.weight")
+        .get_tensor_f32(&norm_name)
         .map_err(|e| format!("Missing output norm: {e}"))?;
 
     let mut layer_norm_weights: Vec<(Vec<f32>, Vec<f32>, Option<Vec<f32>>, Option<Vec<f32>>)> =
         Vec::with_capacity(config.num_layers);
     for layer_idx in 0..config.num_layers {
-        let attn_norm = model
-            .get_tensor_f32(&format!("model.layers.{layer_idx}.input_layernorm.weight"))
+        let attn_norm_name = model
+            .find_tensor_name(&[
+                &format!("model.layers.{layer_idx}.input_layernorm.weight"),
+                &format!("layers.{layer_idx}.input_layernorm.weight"),
+                &format!("blk.{layer_idx}.attn_norm.weight"),
+            ])
             .map_err(|e| format!("Missing attn norm layer {layer_idx}: {e}"))?;
-        let ffn_norm = model
-            .get_tensor_f32(&format!(
-                "model.layers.{layer_idx}.post_attention_layernorm.weight"
-            ))
+        let attn_norm = model
+            .get_tensor_f32(&attn_norm_name)
+            .map_err(|e| format!("Missing attn norm layer {layer_idx}: {e}"))?;
+
+        let ffn_norm_name = model
+            .find_tensor_name(&[
+                &format!("model.layers.{layer_idx}.post_attention_layernorm.weight"),
+                &format!("layers.{layer_idx}.post_attention_layernorm.weight"),
+                &format!("blk.{layer_idx}.ffn_norm.weight"),
+            ])
             .map_err(|e| format!("Missing FFN norm layer {layer_idx}: {e}"))?;
+        let ffn_norm = model
+            .get_tensor_f32(&ffn_norm_name)
+            .map_err(|e| format!("Missing FFN norm layer {layer_idx}: {e}"))?;
+
         let q_norm = model
             .get_tensor_f32(&format!("model.layers.{layer_idx}.self_attn.q_norm.weight"))
             .ok();

@@ -13,7 +13,7 @@ use crate::api::test_helpers::create_test_app_shared;
 use crate::api::{
     build_trace_data, format_chat_messages, ChatChoice, ChatChunkChoice, ChatCompletionChunk,
     ChatCompletionRequest, ChatCompletionResponse, ChatDelta, ChatMessage, ErrorResponse,
-    OpenAIModel, OpenAIModelsResponse, TraceData, TraceOperation, Usage,
+    OpenAIModel, OpenAIModelsResponse, TraceData, TraceOperation, TraceProvenance, Usage,
 };
 
 // ============================================================================
@@ -283,6 +283,7 @@ fn test_chat_completion_response_with_traces() {
             time_us: 100,
             details: Some("5 tokens".to_string()),
         }],
+        provenance: TraceProvenance::Estimated,
     };
 
     let response = ChatCompletionResponse {

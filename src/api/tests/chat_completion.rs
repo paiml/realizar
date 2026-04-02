@@ -6,7 +6,7 @@
 use crate::api::{
     build_trace_data, ChatChoice, ChatChunkChoice, ChatCompletionChunk, ChatDelta, ChatMessage,
     CompletionChoice, OpenAIModel, OpenAIModelsResponse, ReloadResponse, TraceData, TraceOperation,
-    Usage,
+    TraceProvenance, Usage,
 };
 
 // =============================================================================
@@ -261,6 +261,7 @@ fn test_trace_data_serialization() {
                 details: None,
             },
         ],
+        provenance: TraceProvenance::Estimated,
     };
 
     let json = serde_json::to_string(&trace).expect("serialize");
@@ -280,6 +281,7 @@ fn test_trace_data_clone_debug() {
         operations: 5,
         total_time_us: 1000,
         breakdown: vec![],
+        provenance: TraceProvenance::Estimated,
     };
     let cloned = trace.clone();
     assert_eq!(cloned.level, trace.level);

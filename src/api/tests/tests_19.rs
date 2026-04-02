@@ -293,6 +293,7 @@ fn test_trace_data_serde() {
                 details: None,
             },
         ],
+        provenance: crate::api::TraceProvenance::Estimated,
     };
     let json = serde_json::to_string(&trace).expect("JSON serialization failed");
     let deserialized: crate::api::TraceData = serde_json::from_str(&json).expect("JSON deserialization failed");

@@ -144,6 +144,7 @@ fn test_trace_data_serialization() {
                 details: None,
             },
         ],
+        provenance: TraceProvenance::Estimated,
     };
 
     let json = serde_json::to_string(&trace).expect("serialize");
@@ -175,6 +176,7 @@ fn test_trace_data_clone() {
         operations: 5,
         total_time_us: 1000,
         breakdown: vec![],
+        provenance: TraceProvenance::Estimated,
     };
 
     let cloned = trace.clone();

@@ -219,6 +219,7 @@ fn test_trace_data_empty_breakdown() {
         operations: 0,
         total_time_us: 0,
         breakdown: vec![],
+        provenance: TraceProvenance::Estimated,
     };
 
     let json = serde_json::to_string(&trace).expect("serialize");

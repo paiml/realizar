@@ -41,9 +41,11 @@ curl -X POST http://localhost:8080/generate -d '{"prompt": "Hello", "max_tokens"
 | Quantization | Q4_0, Q8_0, Q4_K, Q5_K, Q6_K |
 | Inference | Transformer, RoPE, KV cache, Flash Attention |
 | Chat Templates | ChatML, LLaMA2, Mistral, Phi, Alpaca (auto-detect) |
-| API | REST, streaming, Prometheus metrics |
+| API | REST, streaming, Prometheus metrics, health endpoint with inference validation |
 | GPU | CUDA via [trueno-gpu](https://crates.io/crates/trueno-gpu) (pure Rust PTX) |
-| Quality | 2,400+ tests, 95% function coverage |
+| Profiling | BrickProfiler in autoregressive hot path, trace flags from CLI to runtime |
+| ARM | Jetson Orin GEMV 72% faster (18.6 tok/s) |
+| Quality | 15,065+ tests, 95% function coverage |
 
 ## Benchmarks
 
@@ -334,6 +336,8 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 ```
 
 ### Debugging with Tracing
+
+Trace flags thread from CLI args through Config to Runtime, enabling consistent observability at every layer.
 
 Use the `X-Trace-Level` header for inference debugging:
 

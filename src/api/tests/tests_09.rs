@@ -13,7 +13,7 @@ use crate::api::test_helpers::create_test_app_shared;
 use crate::api::{
     ChatChoice, ChatChunkChoice, ChatCompletionChunk, ChatCompletionResponse, ChatDelta,
     ChatMessage, ErrorResponse, OpenAIModel, OpenAIModelsResponse, TraceData, TraceOperation,
-    Usage,
+    TraceProvenance, Usage,
 };
 
 // =============================================================================

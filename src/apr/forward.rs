@@ -381,8 +381,9 @@ impl AprV2Model {
         Ok(tokens)
     }
 
-    /// Find first matching tensor name from candidates
-    fn find_tensor_name(&self, candidates: &[&str]) -> Result<String> {
+    /// Find first matching tensor name from candidates.
+    /// Handles GGUF/SafeTensors/HuggingFace naming variations.
+    pub fn find_tensor_name(&self, candidates: &[&str]) -> Result<String> {
         for &name in candidates {
             if self.get_tensor(name).is_some() {
                 return Ok(name.to_string());

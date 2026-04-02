@@ -273,9 +273,10 @@ fn test_tensor_entry_from_binary_q6k() {
 
 #[test]
 fn test_tensor_entry_from_binary_q8_0() {
+    // GH-438: Byte 8 now maps to APR-native "q4" (was GGML "Q8_0" before GH-438)
     let data = make_tensor_entry_binary("layer.0.ffn", 8, 2, &[256, 64], 0, 5000);
     let (entry, _) = TensorEntry::from_binary(&data).expect("should parse");
-    assert_eq!(entry.dtype, "Q8_0");
+    assert_eq!(entry.dtype, "q4");
 }
 
 #[test]
@@ -330,8 +331,9 @@ fn test_tensor_entry_from_binary_all_qtypes() {
         (3, "Q4_1"),
         (6, "Q5_0"),
         (7, "Q5_1"),
-        (8, "Q8_0"),
-        (9, "Q8_1"),
+        // GH-438: Bytes 8/9 are APR-native types (not GGML Q8_0/Q8_1)
+        (8, "q4"),   // APR-native Q4 (legacy ID, collided with GGML Q8_0)
+        (9, "q8"),   // APR-native Q8 (legacy ID, collided with GGML Q8_1)
         (10, "Q2_K"),
         (11, "Q3_K"),
         (12, "Q4_K"),
@@ -351,6 +353,19 @@ fn test_tensor_entry_from_binary_all_qtypes() {
             dtype_byte, expected_name
         );
     }
+}
+
+/// GH-438: Test that new APR-native dtype IDs (128, 129) are correctly parsed
+#[test]
+fn test_tensor_entry_from_binary_apr_native_new_ids() {
+    // New canonical IDs for APR-native types (>= 128)
+    let data_128 = make_tensor_entry_binary("apr_q4", 128, 1, &[100], 0, 400);
+    let (entry, _) = TensorEntry::from_binary(&data_128).expect("should parse");
+    assert_eq!(entry.dtype, "q4", "APR-native Q4 (new ID 128)");
+
+    let data_129 = make_tensor_entry_binary("apr_q8", 129, 1, &[100], 0, 400);
+    let (entry, _) = TensorEntry::from_binary(&data_129).expect("should parse");
+    assert_eq!(entry.dtype, "q8", "APR-native Q8 (new ID 129)");
 }
 
 // ============================================================================

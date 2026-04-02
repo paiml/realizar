@@ -59,6 +59,7 @@ fn test_chat_completion_response_with_traces() {
             operations: 1,
             total_time_us: 100,
             breakdown: vec![],
+            provenance: TraceProvenance::Estimated,
         }),
         step_trace: None,
         layer_trace: None,

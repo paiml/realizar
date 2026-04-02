@@ -69,7 +69,13 @@ pub const GGUF_TYPE_BF16: u32 = 30;
 // GH-321: Unified GGML Quantization Type Enum
 // ============================================================================
 
-/// GGML quantization type — single source of truth for ID↔string mapping.
+/// GGML quantization type — single source of truth for ID<->string mapping.
+///
+/// CRITICAL (GH-438): These IDs MUST match the GGML standard (llama.cpp ggml.h).
+/// aprender's `TensorDType` IDs in the 0-31 range must also match.
+/// APR-native quantization types (AprQ4=128, AprQ8=129 in aprender) are
+/// outside this enum's scope — they are handled by `TensorEntry::from_binary`
+/// before this enum is consulted. See LAYOUT-002.
 ///
 /// Replaces 6+ duplicated match statements across infer/mod.rs, gguf/dtype.rs,
 /// apr/mod.rs, apr/dequant.rs, and apr/special_tokens.rs.

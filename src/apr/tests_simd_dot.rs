@@ -222,10 +222,10 @@
 
     #[test]
     fn test_tensor_entry_from_binary_q8_0() {
-        // GH-191 FIX: byte 8 is Q8_0 in GGML dtype mapping (was byte 10 before)
+        // GH-438: byte 8 is now APR-native "q4" (was GGML "Q8_0" before GH-438)
         let entry = create_binary_tensor_entry("q8_tensor", 8, &[32], 0, 34);
         let (parsed, _) = TensorEntry::from_binary(&entry).expect("APR operation failed");
-        assert_eq!(parsed.dtype, "Q8_0");
+        assert_eq!(parsed.dtype, "q4");
     }
 
     #[test]

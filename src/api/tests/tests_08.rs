@@ -13,7 +13,7 @@ use crate::api::test_helpers::create_test_app_shared;
 use crate::api::{
     build_trace_data, ChatChoice, ChatChunkChoice, ChatCompletionChunk, ChatCompletionRequest,
     ChatCompletionResponse, ChatDelta, ChatMessage, ErrorResponse, OpenAIModel,
-    OpenAIModelsResponse, TraceData, TraceOperation, Usage,
+    OpenAIModelsResponse, TraceData, TraceOperation, TraceProvenance, Usage,
 };
 
 // =============================================================================
@@ -211,6 +211,7 @@ fn test_chat_completion_response_with_traces() {
             time_us: 500,
             details: Some("4x4".to_string()),
         }],
+        provenance: TraceProvenance::Estimated,
     };
 
     let response = ChatCompletionResponse {

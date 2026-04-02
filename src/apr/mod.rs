@@ -309,17 +309,28 @@ impl TensorEntry {
 
         // Dtype (1 byte)
         // GH-191 FIX / GH-321: Use unified GgmlQuantType enum
+        // GH-438: APR-native types (AprQ4=128, AprQ8=129) are outside GGML range.
+        //   Legacy IDs 8/9 also map to APR-native Q4/Q8 for backwards compat.
         let dtype_byte = data[pos];
         pos += 1;
-        let dtype = crate::gguf::GgmlQuantType::from_id(u32::from(dtype_byte))
-            .map_or_else(
-                || {
-                    eprintln!("WARN: Unknown APR dtype byte {dtype_byte}, treating as F32");
-                    "F32"
-                },
-                crate::gguf::GgmlQuantType::as_str,
-            )
-            .to_string();
+        let dtype = match dtype_byte {
+            // GH-438: APR-native quantization types (new IDs, >=128)
+            128 => "q4".to_string(), // AprQ4: per-32-block [f16 scale + 16 nibble bytes]
+            129 => "q8".to_string(), // AprQ8: [f32 scale] + [i8 x N]
+            // GH-438: Legacy APR-native IDs (collided with GGML Q8_0=8, Q8_1=9)
+            8 => "q4".to_string(), // Legacy AprQ4 (was Q4=8 before GH-438)
+            9 => "q8".to_string(), // Legacy AprQ8 (was Q8=9 before GH-438)
+            // GGML-standard types
+            _ => crate::gguf::GgmlQuantType::from_id(u32::from(dtype_byte))
+                .map_or_else(
+                    || {
+                        eprintln!("WARN: Unknown APR dtype byte {dtype_byte}, treating as F32");
+                        "F32"
+                    },
+                    crate::gguf::GgmlQuantType::as_str,
+                )
+                .to_string(),
+        };
 
         // Shape: ndim (1 byte) + dims
         let ndim = data[pos] as usize;

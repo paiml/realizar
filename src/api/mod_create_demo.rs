@@ -131,6 +131,27 @@ pub struct ChatCompletionResponse {
     pub layer_trace: Option<TraceData>,
 }
 
+/// Provenance of trace timing data (GH-92: truth-in-reporting)
+///
+/// Distinguishes measured data from estimates to prevent fabricated trace output.
+/// Every `TraceData` instance MUST declare its provenance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TraceProvenance {
+    /// Real per-operation timing from BrickProfiler instrumentation
+    Measured,
+    /// Only the wall-clock total is real; no per-op breakdown available
+    WallClockTotal,
+    /// Values are statistical estimates (e.g., from sampling or heuristics)
+    Estimated,
+}
+
+impl Default for TraceProvenance {
+    fn default() -> Self {
+        Self::Estimated
+    }
+}
+
 /// Trace data for debugging inference
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceData {
@@ -142,6 +163,9 @@ pub struct TraceData {
     pub total_time_us: u64,
     /// Per-operation timing breakdown
     pub breakdown: Vec<TraceOperation>,
+    /// Data provenance — how these values were obtained (GH-92)
+    #[serde(default)]
+    pub provenance: TraceProvenance,
 }
 
 /// Individual traced operation
@@ -186,6 +210,7 @@ pub fn build_trace_data(
                         )),
                     },
                 ],
+                provenance: TraceProvenance::WallClockTotal,
             }),
             None,
             None,
@@ -207,6 +232,7 @@ pub fn build_trace_data(
                         )),
                     },
                 ],
+                provenance: TraceProvenance::WallClockTotal,
             }),
             None,
         ),
@@ -228,6 +254,7 @@ pub fn build_trace_data(
                         )),
                     },
                 ],
+                provenance: TraceProvenance::WallClockTotal,
             }),
         ),
         _ => (None, None, None),

@@ -33,6 +33,8 @@ fn test_build_trace_data_brick_level() {
         .as_ref()
         .expect("details should be present")
         .contains("apr profile"));
+    // GH-92: provenance must be WallClockTotal, never Estimated or Measured
+    assert_eq!(trace.provenance, TraceProvenance::WallClockTotal);
 }
 
 #[test]
@@ -53,6 +55,8 @@ fn test_build_trace_data_step_level() {
     let details = trace.breakdown[0].details.as_ref().expect("details should be present");
     assert!(details.contains("20 prompt"));
     assert!(details.contains("10 completion"));
+    // GH-92: provenance must be WallClockTotal
+    assert_eq!(trace.provenance, TraceProvenance::WallClockTotal);
 }
 
 #[test]
@@ -72,6 +76,8 @@ fn test_build_trace_data_layer_level() {
     assert_eq!(trace.breakdown[0].time_us, 8000);
     let details = trace.breakdown[0].details.as_ref().expect("details should be present");
     assert!(details.contains("12 layers"));
+    // GH-92: provenance must be WallClockTotal
+    assert_eq!(trace.provenance, TraceProvenance::WallClockTotal);
 }
 
 #[test]
@@ -137,6 +143,7 @@ fn test_trace_data_debug() {
         operations: 5,
         total_time_us: 1000,
         breakdown: vec![],
+        provenance: TraceProvenance::Estimated,
     };
     let debug = format!("{:?}", trace);
     assert!(debug.contains("test"));
@@ -154,6 +161,7 @@ fn test_trace_data_clone() {
             time_us: 100,
             details: Some("detail".to_string()),
         }],
+        provenance: TraceProvenance::Estimated,
     };
     let cloned = trace.clone();
     assert_eq!(cloned.level, "test");
@@ -171,12 +179,51 @@ fn test_trace_data_serde() {
             time_us: 500,
             details: None,
         }],
+        provenance: TraceProvenance::Estimated,
     };
     let json = serde_json::to_string(&trace).expect("JSON serialization failed");
     assert!(json.contains("brick"));
     assert!(json.contains("matmul"));
     let parsed: TraceData = serde_json::from_str(&json).expect("JSON deserialization failed");
     assert_eq!(parsed.level, "brick");
+}
+
+#[test]
+fn test_trace_provenance_serde_round_trip() {
+    // GH-92: Provenance must survive JSON serialization
+    let trace = TraceData {
+        level: "brick".to_string(),
+        operations: 1,
+        total_time_us: 100,
+        breakdown: vec![],
+        provenance: TraceProvenance::WallClockTotal,
+    };
+    let json = serde_json::to_string(&trace).expect("serialize");
+    assert!(json.contains("\"wall_clock_total\""));
+    let parsed: TraceData = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(parsed.provenance, TraceProvenance::WallClockTotal);
+}
+
+#[test]
+fn test_trace_provenance_defaults_to_estimated_on_missing_field() {
+    // GH-92: Backwards compat — old JSON without provenance field defaults to Estimated
+    let json = r#"{"level":"brick","operations":1,"total_time_us":100,"breakdown":[]}"#;
+    let parsed: TraceData = serde_json::from_str(json).expect("deserialize");
+    assert_eq!(parsed.provenance, TraceProvenance::Estimated);
+}
+
+#[test]
+fn test_trace_provenance_all_variants_serde() {
+    for (variant, expected_str) in [
+        (TraceProvenance::Measured, "measured"),
+        (TraceProvenance::WallClockTotal, "wall_clock_total"),
+        (TraceProvenance::Estimated, "estimated"),
+    ] {
+        let json = serde_json::to_string(&variant).expect("serialize");
+        assert!(json.contains(expected_str), "expected {expected_str} in {json}");
+        let parsed: TraceProvenance = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed, variant);
+    }
 }
 
 #[test]

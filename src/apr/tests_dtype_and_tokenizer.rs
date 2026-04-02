@@ -150,9 +150,10 @@
 
     #[test]
     fn test_tensor_entry_from_binary_dtype_q8_1() {
+        // GH-438: byte 9 is now APR-native "q8" (was GGML "Q8_1" before GH-438)
         let data = create_binary_tensor_entry("test.q81", 9, &[32], 0, 36);
         let (entry, _) = TensorEntry::from_binary(&data).expect("parse q8_1");
-        assert_eq!(entry.dtype, "Q8_1");
+        assert_eq!(entry.dtype, "q8");
     }
 
     #[test]
@@ -178,9 +179,10 @@
 
     #[test]
     fn test_tensor_entry_from_binary_dtype_q8_0() {
+        // GH-438: byte 8 is now APR-native "q4" (was GGML "Q8_0" before GH-438)
         let data = create_binary_tensor_entry("test.q80", 8, &[32], 0, 34);
         let (entry, _) = TensorEntry::from_binary(&data).expect("parse q8_0");
-        assert_eq!(entry.dtype, "Q8_0");
+        assert_eq!(entry.dtype, "q4");
     }
 
     #[test]

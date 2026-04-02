@@ -111,25 +111,117 @@ const fn align_up(offset: usize, align: usize) -> usize {
 ///
 /// F32/F16 tensors (norms, embeddings) still use individual allocations
 /// since they're few (~100) and need separate type treatment.
+/// Normalize tensor name from GGUF convention to HuggingFace convention.
+/// Returns the input unchanged if already in HF format.
+/// Fixes paiml/realizar#167: APR files from GGUF conversion keep GGUF names,
+/// but the GPU inference code expects HF names.
+#[cfg(feature = "cuda")]
+fn normalize_tensor_name(name: &str) -> String {
+    // GGUF naming: blk.N.attn_q.weight → model.layers.N.self_attn.q_proj.weight
+    if let Some(rest) = name.strip_prefix("blk.") {
+        if let Some(dot_pos) = rest.find('.') {
+            let layer_num = &rest[..dot_pos];
+            let suffix = &rest[dot_pos + 1..];
+            let mapped = match suffix {
+                "attn_q.weight" => format!("model.layers.{layer_num}.self_attn.q_proj.weight"),
+                "attn_k.weight" => format!("model.layers.{layer_num}.self_attn.k_proj.weight"),
+                "attn_v.weight" => format!("model.layers.{layer_num}.self_attn.v_proj.weight"),
+                "attn_output.weight" => {
+                    format!("model.layers.{layer_num}.self_attn.o_proj.weight")
+                }
+                "attn_norm.weight" => {
+                    format!("model.layers.{layer_num}.input_layernorm.weight")
+                }
+                "ffn_norm.weight" => {
+                    format!("model.layers.{layer_num}.post_attention_layernorm.weight")
+                }
+                "ffn_gate.weight" => format!("model.layers.{layer_num}.mlp.gate_proj.weight"),
+                "ffn_up.weight" => format!("model.layers.{layer_num}.mlp.up_proj.weight"),
+                "ffn_down.weight" => format!("model.layers.{layer_num}.mlp.down_proj.weight"),
+                // QKV biases
+                "attn_q.bias" => format!("model.layers.{layer_num}.self_attn.q_proj.bias"),
+                "attn_k.bias" => format!("model.layers.{layer_num}.self_attn.k_proj.bias"),
+                "attn_v.bias" => format!("model.layers.{layer_num}.self_attn.v_proj.bias"),
+                // Q/K norms (Qwen3)
+                "attn_q_norm.weight" => {
+                    format!("model.layers.{layer_num}.self_attn.q_norm.weight")
+                }
+                "attn_k_norm.weight" => {
+                    format!("model.layers.{layer_num}.self_attn.k_norm.weight")
+                }
+                _ => return name.to_string(),
+            };
+            return mapped;
+        }
+    }
+    // Top-level GGUF names
+    match name {
+        "token_embd.weight" => "model.embed_tokens.weight".to_string(),
+        "output_norm.weight" => "model.norm.weight".to_string(),
+        "output.weight" => "lm_head.weight".to_string(),
+        _ => name.to_string(),
+    }
+}
+
+/// Map HF norm name to the `apr.layer_N.*` alias that `forward_layer` expects.
+/// Returns None if the name isn't a per-layer norm.
+/// Fixes paiml/realizar#168: forward_layer uses `apr.layer_N.attn_norm` but
+/// upload stores under HF names.
+#[cfg(feature = "cuda")]
+fn norm_alias(hf_name: &str) -> Option<String> {
+    // model.layers.{N}.input_layernorm.weight → apr.layer_{N}.attn_norm
+    // model.layers.{N}.post_attention_layernorm.weight → apr.layer_{N}.ffn_norm
+    // model.norm.weight → apr.output_norm
+    if hf_name == "model.norm.weight" || hf_name == "norm.weight" || hf_name == "output_norm.weight"
+    {
+        return Some("apr.output_norm".to_string());
+    }
+    if let Some(rest) = hf_name.strip_prefix("model.layers.") {
+        if let Some(dot_pos) = rest.find('.') {
+            let layer_num = &rest[..dot_pos];
+            let suffix = &rest[dot_pos + 1..];
+            return match suffix {
+                "input_layernorm.weight" => Some(format!("apr.layer_{layer_num}.attn_norm")),
+                "post_attention_layernorm.weight" => {
+                    Some(format!("apr.layer_{layer_num}.ffn_norm"))
+                }
+                _ => None,
+            };
+        }
+    }
+    None
+}
+
+/// Upload APR Q4K model weights to GPU via pool allocator.
+///
+/// Quantized weights (Q4K, Q6K) go into a single pool allocation.
+/// F32/F16 tensors (norms, embeddings) use individual allocations.
+/// Tensor names are normalized from GGUF to HF convention (#167).
 #[cfg(feature = "cuda")]
 pub fn upload_apr_q4k_weights(
     model: &AprV2Model,
     executor: &mut CudaExecutor,
 ) -> Result<UploadResult> {
-    let tensor_names: Vec<String> = model.tensor_names().into_iter().map(String::from).collect();
+    let raw_names: Vec<String> = model.tensor_names().into_iter().map(String::from).collect();
+    // Normalize GGUF tensor names to HF convention (#167)
+    let tensor_names: Vec<(String, String)> = raw_names
+        .iter()
+        .map(|n| (n.clone(), normalize_tensor_name(n)))
+        .collect();
 
     // Pass 1: Scan quantized tensors for total pool size
     let mut pool_size = 0usize;
-    let mut quantized_entries: Vec<(String, u32, usize)> = Vec::new(); // (name, qtype, offset)
+    // (raw_name for model read, norm_name for executor cache, qtype, offset)
+    let mut quantized_entries: Vec<(String, String, u32, usize)> = Vec::new();
 
-    for name in &tensor_names {
+    for (raw_name, norm_name) in &tensor_names {
         let entry = model
-            .get_tensor(name)
+            .get_tensor(raw_name)
             .ok_or_else(|| RealizarError::FormatError {
-                reason: format!("Tensor disappeared: {name}"),
+                reason: format!("Tensor disappeared: {raw_name}"),
             })?;
 
-        let bytes = model.get_tensor_bytes(name)?;
+        let bytes = model.get_tensor_bytes(raw_name)?;
         let dtype = entry.dtype.as_str();
 
         let qtype = match dtype {
@@ -140,7 +232,7 @@ pub fn upload_apr_q4k_weights(
 
         if let Some(qt) = qtype {
             let offset = pool_size;
-            quantized_entries.push((name.clone(), qt, offset));
+            quantized_entries.push((raw_name.clone(), norm_name.clone(), qt, offset));
             pool_size = align_up(pool_size + bytes.len(), 256);
         }
     }
@@ -165,12 +257,13 @@ pub fn upload_apr_q4k_weights(
                 ),
             })?;
 
-        for (name, qtype, offset) in &quantized_entries {
-            let bytes = model.get_tensor_bytes(name)?;
+        for (raw_name, norm_name, qtype, offset) in &quantized_entries {
+            let bytes = model.get_tensor_bytes(raw_name)?;
+            // Store under normalized name so inference code can find it (#167)
             let uploaded = executor
-                .load_quantized_weights_pooled(name, bytes, *qtype, *offset)
+                .load_quantized_weights_pooled(norm_name, bytes, *qtype, *offset)
                 .map_err(|e| RealizarError::GpuError {
-                    reason: format!("Failed to upload {name} to pool: {e}"),
+                    reason: format!("Failed to upload {norm_name} to pool: {e}"),
                 })?;
             total_bytes += uploaded;
         }
@@ -179,11 +272,11 @@ pub fn upload_apr_q4k_weights(
     // Pass 3: Upload non-quantized tensors (F32/F16 norms, embeddings) individually
     let mut num_f32 = 0usize;
 
-    for name in &tensor_names {
+    for (raw_name, norm_name) in &tensor_names {
         let entry = model
-            .get_tensor(name)
+            .get_tensor(raw_name)
             .ok_or_else(|| RealizarError::FormatError {
-                reason: format!("Tensor disappeared: {name}"),
+                reason: format!("Tensor disappeared: {raw_name}"),
             })?;
 
         let dtype = entry.dtype.as_str();
@@ -195,7 +288,7 @@ pub fn upload_apr_q4k_weights(
             _ => {},
         }
 
-        let bytes = model.get_tensor_bytes(name)?;
+        let bytes = model.get_tensor_bytes(raw_name)?;
 
         match dtype {
             "F32" | "f32" => {
@@ -204,17 +297,22 @@ pub fn upload_apr_q4k_weights(
                     .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect();
 
-                if name.contains("norm") {
-                    let uploaded = executor.cache_rmsnorm_gamma(name, &floats).map_err(|e| {
+                if norm_name.contains("norm") {
+                    // Cache under HF name
+                    let uploaded = executor.cache_rmsnorm_gamma(norm_name, &floats).map_err(|e| {
                         RealizarError::GpuError {
-                            reason: format!("Failed to cache norm {name}: {e}"),
+                            reason: format!("Failed to cache norm {norm_name}: {e}"),
                         }
                     })?;
                     total_bytes += uploaded;
+                    // Also cache under apr.layer_N.* alias (#168)
+                    if let Some(alias) = norm_alias(norm_name) {
+                        let _ = executor.cache_rmsnorm_gamma(&alias, &floats);
+                    }
                 } else {
-                    let uploaded = executor.load_weights(name, &floats).map_err(|e| {
+                    let uploaded = executor.load_weights(norm_name, &floats).map_err(|e| {
                         RealizarError::GpuError {
-                            reason: format!("Failed to upload F32 {name}: {e}"),
+                            reason: format!("Failed to upload F32 {norm_name}: {e}"),
                         }
                     })?;
                     total_bytes += uploaded;
@@ -230,17 +328,22 @@ pub fn upload_apr_q4k_weights(
                     })
                     .collect();
 
-                if name.contains("norm") {
-                    let uploaded = executor.cache_rmsnorm_gamma(name, &floats).map_err(|e| {
+                if norm_name.contains("norm") {
+                    // Cache under HF name
+                    let uploaded = executor.cache_rmsnorm_gamma(norm_name, &floats).map_err(|e| {
                         RealizarError::GpuError {
-                            reason: format!("Failed to cache F16 norm {name}: {e}"),
+                            reason: format!("Failed to cache F16 norm {norm_name}: {e}"),
                         }
                     })?;
                     total_bytes += uploaded;
+                    // Also cache under apr.layer_N.* alias (#168)
+                    if let Some(alias) = norm_alias(norm_name) {
+                        let _ = executor.cache_rmsnorm_gamma(&alias, &floats);
+                    }
                 } else {
-                    let uploaded = executor.load_weights(name, &floats).map_err(|e| {
+                    let uploaded = executor.load_weights(norm_name, &floats).map_err(|e| {
                         RealizarError::GpuError {
-                            reason: format!("Failed to upload F16 {name}: {e}"),
+                            reason: format!("Failed to upload F16 {norm_name}: {e}"),
                         }
                     })?;
                     total_bytes += uploaded;
@@ -248,7 +351,7 @@ pub fn upload_apr_q4k_weights(
                 num_f32 += 1;
             },
             other => {
-                eprintln!("[ALB-095] Skipping unsupported dtype {other} for {name}");
+                eprintln!("[ALB-095] Skipping unsupported dtype {other} for {raw_name}");
             },
         }
     }
@@ -295,7 +398,10 @@ pub fn parse_apr_q4k_config(model: &AprV2Model) -> Result<AprQ4KConfig> {
             // ALB-095: Infer head_dim from layer 0 Q projection weight size
             // q_proj.weight shape: [num_heads * head_dim, hidden_dim] in Q4K
             // So: head_dim = q_out_dim / num_heads
-            let q_tensor = model.get_tensor("model.layers.0.self_attn.q_proj.weight");
+            // Try HF name first, then GGUF name (#167)
+            let q_tensor = model
+                .get_tensor("model.layers.0.self_attn.q_proj.weight")
+                .or_else(|| model.get_tensor("blk.0.attn_q.weight"));
             if let Some(t) = q_tensor {
                 let num_blocks = (t.size / 18) as usize;
                 let total_elements = num_blocks * 32;
