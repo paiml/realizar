@@ -36,22 +36,42 @@ pub fn run_apr_inference(
     #[cfg(not(feature = "cuda"))]
     let _ = (force_gpu, verbose);
 
-    // PMAT-106: GPU path for APR models
-    // #170: ALL APR models use OwnedQuantizedModel::from_apr → GGUF CUDA path.
-    // The Q4K-specific forward_token_apr_q4k is DISABLED — it produces garbage
-    // due to a converter bug in GgufToAprQ4KConverter (candle-vs-apr #170).
+    // #170: GPU path for APR models
+    // Use OwnedQuantizedModel::from_apr → OwnedQuantizedModelCuda (same path as GGUF).
+    // Both AprF32ToGpuAdapter and forward_token_apr_q4k produce garbage on GPU.
     #[cfg(feature = "cuda")]
     if force_gpu {
-        return run_apr_inference_gpu(
-            model_ref,
-            file_data,
-            prompt,
+        use crate::apr::MappedAprModel;
+        use crate::gguf::{OwnedQuantizedModel, OwnedQuantizedModelCuda, QuantizedGenerateConfig};
+        use std::path::Path;
+
+        let model_path = Path::new(model_ref);
+        let mapped = MappedAprModel::from_path(model_path).map_err(|e| {
+            crate::error::RealizarError::FormatError { reason: format!("APR load failed: {e}") }
+        })?;
+        let model = OwnedQuantizedModel::from_apr(&mapped).map_err(|e| {
+            crate::error::RealizarError::FormatError { reason: format!("APR→GGUF failed: {e}") }
+        })?;
+        let mut cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(model, 0, 4096)
+            .map_err(|e| e.error)?;
+
+        let tokenizer = crate::apr::AprV2Model::load_tokenizer(model_path)
+            .ok_or_else(|| crate::error::RealizarError::FormatError {
+                reason: "No tokenizer found".to_string(),
+            })?;
+        let input_ids = tokenizer.encode(prompt);
+
+        let gen_config = QuantizedGenerateConfig {
             max_tokens,
             temperature,
-            format,
-            verbose,
-            trace_config,
-        );
+            top_k: 1,
+            stop_tokens: vec![151645, 151643],
+            trace: false,
+        };
+        let output_ids = cuda_model.generate_gpu_resident(&input_ids, &gen_config)?;
+        let output_text = tokenizer.decode(&output_ids);
+        print!("{output_text}");
+        return Ok(());
     }
 
     let load_start = Instant::now();
