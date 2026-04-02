@@ -54,18 +54,17 @@ impl CudaExecutor {
     }
 
     /// Returns true if the eager (non-graphed) decode path should be used.
-    /// Reasons: env override, profiler active, or SKIP_CUDA_GRAPH.
+    /// GH-559-PERF: Default to eager. Graph capture poisons CUDA context on
+    /// drivers 570.207 and 590.48.01 (CUDA_ERROR_UNKNOWN code 901).
+    /// Opt-in with CUDA_GRAPH_ENABLE=1.
     fn should_use_eager_decode(&self) -> bool {
-        static GRAPH_DISABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let graph_disabled = *GRAPH_DISABLED.get_or_init(|| {
-            std::env::var("CUDA_GRAPH_DISABLE")
+        static GRAPH_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let graph_enabled = *GRAPH_ENABLED.get_or_init(|| {
+            std::env::var("CUDA_GRAPH_ENABLE")
                 .map(|v| v == "1")
                 .unwrap_or(false)
         });
-        let skip_graph = std::env::var("SKIP_CUDA_GRAPH")
-            .map(|v| v == "1")
-            .unwrap_or(false);
-        graph_disabled || skip_graph || self.profiler.is_enabled()
+        !graph_enabled || self.profiler.is_enabled()
     }
 
     /// First-token graph capture: initialize buffers, attempt capture, fallback on failure.
