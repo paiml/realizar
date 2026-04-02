@@ -694,6 +694,10 @@ bench-wgpu: ## WGPU backend benchmark (no-op if unavailable)
 		echo "$(YELLOW)⚠️  WGPU not available (GPU feature not compilable), skipping$(NC)"; \
 	fi
 
+perf-gate: ## CI throughput gate — probador llm load (cuda-graph-safety-v1 FALSIFY-CGS-001)
+	@echo "$(GREEN)Running performance gate (probador llm load)...$(NC)"
+	@./scripts/perf-gate.sh
+
 bench-gguf-gpu-inference: ## GGUF GPU inference: realizar/ollama/llama.cpp
 	@echo "$(GREEN)Running GGUF GPU inference matrix...$(NC)"
 	@if [ -f scripts/bench-gguf-gpu-matrix.sh ]; then \
