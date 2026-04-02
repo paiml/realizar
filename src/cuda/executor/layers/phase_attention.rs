@@ -40,16 +40,22 @@ impl CudaExecutor {
             self.debug_check_buf(attn_out_buf, "Attn", layer_idx)?;
         }
 
-        // GH-559 ROOT CAUSE FIX: Synchronize compute_stream before output projection.
+        // GH-559-PERF: Event-based cross-stream dependency (was: compute_stream.synchronize()).
         // Attention runs on compute_stream, output projection reads attn_out_buf on self.stream.
-        // Without this sync, output projection reads stale/incomplete attention data, causing
-        // layers to produce garbage (no-op layers where output == input).
-        // Five-Whys: GPU wrong logits → layers 13-27 are no-ops → attn_out_buf stale →
-        // compute_stream not synced → race condition between attention and output projection.
-        if layer_idx == 0 {
-            eprintln!("[GH-559-FIX] compute_stream sync ACTIVE in phase_attention.rs");
+        // Record event on compute_stream, then make self.stream wait for it.
+        // This preserves correctness (output projection waits for attention) without blocking
+        // the CPU or stalling other GPU work — saves ~0.5-1.0ms/token (28 layers × per-token).
+        //
+        // Five-Whys (F-PARITY-02): realizr 1.59x slower → serving overhead → full GPU sync
+        // 28x per token in attention phase → cuStreamSynchronize blocks CPU+GPU →
+        // replaced with cuStreamWaitEvent (non-blocking GPU-side ordering).
+        {
+            let event = self.attention_event.get_or_insert_with(|| {
+                CudaEvent::new().expect("GH-559-PERF: attention event creation")
+            });
+            self.compute_stream.record_event(event)?;
+            self.stream.wait_event(event)?;
         }
-        self.compute_stream.synchronize()?;
 
         // PMAT-027: Invalidate Q8 cache — input is now attn_out_buf (different from QKV's hidden_buf1).
         self.q8_activation_valid = false;

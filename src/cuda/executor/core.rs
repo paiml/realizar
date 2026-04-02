@@ -85,6 +85,7 @@ impl CudaExecutor {
             // PAR-054: CUDA Graph Capture (lazy init on first decode)
             decode_graph: None,
             decode_event: None, // PMAT-283: lazily created on first graph capture
+            attention_event: None, // GH-559-PERF: lazily created on first attention pass
             position_buf: None,
             seq_len_buf: None,
             // PAR-119: Batched KV caches (lazy init in init_batched_kv_cache)

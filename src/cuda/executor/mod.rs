@@ -412,6 +412,10 @@ pub struct CudaExecutor {
     // PMAT-283: CUDA event for non-blocking decode completion
     // Enables CPU-GPU pipelining: record after graph launch, query before next step
     decode_event: Option<CudaEvent>,
+    // GH-559-PERF: CUDA event for attention→output-projection cross-stream ordering
+    // Replaces compute_stream.synchronize() (28x per token full GPU+CPU stall)
+    // with event-based dependency (non-blocking, CPU continues immediately)
+    attention_event: Option<CudaEvent>,
     // PAR-054: Device-side position buffer for graph replay
     // Updated before each graph replay via async memcpy
     position_buf: Option<GpuBuffer<u32>>,
