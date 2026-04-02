@@ -359,16 +359,15 @@ mod server_commands {
 
         println!("Loading APR model for serving...");
 
-        // ALB-095: Check if Q4K and GPU requested — use dedicated inference thread
+        // #170: Route Q4K APR through GGUF CUDA serve path (OwnedQuantizedModelCuda).
+        // The Q4K-specific apr_q4k_scheduler produces garbage — disabled.
         #[cfg(feature = "cuda")]
         if force_gpu
             || std::env::var("REALIZAR_BACKEND")
                 .map(|v| v.eq_ignore_ascii_case("cuda"))
                 .unwrap_or(false)
         {
-            if crate::cli::inference::is_apr_q4k(model_path) {
-                return prepare_apr_q4k_serve_state(model_path);
-            }
+            return prepare_gguf_cuda_state_from_apr(model_path);
         }
 
         // F32 CPU path (original)
@@ -421,6 +420,52 @@ mod server_commands {
     }
 
     /// ALB-095: Load APR Q4K model and spawn GPU inference thread for serving
+    /// #170: Load APR model through GGUF CUDA path (OwnedQuantizedModel::from_apr)
+    #[cfg(feature = "cuda")]
+    fn prepare_gguf_cuda_state_from_apr(model_path: &str) -> Result<PreparedServer> {
+        use crate::apr::MappedAprModel;
+        use crate::gguf::{OwnedQuantizedModel, OwnedQuantizedModelCuda};
+        use std::path::Path;
+
+        let path = Path::new(model_path);
+        println!("  Mode: GPU (APR → GGUF CUDA — #170 fix)");
+
+        let mapped = MappedAprModel::from_path(path).map_err(|e| {
+            crate::error::RealizarError::FormatError { reason: format!("APR load: {e}") }
+        })?;
+        let model = OwnedQuantizedModel::from_apr(&mapped).map_err(|e| {
+            crate::error::RealizarError::FormatError { reason: format!("APR→GGUF: {e}") }
+        })?;
+
+        println!("  Layers: {}, Hidden: {}, Vocab: {}",
+            model.config.num_layers, model.config.hidden_dim, model.config.vocab_size);
+
+        let cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(model, 0, 4096)
+            .map_err(|e| e.error)?;
+
+        println!("  CUDA model on GPU: {}", cuda_model.device_name());
+
+        // Load vocab from embedded APR metadata
+        let apr_v2 = crate::apr::AprV2Model::load(path).ok();
+        let vocab = apr_v2.as_ref()
+            .and_then(|m| m.metadata().get_embedded_vocabulary())
+            .or_else(|| crate::apr::AprV2Model::load_tokenizer_from_sibling(path).map(|(v, _, _)| v))
+            .unwrap_or_else(|| {
+                println!("  Warning: No tokenizer found");
+                (0..cuda_model.model().config.vocab_size).map(|i| format!("token{i}")).collect()
+            });
+
+        println!("  Vocab size: {}", vocab.len());
+
+        let state = crate::api::AppState::with_cuda_model_and_vocab(cuda_model, vocab)?;
+
+        Ok(PreparedServer {
+            state,
+            batch_mode_enabled: false,
+            model_type: ModelType::Apr,
+        })
+    }
+
     #[cfg(feature = "cuda")]
     fn prepare_apr_q4k_serve_state(model_path: &str) -> Result<PreparedServer> {
         use crate::api::apr_q4k_scheduler;
