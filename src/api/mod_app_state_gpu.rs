@@ -418,6 +418,15 @@ impl AppState {
         self.cuda_model.as_ref()
     }
 
+    /// #169: Get SafeTensors CUDA model for GPU-accelerated F16/F32 inference
+    #[cfg(feature = "cuda")]
+    #[must_use]
+    pub fn safetensors_cuda_model(
+        &self,
+    ) -> Option<&Arc<std::sync::Mutex<crate::safetensors_cuda::SafeTensorsCudaModel>>> {
+        self.safetensors_cuda_model.as_ref()
+    }
+
     /// Get dispatch metrics for adaptive CPU/GPU tracking (IMP-126)
     #[cfg(feature = "gpu")]
     #[must_use]

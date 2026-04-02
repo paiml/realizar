@@ -1,4 +1,79 @@
 
+/// #169: SafeTensors CUDA backend — format parity with GGUF GPU path.
+#[cfg(feature = "cuda")]
+fn try_safetensors_cuda_backend(
+    state: &AppState,
+    request: &ChatCompletionRequest,
+    request_id: &str,
+    start: Instant,
+) -> Option<Response> {
+    let model_lock = state.safetensors_cuda_model()?;
+    let tokenizer = match require_tokenizer(state) {
+        Ok(t) => t,
+        Err(r) => return Some(r),
+    };
+
+    let prompt = crate::api::realize_handlers::format_chat_messages(&request.messages, Some(&request.model));
+    let input_ids = tokenizer.encode(&prompt);
+    let max_tokens = request.max_tokens.unwrap_or(256).min(4096) as usize;
+
+    // Qwen2 EOS: 151645 (<|endoftext|>)
+    let eos_id = 151645u32;
+
+    let mut model = match model_lock.lock() {
+        Ok(m) => m,
+        Err(e) => {
+            return Some(
+                (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    axum::Json(serde_json::json!({"error": format!("Model lock failed: {e}")})),
+                )
+                    .into_response(),
+            );
+        }
+    };
+
+    let output_ids = match model.generate(&input_ids, max_tokens, eos_id) {
+        Ok(ids) => ids,
+        Err(e) => {
+            let msg = format!("SafeTensors CUDA generation failed: {e}");
+            return Some(
+                (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    axum::Json(serde_json::json!({"error": msg})),
+                )
+                    .into_response(),
+            );
+        }
+    };
+
+    let output_text = tokenizer.decode(&output_ids).unwrap_or_else(|_| String::from("[decode error]"));
+    let completion_tokens = output_ids.len();
+    let prompt_tokens = input_ids.len();
+
+    let finish_reason = if completion_tokens >= max_tokens {
+        "length"
+    } else {
+        "stop"
+    };
+
+    let body = format!(
+        r#"{{"id":"{}","object":"chat.completion","model":"{}","choices":[{{"index":0,"message":{{"role":"assistant","content":{}}},"finish_reason":"{}"}}],"usage":{{"prompt_tokens":{},"completion_tokens":{},"total_tokens":{}}}}}"#,
+        request_id,
+        request.model,
+        serde_json::to_string(&output_text).unwrap_or_default(),
+        finish_reason,
+        prompt_tokens,
+        completion_tokens,
+        prompt_tokens + completion_tokens,
+    );
+
+    Some((
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        body,
+    ).into_response())
+}
+
 /// CUDA-optimized backend (true streaming support).
 #[cfg(feature = "cuda")]
 fn try_cuda_backend(
@@ -494,6 +569,12 @@ pub async fn openai_chat_completions_handler(
     // ALB-110: APR Q4K GPU backend via dedicated inference thread
     #[cfg(feature = "cuda")]
     if let Some(r) = try_apr_q4k_chat_backend(&state, &request, &request_id, trace_level.as_deref(), start).await {
+        return r;
+    }
+
+    // #169: SafeTensors CUDA backend (format parity)
+    #[cfg(feature = "cuda")]
+    if let Some(r) = try_safetensors_cuda_backend(&state, &request, &request_id, start) {
         return r;
     }
 
