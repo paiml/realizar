@@ -9,6 +9,16 @@
 - **Methodology:** EXTREME TDD with mutation testing, property-based testing, 85%+ coverage
 - **Quality Target:** TDG Score ≥95.0/100 (A+)
 
+## CRITICAL: Contract-First Design
+
+**NEVER write code before writing a provable contract.**
+
+All code changes MUST have a corresponding contract (YAML in ../provable-contracts/contracts/<project>/ or .pmat-work/<TICKET>/contract.json) BEFORE implementation. This is enforced by `pmat comply` CB-1400.
+
+- Use `pmat comply check` to verify contract coverage
+- Minimum verification level: L1 (recommended L3+)
+- See docs/agent-instructions/provable-contract-first-agents.md for the full workflow
+
 ## Critical Dependencies - ALWAYS USE LATEST
 
 ### Trueno (SIMD/GPU Compute Primitives)
