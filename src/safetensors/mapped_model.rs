@@ -368,6 +368,20 @@ impl MappedSafeTensorsModel {
         self.get_tensor_bytes(name)
     }
 
+    /// GH-174: Get tensor as raw FP16 u16 values (no conversion).
+    ///
+    /// Returns the native FP16 representation for direct GPU upload.
+    /// Use with `CudaExecutor::load_weights_f16()` to bypass F32
+    /// conversion entirely — 2x memory savings on GPU.
+    pub fn get_tensor_f16_native(&self, name: &str) -> Result<Vec<u16>> {
+        let bytes = self.get_tensor_f16_bytes(name)?;
+        let values: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+        Ok(values)
+    }
+
     /// Get tensor as F16 values converted to F32
     pub fn get_tensor_f16_as_f32(&self, name: &str) -> Result<Vec<f32>> {
         let bytes = self.get_tensor_f16_bytes(name)?;
@@ -381,6 +395,18 @@ impl MappedSafeTensorsModel {
             .collect();
 
         Ok(values)
+    }
+
+    /// GH-174: Check if a tensor exists with FP16 dtype.
+    ///
+    /// Returns true if the tensor exists and has F16 dtype.
+    /// Used by SafeTensors loader to decide between FP16 HGEMM
+    /// and FP32 SGEMM dispatch paths.
+    #[must_use]
+    pub fn is_tensor_f16(&self, name: &str) -> bool {
+        self.tensors
+            .get(name)
+            .is_some_and(|t| t.dtype == SafetensorsDtype::F16)
     }
 
     /// Get tensor as F32 with automatic dtype conversion

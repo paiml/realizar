@@ -44,6 +44,7 @@ impl CudaExecutor {
             staging_pool: StagingBufferPool::new(), // PARITY-042: pinned memory pool
             modules: std::mem::ManuallyDrop::new(HashMap::new()),
             weight_cache: HashMap::new(),
+            named_fp16_weight_cache: HashMap::new(), // GH-174: SafeTensors F16
             quantized_weight_cache: HashMap::new(), // PAR-005: quantized weight cache
             quantized_weight_types: HashMap::new(), // PAR-058: weight quant types
             quantized_weight_pool: None,            // ALB-098: pool allocator

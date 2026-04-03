@@ -43,6 +43,38 @@ impl CudaExecutor {
         Ok(size_bytes)
     }
 
+    /// GH-174: Load FP16 weights to GPU for HGEMM dispatch.
+    ///
+    /// SafeTensors models with F16/BF16 dtype should use this path
+    /// instead of `load_weights()`. The weights stay in FP16 on GPU,
+    /// enabling cuBLAS HGEMM (2x bandwidth savings vs FP32 SGEMM).
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Unique identifier for the weight tensor
+    /// * `weights_f16` - Weight data as raw u16 (IEEE FP16 bits)
+    ///
+    /// # Returns
+    ///
+    /// Size in bytes of the uploaded weights.
+    pub fn load_weights_f16(
+        &mut self,
+        name: &str,
+        weights_f16: &[u16],
+    ) -> Result<usize, GpuError> {
+        let buf = GpuBuffer::from_host(&self.context, weights_f16)?;
+        let size_bytes = buf.size_bytes();
+        self.named_fp16_weight_cache
+            .insert(name.to_string(), buf);
+        Ok(size_bytes)
+    }
+
+    /// GH-174: Check if named FP16 weights exist for a given key.
+    #[must_use]
+    pub fn has_weights_f16(&self, name: &str) -> bool {
+        self.named_fp16_weight_cache.contains_key(name)
+    }
+
     /// Check if weights are cached on GPU
     #[must_use]
     pub fn has_weights(&self, name: &str) -> bool {

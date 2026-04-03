@@ -23,7 +23,7 @@ impl SafeTensorsCudaModel {
         // 2. QKV projection: [1, hidden_dim] × [hidden_dim, qkv_out_dim]^T
         let mut qkv = vec![0.0f32; qkv_out_dim];
         self.executor
-            .gemm_b_cached(
+            .gemm_b_cached_f16(
                 &format!("blk.{layer_idx}.attn_qkv"),
                 &normed,
                 &mut qkv,
@@ -110,7 +110,7 @@ impl SafeTensorsCudaModel {
         // 5. Output projection
         let mut attn_proj = vec![0.0f32; hidden_dim];
         self.executor
-            .gemm_b_cached(
+            .gemm_b_cached_f16(
                 &format!("blk.{layer_idx}.attn_output"),
                 &attn_output,
                 &mut attn_proj,
@@ -139,7 +139,7 @@ impl SafeTensorsCudaModel {
         // 8. FFN gate projection
         let mut gate = vec![0.0f32; intermediate_dim];
         self.executor
-            .gemm_b_cached(
+            .gemm_b_cached_f16(
                 &format!("blk.{layer_idx}.ffn_gate"),
                 &normed2,
                 &mut gate,
@@ -155,7 +155,7 @@ impl SafeTensorsCudaModel {
         // 9. FFN up projection
         let mut up = vec![0.0f32; intermediate_dim];
         self.executor
-            .gemm_b_cached(
+            .gemm_b_cached_f16(
                 &format!("blk.{layer_idx}.ffn_up"),
                 &normed2,
                 &mut up,
@@ -181,7 +181,7 @@ impl SafeTensorsCudaModel {
         // 11. FFN down projection
         let mut ffn_out = vec![0.0f32; hidden_dim];
         self.executor
-            .gemm_b_cached(
+            .gemm_b_cached_f16(
                 &format!("blk.{layer_idx}.ffn_down"),
                 &swiglu,
                 &mut ffn_out,

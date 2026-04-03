@@ -326,6 +326,9 @@ pub struct CudaExecutor {
     // Persistent weight buffers on GPU (PARITY-037)
     // These are loaded once at startup and reused for all forward passes
     weight_cache: HashMap<String, GpuBuffer<f32>>,
+    // GH-174: Named FP16 weight cache for SafeTensors F16/BF16 models
+    // Enables HGEMM dispatch (2x bandwidth savings vs FP32 GemmTiled)
+    named_fp16_weight_cache: HashMap<String, GpuBuffer<u16>>,
     // PAR-005: Persistent quantized weight buffers on GPU
     // For Q4_K/Q5_K/Q6_K weights that use native GEMV kernels
     // Avoids CPU->GPU transfer on every forward pass (~50+ transfers/token)
