@@ -122,12 +122,20 @@ fn apr_try_load_f32(
     if end > data.len() {
         return None;
     }
-    Some(
-        data[start..end]
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-            .collect(),
-    )
+    let raw = &data[start..end];
+    // GH-180: Dispatch on dtype — FP16 APR models store biases as F16
+    match tensor.dtype.as_str() {
+        "F16" => Some(
+            raw.chunks_exact(2)
+                .map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32())
+                .collect(),
+        ),
+        _ => Some(
+            raw.chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect(),
+        ),
+    }
 }
 
 /// Infer vocab_size from APR metadata or embedding tensor shape.

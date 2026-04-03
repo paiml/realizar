@@ -190,12 +190,21 @@ impl OwnedQuantizedModelCuda {
             .layers
             .iter()
             .map(|l| {
-                l.qkv_bias.as_ref().map(|b| {
+                l.qkv_bias.as_ref().and_then(|b| {
                     // Q bias is first q_dim elements (GQA-aware)
                     let q_dim = l
                         .qkv_weight
                         .q_dim_for_config(num_heads, num_kv_heads, hidden_dim, head_dim);
-                    &b[..q_dim]
+                    if q_dim <= b.len() {
+                        Some(&b[..q_dim])
+                    } else {
+                        eprintln!(
+                            "[WARN] QKV bias too small for Q slice: need {}, have {} — skipping bias",
+                            q_dim,
+                            b.len()
+                        );
+                        None
+                    }
                 })
             })
             .collect();
@@ -204,10 +213,19 @@ impl OwnedQuantizedModelCuda {
             .layers
             .iter()
             .map(|l| {
-                l.qkv_bias.as_ref().map(|b| {
+                l.qkv_bias.as_ref().and_then(|b| {
                     let q_dim = l.qkv_weight.q_dim_for_config(num_heads, num_kv_heads, hidden_dim, head_dim);
                     let k_dim = l.qkv_weight.k_dim_for_config(num_heads, num_kv_heads, hidden_dim, head_dim);
-                    &b[q_dim..q_dim + k_dim]
+                    if q_dim + k_dim <= b.len() {
+                        Some(&b[q_dim..q_dim + k_dim])
+                    } else {
+                        eprintln!(
+                            "[WARN] QKV bias too small for K slice: need {}, have {} — skipping bias",
+                            q_dim + k_dim,
+                            b.len()
+                        );
+                        None
+                    }
                 })
             })
             .collect();
@@ -216,7 +234,7 @@ impl OwnedQuantizedModelCuda {
             .layers
             .iter()
             .map(|l| {
-                l.qkv_bias.as_ref().map(|b| {
+                l.qkv_bias.as_ref().and_then(|b| {
                     let q_dim = l
                         .qkv_weight
                         .q_dim_for_config(num_heads, num_kv_heads, hidden_dim, head_dim);
@@ -226,7 +244,16 @@ impl OwnedQuantizedModelCuda {
                     let v_dim = l
                         .qkv_weight
                         .v_dim_for_config(num_heads, num_kv_heads, hidden_dim, head_dim);
-                    &b[q_dim + k_dim..q_dim + k_dim + v_dim]
+                    if q_dim + k_dim + v_dim <= b.len() {
+                        Some(&b[q_dim + k_dim..q_dim + k_dim + v_dim])
+                    } else {
+                        eprintln!(
+                            "[WARN] QKV bias too small for V slice: need {}, have {} — skipping bias",
+                            q_dim + k_dim + v_dim,
+                            b.len()
+                        );
+                        None
+                    }
                 })
             })
             .collect();
