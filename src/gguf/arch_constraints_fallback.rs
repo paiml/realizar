@@ -145,6 +145,20 @@ fn from_architecture_generated(arch: &str) -> ArchConstraints {
             has_qk_norm: false,
             default_eps: 1e-5,
         },
+        // t5.yaml — PMAT-395: T5 encoder-decoder (realizr#177)
+        // T5 uses LayerNorm (not RMSNorm), GELU (DenseReluDense),
+        // relative position bias (not RoPE), and tied embeddings.
+        "t5" | "encoder-decoder" => ArchConstraints {
+            norm_type: NormType::LayerNorm,
+            activation: Activation::Gelu,
+            positional_encoding: PositionalEncoding::Relative,
+            mlp_type: MlpType::GeluMlp,
+            weight_layout: WeightLayout::Linear,
+            has_bias: false,
+            tied_embeddings: true,
+            has_qk_norm: false,
+            default_eps: 1e-6,
+        },
         // mamba.yaml
         "mamba" => ArchConstraints {
             norm_type: NormType::RmsNorm,

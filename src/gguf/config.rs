@@ -47,6 +47,8 @@ pub enum PositionalEncoding {
     Rope,
     /// Attention with Linear Biases (BLOOM, MPT)
     Alibi,
+    /// Relative position bias in attention (T5, PMAT-395)
+    Relative,
     /// No positional encoding (mamba, rwkv7)
     None,
 }
@@ -164,6 +166,12 @@ impl ArchConstraints {
     #[must_use]
     pub fn uses_absolute_positions(&self) -> bool {
         self.positional_encoding == PositionalEncoding::Absolute
+    }
+
+    /// PMAT-395: Whether this is a T5-style relative position bias arch.
+    #[must_use]
+    pub fn uses_relative_positions(&self) -> bool {
+        self.positional_encoding == PositionalEncoding::Relative
     }
 }
 
