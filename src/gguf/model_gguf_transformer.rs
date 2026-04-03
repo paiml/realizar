@@ -89,6 +89,9 @@
             token_embedding: vec![0.1; 6400],
             position_embedding: None,
             layers: vec![],
+            encoder_layers: vec![],
+            encoder_output_norm_weight: None,
+            encoder_output_norm_bias: None,
             output_norm_weight: vec![1.0; 64],
             output_norm_bias: None,
             lm_head_weight: OwnedQuantizedTensor {
@@ -151,6 +154,9 @@
             token_embedding: vec![0.0; 1600],
             position_embedding: None,
             layers: vec![],
+            encoder_layers: vec![],
+            encoder_output_norm_weight: None,
+            encoder_output_norm_bias: None,
             output_norm_weight: vec![1.0; 32],
             output_norm_bias: Some(vec![0.0; 32]),
             lm_head_weight: OwnedQuantizedTensor {
@@ -368,6 +374,9 @@
             token_embedding: vec![0.1; 6400],
             position_embedding: None,
             layers: vec![],
+            encoder_layers: vec![],
+            encoder_output_norm_weight: None,
+            encoder_output_norm_bias: None,
             output_norm_weight: vec![1.0; 64],
             output_norm_bias: Some(vec![0.0; 64]),
             lm_head_weight: OwnedQuantizedTensor {
@@ -418,6 +427,9 @@
             token_embedding: vec![0.5, 0.6, 0.7, 0.8],
             position_embedding: None,
             layers: vec![],
+            encoder_layers: vec![],
+            encoder_output_norm_weight: None,
+            encoder_output_norm_bias: None,
             output_norm_weight: vec![1.0, 1.0, 1.0],
             output_norm_bias: Some(vec![0.1, 0.2, 0.3]),
             lm_head_weight: OwnedQuantizedTensor {

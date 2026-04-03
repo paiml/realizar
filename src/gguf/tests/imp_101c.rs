@@ -25,6 +25,9 @@ fn test_imp_101c_attention_with_cache_softmax_normalized() {
         token_embedding: vec![],
         position_embedding: None,
         layers: vec![],
+        encoder_layers: vec![],
+        encoder_output_norm_weight: None,
+        encoder_output_norm_bias: None,
         output_norm_weight: vec![],
         output_norm_bias: None,
         lm_head_weight: OwnedQuantizedTensor {

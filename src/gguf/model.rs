@@ -313,8 +313,16 @@ pub struct OwnedQuantizedModel {
     pub(crate) token_embedding: Vec<f32>,
     /// GH-278: Position embedding [context_length, hidden_dim] (GPT-2 only)
     pub(crate) position_embedding: Option<Vec<f32>>,
-    /// Owned quantized layers
+    /// Owned quantized layers (decoder layers, or all layers for decoder-only)
     pub(crate) layers: Vec<OwnedQuantizedLayer>,
+    /// GH-177: Encoder layers for encoder-decoder models (T5, Whisper).
+    /// Empty for decoder-only architectures.
+    pub(crate) encoder_layers: Vec<OwnedQuantizedLayer>,
+    /// GH-177: Encoder output norm weight (T5/Whisper encoder final norm).
+    /// None for decoder-only architectures.
+    pub(crate) encoder_output_norm_weight: Option<Vec<f32>>,
+    /// GH-177: Encoder output norm bias (optional).
+    pub(crate) encoder_output_norm_bias: Option<Vec<f32>>,
     /// Output norm weight (f32)
     pub(crate) output_norm_weight: Vec<f32>,
     /// Output norm bias (optional)
@@ -346,6 +354,7 @@ impl std::fmt::Debug for OwnedQuantizedModel {
             .field("token_embedding_len", &self.token_embedding.len())
             .field("has_position_embedding", &self.position_embedding.is_some())
             .field("layers_count", &self.layers.len())
+            .field("encoder_layers_count", &self.encoder_layers.len())
             .field("output_norm_weight_len", &self.output_norm_weight.len())
             .field("has_output_norm_bias", &self.output_norm_bias.is_some())
             .field("lm_head_weight", &self.lm_head_weight)
@@ -380,6 +389,9 @@ impl Clone for OwnedQuantizedModel {
             token_embedding: self.token_embedding.clone(),
             position_embedding: self.position_embedding.clone(),
             layers: self.layers.clone(),
+            encoder_layers: self.encoder_layers.clone(),
+            encoder_output_norm_weight: self.encoder_output_norm_weight.clone(),
+            encoder_output_norm_bias: self.encoder_output_norm_bias.clone(),
             output_norm_weight: self.output_norm_weight.clone(),
             output_norm_bias: self.output_norm_bias.clone(),
             lm_head_weight: self.lm_head_weight.clone(),

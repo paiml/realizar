@@ -31,6 +31,9 @@ mod tests {
             token_embedding: vec![0.0; 128000],
             position_embedding: None,
             layers: vec![],
+            encoder_layers: vec![],
+            encoder_output_norm_weight: None,
+            encoder_output_norm_bias: None,
             output_norm_weight: vec![1.0; 128],
             output_norm_bias: None,
             lm_head_weight: OwnedQuantizedTensor {
@@ -135,6 +138,9 @@ mod tests {
             token_embedding: vec![0.1; 6400],
             position_embedding: None,
             layers: vec![],
+            encoder_layers: vec![],
+            encoder_output_norm_weight: None,
+            encoder_output_norm_bias: None,
             output_norm_weight: vec![1.0; 64],
             output_norm_bias: None,
             lm_head_weight: OwnedQuantizedTensor {

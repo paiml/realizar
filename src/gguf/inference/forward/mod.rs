@@ -18,4 +18,6 @@ mod batch_tests;
 #[cfg(test)]
 mod core_tests;
 #[cfg(test)]
+mod encoder_decoder_tests;
+#[cfg(test)]
 mod single_tests;
