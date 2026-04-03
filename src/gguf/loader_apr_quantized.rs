@@ -32,6 +32,13 @@ fn apr_load_quantized_tensor(
 
     match dtype {
         "q8" => {
+            // GH-175: APR native q8 requires CPU dequant → F32 (slow).
+            // Re-import with `apr import --preserve-q4k` for GPU-optimal loading.
+            eprintln!(
+                "[GH-175] APR native q8 tensor '{}': CPU dequant to F32 \
+                 (slow — re-import with `apr import --preserve-q4k` for GPU)",
+                found_name
+            );
             let mut f32_data = crate::apr::dequant::dequantize_apr_q8(raw, num_elements);
             if transpose {
                 f32_data = transpose_f32_matrix(&f32_data, in_dim, out_dim);
@@ -45,6 +52,13 @@ fn apr_load_quantized_tensor(
             })
         },
         "q4" => {
+            // GH-175: APR native q4 requires CPU dequant → F32 (slow).
+            // Re-import with `apr import --preserve-q4k` for GPU-optimal loading.
+            eprintln!(
+                "[GH-175] APR native q4 tensor '{}': CPU dequant to F32 \
+                 (slow — re-import with `apr import --preserve-q4k` for GPU)",
+                found_name
+            );
             let mut f32_data = crate::apr::dequant::dequantize_apr_q4(raw, num_elements);
             if transpose {
                 f32_data = transpose_f32_matrix(&f32_data, in_dim, out_dim);
@@ -151,6 +165,7 @@ impl OwnedQuantizedModel {
     /// # Errors
     /// Returns error if APR format is invalid or missing required tensors.
     pub fn from_apr(apr: &crate::apr::MappedAprModel) -> Result<Self> {
+        let t0 = std::time::Instant::now();
         let data = apr.data();
         let data_offset = apr.data_offset() as usize;
 
@@ -235,6 +250,12 @@ impl OwnedQuantizedModel {
         // GH-278: Load learned position embeddings (GPT-2 style)
         let position_embedding =
             apr_try_load_f32(apr, data, data_offset, "model.position_embedding.weight");
+
+        let load_ms = t0.elapsed().as_secs_f64() * 1000.0;
+        eprintln!(
+            "[GH-175] OwnedQuantizedModel::from_apr: {} layers loaded in {:.1}ms",
+            num_layers, load_ms
+        );
 
         Ok(Self {
             config,

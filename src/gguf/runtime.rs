@@ -38,7 +38,6 @@ pub struct QuantizedGenerateConfig {
     pub stop_tokens: Vec<u32>,
     /// Enable inference tracing (PMAT-TRACE-GGUF-001)
     pub trace: bool,
-    ..Default::default()
 }
 
 impl Default for QuantizedGenerateConfig {
