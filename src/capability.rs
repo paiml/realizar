@@ -84,6 +84,7 @@ pub fn required_ops(constraints: &ArchConstraints) -> HashSet<RequiredOp> {
         PositionalEncoding::Alibi => {
             ops.insert(RequiredOp::AbsolutePos); // ALiBi adds bias to attention scores
         },
+        PositionalEncoding::Relative => {}, // T5: handled by attention layer
         PositionalEncoding::None => {},
     }
 

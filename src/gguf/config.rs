@@ -452,6 +452,19 @@ impl GGUFConfig {
         self.num_kv_heads * self.head_dim()
     }
 
+    /// PMAT-395: Whether this is an encoder-decoder architecture.
+    ///
+    /// Derived from constraints — T5 and Whisper use relative/absolute
+    /// position bias with LayerNorm + GELU, but the key signal is the
+    /// architecture string matching "t5" or "encoder-decoder".
+    #[must_use]
+    pub fn is_encoder_decoder(&self) -> bool {
+        let arch = self.architecture.to_lowercase();
+        arch == "t5"
+            || arch == "encoder-decoder"
+            || arch == "whisper"
+    }
+
     /// GH-305: Infer explicit head_dim from GGUF metadata or tensor shapes.
     ///
     /// Returns `Some(head_dim)` only when it differs from `hidden_dim / num_heads`.
