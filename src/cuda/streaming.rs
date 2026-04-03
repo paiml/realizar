@@ -138,7 +138,6 @@ impl StreamingConfig {
 
         qkv + o_proj + ffn_gate + ffn_up + ffn_down + norms
     }
-}
 
     /// GH-178: Estimate VRAM for FP8/FP16 prefill weight cache.
     ///
@@ -163,6 +162,7 @@ impl StreamingConfig {
 
         (per_layer * self.num_layers + lm_head) * bytes_per_elem
     }
+}
 
 /// Determine whether to use streaming mode based on available VRAM.
 ///
