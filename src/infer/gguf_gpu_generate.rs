@@ -39,11 +39,23 @@ fn try_wgpu_generate(
         hidden_dim, num_heads, num_kv_heads, head_dim, intermediate_dim,
     );
 
+    // C-WGPU-Q4K-001: Upload raw Q4K bytes for projection weights.
+    // encode_matmul() auto-selects Q4K GEMV when M=1 and Q4K weights exist.
+    let raw_q4k = wgpu_adapter::raw_q4k_weights(model);
+    let q4k_names: std::collections::HashSet<String> =
+        raw_q4k.iter().map(|(n, _, _, _)| n.clone()).collect();
+    for (name, data, _rows, _cols) in &raw_q4k {
+        fwd.upload_q4k_weight(name, data);
+    }
+
+    // Upload F32 weights for norms, biases, and non-Q4K tensors.
+    // Q4K projection weights are skipped (already uploaded as raw Q4K).
     let weights = wgpu_adapter::dequant_model_weights(model)?;
     for (name, data, _rows, _cols) in &weights {
-        fwd.upload_weight(name, data);
+        if !q4k_names.contains(name) {
+            fwd.upload_weight(name, data);
+        }
     }
-    // KV cache initialized by caller (no init_kv_cache needed — API change)
 
     // Get output norm and LM head weights
     let output_norm = model.output_norm_weight();
@@ -594,6 +606,15 @@ fn try_load_llama_style(
         return None;
     }
 
+    // PMAT-156: Skip AprTransformer for Q4K/Q6K passthrough APR models.
+    // AprTransformer only handles F32 tensors correctly. When APR files
+    // contain raw quantized tensors (from GGUF Q4K passthrough), the F32
+    // forward path produces garbage. Route to OwnedQuantizedModel which
+    // keeps weights in native Q4K form and uses quantized dot products.
+    if has_quantized_tensors_apr(model_path) {
+        return None;
+    }
+
     match crate::apr_transformer::AprTransformer::from_apr_file_validated(model_path) {
         Ok(t) => {
             let arch = t.config.architecture.to_lowercase();
@@ -605,6 +626,23 @@ fn try_load_llama_style(
         }
         Err(_) => None,
     }
+}
+
+/// PMAT-156: Check if APR file contains quantized tensors (Q4K/Q6K/Q8K/etc).
+///
+/// Scans the APR tensor index for non-F32/F16 dtypes. If any quantized tensor
+/// is found, returns true — the caller should use OwnedQuantizedModel instead
+/// of AprTransformer (which only handles F32 data correctly).
+fn has_quantized_tensors_apr(model_path: &std::path::Path) -> bool {
+    use crate::apr::MappedAprModel;
+    let mapped = match MappedAprModel::from_path(model_path) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    mapped.tensors.iter().any(|t| {
+        let dtype = t.dtype.as_str();
+        dtype != "f32" && dtype != "f16" && dtype != "bf16"
+    })
 }
 
 /// GH-478: Check if F32 dequantization would exceed system memory.
