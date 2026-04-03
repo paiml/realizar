@@ -7,7 +7,11 @@
 
 mod batch;
 mod core;
+mod encoder_decoder;
 mod single;
+
+// PMAT-395: Re-export encoder-decoder types
+pub use encoder_decoder::EncoderOutput;
 
 #[cfg(test)]
 mod batch_tests;

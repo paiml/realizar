@@ -34,5 +34,8 @@ pub use cached::{
     OwnedQuantizedModelCachedSync,
 };
 
+// PMAT-395: Re-export encoder-decoder types
+pub use forward::EncoderOutput;
+
 // Re-export impl extension for OwnedQuantizedModel
 // The actual impl blocks are in each submodule
