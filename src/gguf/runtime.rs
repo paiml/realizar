@@ -52,7 +52,6 @@ impl Default for QuantizedGenerateConfig {
             repeat_last_n: 64,
             stop_tokens: Vec::new(),
             trace: false,
-            ..Default::default()
         }
     }
 }
