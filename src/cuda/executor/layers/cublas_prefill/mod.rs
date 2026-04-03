@@ -650,7 +650,8 @@ impl CudaExecutor {
     }
 
     /// PMAT-031: Ensure FP16 activation scratch is large enough
-    fn ensure_fp16_activation_scratch(&mut self, count: usize) -> Result<(), GpuError> {
+    /// GH-174: pub(crate) for gemm_b_cached_f16() access
+    pub(crate) fn ensure_fp16_activation_scratch(&mut self, count: usize) -> Result<(), GpuError> {
         if self.fp16_activation_scratch_size >= count {
             return Ok(());
         }
@@ -660,7 +661,8 @@ impl CudaExecutor {
     }
 
     /// PMAT-031: Convert FP32 GPU data to FP16 using inline PTX kernel
-    fn convert_f32_to_f16(
+    /// GH-174: pub(crate) for gemm_b_cached_f16() access
+    pub(crate) fn convert_f32_to_f16(
         &mut self,
         src_ptr: u64,
         dst_ptr: u64,
