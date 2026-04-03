@@ -16,6 +16,15 @@ impl CudaExecutor {
     /// * `head_dim` - Dimension per head
     /// * `max_len` - Maximum sequence length to support
     /// PMAT-399: Compute maximum batch size that fits in available GPU memory.
+    /// GH-178: Compute max batch size that fits in available VRAM.
+    ///
+    /// Reserves space for:
+    /// - FP8/FP16 prefill weight cache (~1.5-3GB for 1.5B model)
+    /// - cuBLAS workspace (32MB)
+    /// - CUDA runtime overhead (~500MB)
+    ///
+    /// Without this, the server starts but OOMs on first request
+    /// when cohabiting GPU with other processes (e.g. training).
     pub fn compute_max_batch_for_memory(
         &self,
         num_layers: usize,
@@ -26,14 +35,42 @@ impl CudaExecutor {
         let (free, _total) = self.context.memory_info().unwrap_or((8 * 1024 * 1024 * 1024, 0));
         // KV cache per slot: 2 (K+V) × num_kv_heads × max_len × head_dim × 4 bytes × num_layers
         let kv_per_slot = 2 * num_kv_heads * max_len * head_dim * 4 * num_layers;
-        // Reserve 2 GB for workspace + prefill buffers
-        let available = free.saturating_sub(2 * 1024 * 1024 * 1024);
+
+        // GH-178: Reserve VRAM for prefill cache + workspace.
+        // FP8 cache: ~N_params × 1 byte (1.5GB for 1.5B model)
+        // FP16 cache: ~N_params × 2 bytes (3GB for 1.5B model)
+        // cuBLAS workspace: 32MB
+        // CUDA runtime overhead: ~500MB
+        //
+        // Conservative: assume FP16 (larger) + 1GB headroom.
+        // This prevents silent OOM when GPU is shared.
+        let prefill_cache_estimate = if self.gpu_profile.fp8_prefill {
+            // FP8: ~1 byte per weight element
+            num_layers * num_kv_heads * head_dim * 16 * 1 // rough estimate
+        } else {
+            0
+        };
+        // Use 3.5GB as conservative reserve (was 2GB)
+        // This covers FP8(1.5GB) + workspace(32MB) + runtime(500MB) + headroom
+        let reserve = (3_500_000_000_usize).max(prefill_cache_estimate + 512 * 1024 * 1024);
+        let available = free.saturating_sub(reserve);
+
         let max_batch = if kv_per_slot > 0 { available / kv_per_slot } else { 32 };
         let clamped = max_batch.clamp(1, 32);
         eprintln!(
-            "[PMAT-399] Memory fit: {:.1} GB free, {:.1} GB/slot KV, max_batch={}",
-            free as f64 / 1e9, kv_per_slot as f64 / 1e9, clamped,
+            "[PMAT-399] Memory fit: {:.1} GB free, {:.1} GB reserve, \
+             {:.1} GB/slot KV, max_batch={}",
+            free as f64 / 1e9, reserve as f64 / 1e9,
+            kv_per_slot as f64 / 1e9, clamped,
         );
+        if clamped <= 1 && free < reserve {
+            eprintln!(
+                "[GH-178] WARNING: Only {:.1} GB free VRAM (need {:.1} GB \
+                 for prefill cache + workspace). Inference may OOM. \
+                 Free GPU memory or use --device cpu.",
+                free as f64 / 1e9, reserve as f64 / 1e9,
+            );
+        }
         clamped
     }
 

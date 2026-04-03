@@ -140,6 +140,30 @@ impl StreamingConfig {
     }
 }
 
+    /// GH-178: Estimate VRAM for FP8/FP16 prefill weight cache.
+    ///
+    /// The prefill cache dequantizes Q4K weights to FP8 (1 byte/elem)
+    /// or FP16 (2 bytes/elem) for cuBLAS HGEMM prefill acceleration.
+    /// This is a LARGE allocation (~1.5GB FP8, ~3GB FP16 for 1.5B)
+    /// that must be budgeted before model load.
+    #[must_use]
+    pub fn estimate_prefill_cache_vram(&self, fp8: bool) -> usize {
+        let bytes_per_elem: usize = if fp8 { 1 } else { 2 }; // FP8=1, FP16=2
+        let head_dim = self.hidden_dim / self.num_heads.max(1);
+        let kv_dim = self.num_kv_heads * head_dim;
+        let qkv_out = self.hidden_dim + 2 * kv_dim;
+
+        // Each matmul weight matrix: N × K elements
+        // Per layer: QKV(hidden×qkv) + O(hidden×hidden) +
+        //   gate(hidden×inter) + up(hidden×inter) + down(inter×hidden)
+        let per_layer = self.hidden_dim * qkv_out
+            + self.hidden_dim * self.hidden_dim
+            + self.hidden_dim * self.intermediate_dim * 3;
+        let lm_head = self.hidden_dim * self.vocab_size;
+
+        (per_layer * self.num_layers + lm_head) * bytes_per_elem
+    }
+
 /// Determine whether to use streaming mode based on available VRAM.
 ///
 /// Returns `true` if streaming mode should be used (VRAM insufficient for full cache).
