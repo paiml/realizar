@@ -136,6 +136,10 @@ impl AppState {
     ) -> Result<Self, RealizarError> {
         let tokenizer = BPETokenizer::new(vocab, vec![], "<unk>")?;
 
+        // PMAT-181: Cache architecture for chat template auto-detection.
+        // Qwen3 models get Qwen3NoThinkTemplate (disables thinking mode).
+        let arch = Some(quantized_model.config.architecture.clone());
+
         let (audit_logger, audit_sink) = create_audit_state();
         Ok(Self {
             model: None,
@@ -168,7 +172,7 @@ impl AppState {
             #[cfg(feature = "cuda")]
             apr_q4k_tx: None,
             apr_transformer: None,
-            cached_architecture: None,
+            cached_architecture: arch,
             cached_eos_token_id: None,
             verbose: false,
             trace: false,
