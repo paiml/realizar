@@ -101,12 +101,40 @@ impl CudaExecutor {
         // Q, K, V all read the same hidden_buf1; first GEMV quantizes, rest reuse.
         self.q8_activation_valid = false;
 
-        // Q projection
-        self.gemv_dispatch(
-            layer_weights.attn_q_qtype,
-            layer_weights.attn_q_ptr,
-            hidden_buf1, q_buf, q_dim, hidden_dim,
-        )?;
+        // GH-288: Fused QKV when all three weights are Q4K and HW DP4A available
+        let use_fused_qkv = self.gpu_profile.fused_gate_up  // reuse same capability flag
+            && layer_weights.attn_q_qtype == WeightQuantType::Q4K
+            && layer_weights.attn_k_qtype == WeightQuantType::Q4K
+            && layer_weights.attn_v_qtype == WeightQuantType::Q4K;
+
+        if use_fused_qkv {
+            self.fused_qkv_hw_dp4a_q4k_gemv_into(
+                layer_weights.attn_q_ptr,
+                layer_weights.attn_k_ptr,
+                layer_weights.attn_v_ptr,
+                hidden_buf1, q_buf, k_buf, v_buf,
+                hidden_dim, q_dim, kv_dim,
+            )?;
+        } else {
+            // Fallback: separate Q, K, V projections
+            self.gemv_dispatch(
+                layer_weights.attn_q_qtype,
+                layer_weights.attn_q_ptr,
+                hidden_buf1, q_buf, q_dim, hidden_dim,
+            )?;
+
+            self.gemv_dispatch(
+                layer_weights.attn_k_qtype,
+                layer_weights.attn_k_ptr,
+                hidden_buf1, k_buf, kv_dim, hidden_dim,
+            )?;
+
+            self.gemv_dispatch(
+                layer_weights.attn_v_qtype,
+                layer_weights.attn_v_ptr,
+                hidden_buf1, v_buf, kv_dim, hidden_dim,
+            )?;
+        }
 
         // CORRECTNESS-011: Debug Q output for Q4K layer 0
         if !skip_debug && layer_idx == 0 && layer_weights.attn_q_qtype == WeightQuantType::Q4K {
@@ -126,20 +154,6 @@ impl CudaExecutor {
                 layer_weights.attn_k_qtype, layer_weights.attn_k_ptr, layer_weights.attn_k_len
             );
         }
-
-        // K projection
-        self.gemv_dispatch(
-            layer_weights.attn_k_qtype,
-            layer_weights.attn_k_ptr,
-            hidden_buf1, k_buf, kv_dim, hidden_dim,
-        )?;
-
-        // V projection
-        self.gemv_dispatch(
-            layer_weights.attn_v_qtype,
-            layer_weights.attn_v_ptr,
-            hidden_buf1, v_buf, kv_dim, hidden_dim,
-        )?;
 
         if profiling {
             self.stop_brick_id(timer_qkv, 1);

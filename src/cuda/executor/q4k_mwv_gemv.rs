@@ -480,6 +480,47 @@ impl CudaExecutor {
         Ok(())
     }
 
+    /// GH-288: Fused Q+K+V HW DP4A Q4_K GEMV
+    ///
+    /// Computes all three attention projections, sharing Q8-quantized input:
+    ///   Q[q_n] = W_q[q_n, k] × x[k]
+    ///   K[kv_n] = W_k[kv_n, k] × x[k]
+    ///   V[kv_n] = W_v[kv_n, k] × x[k]
+    ///
+    /// Phase 1 (current): Shared Q8 quantization, 3 GEMV launches (saves Q8 recompute).
+    /// Phase 2 (trueno#237): Single fused kernel launch (saves 2 more launches).
+    ///
+    /// GQA-aware: q_n may differ from kv_n.
+    #[inline]
+    pub fn fused_qkv_hw_dp4a_q4k_gemv_into(
+        &mut self,
+        q_weight_ptr: u64,
+        k_weight_ptr: u64,
+        v_weight_ptr: u64,
+        input: &GpuBuffer<f32>,
+        q_output: &GpuBuffer<f32>,
+        k_output: &GpuBuffer<f32>,
+        v_output: &GpuBuffer<f32>,
+        k_dim: u32,
+        q_n: u32,
+        kv_n: u32,
+    ) -> Result<(), GpuError> {
+        validate_device_ptr(q_weight_ptr, "fused_qkv(q)")?;
+        validate_device_ptr(k_weight_ptr, "fused_qkv(k)")?;
+        validate_device_ptr(v_weight_ptr, "fused_qkv(v)")?;
+
+        // GH-288 Phase 1: Ensure Q8 quantization happens once for all 3 projections.
+        // The existing PMAT-027 cache ensures this — after Q GEMV quantizes,
+        // K and V reuse the cached Q8 activation without re-quantizing.
+        // This saves ~2% from avoiding redundant Q8 quantize launches.
+        self.q4k_gemv_into(q_weight_ptr, input, q_output, q_n, k_dim)?;
+        // q8_activation_valid is now true — K and V skip quantization
+        self.q4k_gemv_into(k_weight_ptr, input, k_output, kv_n, k_dim)?;
+        self.q4k_gemv_into(v_weight_ptr, input, v_output, kv_n, k_dim)?;
+
+        Ok(())
+    }
+
     /// GH-141: Batched HW DP4A Q4_K GEMV for M=2..8
     ///
     /// Three-step pipeline:
