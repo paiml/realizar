@@ -253,6 +253,9 @@ fn test_gpu_model_custom_rope_theta() {
         vocab_size: 50,
         eps: 1e-5,
         rope_theta: 500000.0, // Different rope_theta (like Llama 3)
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
     };
     let mut model = GpuModel::new(config.clone()).expect("model");
 

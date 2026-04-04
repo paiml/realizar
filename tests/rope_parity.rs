@@ -130,6 +130,7 @@ mod tests {
             top_k: 1,
             stop_tokens: vec![],
             trace: false,
+            ..Default::default()
         };
 
         eprintln!("\n🚀 Running GPU generation (SKIP_CUDA_GRAPH=1, GPU_DEBUG=1)...");
@@ -243,6 +244,7 @@ mod tests {
             top_k: 1,
             stop_tokens: vec![],
             trace: false,
+            ..Default::default()
         };
 
         let gpu_result = cuda_model.generate_full_cuda_with_cache(&tokens, &gen_config);
@@ -326,6 +328,7 @@ mod tests {
             top_k: 1,
             stop_tokens: vec![],
             trace: false,
+            ..Default::default()
         };
 
         let gpu_result = cuda_model.generate_full_cuda_with_cache(&tokens, &gen_config);

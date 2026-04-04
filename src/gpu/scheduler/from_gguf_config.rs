@@ -33,6 +33,9 @@ impl GpuModel {
     ///     linear_num_value_heads: None,
     ///     linear_conv_kernel_dim: None,
     ///     constraints: None,
+    ///     num_experts: None,
+    ///     num_experts_per_tok: None,
+    ///     expert_intermediate_size: None,
     /// };
     /// let model = GpuModel::from_gguf_config(config)?;
     /// ```

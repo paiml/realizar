@@ -229,6 +229,7 @@ fn test_ffn08_swiglu_forward_coherent() {
         top_k: 1,
         stop_tokens: vec![2], // EOS
         trace: false,
+        ..Default::default()
     };
 
     let output = model

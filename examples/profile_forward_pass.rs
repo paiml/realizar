@@ -32,6 +32,7 @@ fn main() -> Result<(), RealizarError> {
         top_k: 1,
         stop_tokens: vec![2],
         trace: false,
+        ..Default::default()
     };
     for _ in 0..3 {
         let _ = model.generate_with_cache(&prompt, &config)?;
@@ -47,6 +48,7 @@ fn main() -> Result<(), RealizarError> {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+        ..Default::default()
     };
 
     // Track timing per token

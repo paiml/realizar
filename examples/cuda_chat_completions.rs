@@ -177,6 +177,7 @@ fn main() {
         top_k: 40,
         stop_tokens: vec![151645], // <|im_end|> for Qwen models
         trace: false,
+        ..Default::default()
     };
 
     // Generate with GPU

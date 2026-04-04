@@ -23,6 +23,7 @@ fn main() -> Result<(), RealizarError> {
         top_k: 1,
         stop_tokens: vec![2], // EOS
         trace: false,
+        ..Default::default()
     };
 
     // Test correctness: both should produce identical output with greedy decoding

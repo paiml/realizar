@@ -34,6 +34,7 @@ fn main() {
         top_k: 1,
         stop_tokens: vec![151645, 151643],
         trace: false,
+        ..Default::default()
     };
 
     // Warmup with actual generation

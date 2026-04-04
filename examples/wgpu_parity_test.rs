@@ -120,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for layer_idx in 0..num_layers {
         let prefix = format!("layer.{layer_idx}");
         let (ref mut kv_k, ref mut kv_v) = kv_caches[layer_idx];
-        fwd.forward_layer(&mut hidden, &prefix, 0, layer_idx, 0, kv_k, kv_v)
+        fwd.forward_layer(&mut hidden, &prefix, 0, kv_k, kv_v)
             .map_err(|e| format!("layer {layer_idx}: {e}"))?;
         if layer_idx % 7 == 0 || layer_idx == num_layers - 1 {
             println!(

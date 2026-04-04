@@ -83,6 +83,7 @@ mod tests {
             top_k: 1,
             stop_tokens: vec![],
             trace: false,
+            ..Default::default()
         };
 
         // Can't easily get intermediate logits from generate, so let's compare top-k

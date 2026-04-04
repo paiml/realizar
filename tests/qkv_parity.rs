@@ -88,6 +88,7 @@ mod tests {
             top_k: 1,
             stop_tokens: vec![],
             trace: false,
+            ..Default::default()
         };
 
         let gpu_result = cuda_model
@@ -190,6 +191,7 @@ mod tests {
             top_k: 1,
             stop_tokens: vec![],
             trace: false,
+            ..Default::default()
         };
 
         let gpu_result = cuda_model
@@ -352,6 +354,7 @@ mod tests {
             top_k: 1,
             stop_tokens: vec![],
             trace: false,
+            ..Default::default()
         };
 
         let tokens = vec![bos_token];

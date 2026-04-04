@@ -29,6 +29,7 @@ Hello<|im_end|>
         top_k: 1,
         stop_tokens: vec![151645], // <|im_end|>
         trace: false,
+        ..Default::default()
     };
 
     eprintln!("\nGenerating...");

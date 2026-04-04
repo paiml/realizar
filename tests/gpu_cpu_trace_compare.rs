@@ -89,6 +89,13 @@ mod tests {
             ffn_gate_bias: None,
             ffn_norm_weight: Some(ffn_norm_weight),
             ffn_norm_bias: None,
+            moe_gate_weight: None,
+            moe_expert_gate_up: None,
+            moe_expert_down: None,
+            moe_shared_gate: None,
+            moe_shared_up: None,
+            moe_shared_down: None,
+            moe_shared_expert_gate_weight: None,
         };
 
         AprTransformer {

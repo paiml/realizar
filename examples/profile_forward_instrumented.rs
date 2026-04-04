@@ -139,6 +139,7 @@ fn main() -> Result<(), RealizarError> {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+        ..Default::default()
     };
 
     // Warmup

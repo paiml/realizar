@@ -21,6 +21,7 @@ fn main() -> Result<(), RealizarError> {
         top_k: 1,
         stop_tokens: vec![2],
         trace: false,
+        ..Default::default()
     };
 
     println!("Warming up...");
@@ -36,6 +37,7 @@ fn main() -> Result<(), RealizarError> {
         top_k: 1,
         stop_tokens: vec![2],
         trace: false,
+        ..Default::default()
     };
 
     let iterations = 5;

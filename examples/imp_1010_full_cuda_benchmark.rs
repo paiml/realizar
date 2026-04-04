@@ -142,6 +142,7 @@ fn main() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+        ..Default::default()
     };
 
     // Sample prompt tokens (The capital of France is)

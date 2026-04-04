@@ -431,6 +431,7 @@ fn run_benchmark() {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+        ..Default::default()
     };
 
     let prompt_tokens: Vec<u32> = vec![1, 2, 3, 4, 5, 6, 7, 8]; // Simple prompt

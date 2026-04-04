@@ -317,6 +317,7 @@ fn test_driver_cuda_generate() {
             top_k: 50,
             stop_tokens: vec![],
             trace: false,
+            ..Default::default()
         };
 
         let prompt = vec![1u32, 2, 3];
@@ -359,6 +360,7 @@ fn test_driver_cuda_generate_greedy() {
             top_k: 1,
             stop_tokens: vec![],
             trace: false,
+            ..Default::default()
         };
 
         let prompt = vec![42u32];
@@ -400,6 +402,7 @@ fn test_driver_cuda_generate_with_stop_token() {
             top_k: 50,
             stop_tokens: vec![50], // Stop on token 50
             trace: false,
+            ..Default::default()
         };
 
         let prompt = vec![1u32];

@@ -29,6 +29,7 @@ fn main() -> Result<(), RealizarError> {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+        ..Default::default()
     };
     let _ = model.generate_with_cache(&prompt, &config)?;
 
@@ -42,6 +43,7 @@ fn main() -> Result<(), RealizarError> {
         top_k: 1,
         stop_tokens: vec![],
         trace: false,
+        ..Default::default()
     };
 
     let start = Instant::now();

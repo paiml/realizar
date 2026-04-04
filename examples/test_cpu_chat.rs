@@ -19,6 +19,7 @@ fn main() {
         top_k: 40,
         stop_tokens: vec![151645, 151643],
         trace: false,
+        ..Default::default()
     };
 
     eprintln!("Generating...");

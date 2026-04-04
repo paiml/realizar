@@ -167,7 +167,28 @@ fn test_extract_qkv_weights_gqa() {
         ffn_norm_weight: None,
     };
 
-    let result = AprToGpuAdapter::extract_qkv_weights(&layer, hidden_dim, num_heads, num_kv_heads);
+    let config = GpuModelConfig {
+        hidden_dim,
+        intermediate_dim: 1024,
+        num_layers: 1,
+        num_heads,
+        num_kv_heads,
+        vocab_size: 50,
+        eps: 1e-5,
+        rope_theta: 10000.0,
+        explicit_head_dim: None,
+        layer_types: None,
+        linear_key_head_dim: None,
+        linear_value_head_dim: None,
+        linear_num_key_heads: None,
+        linear_num_value_heads: None,
+        linear_conv_kernel_dim: None,
+        constraints: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
+    };
+    let result = AprToGpuAdapter::extract_qkv_weights(&layer, &config);
     assert!(result.is_ok());
 
     let weights = result.unwrap();
@@ -191,7 +212,28 @@ fn test_extract_out_weights() {
         ffn_norm_weight: None,
     };
 
-    let result = AprToGpuAdapter::extract_out_weights(&layer, hidden_dim);
+    let config = GpuModelConfig {
+        hidden_dim,
+        intermediate_dim: 512,
+        num_layers: 1,
+        num_heads: 4,
+        num_kv_heads: 4,
+        vocab_size: 50,
+        eps: 1e-5,
+        rope_theta: 10000.0,
+        explicit_head_dim: None,
+        layer_types: None,
+        linear_key_head_dim: None,
+        linear_value_head_dim: None,
+        linear_num_key_heads: None,
+        linear_num_value_heads: None,
+        linear_conv_kernel_dim: None,
+        constraints: None,
+        num_experts: None,
+        num_experts_per_tok: None,
+        expert_intermediate_size: None,
+    };
+    let result = AprToGpuAdapter::extract_out_weights(&layer, &config);
     assert!(result.is_ok());
 
     let weights = result.unwrap();
@@ -558,6 +600,13 @@ fn test_f32_adapter_with_all_biases() {
         linear_attn_a_log: None,
         linear_attn_dt_bias: None,
         linear_attn_norm_weight: None,
+        moe_gate_weight: None,
+        moe_expert_gate_up: None,
+        moe_expert_down: None,
+        moe_shared_gate: None,
+        moe_shared_up: None,
+        moe_shared_down: None,
+        moe_shared_expert_gate_weight: None,
     };
 
     let apr = AprTransformer {
@@ -620,6 +669,13 @@ fn test_f32_adapter_without_biases() {
         linear_attn_a_log: None,
         linear_attn_dt_bias: None,
         linear_attn_norm_weight: None,
+        moe_gate_weight: None,
+        moe_expert_gate_up: None,
+        moe_expert_down: None,
+        moe_shared_gate: None,
+        moe_shared_up: None,
+        moe_shared_down: None,
+        moe_shared_expert_gate_weight: None,
     };
 
     let apr = AprTransformer {
@@ -687,6 +743,13 @@ fn test_f32_adapter_gqa_config() {
         linear_attn_a_log: None,
         linear_attn_dt_bias: None,
         linear_attn_norm_weight: None,
+        moe_gate_weight: None,
+        moe_expert_gate_up: None,
+        moe_expert_down: None,
+        moe_shared_gate: None,
+        moe_shared_up: None,
+        moe_shared_down: None,
+        moe_shared_expert_gate_weight: None,
     };
 
     let apr = AprTransformer {
