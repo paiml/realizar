@@ -600,4 +600,67 @@ impl OwnedQuantizedModelCuda {
 
         Ok(GenerateResult { tokens, logprobs: token_logprobs })
     }
+
+    /// realizr#191: Teacher-forcing perplexity on a token sequence.
+    ///
+    /// Feeds each ground-truth token through the forward pass and records
+    /// the log probability of the ACTUAL next token (not the model's
+    /// prediction). This is the standard perplexity methodology used by
+    /// llama-perplexity and lm-evaluation-harness.
+    ///
+    /// PPL = exp(-1/N * sum(logprob_of(token[i+1]) at position i))
+    pub fn perplexity_gpu_resident(
+        &mut self,
+        tokens: &[u32],
+    ) -> Result<f64> {
+        use super::super::logprobs::logprob_of;
+
+        if tokens.len() < 2 {
+            return Ok(0.0);
+        }
+        if tokens.len() > self.model.config.context_length {
+            return Err(RealizarError::ContextLimitExceeded {
+                provided: tokens.len(),
+                maximum: self.model.config.context_length,
+            });
+        }
+        self.executor
+            .make_current()
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "cuda_make_current".to_string(),
+                reason: format!("Failed to set CUDA context current: {e}"),
+            })?;
+        if !self.supports_gpu_resident() {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "perplexity_gpu_resident".to_string(),
+                reason: "Architecture not supported".to_string(),
+            });
+        }
+
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let head_dim = self.model.config.hidden_dim / self.model.config.num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let mut cache = OwnedQuantizedKVCache::new(
+            self.model.config.num_layers, kv_dim, tokens.len(),
+        );
+        self.executor.reset_kv_cache_gpu();
+
+        let mut sum_logprob: f64 = 0.0;
+        let mut count: usize = 0;
+
+        // Teacher-forcing: feed token[i], get logits, score token[i+1]
+        for i in 0..tokens.len() - 1 {
+            let logits = self.forward_gpu_resident(tokens[i], &mut cache, i)?;
+            let lp = logprob_of(&logits, tokens[i + 1]);
+            sum_logprob += f64::from(lp);
+            count += 1;
+        }
+
+        let ppl = if count > 0 {
+            (-sum_logprob / count as f64).exp()
+        } else {
+            0.0
+        };
+        Ok(ppl)
+    }
 }

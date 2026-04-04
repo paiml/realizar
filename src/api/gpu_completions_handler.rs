@@ -416,6 +416,52 @@ pub async fn logprobs_handler(
     })))
 }
 
+/// realizr#191: Teacher-forcing perplexity endpoint (F-QUALITY-01).
+///
+/// Feeds ground-truth tokens through the model and measures how well
+/// the model predicts each next token. Standard PPL methodology
+/// matching llama-perplexity.
+///
+/// POST /v1/perplexity { "prompt": "<text>", "model": "default" }
+/// Returns { "perplexity": 15.8, "num_tokens": 512 }
+#[cfg(feature = "cuda")]
+pub async fn perplexity_handler(
+    State(state): State<AppState>,
+    Json(request): Json<CompletionRequest>,
+) -> Result<Json<serde_json::Value>, RErr> {
+    let cuda_model_lock = state.cuda_model().ok_or_else(|| {
+        rerr(&state, StatusCode::SERVICE_UNAVAILABLE, "No CUDA model loaded")
+    })?;
+    let tokenizer = state.tokenizer.clone().ok_or_else(|| {
+        rerr(&state, StatusCode::INTERNAL_SERVER_ERROR, "No tokenizer")
+    })?;
+
+    let token_ids: Vec<u32> = tokenizer
+        .encode(&request.prompt)
+        .iter()
+        .map(|&x| x as u32)
+        .collect();
+    if token_ids.len() < 2 {
+        return Err(rerr(&state, StatusCode::BAD_REQUEST, "Need at least 2 tokens"));
+    }
+
+    let start = std::time::Instant::now();
+    let ppl = {
+        let mut model = cuda_model_lock.write().expect("CUDA model lock");
+        model
+            .perplexity_gpu_resident(&token_ids)
+            .map_err(|e| rerr(&state, StatusCode::INTERNAL_SERVER_ERROR, e))?
+    };
+    let elapsed = start.elapsed();
+
+    Ok(Json(serde_json::json!({
+        "perplexity": ppl,
+        "num_tokens": token_ids.len(),
+        "elapsed_ms": elapsed.as_millis(),
+        "tokens_per_sec": token_ids.len() as f64 / elapsed.as_secs_f64(),
+    })))
+}
+
 /// OpenAI-compatible embeddings handler (/v1/embeddings)
 pub async fn openai_embeddings_handler(
     State(state): State<AppState>,
