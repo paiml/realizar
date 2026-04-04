@@ -74,9 +74,7 @@ pub fn run_apr_inference(
         // Decode using APR tokenizer
         let output_text = crate::apr::AprV2Model::load(model_path)
             .ok()
-            .and_then(|m| m.load_embedded_tokenizer())
-            .map(|tok| tok.decode(&output_ids))
-            .unwrap_or_else(|| output_ids.iter().map(|&id| format!("[{}]", id)).collect());
+            .and_then(|m| m.load_embedded_tokenizer()).map_or_else(|| output_ids.iter().map(|&id| format!("[{}]", id)).collect(), |tok| tok.decode(&output_ids));
         print!("{output_text}");
         return Ok(());
     }

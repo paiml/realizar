@@ -348,11 +348,9 @@ DONE:
         let (k_ptrs_ptr_val, v_ptrs_ptr_val) = if self.is_capturing {
             // Per-layer buffers: graph records correct per-layer addresses
             let k_ptr = self.batched_k_ptrs_per_layer.get(&layer_idx)
-                .map(|b| b.as_ptr())
-                .unwrap_or(k_ptrs_buf.as_ptr());
+                .map_or(k_ptrs_buf.as_ptr(), |b| b.as_ptr());
             let v_ptr = self.batched_v_ptrs_per_layer.get(&layer_idx)
-                .map(|b| b.as_ptr())
-                .unwrap_or(v_ptrs_buf.as_ptr());
+                .map_or(v_ptrs_buf.as_ptr(), |b| b.as_ptr());
             (k_ptr, v_ptr)
         } else {
             // Shared buffers: updated per layer via copy_from_host above

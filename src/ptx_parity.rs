@@ -233,7 +233,7 @@ pub fn generate_named_kernel_ptx(
         RmsNormKernel, RopeKernel, SoftmaxKernel, VectorizedRmsNormKernel,
     };
 
-    let name_lower = name.to_lowercase().replace('-', "").replace('_', "");
+    let name_lower = name.to_lowercase().replace(['-', '_'], "");
     let (label, ptx) = match name_lower.as_str() {
         "q4kgemvkernel" | "q4kgemv" | "q4k" => {
             let k = Q4KGemvKernel::new(dims.hidden_dim, dims.hidden_dim);

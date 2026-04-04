@@ -34,7 +34,7 @@ impl CudaExecutor {
     pub fn load_weights(&mut self, name: &str, weights: &[f32]) -> Result<usize, GpuError> {
         // PMAT-396: On unified memory (cc>=120), register mmap'd pages directly
         let buf = if self.gpu_profile.cc >= 120 {
-            unsafe { GpuBuffer::from_host_registered(weights.as_ptr() as *mut f32, weights.len())? }
+            unsafe { GpuBuffer::from_host_registered(weights.as_ptr().cast_mut(), weights.len())? }
         } else {
             GpuBuffer::from_host(&self.context, weights)?
         };
@@ -142,7 +142,7 @@ impl CudaExecutor {
     ) -> Result<usize, GpuError> {
         // PMAT-396: On unified memory (cc>=120), register mmap'd pages directly
         let buf = if self.gpu_profile.cc >= 120 {
-            unsafe { GpuBuffer::from_host_registered(data.as_ptr() as *mut u8, data.len())? }
+            unsafe { GpuBuffer::from_host_registered(data.as_ptr().cast_mut(), data.len())? }
         } else {
             GpuBuffer::from_host(&self.context, data)?
         };

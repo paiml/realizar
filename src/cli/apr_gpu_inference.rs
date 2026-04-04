@@ -43,9 +43,7 @@ pub fn run_apr_inference_gpu_q4k(
     use std::path::Path;
     use std::time::Instant;
 
-    let mut tracer = trace_config
-        .map(InferenceTracer::new)
-        .unwrap_or_else(InferenceTracer::disabled);
+    let mut tracer = trace_config.map_or_else(InferenceTracer::disabled, InferenceTracer::new);
 
     let load_start = Instant::now();
 
@@ -377,8 +375,7 @@ pub(crate) fn argmax(logits: &[f32]) -> u32 {
         .iter()
         .enumerate()
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(idx, _)| idx as u32)
-        .unwrap_or(0)
+        .map_or(0, |(idx, _)| idx as u32)
 }
 
 /// Sample a token with temperature and top-k.
@@ -412,7 +409,7 @@ pub(crate) fn sample_with_temperature(logits: &[f32], temperature: f32, top_k: u
             return idx as u32;
         }
     }
-    exp_vals.last().map(|&(i, _)| i as u32).unwrap_or(0)
+    exp_vals.last().map_or(0, |&(i, _)| i as u32)
 }
 
 /// Run APR inference with CUDA GPU acceleration (PMAT-106)
@@ -440,9 +437,7 @@ pub fn run_apr_inference_gpu(
     use std::time::Instant;
 
     // APR-TRACE-001: Create tracer
-    let mut tracer = trace_config
-        .map(InferenceTracer::new)
-        .unwrap_or_else(InferenceTracer::disabled);
+    let mut tracer = trace_config.map_or_else(InferenceTracer::disabled, InferenceTracer::new);
 
     let load_start = Instant::now();
 

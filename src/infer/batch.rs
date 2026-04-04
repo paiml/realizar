@@ -381,13 +381,13 @@ fn init_batch_model(
             }
         }
 
-        return Ok(BatchModel {
+        Ok(BatchModel {
             #[cfg(feature = "cuda")]
             gpu: None,
             #[cfg(feature = "gpu")]
             wgpu: None,
             cpu: Some(model),
-        });
+        })
     }
 
     #[cfg(not(feature = "cuda"))]

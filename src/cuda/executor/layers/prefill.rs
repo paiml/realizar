@@ -704,7 +704,7 @@ impl CudaExecutor {
                 // No intermediate single KV cache. Zero D2D copies for attention,
                 // single kernel launch for scatter.
                 // PMAT-088d: Map prompt_idx to target batched KV slot
-                let target_slot = slot_indices.map(|s| s[prompt_idx]).unwrap_or(prompt_idx);
+                let target_slot = slot_indices.map_or(prompt_idx, |s| s[prompt_idx]);
                 self.prefill_attention_from_packed(
                     layer_idx,
                     q_buf_ptr + q_off,
