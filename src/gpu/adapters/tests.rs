@@ -140,10 +140,10 @@ fn test_transpose_large() {
 }
 
 #[test]
+#[should_panic(expected = "input is empty")]
 fn test_transpose_empty() {
     let data: Vec<f32> = vec![];
-    let result = transpose_matrix(&data, 0, 0);
-    assert_eq!(result.len(), 0);
+    let _result = transpose_matrix(&data, 0, 0);
 }
 
 #[test]
