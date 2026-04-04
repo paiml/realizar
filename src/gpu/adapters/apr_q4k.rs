@@ -520,13 +520,13 @@ fn infer_moe_config_from_tensors(
             total_elements / hidden_dim
         });
 
-    let n = num_experts.unwrap();
-    let k = num_experts_per_tok.unwrap();
-    let inter = moe_intermediate.unwrap_or(0);
-    eprintln!(
-        "[ALB-095] Inferred MoE config from tensor names: {} experts, top-{}, intermediate={}",
-        n, k, inter
-    );
+    if let (Some(n), Some(k)) = (num_experts, num_experts_per_tok) {
+        let inter = moe_intermediate.unwrap_or(0);
+        eprintln!(
+            "[ALB-095] Inferred MoE config from tensor names: {} experts, top-{}, intermediate={}",
+            n, k, inter
+        );
+    }
 
     (num_experts, num_experts_per_tok, moe_intermediate)
 }
