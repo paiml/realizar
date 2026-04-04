@@ -208,6 +208,96 @@ async fn try_apr_q4k_completions(
     )))
 }
 
+/// realizar#184 / ALB-136: CUDA GGUF completions via batch scheduler.
+///
+/// Root cause: `with_cuda_model_and_vocab()` sets `model: None` so the registry
+/// fallback fails with "No model available". The CUDA GGUF model is only reachable
+/// via `cuda_batch_tx` (the batch scheduler channel). This function bridges the gap
+/// for non-streaming /v1/completions requests.
+#[cfg(feature = "cuda")]
+async fn try_cuda_gguf_completions(
+    state: &AppState,
+    request: &CompletionRequest,
+    max_tokens: usize,
+    temperature: f32,
+    start: std::time::Instant,
+) -> Result<Option<CompletionResponse>, RErr> {
+    use crate::api::cuda_batch_scheduler::CudaBatchRequest;
+    use crate::gguf::QuantizedGenerateConfig;
+
+    let batch_tx = match state.cuda_batch_tx() {
+        Some(tx) => tx,
+        None => return Ok(None),
+    };
+    let tokenizer = state.tokenizer.clone().ok_or_else(|| {
+        rerr(state, StatusCode::INTERNAL_SERVER_ERROR, "No tokenizer available")
+    })?;
+    let prompt_ids = tokenizer.encode(&request.prompt);
+    if prompt_ids.is_empty() {
+        return Err(rerr(state, StatusCode::BAD_REQUEST, "Prompt cannot be empty"));
+    }
+    let prompt_tokens = prompt_ids.len();
+
+    let eos = state.cached_eos_token_id.unwrap_or(151643);
+    let q_config = QuantizedGenerateConfig {
+        max_tokens,
+        temperature,
+        stop_tokens: vec![eos],
+        ..Default::default()
+    };
+
+    // Streaming channel — collect all tokens for non-streaming response
+    let (token_tx, mut token_rx) = tokio::sync::mpsc::channel::<Result<u32, String>>(max_tokens + 1);
+
+    let batch_req = CudaBatchRequest {
+        prompt_ids,
+        config: q_config,
+        token_tx,
+        enqueue_time: std::time::Instant::now(),
+    };
+
+    batch_tx
+        .try_send(batch_req)
+        .map_err(|_| rerr(state, StatusCode::SERVICE_UNAVAILABLE, "CUDA batch queue full"))?;
+
+    // Collect all generated tokens
+    let mut output_tokens = Vec::with_capacity(max_tokens);
+    while let Some(result) = token_rx.recv().await {
+        match result {
+            Ok(token_id) => output_tokens.push(token_id),
+            Err(e) => {
+                return Err(rerr(state, StatusCode::INTERNAL_SERVER_ERROR, format!("CUDA generation: {e}")));
+            }
+        }
+    }
+
+    let completion_tokens = output_tokens.len();
+    let mut text = tokenizer
+        .decode(&output_tokens)
+        .map_err(|e| rerr(state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    // Truncate at first stop sequence (OpenAI behavior)
+    if let Some(stops) = &request.stop {
+        for stop in stops {
+            if let Some(pos) = text.find(stop.as_str()) {
+                text.truncate(pos);
+                break;
+            }
+        }
+    }
+
+    state.metrics.record_success(completion_tokens, start.elapsed());
+
+    Ok(Some(completion_resp(
+        "cmpl",
+        request.model.clone(),
+        text,
+        prompt_tokens,
+        completion_tokens,
+        max_tokens,
+    )))
+}
+
 pub async fn openai_completions_handler(
     State(state): State<AppState>,
     Json(request): Json<CompletionRequest>,
@@ -234,6 +324,12 @@ pub async fn openai_completions_handler(
 
     #[cfg(feature = "cuda")]
     if let Some(r) = try_apr_q4k_completions(&state, &request, max_tokens, temperature, start).await? {
+        return Ok(Json(r));
+    }
+
+    // realizar#184 / ALB-136: CUDA GGUF models via batch scheduler
+    #[cfg(feature = "cuda")]
+    if let Some(r) = try_cuda_gguf_completions(&state, &request, max_tokens, temperature, start).await? {
         return Ok(Json(r));
     }
 

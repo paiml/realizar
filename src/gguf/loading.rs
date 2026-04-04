@@ -32,6 +32,13 @@ fn apr_load_quantized_tensor(
 
     match dtype {
         "q8" => {
+            // GH-285: APR native q8 requires CPU dequant → F32 (slow).
+            // Re-import with `apr import` for GPU-optimal Q4K loading.
+            eprintln!(
+                "[GH-285] APR native q8 tensor '{}': CPU dequant to F32 \
+                 (slow — re-import with `apr import` for GPU-optimal Q4K)",
+                found_name
+            );
             let mut f32_data = crate::apr::dequant::dequantize_apr_q8(raw, num_elements);
             if transpose {
                 f32_data = transpose_f32_matrix(&f32_data, in_dim, out_dim);
@@ -45,6 +52,13 @@ fn apr_load_quantized_tensor(
             })
         },
         "q4" => {
+            // GH-285: APR native q4 requires CPU dequant → F32 (slow).
+            // Re-import with `apr import` for GPU-optimal Q4K loading.
+            eprintln!(
+                "[GH-285] APR native q4 tensor '{}': CPU dequant to F32 \
+                 (slow — re-import with `apr import` for GPU-optimal Q4K)",
+                found_name
+            );
             let mut f32_data = crate::apr::dequant::dequantize_apr_q4(raw, num_elements);
             if transpose {
                 f32_data = transpose_f32_matrix(&f32_data, in_dim, out_dim);
