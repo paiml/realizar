@@ -30,7 +30,8 @@ fn make_config(architecture: &str) -> GGUFConfig {
 #[test]
 fn falsify_ct_002_architecture_cached_for_qwen3() {
     let model = create_test_model_with_config(&make_config("qwen3"));
-    let vocab: Vec<String> = (0..100).map(|i| format!("tok_{i}")).collect();
+    let mut vocab: Vec<String> = (0..100).map(|i| format!("tok_{i}")).collect();
+    vocab.push("<unk>".to_string());
     let state = AppState::with_quantized_model_and_vocab(model, vocab).unwrap();
     assert_eq!(
         state.model_architecture(),
@@ -42,7 +43,8 @@ fn falsify_ct_002_architecture_cached_for_qwen3() {
 #[test]
 fn falsify_ct_002_architecture_cached_for_llama() {
     let model = create_test_model_with_config(&make_config("llama"));
-    let vocab: Vec<String> = (0..100).map(|i| format!("tok_{i}")).collect();
+    let mut vocab: Vec<String> = (0..100).map(|i| format!("tok_{i}")).collect();
+    vocab.push("<unk>".to_string());
     let state = AppState::with_quantized_model_and_vocab(model, vocab).unwrap();
     assert_eq!(
         state.model_architecture(),
@@ -55,7 +57,8 @@ fn falsify_ct_002_architecture_cached_for_llama() {
 fn falsify_ct_002_architecture_never_none_for_gguf() {
     for arch in &["qwen3", "llama", "phi2", "mistral", "gpt2"] {
         let model = create_test_model_with_config(&make_config(arch));
-        let vocab: Vec<String> = (0..100).map(|i| format!("tok_{i}")).collect();
+        let mut vocab: Vec<String> = (0..100).map(|i| format!("tok_{i}")).collect();
+    vocab.push("<unk>".to_string());
         let state = AppState::with_quantized_model_and_vocab(model, vocab).unwrap();
         assert!(
             state.model_architecture().is_some(),
