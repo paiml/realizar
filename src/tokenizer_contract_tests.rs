@@ -16,9 +16,9 @@ mod tokenizer_contract_tests {
         vocab.push("ll".to_string());
         vocab.push("lo".to_string());
         let merges = vec![
-            "h e".to_string(),
-            "l l".to_string(),
-            "l o".to_string(),
+            ("h".to_string(), "e".to_string()),
+            ("l".to_string(), "l".to_string()),
+            ("l".to_string(), "o".to_string()),
         ];
         BPETokenizer::new(vocab, merges, "<unk>").expect("test tokenizer")
     }
