@@ -154,6 +154,8 @@ impl ChatMessage {
 pub enum TemplateFormat {
     /// ChatML format (Qwen2, OpenHermes, Yi)
     ChatML,
+    /// Qwen3 ChatML with thinking mode disabled (PMAT-181)
+    Qwen3NoThink,
     /// LLaMA 2 format (Vicuna, LLaMA 2 Chat)
     Llama2,
     /// Zephyr format (TinyLlama, Zephyr, StableLM)
@@ -448,6 +450,7 @@ impl ChatTemplateEngine for ChatMLTemplate {
     }
 }
 
+include!("chat_template_qwen3_nothink.rs");
 include!("chat_template_llama2.rs");
 include!("chat_template_helpers.rs");
 include!("chat_template_special_tokens.rs");

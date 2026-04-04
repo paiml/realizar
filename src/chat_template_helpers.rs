@@ -54,8 +54,13 @@ pub fn detect_format_from_name(model_name: &str) -> TemplateFormat {
 
     // Pattern rules ordered by specificity (more specific patterns first)
     // Format: (patterns, format) - check patterns before formats that share prefixes
+    // PMAT-181: Qwen3 gets special no-think template (before generic "qwen" match)
+    if name_lower.contains("qwen3") {
+        return TemplateFormat::Qwen3NoThink;
+    }
+
     let rules: &[(&[&str], TemplateFormat)] = &[
-        // ChatML: Qwen, OpenHermes, Yi
+        // ChatML: Qwen (2.x), OpenHermes, Yi
         (&["qwen", "openhermes", "yi-"], TemplateFormat::ChatML),
         // Zephyr: TinyLlama, Zephyr, StableLM (check BEFORE llama!)
         (&["tinyllama", "zephyr", "stablelm"], TemplateFormat::Zephyr),
@@ -97,6 +102,7 @@ pub fn detect_format_from_tokens(special_tokens: &SpecialTokens) -> TemplateForm
 pub fn create_template(format: TemplateFormat) -> Box<dyn ChatTemplateEngine> {
     match format {
         TemplateFormat::ChatML => Box::new(ChatMLTemplate::new()),
+        TemplateFormat::Qwen3NoThink => Box::new(Qwen3NoThinkTemplate::new()),
         TemplateFormat::Llama2 => Box::new(Llama2Template::new()),
         TemplateFormat::Zephyr => Box::new(ZephyrTemplate::new()),
         TemplateFormat::Mistral => Box::new(MistralTemplate::new()),
