@@ -135,7 +135,7 @@ pub struct ChatCompletionResponse {
 ///
 /// Distinguishes measured data from estimates to prevent fabricated trace output.
 /// Every `TraceData` instance MUST declare its provenance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TraceProvenance {
     /// Real per-operation timing from BrickProfiler instrumentation
@@ -143,13 +143,8 @@ pub enum TraceProvenance {
     /// Only the wall-clock total is real; no per-op breakdown available
     WallClockTotal,
     /// Values are statistical estimates (e.g., from sampling or heuristics)
+    #[default]
     Estimated,
-}
-
-impl Default for TraceProvenance {
-    fn default() -> Self {
-        Self::Estimated
-    }
 }
 
 /// Trace data for debugging inference

@@ -203,19 +203,16 @@ pub fn raw_q4k_weights(model: &OwnedQuantizedModel) -> Vec<(String, Vec<u8>, usi
             }
         }
         // QKV: handle separate weights
-        match &layer.qkv_weight {
-            crate::gguf::OwnedQKVWeights::Separate { q, k, v } => {
-                if q.qtype == GGUF_TYPE_Q4_K {
-                    raw.push((format!("{prefix}.q_proj"), q.data.clone(), q_dim, hidden));
-                }
-                if k.qtype == GGUF_TYPE_Q4_K {
-                    raw.push((format!("{prefix}.k_proj"), k.data.clone(), kv_dim, hidden));
-                }
-                if v.qtype == GGUF_TYPE_Q4_K {
-                    raw.push((format!("{prefix}.v_proj"), v.data.clone(), kv_dim, hidden));
-                }
-            },
-            _ => {},
+        if let crate::gguf::OwnedQKVWeights::Separate { q, k, v } = &layer.qkv_weight {
+            if q.qtype == GGUF_TYPE_Q4_K {
+                raw.push((format!("{prefix}.q_proj"), q.data.clone(), q_dim, hidden));
+            }
+            if k.qtype == GGUF_TYPE_Q4_K {
+                raw.push((format!("{prefix}.k_proj"), k.data.clone(), kv_dim, hidden));
+            }
+            if v.qtype == GGUF_TYPE_Q4_K {
+                raw.push((format!("{prefix}.v_proj"), v.data.clone(), kv_dim, hidden));
+            }
         }
     }
     raw

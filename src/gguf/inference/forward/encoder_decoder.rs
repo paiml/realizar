@@ -78,7 +78,7 @@ impl OwnedQuantizedModel {
         let scale = 1.0 / (head_dim as f32).sqrt();
         let tile_size = 64;
 
-        for (_layer_idx, layer) in encoder_layers.iter().enumerate() {
+        for layer in encoder_layers.iter() {
             // Pre-attention LayerNorm (T5 uses LayerNorm, not RMSNorm)
             let use_rmsnorm = self.config.constraints.uses_rmsnorm();
             let normed = if use_rmsnorm {

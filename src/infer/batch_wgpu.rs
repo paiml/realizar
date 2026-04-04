@@ -17,10 +17,10 @@
 ///   3. Why zeros? generate() zeroed cache contents but didn't clear length
 ///   4. Why wrong length? Pre-allocated vec![0.0; max_seq * kv_dim] starts at full length
 ///   5. Why full length? forward_layer uses extend_from_slice + len()/kv_dim for seq_len
-///   Fix: Vec::with_capacity (empty, pre-alloc) + clear() (reset length to 0)
-
+///   - Fix: Vec::with_capacity (empty, pre-alloc) + clear() (reset length to 0)
+///
 // Included from batch.rs via include!() — shares the same module scope.
-
+//
 /// Holds wgpu forward pass + CPU LM head for batch inference.
 #[cfg(feature = "gpu")]
 struct WgpuBatchState {

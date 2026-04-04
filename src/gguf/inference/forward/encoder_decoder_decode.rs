@@ -48,7 +48,7 @@ pub fn decode(
     let kv_dim_per = num_kv_heads * head_dim;
     let group_size = if num_kv_heads > 0 { num_heads / num_kv_heads } else { 1 };
 
-    for (_layer_idx, layer) in self.layers.iter().enumerate() {
+    for layer in self.layers.iter() {
         // === Causal self-attention ===
         let normed = if use_rmsnorm {
             ops::rms_norm(&hidden, &layer.attn_norm_weight, self.config.eps)
