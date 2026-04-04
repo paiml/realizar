@@ -213,7 +213,9 @@ impl OwnedQuantizedModelCuda {
         }
 
         // PMAT-053/067: FP8 E4M3 weight cache warmup (auto-enabled on sm_89+)
-        if self.executor.gpu_profile.fp8_prefill {
+        // GH-286: Skip if --no-fp8-cache (saves ~1.5 GB RSS)
+        let no_fp8 = std::env::var("REALIZR_NO_FP8_CACHE").as_deref() == Ok("1");
+        if self.executor.gpu_profile.fp8_prefill && !no_fp8 {
             let num_layers = self.model.config.num_layers;
             let hidden_dim = self.model.config.hidden_dim as u32;
             let intermediate_dim = self.model.config.intermediate_dim as u32;
@@ -239,6 +241,18 @@ impl OwnedQuantizedModelCuda {
                 vocab_size,
             ) {
                 eprintln!("[PMAT-091] Interleaved cache warmup failed (non-fatal): {e}");
+            }
+        }
+
+        // GH-181: Reinitialize workspace after cache warmup (FP8/FP16/interleaved).
+        // Cache allocations can relocate workspace buffers, causing the parity
+        // gate's forward pass to read stale pointers (cosine -0.28 on RTX 4060).
+        {
+            let hidden_dim = self.model.config.hidden_dim;
+            let intermediate_dim = self.model.config.intermediate_dim;
+            self.executor.force_workspace_reinit();
+            if let Err(e) = self.executor.init_workspace(hidden_dim, intermediate_dim) {
+                eprintln!("[GH-181] Workspace reinit failed (non-fatal): {e}");
             }
         }
 

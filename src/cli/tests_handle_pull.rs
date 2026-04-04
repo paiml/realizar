@@ -107,6 +107,8 @@ async fn test_handle_serve_stub_without_feature() {
         gpu: false,
         openai_api: true,
         trace: false,
+        context_length: 4096,
+        no_fp8_cache: false,
     };
     // Without server feature, should return error
     #[cfg(not(feature = "server"))]
@@ -171,6 +173,8 @@ fn test_serve_config_demo_mode() {
         gpu: false,
         openai_api: true,
         trace: false,
+        context_length: 4096,
+        no_fp8_cache: false,
     };
     assert!(config.demo);
     assert!(config.model.is_none());
@@ -189,6 +193,8 @@ fn test_serve_config_model_mode() {
         gpu: true,
         openai_api: true,
         trace: false,
+        context_length: 4096,
+        no_fp8_cache: false,
     };
     assert!(!config.demo);
     assert_eq!(config.model.as_deref(), Some("model.gguf"));
@@ -428,6 +434,8 @@ fn test_serve_config_debug() {
         gpu: false,
         openai_api: true,
         trace: false,
+        context_length: 4096,
+        no_fp8_cache: false,
     };
     let debug = format!("{config:?}");
     assert!(debug.contains("localhost"));

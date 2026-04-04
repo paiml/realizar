@@ -146,6 +146,16 @@ pub enum Commands {
         /// Per-request tracing can also be activated via X-Trace-Level header
         #[arg(long)]
         trace: bool,
+
+        /// GH-286: Maximum context/sequence length for KV cache pre-allocation.
+        /// Lower values reduce RSS (e.g., 512 for benchmarks). Default: 4096.
+        #[arg(long, default_value = "4096")]
+        context_length: usize,
+
+        /// GH-286: Skip FP8 weight cache warmup. Saves ~1.5 GB RSS but
+        /// reduces decode throughput ~13% on sm_89+ (Ada Lovelace).
+        #[arg(long)]
+        no_fp8_cache: bool,
     },
     /// Run performance benchmarks (wraps cargo bench)
     Bench {
@@ -271,6 +281,12 @@ pub struct ServeConfig {
     pub openai_api: bool,
     /// GH-103: Enable inference tracing (propagates into QuantizedGenerateConfig.trace)
     pub trace: bool,
+    /// GH-286: Maximum context/sequence length for KV cache pre-allocation.
+    /// Lower values reduce RSS. Default: 4096.
+    pub context_length: usize,
+    /// GH-286: Skip FP8 weight cache warmup. Saves ~1.5 GB RSS but
+    /// reduces decode throughput ~13% on sm_89+. Default: false.
+    pub no_fp8_cache: bool,
 }
 
 /// Handle the serve command
@@ -287,6 +303,8 @@ pub async fn handle_serve(config: ServeConfig) -> Result<()> {
             config.gpu,
             config.openai_api,
             config.trace,
+            config.context_length,
+            config.no_fp8_cache,
         )
         .await
     } else {

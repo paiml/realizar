@@ -275,6 +275,8 @@ mod tests {
             gpu: true,
             openai_api: true,
             trace: false,
+            context_length: 4096,
+            no_fp8_cache: false,
         };
 
         let debug_str = format!("{:?}", config);
@@ -294,6 +296,8 @@ mod tests {
             gpu: false,
             openai_api: true,
             trace: false,
+            context_length: 4096,
+            no_fp8_cache: false,
         };
 
         let cloned = config.clone();

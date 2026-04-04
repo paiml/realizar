@@ -154,13 +154,17 @@ mod server_commands {
             };
             println!("Creating CUDA model ({source})...");
 
-            let max_seq_len = 4096; // Support long sequences
+            // GH-286: Configurable context length (was hardcoded 4096)
+            let max_seq_len = std::env::var("REALIZR_CONTEXT_LENGTH")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(4096);
             let cuda_model =
                 OwnedQuantizedModelCuda::with_max_seq_len(quantized_model, 0, max_seq_len)
                     .map_err(|e| e.error)?;
 
             println!("  CUDA model created on GPU: {}", cuda_model.device_name());
-            println!("  Max sequence length: {}", max_seq_len);
+            println!("  Max sequence length: {} (--context-length)", max_seq_len);
             println!("  TRUE STREAMING: enabled (PAR-112)");
 
             let state = crate::api::AppState::with_cuda_model_and_vocab(cuda_model, vocab)?;
@@ -440,7 +444,12 @@ mod server_commands {
         println!("  Layers: {}, Hidden: {}, Vocab: {}",
             model.config.num_layers, model.config.hidden_dim, model.config.vocab_size);
 
-        let cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(model, 0, 4096)
+        // GH-286: Configurable context length (was hardcoded 4096)
+        let max_seq_len = std::env::var("REALIZR_CONTEXT_LENGTH")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(4096);
+        let cuda_model = OwnedQuantizedModelCuda::with_max_seq_len(model, 0, max_seq_len)
             .map_err(|e| e.error)?;
 
         println!("  CUDA model on GPU: {}", cuda_model.device_name());
@@ -561,6 +570,9 @@ mod server_commands {
     /// * `force_gpu` - Force CUDA backend (requires 'cuda' feature)
     /// * `openai_api` - Enable OpenAI-compatible API at /v1/* (GH-148)
     /// * `trace` - GH-103: Enable inference tracing (propagates into QuantizedGenerateConfig.trace)
+    /// * `context_length` - GH-286: Max sequence length for KV cache (default 4096)
+    /// * `no_fp8_cache` - GH-286: Skip FP8 weight cache warmup (saves ~1.5 GB RSS)
+    #[allow(clippy::too_many_arguments)]
     pub async fn serve_model(
         host: &str,
         port: u16,
@@ -569,7 +581,17 @@ mod server_commands {
         force_gpu: bool,
         openai_api: bool,
         trace: bool,
+        context_length: usize,
+        no_fp8_cache: bool,
     ) -> Result<()> {
+        // GH-286: Set context length and FP8 cache flags for downstream use
+        if no_fp8_cache {
+            std::env::set_var("REALIZR_NO_FP8_CACHE", "1");
+            eprintln!("[GH-286] FP8 weight cache DISABLED (--no-fp8-cache). Saves ~1.5 GB RSS.");
+        }
+        // Store context_length for prepare_serve_state to pick up
+        std::env::set_var("REALIZR_CONTEXT_LENGTH", context_length.to_string());
+
         // Prepare server state (testable)
         let prepared = prepare_serve_state(model_path, batch_mode, force_gpu)?;
 

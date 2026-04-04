@@ -71,6 +71,8 @@ pub async fn entrypoint(cli: Cli) -> Result<()> {
             batch,
             gpu,
             trace,
+            context_length,
+            no_fp8_cache,
         } => {
             // GH-148: openai_api flag now wired through to router
             // GH-103: trace flag propagates into QuantizedGenerateConfig.trace
@@ -83,6 +85,8 @@ pub async fn entrypoint(cli: Cli) -> Result<()> {
                 gpu,
                 openai_api,
                 trace,
+                context_length,
+                no_fp8_cache,
             })
             .await
         },
