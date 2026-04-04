@@ -186,4 +186,29 @@ mod contract_tests {
             );
         }
     }
+
+    // ═══ FALSIFY-SRV-005: apr-serve-v1 contract (PMAT-188) ═══
+    // Qwen3 architecture triggers NoThinkTemplate in serve context
+
+    #[test]
+    fn falsify_srv_005_qwen3_architecture_gets_nothink() {
+        // Architecture string from GGUF metadata (general.architecture = "qwen3")
+        assert_eq!(detect_format_from_name("qwen3"), TemplateFormat::Qwen3NoThink);
+    }
+
+    #[test]
+    fn falsify_srv_005_qwen3_filename_gets_nothink() {
+        // Filename pattern from model file (Qwen3-1.7B-Q4_K_M.gguf)
+        assert_eq!(
+            detect_format_from_name("Qwen3-1.7B-Q4_K_M"),
+            TemplateFormat::Qwen3NoThink
+        );
+    }
+
+    #[test]
+    fn falsify_srv_005_qwen2_does_not_get_nothink() {
+        // Qwen2 must get ChatML, NOT Qwen3NoThink
+        assert_ne!(detect_format_from_name("qwen2"), TemplateFormat::Qwen3NoThink);
+        assert_eq!(detect_format_from_name("qwen2"), TemplateFormat::ChatML);
+    }
 }
