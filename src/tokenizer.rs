@@ -470,3 +470,4 @@ pub struct SentencePieceTokenizer {
 include!("tokenizer_sentence_piece.rs");
 include!("tokenizer_sentencepiece_encode.rs");
 include!("tokenizer_04.rs");
+include!("tokenizer_contract_tests.rs");
