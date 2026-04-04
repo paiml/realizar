@@ -102,6 +102,12 @@ pub fn create_router_with_config(state: AppState, config: RouterConfig) -> Route
             .route("/v1/metrics", get(server_metrics_handler));
     }
 
+    // realizr#191: Logprobs endpoint (CUDA only, F-QUALITY-01)
+    #[cfg(feature = "cuda")]
+    {
+        router = router.route("/v1/logprobs", post(logprobs_handler));
+    }
+
     router.with_state(state)
 }
 

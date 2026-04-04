@@ -38,6 +38,8 @@ pub struct QuantizedGenerateConfig {
     pub stop_tokens: Vec<u32>,
     /// Enable inference tracing (PMAT-TRACE-GGUF-001)
     pub trace: bool,
+    /// Return per-token log probabilities (realizr#191, F-QUALITY-01)
+    pub logprobs: bool,
 }
 
 impl Default for QuantizedGenerateConfig {
@@ -52,6 +54,7 @@ impl Default for QuantizedGenerateConfig {
             repeat_last_n: 64,
             stop_tokens: Vec::new(),
             trace: false,
+            logprobs: false,
         }
     }
 }

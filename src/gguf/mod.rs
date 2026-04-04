@@ -82,6 +82,8 @@ pub use cuda_model::*;
 pub use model::*;
 pub use quantized::*;
 pub use runtime::*;
+pub mod logprobs;
+pub use logprobs::*;
 pub use transformer::*;
 pub use types::*;
 

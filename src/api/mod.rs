@@ -77,6 +77,8 @@ pub use gpu_handlers::{
 #[cfg(feature = "gpu")]
 pub use gpu_handlers::{spawn_batch_processor, BatchConfig};
 mod realize_handlers;
+#[cfg(feature = "cuda")]
+pub(crate) use realize_handlers::logprobs_handler;
 pub(crate) use realize_handlers::{
     clean_chat_output, format_chat_messages, openai_completions_handler, openai_embeddings_handler,
     realize_embed_handler, realize_model_handler, realize_reload_handler,

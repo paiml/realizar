@@ -342,6 +342,80 @@ pub async fn openai_completions_handler(
     )?))
 }
 
+/// realizr#191: Logprobs endpoint for perplexity measurement (F-QUALITY-01).
+///
+/// Returns per-token log probabilities for the generated sequence.
+/// Uses the direct CUDA path (not batch scheduler) to access logits.
+///
+/// POST /v1/logprobs { "prompt": "...", "max_tokens": 256 }
+/// Returns { "tokens": [...], "logprobs": [...], "perplexity": ... }
+#[cfg(feature = "cuda")]
+pub async fn logprobs_handler(
+    State(state): State<AppState>,
+    Json(request): Json<CompletionRequest>,
+) -> Result<Json<serde_json::Value>, RErr> {
+    use crate::gguf::QuantizedGenerateConfig;
+
+    let cuda_model_lock = state.cuda_model().ok_or_else(|| {
+        rerr(&state, StatusCode::SERVICE_UNAVAILABLE, "No CUDA model loaded")
+    })?;
+    let tokenizer = state.tokenizer.clone().ok_or_else(|| {
+        rerr(&state, StatusCode::INTERNAL_SERVER_ERROR, "No tokenizer")
+    })?;
+
+    let prompt_ids = tokenizer.encode(&request.prompt);
+    if prompt_ids.is_empty() {
+        return Err(rerr(&state, StatusCode::BAD_REQUEST, "Empty prompt"));
+    }
+
+    let max_tokens = request.max_tokens.unwrap_or(256);
+    let eos = state.cached_eos_token_id.unwrap_or(151643);
+    let config = QuantizedGenerateConfig {
+        max_tokens,
+        temperature: 0.0, // greedy for perplexity
+        top_k: 1,
+        stop_tokens: vec![eos],
+        logprobs: true,
+        ..Default::default()
+    };
+
+    let result = {
+        let mut model = cuda_model_lock.write().expect("CUDA model lock");
+        model.generate_gpu_resident_logprobs(
+            &prompt_ids.iter().map(|&x| x as u32).collect::<Vec<_>>(),
+            &config,
+        ).map_err(|e| rerr(&state, StatusCode::INTERNAL_SERVER_ERROR, e))?
+    };
+
+    let prompt_len = prompt_ids.len();
+    let gen_tokens: Vec<u32> = result.tokens[prompt_len..].to_vec();
+    let gen_text: Vec<String> = gen_tokens.iter().map(|&t| {
+        tokenizer.decode(&[t]).unwrap_or_else(|_| format!("<{t}>"))
+    }).collect();
+
+    // Compute perplexity: exp(-1/N * sum(logprobs))
+    let n = result.logprobs.len() as f64;
+    let sum_logprob: f64 = result.logprobs.iter().map(|lp| f64::from(lp.logprob)).sum();
+    let perplexity = if n > 0.0 { (-sum_logprob / n).exp() } else { 0.0 };
+
+    let logprobs_json: Vec<serde_json::Value> = result.logprobs.iter().zip(gen_text.iter()).map(|(lp, text)| {
+        serde_json::json!({
+            "token": text,
+            "token_id": lp.token_id,
+            "logprob": lp.logprob,
+        })
+    }).collect();
+
+    Ok(Json(serde_json::json!({
+        "prompt_tokens": prompt_len,
+        "completion_tokens": gen_tokens.len(),
+        "tokens": gen_text,
+        "logprobs": logprobs_json,
+        "perplexity": perplexity,
+        "sum_logprob": sum_logprob,
+    })))
+}
+
 /// OpenAI-compatible embeddings handler (/v1/embeddings)
 pub async fn openai_embeddings_handler(
     State(state): State<AppState>,

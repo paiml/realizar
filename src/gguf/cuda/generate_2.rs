@@ -509,4 +509,95 @@ impl OwnedQuantizedModelCuda {
 
         Ok(tokens)
     }
+
+    /// realizr#191: Generate with per-token log probabilities for perplexity.
+    ///
+    /// Same as `generate_gpu_resident` but always uses the logits path
+    /// (no `forward_gpu_resident_to_token_id` shortcut) so we can extract
+    /// log_softmax for each chosen token. ~5% slower due to logits download.
+    pub fn generate_gpu_resident_logprobs(
+        &mut self,
+        prompt: &[u32],
+        config: &QuantizedGenerateConfig,
+    ) -> Result<super::super::logprobs::GenerateResult> {
+        use super::super::logprobs::{GenerateResult, TokenLogprob};
+
+        if prompt.is_empty() {
+            return Ok(GenerateResult { tokens: Vec::new(), logprobs: Vec::new() });
+        }
+        if prompt.len() > self.model.config.context_length {
+            return Err(RealizarError::ContextLimitExceeded {
+                provided: prompt.len(),
+                maximum: self.model.config.context_length,
+            });
+        }
+        self.executor
+            .make_current()
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "cuda_make_current".to_string(),
+                reason: format!("Failed to set CUDA context current: {e}"),
+            })?;
+        if !self.supports_gpu_resident() {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "generate_gpu_resident_logprobs".to_string(),
+                reason: "Architecture not supported for GPU-resident path".to_string(),
+            });
+        }
+
+        let num_kv_heads = self.model.config.num_kv_heads;
+        let head_dim = self.model.config.hidden_dim / self.model.config.num_heads;
+        let kv_dim = num_kv_heads * head_dim;
+        let mut cache = OwnedQuantizedKVCache::new(
+            self.model.config.num_layers, kv_dim,
+            prompt.len() + config.max_tokens,
+        );
+        self.executor.reset_kv_cache_gpu();
+
+        let mut tokens = prompt.to_vec();
+        let mut token_logprobs = Vec::with_capacity(config.max_tokens);
+
+        let greedy = config.temperature == 0.0 || config.top_k == 1;
+        let prefill_count = if greedy { prompt.len() } else { prompt.len() - 1 };
+        let prefill_first_token = self.run_prefill(prompt, &mut cache, prefill_count, false, greedy)?;
+
+        let mut position;
+        let mut last_token;
+        let max_decode;
+
+        if let Some(first_tok) = prefill_first_token {
+            position = prompt.len();
+            last_token = first_tok;
+            tokens.push(first_tok);
+            if config.stop_tokens.contains(&first_tok) {
+                return Ok(GenerateResult { tokens, logprobs: token_logprobs });
+            }
+            max_decode = config.max_tokens.saturating_sub(1);
+        } else {
+            position = prompt.len() - 1;
+            last_token = prompt[prompt.len() - 1];
+            max_decode = config.max_tokens;
+        }
+
+        for _ in 0..max_decode {
+            // Always use logits path for logprob extraction
+            let logits = self.forward_gpu_resident(last_token, &mut cache, position)?;
+            let next_token = if greedy {
+                OwnedQuantizedModel::argmax(&logits)
+            } else {
+                OwnedQuantizedModel::sample_topk(&logits, config.temperature, config.top_k)
+            };
+            token_logprobs.push(TokenLogprob {
+                token_id: next_token,
+                logprob: super::super::logprobs::logprob_of(&logits, next_token),
+            });
+            if config.stop_tokens.contains(&next_token) {
+                break;
+            }
+            tokens.push(next_token);
+            last_token = next_token;
+            position += 1;
+        }
+
+        Ok(GenerateResult { tokens, logprobs: token_logprobs })
+    }
 }

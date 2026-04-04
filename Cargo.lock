@@ -189,7 +189,7 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "tempfile",
- "trueno 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "trueno 0.17.0",
  "trueno-quant 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -4101,7 +4101,7 @@ dependencies = [
  "tokio-stream",
  "tower 0.4.13",
  "tracing",
- "trueno 0.17.0",
+ "trueno 0.17.1",
  "trueno-cuda-edge",
  "trueno-db",
  "trueno-gpu",
@@ -5312,6 +5312,25 @@ dependencies = [
 [[package]]
 name = "trueno"
 version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fccbf684a431fcbd9728639b021bb39fa260d8717a1abc1fc908d7a08943bcde"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "hostname",
+ "num_cpus",
+ "provable-contracts-macros 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "thiserror 2.0.18",
+ "toml",
+ "trueno-quant 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "trueno"
+version = "0.17.1"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -5328,25 +5347,6 @@ dependencies = [
  "toml",
  "trueno-quant 0.1.0",
  "wgpu",
-]
-
-[[package]]
-name = "trueno"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fccbf684a431fcbd9728639b021bb39fa260d8717a1abc1fc908d7a08943bcde"
-dependencies = [
- "anyhow",
- "chrono",
- "hostname",
- "num_cpus",
- "provable-contracts-macros 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde",
- "serde_json",
- "serde_yaml_ng",
- "thiserror 2.0.18",
- "toml",
- "trueno-quant 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
