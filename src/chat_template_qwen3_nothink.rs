@@ -50,7 +50,7 @@ impl ChatTemplateEngine for Qwen3NoThinkTemplate {
     }
 
     fn format(&self) -> TemplateFormat {
-        TemplateFormat::ChatML
+        TemplateFormat::Qwen3NoThink
     }
 
     fn supports_system_prompt(&self) -> bool {

@@ -456,3 +456,4 @@ include!("chat_template_helpers.rs");
 include!("chat_template_special_tokens.rs");
 include!("chat_template_prop_format.rs");
 include!("chat_template_alpaca_format.rs");
+include!("chat_template_contract_tests.rs");
