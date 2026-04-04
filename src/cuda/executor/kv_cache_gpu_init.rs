@@ -626,4 +626,13 @@ impl CudaExecutor {
     pub fn has_kv_cache_gpu(&self) -> bool {
         self.kv_cache_max_len > 0
     }
+
+    /// realizr#194: Maximum sequence length the GPU KV cache supports.
+    ///
+    /// Callers must validate input length against this before forwarding
+    /// to prevent KV overflow and CUDA state poisoning.
+    #[must_use]
+    pub fn max_kv_len(&self) -> usize {
+        self.kv_cache_max_len
+    }
 }

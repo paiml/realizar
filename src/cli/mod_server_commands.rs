@@ -572,7 +572,7 @@ mod server_commands {
     /// * `trace` - GH-103: Enable inference tracing (propagates into QuantizedGenerateConfig.trace)
     /// * `context_length` - GH-286: Max sequence length for KV cache (default 4096)
     /// * `no_fp8_cache` - GH-286: Skip FP8 weight cache warmup (saves ~1.5 GB RSS)
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
     pub async fn serve_model(
         host: &str,
         port: u16,

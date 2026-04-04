@@ -395,12 +395,19 @@ impl OwnedQuantizedModelCuda {
             return Ok(Vec::new());
         }
 
-        // GH-167: Check context length BEFORE GPU dispatch to return clean error
-        // instead of cryptic CUDA_ERROR_UNKNOWN when attention matrix exceeds allocated size
-        if prompt.len() > self.model.config.context_length {
+        // GH-167 + realizr#194: Check against GPU KV cache capacity (not model context_length).
+        // The GPU KV cache may be smaller than the model's native context window when
+        // --context-length is used. Without this, overflow poisons CUDA graph state.
+        let gpu_max_len = self.executor.max_kv_len();
+        let effective_max = if gpu_max_len > 0 {
+            gpu_max_len.min(self.model.config.context_length)
+        } else {
+            self.model.config.context_length
+        };
+        if prompt.len() > effective_max {
             return Err(RealizarError::ContextLimitExceeded {
                 provided: prompt.len(),
-                maximum: self.model.config.context_length,
+                maximum: effective_max,
             });
         }
 
@@ -525,10 +532,17 @@ impl OwnedQuantizedModelCuda {
         if prompt.is_empty() {
             return Ok(GenerateResult { tokens: Vec::new(), logprobs: Vec::new() });
         }
-        if prompt.len() > self.model.config.context_length {
+        // realizr#194: Check GPU KV cache capacity (same fix as generate_gpu_resident)
+        let gpu_max_len = self.executor.max_kv_len();
+        let effective_max = if gpu_max_len > 0 {
+            gpu_max_len.min(self.model.config.context_length)
+        } else {
+            self.model.config.context_length
+        };
+        if prompt.len() > effective_max {
             return Err(RealizarError::ContextLimitExceeded {
                 provided: prompt.len(),
-                maximum: self.model.config.context_length,
+                maximum: effective_max,
             });
         }
         self.executor
@@ -618,10 +632,20 @@ impl OwnedQuantizedModelCuda {
         if tokens.len() < 2 {
             return Ok(0.0);
         }
-        if tokens.len() > self.model.config.context_length {
+        // realizr#194: Validate against GPU KV cache capacity (not model context_length).
+        // The GPU KV cache is pre-allocated at server startup and may be smaller than
+        // the model's native context window. Without this check, overflow corrupts CUDA
+        // state and poisons all subsequent requests.
+        let gpu_max_len = self.executor.max_kv_len();
+        let effective_max = if gpu_max_len > 0 {
+            gpu_max_len.min(self.model.config.context_length)
+        } else {
+            self.model.config.context_length
+        };
+        if tokens.len() > effective_max {
             return Err(RealizarError::ContextLimitExceeded {
                 provided: tokens.len(),
-                maximum: self.model.config.context_length,
+                maximum: effective_max,
             });
         }
         self.executor
@@ -649,12 +673,25 @@ impl OwnedQuantizedModelCuda {
         let mut count: usize = 0;
 
         // Teacher-forcing: feed token[i], get logits, score token[i+1]
+        // realizr#194: On error, reset KV cache to prevent CUDA state poisoning.
         for i in 0..tokens.len() - 1 {
-            let logits = self.forward_gpu_resident(tokens[i], &mut cache, i)?;
-            let lp = logprob_of(&logits, tokens[i + 1]);
-            sum_logprob += f64::from(lp);
-            count += 1;
+            match self.forward_gpu_resident(tokens[i], &mut cache, i) {
+                Ok(logits) => {
+                    let lp = logprob_of(&logits, tokens[i + 1]);
+                    sum_logprob += f64::from(lp);
+                    count += 1;
+                }
+                Err(e) => {
+                    // Reset KV cache to prevent poisoned state from affecting
+                    // subsequent requests (C-GRAPH-RECOVERY-01).
+                    self.executor.reset_kv_cache_gpu();
+                    return Err(e);
+                }
+            }
         }
+
+        // Reset KV cache after measurement (perplexity is stateless)
+        self.executor.reset_kv_cache_gpu();
 
         let ppl = if count > 0 {
             (-sum_logprob / count as f64).exp()

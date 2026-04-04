@@ -169,7 +169,7 @@ fn try_init_wgpu_batch(
     // GH-560 FIX: Dequantize non-Q4K weights in ONE pass. Extract lm_head during iteration.
     let weights = wgpu_adapter::dequant_model_weights(model).ok()?;
     let mut lm_head_f32 = Vec::new();
-    for (name, data, _rows, _cols) in weights.into_iter() {
+    for (name, data, _rows, _cols) in weights {
         if name == "lm_head" {
             lm_head_f32 = data;
             continue;

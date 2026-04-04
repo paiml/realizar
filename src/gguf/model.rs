@@ -355,6 +355,14 @@ impl std::fmt::Debug for OwnedQuantizedModel {
             .field("has_position_embedding", &self.position_embedding.is_some())
             .field("layers_count", &self.layers.len())
             .field("encoder_layers_count", &self.encoder_layers.len())
+            .field(
+                "has_encoder_output_norm_weight",
+                &self.encoder_output_norm_weight.is_some(),
+            )
+            .field(
+                "has_encoder_output_norm_bias",
+                &self.encoder_output_norm_bias.is_some(),
+            )
             .field("output_norm_weight_len", &self.output_norm_weight.len())
             .field("has_output_norm_bias", &self.output_norm_bias.is_some())
             .field("lm_head_weight", &self.lm_head_weight)
