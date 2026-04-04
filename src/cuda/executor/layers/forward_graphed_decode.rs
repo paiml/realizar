@@ -1,3 +1,5 @@
+// Graph-captured forward pass for single-token decode with kernel launch coalescing.
+
 impl CudaExecutor {
     /// PAR-054: Graph-captured forward pass for decode (M=1)
     ///

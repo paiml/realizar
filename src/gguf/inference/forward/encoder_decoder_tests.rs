@@ -4,9 +4,9 @@
 mod tests {
     use crate::gguf::test_helpers::create_q4k_test_data;
     use crate::gguf::types::GGUF_TYPE_Q4_K;
-    use crate::gguf::{GGUFConfig, OwnedQuantizedLayer, OwnedQuantizedModel, OwnedQuantizedTensor};
-    use crate::gguf::OwnedQKVWeights;
     use crate::gguf::ArchConstraints;
+    use crate::gguf::OwnedQKVWeights;
+    use crate::gguf::{GGUFConfig, OwnedQuantizedLayer, OwnedQuantizedModel, OwnedQuantizedTensor};
 
     fn create_t5_config(hidden_dim: usize, num_layers: usize) -> GGUFConfig {
         GGUFConfig {
@@ -28,7 +28,11 @@ mod tests {
         }
     }
 
-    fn create_t5_layer(hidden_dim: usize, intermediate_dim: usize, num_heads: usize) -> OwnedQuantizedLayer {
+    fn create_t5_layer(
+        hidden_dim: usize,
+        intermediate_dim: usize,
+        num_heads: usize,
+    ) -> OwnedQuantizedLayer {
         let head_dim = hidden_dim / num_heads;
         let q_dim = num_heads * head_dim;
         let kv_dim = num_heads * head_dim;
@@ -107,7 +111,11 @@ mod tests {
         let result = model.encode(&[1, 2, 3]);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("encoder-decoder"), "Expected encoder-decoder error, got: {}", err_msg);
+        assert!(
+            err_msg.contains("encoder-decoder"),
+            "Expected encoder-decoder error, got: {}",
+            err_msg
+        );
     }
 
     #[test]

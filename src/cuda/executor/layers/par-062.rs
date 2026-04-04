@@ -1,3 +1,5 @@
+// CUDA graph capture and instantiation for workspace forward pass replay.
+
 impl CudaExecutor {
 
     /// PAR-054: Try to capture CUDA graph

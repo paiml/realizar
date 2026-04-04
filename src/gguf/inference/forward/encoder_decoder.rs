@@ -160,15 +160,13 @@ impl OwnedQuantizedModel {
                 for pos in 0..seq_len {
                     let src = &head_out[pos * head_dim..(pos + 1) * head_dim];
                     let dst_start = pos * hidden_dim + h * head_dim;
-                    all_attn_out[dst_start..dst_start + head_dim]
-                        .copy_from_slice(src);
+                    all_attn_out[dst_start..dst_start + head_dim].copy_from_slice(src);
                 }
             }
 
             // Output projection + residual
             for pos in 0..seq_len {
-                let attn_pos =
-                    &all_attn_out[pos * hidden_dim..(pos + 1) * hidden_dim];
+                let attn_pos = &all_attn_out[pos * hidden_dim..(pos + 1) * hidden_dim];
                 let mut proj = self.fused_matmul(attn_pos, &layer.attn_output_weight)?;
                 if let Some(ref bias) = layer.attn_output_bias {
                     ops::add_bias(&mut proj, bias);
@@ -180,8 +178,7 @@ impl OwnedQuantizedModel {
 
             // FFN block: LayerNorm → up → GELU → down → residual
             for pos in 0..seq_len {
-                let pos_hidden =
-                    &hidden[pos * hidden_dim..(pos + 1) * hidden_dim];
+                let pos_hidden = &hidden[pos * hidden_dim..(pos + 1) * hidden_dim];
 
                 let ffn_input = if let Some(ref ffn_norm) = layer.ffn_norm_weight {
                     if use_rmsnorm {
@@ -199,15 +196,13 @@ impl OwnedQuantizedModel {
                 };
 
                 // T5 uses GELU FFN (no gate weight)
-                let mut ffn_hidden =
-                    self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
+                let mut ffn_hidden = self.fused_matmul(&ffn_input, &layer.ffn_up_weight)?;
                 if let Some(ref bias) = layer.ffn_up_bias {
                     ops::add_bias(&mut ffn_hidden, bias);
                 }
                 ops::gelu(&mut ffn_hidden);
 
-                let mut ffn_out =
-                    self.fused_matmul(&ffn_hidden, &layer.ffn_down_weight)?;
+                let mut ffn_out = self.fused_matmul(&ffn_hidden, &layer.ffn_down_weight)?;
                 if let Some(ref bias) = layer.ffn_down_bias {
                     ops::add_bias(&mut ffn_out, bias);
                 }
@@ -247,7 +242,6 @@ impl OwnedQuantizedModel {
             hidden_dim,
         })
     }
-
 }
 
 include!("encoder_decoder_decode.rs");

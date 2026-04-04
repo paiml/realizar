@@ -1,3 +1,5 @@
+//! Purpose-built GEMV thread pool with barrier synchronization for quantized matmul dispatch.
+
 // PMAT-310: Purpose-built GEMV thread pool with barrier synchronization.
 // Replaces rayon for matmul dispatch. Zero work-stealing overhead.
 

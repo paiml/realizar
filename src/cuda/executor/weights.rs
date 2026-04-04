@@ -57,15 +57,10 @@ impl CudaExecutor {
     /// # Returns
     ///
     /// Size in bytes of the uploaded weights.
-    pub fn load_weights_f16(
-        &mut self,
-        name: &str,
-        weights_f16: &[u16],
-    ) -> Result<usize, GpuError> {
+    pub fn load_weights_f16(&mut self, name: &str, weights_f16: &[u16]) -> Result<usize, GpuError> {
         let buf = GpuBuffer::from_host(&self.context, weights_f16)?;
         let size_bytes = buf.size_bytes();
-        self.named_fp16_weight_cache
-            .insert(name.to_string(), buf);
+        self.named_fp16_weight_cache.insert(name.to_string(), buf);
         Ok(size_bytes)
     }
 

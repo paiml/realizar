@@ -1,3 +1,5 @@
+// Batched forward pass dispatching M parallel sequences through all transformer layers.
+
 impl CudaExecutor {
     /// PAR-111: Batched forward pass for M sequences returning M token IDs
     ///

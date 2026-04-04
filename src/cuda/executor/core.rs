@@ -45,9 +45,9 @@ impl CudaExecutor {
             modules: std::mem::ManuallyDrop::new(HashMap::new()),
             weight_cache: HashMap::new(),
             named_fp16_weight_cache: HashMap::new(), // GH-174: SafeTensors F16
-            quantized_weight_cache: HashMap::new(), // PAR-005: quantized weight cache
-            quantized_weight_types: HashMap::new(), // PAR-058: weight quant types
-            quantized_weight_pool: None,            // ALB-098: pool allocator
+            quantized_weight_cache: HashMap::new(),  // PAR-005: quantized weight cache
+            quantized_weight_types: HashMap::new(),  // PAR-058: weight quant types
+            quantized_weight_pool: None,             // ALB-098: pool allocator
             quantized_weight_pool_entries: HashMap::new(),
             rmsnorm_cache: HashMap::new(), // PAR-023: RMSNorm gamma cache
             bias_cache: HashMap::new(),    // BIAS-FIX: QKV bias cache

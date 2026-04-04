@@ -460,9 +460,7 @@ impl GGUFConfig {
     #[must_use]
     pub fn is_encoder_decoder(&self) -> bool {
         let arch = self.architecture.to_lowercase();
-        arch == "t5"
-            || arch == "encoder-decoder"
-            || arch == "whisper"
+        arch == "t5" || arch == "encoder-decoder" || arch == "whisper"
     }
 
     /// GH-305: Infer explicit head_dim from GGUF metadata or tensor shapes.

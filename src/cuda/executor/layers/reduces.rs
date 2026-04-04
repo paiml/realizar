@@ -1,3 +1,5 @@
+// CUDA graph capture with ThreadLocal mode and stream poison recovery (PMAT-374).
+
 impl CudaExecutor {
 
     /// PAR-054: Try to capture CUDA graph

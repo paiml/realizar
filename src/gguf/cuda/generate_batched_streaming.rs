@@ -1,3 +1,5 @@
+// Batched streaming token generation with per-step lock release for concurrent scheduling.
+
 /// PMAT-072: Decode state for step-wise batched generation.
 ///
 /// Extracted from `generate_batched_streaming` to allow lock release between

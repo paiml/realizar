@@ -160,7 +160,8 @@ pub struct AppState {
     apr_transformer: Option<Arc<crate::apr_transformer::AprTransformer>>,
     /// #169: SafeTensors CUDA model for GPU-accelerated F16/F32 inference
     #[cfg(feature = "cuda")]
-    safetensors_cuda_model: Option<Arc<std::sync::Mutex<crate::safetensors_cuda::SafeTensorsCudaModel>>>,
+    safetensors_cuda_model:
+        Option<Arc<std::sync::Mutex<crate::safetensors_cuda::SafeTensorsCudaModel>>>,
     /// GH-319: Cached model architecture string (avoids RwLock in hot path)
     cached_architecture: Option<String>,
     /// GH-330: Cached EOS token ID (avoids RwLock in hot path)

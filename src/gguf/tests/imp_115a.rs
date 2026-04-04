@@ -423,7 +423,7 @@ fn test_imp_117f_generate_with_token_buffer() {
         top_k: 1,
         stop_tokens: Vec::new(),
         trace: false,
-            ..Default::default()
+        ..Default::default()
     };
 
     let result = model.generate_with_smallvec(&prompt, &gen_config);

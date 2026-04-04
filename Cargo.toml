@@ -93,7 +93,7 @@ workspace = true
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
 # High-performance SIMD compute library with GPU support
 # PAR-073: Using local path for development, version for crates.io
-trueno = { version = "0.16", path = "../trueno", features = ["gpu"] }
+trueno = { version = "0.17", path = "../trueno", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
 # v0.4.12: BatchedQ6K, MultiWarp, RopeNeox, FlashDecoding kernels
 trueno-gpu = { version = "0.4", path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }

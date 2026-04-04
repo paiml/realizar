@@ -158,8 +158,15 @@ fn try_init_wgpu_batch(
         hidden_dim, num_heads, num_kv_heads, head_dim, intermediate_dim,
     );
 
-    // GH-560 FIX: Dequantize ALL weights in ONE pass. Extract lm_head during iteration
-    // instead of calling dequant_model_weights() a second time (was 28 GB redundant alloc).
+    // C-WGPU-Q4K-001: Upload raw Q4K bytes for projection weights (7x less VRAM).
+    let raw_q4k = wgpu_adapter::raw_q4k_weights(model);
+    let q4k_names: std::collections::HashSet<String> =
+        raw_q4k.iter().map(|(n, _, _, _)| n.clone()).collect();
+    for (name, data, _rows, _cols) in &raw_q4k {
+        fwd.upload_q4k_weight(name, data);
+    }
+
+    // GH-560 FIX: Dequantize non-Q4K weights in ONE pass. Extract lm_head during iteration.
     let weights = wgpu_adapter::dequant_model_weights(model).ok()?;
     let mut lm_head_f32 = Vec::new();
     for (name, data, _rows, _cols) in weights.into_iter() {
@@ -167,7 +174,9 @@ fn try_init_wgpu_batch(
             lm_head_f32 = data;
             continue;
         }
-        fwd.upload_weight(&name, &data);
+        if !q4k_names.contains(&name) {
+            fwd.upload_weight(&name, &data);
+        }
     }
 
     // Upload biases (small, F32)

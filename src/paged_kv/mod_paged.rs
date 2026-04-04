@@ -1,3 +1,5 @@
+// Paged KV cache implementation with block-level allocation and free-list management.
+
 impl PagedKvCache {
     /// Create a new PagedKvCache
     ///

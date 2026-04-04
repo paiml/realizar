@@ -189,7 +189,7 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "tempfile",
- "trueno 0.16.2",
+ "trueno 0.17.0",
  "trueno-quant 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -4101,7 +4101,7 @@ dependencies = [
  "tokio-stream",
  "tower 0.4.13",
  "tracing",
- "trueno 0.16.4",
+ "trueno 0.17.1",
  "trueno-cuda-edge",
  "trueno-db",
  "trueno-gpu",
@@ -5292,16 +5292,18 @@ dependencies = [
 
 [[package]]
 name = "trueno"
-version = "0.15.0"
+version = "0.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85e19fa22753d395f043b205999122520efd45a33e0867d137f20b777ad794ef"
+checksum = "aef9a7f78a2c56f69a831812f4b82fae90ed5c1451301501a7f1b7af90a789f7"
 dependencies = [
  "anyhow",
  "chrono",
  "hostname",
  "num_cpus",
+ "provable-contracts-macros 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
+ "serde_yaml_ng",
  "thiserror 2.0.18",
  "toml",
  "trueno-quant 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -5309,16 +5311,18 @@ dependencies = [
 
 [[package]]
 name = "trueno"
-version = "0.16.2"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2676205d0af0b161e0fb1805ed6b5cbfe32d10d3630d3572609c7fa07d53816e"
+checksum = "fccbf684a431fcbd9728639b021bb39fa260d8717a1abc1fc908d7a08943bcde"
 dependencies = [
  "anyhow",
  "chrono",
  "hostname",
  "num_cpus",
+ "provable-contracts-macros 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
+ "serde_yaml_ng",
  "thiserror 2.0.18",
  "toml",
  "trueno-quant 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -5326,7 +5330,7 @@ dependencies = [
 
 [[package]]
 name = "trueno"
-version = "0.16.4"
+version = "0.17.1"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -5378,7 +5382,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "trueno 0.15.0",
+ "trueno 0.16.5",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -5418,7 +5422,7 @@ dependencies = [
  "libc",
  "png 0.17.16",
  "thiserror 2.0.18",
- "trueno 0.16.2",
+ "trueno 0.16.5",
 ]
 
 [[package]]
