@@ -153,6 +153,7 @@
 #[macro_use]
 #[allow(unused_macros)]
 mod generated_contracts;
+#[cfg(feature = "server")]
 pub mod api;
 /// Aprender .apr format support (PRIMARY inference format)
 ///
