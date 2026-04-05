@@ -139,6 +139,87 @@ impl ProfileReport {
             .map(|(name, stats)| (name.clone(), (stats.total_us / total) * 100.0))
             .collect()
     }
+
+    /// Validate profiler output against gpu-decode-profiling-v1 contract invariants.
+    ///
+    /// Returns a list of (severity, message) for any violated invariants.
+    /// Empty list = all contracts satisfied.
+    ///
+    /// Contract: gpu-decode-profiling-v1.yaml (provable-contracts)
+    /// Reference: realizr#202, candle-vs-apr P15-06
+    pub fn validate_contracts(&self) -> Vec<(ContractSeverity, String)> {
+        let mut violations = Vec::new();
+
+        if !self.is_real_data {
+            return violations;
+        }
+
+        // CONTRACT 1: wall_coverage >= 0.85
+        // "sum(brick_total_ns) / wall_clock_ns >= 0.85"
+        // Catches: missing kernel recordings (e.g., 28 SwiGLU kernels in realizr#198)
+        if self.total_inference_us > 0.0 {
+            let brick_total: f64 = self.operations.values().map(|s| s.total_us).sum();
+            let wall_coverage = brick_total / self.total_inference_us;
+            if wall_coverage < 0.85 {
+                violations.push((
+                    ContractSeverity::Error,
+                    format!(
+                        "gpu-decode-profiling-v1 WALL_COVERAGE: {:.1}% < 85.0% minimum. \
+                         {:.0}µs profiled / {:.0}µs wall. Missing bricks likely.",
+                        wall_coverage * 100.0, brick_total, self.total_inference_us
+                    ),
+                ));
+            }
+        }
+
+        // CONTRACT 2: Immediate sync fidelity — LmHead.avg > 10x RmsNorm.avg
+        // "In Immediate mode, GPU-time-dominated bricks must show LmHead >> RmsNorm"
+        // Catches: Deferred sync mode reporting CPU launch latency (3.4x error, qcd PMAT-3031)
+        let lm_head = self.operations.get("LmHead");
+        let rms_norm = self.operations.get("RmsNorm");
+        if let (Some(lm), Some(rn)) = (lm_head, rms_norm) {
+            if rn.avg_us > 0.0 && lm.avg_us > 0.0 {
+                let ratio = lm.avg_us / rn.avg_us;
+                if ratio < 10.0 {
+                    violations.push((
+                        ContractSeverity::Warning,
+                        format!(
+                            "gpu-decode-profiling-v1 SYNC_FIDELITY: LmHead/RmsNorm ratio = {:.1}x < 10x. \
+                             LmHead={:.1}µs, RmsNorm={:.1}µs. Likely using Deferred sync (CPU launch latency, not GPU time).",
+                            ratio, lm.avg_us, rn.avg_us
+                        ),
+                    ));
+                }
+            }
+        }
+
+        // CONTRACT 3: decoded_tokens == LmHead.count
+        // "LmHead is invoked exactly once per decoded token"
+        // Catches: token accounting errors, profiler miscounting
+        if let Some(lm) = lm_head {
+            if self.tokens_processed > 0 && lm.count != self.tokens_processed {
+                violations.push((
+                    ContractSeverity::Warning,
+                    format!(
+                        "gpu-decode-profiling-v1 TOKEN_ACCOUNTING: LmHead.count={} != tokens_processed={}. \
+                         LmHead should fire exactly once per decoded token.",
+                        lm.count, self.tokens_processed
+                    ),
+                ));
+            }
+        }
+
+        violations
+    }
+}
+
+/// Severity levels for contract violations
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContractSeverity {
+    /// Contract violation that indicates a measurement bug
+    Error,
+    /// Contract violation that indicates a fidelity concern
+    Warning,
 }
 
 /// Active timing record
@@ -304,7 +385,10 @@ impl BrickProfiler {
         self.current_layer = 0;
     }
 
-    /// Generate a profile report
+    /// Generate a profile report with contract validation.
+    ///
+    /// Automatically checks gpu-decode-profiling-v1 invariants
+    /// and prints violations to stderr (realizr#202, P15-06).
     pub fn report(&self) -> ProfileReport {
         let total_inference_us = match (self.inference_start, self.inference_end) {
             (Some(start), Some(end)) => end.duration_since(start).as_secs_f64() * 1_000_000.0,
@@ -317,14 +401,25 @@ impl BrickProfiler {
             0.0
         };
 
-        ProfileReport {
+        let report = ProfileReport {
             operations: self.stats.clone(),
             total_inference_us,
             tokens_processed: self.tokens_count,
             num_layers: self.num_layers,
             throughput_tok_s,
             is_real_data: self.enabled && !self.stats.is_empty(),
+        };
+
+        // P15-06: Contract enforcement — validate on every report generation
+        let violations = report.validate_contracts();
+        for (severity, msg) in &violations {
+            match severity {
+                ContractSeverity::Error => eprintln!("[CONTRACT ERROR] {}", msg),
+                ContractSeverity::Warning => eprintln!("[CONTRACT WARN] {}", msg),
+            }
         }
+
+        report
     }
 
     /// Get raw stats reference (for inspection)

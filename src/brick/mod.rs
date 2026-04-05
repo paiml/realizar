@@ -33,7 +33,7 @@ pub use tracer::{BrickTracer, TraceComparison, TraceDiff, TraceEvent};
 
 // PMAT-112: BrickProfiler for real-time inference telemetry
 pub mod profiler;
-pub use profiler::{BrickProfiler, OpStats, ProfileReport};
+pub use profiler::{BrickProfiler, ContractSeverity, OpStats, ProfileReport};
 
 // ============================================================================
 // Core Types
