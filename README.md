@@ -48,6 +48,7 @@
 - [Quality](#quality)
 - [Sovereign AI Stack](#sovereign-ai-stack)
 - [Documentation](#documentation)
+- [Contributing](#contributing)
 - [License](#license)
 
 ## What is realizar?
@@ -255,6 +256,10 @@ realizar is the inference layer of the PAIML Sovereign AI Stack:
 - **API docs**: [docs.rs/realizar](https://docs.rs/realizar)
 - **Repository**: [github.com/paiml/realizar](https://github.com/paiml/realizar)
 - **Cookbook**: [github.com/paiml/apr-cookbook](https://github.com/paiml/apr-cookbook)
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, or open an issue to discuss your idea first.
 
 ## License
 
