@@ -247,27 +247,31 @@ impl CudaExecutor {
         vocab_size: u32,
         epsilon: f32,
     ) -> Result<Option<Result<(), GpuError>>, GpuError> {
-        // PMAT-374: CUDA graph capture disabled by default — poisons context on driver
-        // 590.48.01 (sm_89). Opt-in with CUDA_GRAPH_ENABLE=1.
-        static GRAPH_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let graph_disabled = !*GRAPH_ENABLED.get_or_init(|| {
-            std::env::var("CUDA_GRAPH_ENABLE")
-                .map(|v| v == "1")
-                .unwrap_or(false)
+        // realizr#201: Graph replay enabled by default for sm_89+ (Ada/Hopper).
+        // Uses manual graph construction (trueno#243), bypasses stream capture bug.
+        // Verified correct: A/B test ALL 13 buffers diff=0 (realizr#198).
+        // +26% decode throughput (333 vs 264 tok/s on RTX 4090).
+        // Opt-out: SKIP_CUDA_GRAPH=1. Legacy opt-in: CUDA_GRAPH_ENABLE=1.
+        static GRAPH_ENV: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+        let env_override = *GRAPH_ENV.get_or_init(|| {
+            if std::env::var("CUDA_GRAPH_ENABLE").as_deref() == Ok("1") {
+                return Some(true);
+            }
+            if std::env::var("SKIP_CUDA_GRAPH").as_deref() == Ok("1") {
+                return Some(false);
+            }
+            None // Use CC-based default
         });
-        if graph_disabled {
+        let graph_enabled = env_override.unwrap_or(self.gpu_profile.cc >= 89);
+        if !graph_enabled {
             return Ok(Some(self.forward_all_layers_gpu_to_logits(
                 input, logits, position, num_layers, hidden_dim,
                 intermediate_dim, vocab_size, epsilon,
             )));
         }
 
-        let skip_graph = std::env::var("SKIP_CUDA_GRAPH")
-            .map(|v| v == "1")
-            .unwrap_or(false);
-
-        // PAR-054: Replay existing graph
-        if !skip_graph && self.decode_graph.is_some() && self.decode_token_count > 0 {
+        // PAR-054: Replay existing graph (SKIP_CUDA_GRAPH handled above)
+        if self.decode_graph.is_some() && self.decode_token_count > 0 {
             if self.decode_token_count <= 3 && verbose() {
                 eprintln!(
                     "[PAR-054] Graph replay #{} (pos={})",
