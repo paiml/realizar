@@ -621,6 +621,12 @@ impl CudaExecutor {
         self.kv_cache_lengths.get(&layer_idx).copied().unwrap_or(0)
     }
 
+    /// realizr#199 (PMAT-450): Set KV cache length for a specific layer.
+    /// Used to temporarily truncate cache for prompt-only snapshot.
+    pub fn set_kv_cache_len(&mut self, layer_idx: usize, len: usize) {
+        self.kv_cache_lengths.insert(layer_idx, len);
+    }
+
     /// Check if GPU KV cache is initialized (PAR-020)
     #[must_use]
     pub fn has_kv_cache_gpu(&self) -> bool {

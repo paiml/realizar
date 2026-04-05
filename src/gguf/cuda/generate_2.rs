@@ -552,21 +552,30 @@ impl OwnedQuantizedModelCuda {
         }
 
         // realizr#199 (PMAT-450): Insert into prefix cache after generation.
-        // Only cache if prefill was actually computed (not a cache hit).
+        // Only cache PROMPT KV if prefill was actually computed (not a cache hit).
         #[cfg(feature = "gpu")]
         if !prefix_was_hit {
             let num_layers = self.model.config.num_layers;
-            let _ = std::fs::write("/tmp/pmat450_status.txt", format!("ATTEMPTING_SNAPSHOT layers={}\n", num_layers));
+            // Temporarily truncate KV to prompt length for snapshot
+            let current_lens: Vec<(usize, usize)> = (0..num_layers)
+                .map(|l| (l, self.executor.kv_cache_len(l)))
+                .collect();
+            for &(l, _) in &current_lens {
+                self.executor.set_kv_cache_len(l, prompt.len());
+            }
             match self.executor.snapshot_kv_cache_to_host(num_layers) {
                 Ok(kv_snapshot) => {
                     let (k_vecs, v_vecs): (Vec<_>, Vec<_>) = kv_snapshot.into_iter().unzip();
                     self.prefix_cache.insert(prompt.to_vec(), k_vecs, v_vecs);
-                    eprintln!("[PMAT-450] PREFIX CACHE INSERT: {} prompt tokens cached ({} layers)", prompt.len(), num_layers);
-                    let _ = std::fs::write("/tmp/pmat450_status.txt", format!("INSERT {}\n", prompt.len()));
+                    eprintln!("[PMAT-450] PREFIX CACHE INSERT: {} prompt tokens ({} layers)", prompt.len(), num_layers);
                 }
                 Err(e) => {
-                    let _ = std::fs::write("/tmp/pmat450_status.txt", format!("SNAPSHOT_ERROR: {}\n", e));
+                    eprintln!("[PMAT-450] PREFIX CACHE SNAPSHOT ERROR: {}", e);
                 }
+            }
+            // Restore original KV lengths
+            for &(l, len) in &current_lens {
+                self.executor.set_kv_cache_len(l, len);
             }
         }
 

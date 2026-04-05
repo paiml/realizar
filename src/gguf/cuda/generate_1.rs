@@ -89,17 +89,40 @@ impl OwnedQuantizedModelCuda {
 
         let mut tokens = prompt.to_vec();
 
-        // PMAT-083: Prefill ALL tokens and extract first predicted token from LM head.
-        // This eliminates the separate first decode step (~7ms TTFT savings).
-        // Greedy sampling only (temperature==0 or top_k==1); fallback to old path for sampling.
-        let greedy = config.temperature == 0.0 || config.top_k == 1;
-        let prefill_count = if greedy { prompt.len() } else { prompt.len() - 1 };
-        let prefill_first_token = if prefill_count > 0 {
-            self.run_prefill(prompt, &mut cache, prefill_count, ttft_trace, greedy)?
+        // realizr#199 (PMAT-450): Check prefix cache before prefill.
+        #[cfg(feature = "gpu")]
+        let prefix_hit = self.prefix_cache.lookup(prompt);
+        #[cfg(not(feature = "gpu"))]
+        let prefix_hit: Option<(Vec<Vec<f32>>, Vec<Vec<f32>>)> = None;
+        #[cfg(feature = "gpu")]
+        let prefix_was_hit = prefix_hit.is_some();
+        #[cfg(not(feature = "gpu"))]
+        let prefix_was_hit = false;
+
+        let prefill_first_token;
+        if let Some((cached_k, cached_v)) = prefix_hit {
+            // PMAT-450: Prefix cache hit — skip prefill, restore GPU KV cache
+            eprintln!("[PMAT-450] PREFIX CACHE HIT: {} prompt tokens, skipping prefill", prompt.len());
+            let kv_pairs: Vec<(Vec<f32>, Vec<f32>)> = cached_k.into_iter().zip(cached_v).collect();
+            self.executor
+                .restore_kv_cache_from_host(&kv_pairs, prompt.len())
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "restore_kv_cache_from_host".to_string(),
+                    reason: format!("Prefix cache restore failed: {e}"),
+                })?;
+            prefill_first_token = None; // No prefill extraction — go straight to decode
+            ttft_mark!("prefix_cache_hit");
         } else {
-            None
-        };
-        ttft_mark!("prefill");
+            // PMAT-083: Prefill ALL tokens and extract first predicted token from LM head.
+            let greedy = config.temperature == 0.0 || config.top_k == 1;
+            let prefill_count = if greedy { prompt.len() } else { prompt.len() - 1 };
+            prefill_first_token = if prefill_count > 0 {
+                self.run_prefill(prompt, &mut cache, prefill_count, ttft_trace, greedy)?
+            } else {
+                None
+            };
+            ttft_mark!("prefill");
+        }
 
         // PMAT-109: Graph persistence — do NOT clear decode graph here.
         // init_prefill_workspace clears the graph only when it actually reallocates
@@ -168,6 +191,35 @@ impl OwnedQuantizedModelCuda {
 
             last_token = next_token;
             position += 1;
+        }
+
+        // realizr#199 (PMAT-450): Insert PROMPT KV into prefix cache.
+        // CRITICAL: snapshot prompt.len() positions, NOT the full KV (which includes
+        // generated tokens). On cache hit we restore prompt KV and decode from scratch.
+        #[cfg(feature = "gpu")]
+        if !prefix_was_hit {
+            let num_layers = self.model.config.num_layers;
+            // Temporarily truncate KV to prompt length for snapshot
+            let current_lens: Vec<(usize, usize)> = (0..num_layers)
+                .map(|l| (l, self.executor.kv_cache_len(l)))
+                .collect();
+            for &(l, _) in &current_lens {
+                self.executor.set_kv_cache_len(l, prompt.len());
+            }
+            match self.executor.snapshot_kv_cache_to_host(num_layers) {
+                Ok(kv_snapshot) => {
+                    let (k_vecs, v_vecs): (Vec<_>, Vec<_>) = kv_snapshot.into_iter().unzip();
+                    self.prefix_cache.insert(prompt.to_vec(), k_vecs, v_vecs);
+                    eprintln!("[PMAT-450] PREFIX CACHE INSERT: {} prompt tokens ({} layers)", prompt.len(), num_layers);
+                }
+                Err(e) => {
+                    eprintln!("[PMAT-450] PREFIX CACHE SNAPSHOT ERROR: {}", e);
+                }
+            }
+            // Restore original KV lengths
+            for &(l, len) in &current_lens {
+                self.executor.set_kv_cache_len(l, len);
+            }
         }
 
         Ok(tokens)
