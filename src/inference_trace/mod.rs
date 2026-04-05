@@ -445,3 +445,4 @@ pub struct InferenceTracer {
 include!("model_info.rs");
 include!("execution_failure.rs");
 include!("mod_get_top_compute.rs");
+include!("tracer_contracts.rs");

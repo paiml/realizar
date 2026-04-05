@@ -132,6 +132,39 @@ impl TraceEvent {
             l2_diff
         }
     }
+
+    /// Compute cosine similarity between two trace events.
+    ///
+    /// Contract: layer-parity-v1 — cosine_sim(GPU, CPU) >= 0.99
+    /// Requires both events to have full_data (verbose mode).
+    /// Returns None if full_data is unavailable on either event.
+    ///
+    /// Reference: provable-contracts/contracts/aprender/layer-parity-v1.yaml
+    pub fn cosine_similarity(&self, other: &Self) -> Option<f32> {
+        let a = self.full_data.as_ref()?;
+        let b = other.full_data.as_ref()?;
+        if a.len() != b.len() || a.is_empty() {
+            return None;
+        }
+
+        let mut dot = 0.0f64;
+        let mut norm_a = 0.0f64;
+        let mut norm_b = 0.0f64;
+        for (&ai, &bi) in a.iter().zip(b.iter()) {
+            let ai = f64::from(ai);
+            let bi = f64::from(bi);
+            dot += ai * bi;
+            norm_a += ai * ai;
+            norm_b += bi * bi;
+        }
+
+        let denom = norm_a.sqrt() * norm_b.sqrt();
+        if denom < 1e-30 {
+            return None;
+        }
+
+        Some((dot / denom) as f32)
+    }
 }
 
 impl fmt::Display for TraceEvent {
@@ -223,6 +256,46 @@ impl TraceComparison {
                 self.diffs.len()
             )
         }
+    }
+}
+
+use crate::brick::profiler::ContractSeverity;
+
+impl TraceComparison {
+    /// Validate layer-parity-v1 contract: cosine_sim(GPU, CPU) >= 0.99
+    ///
+    /// Requires verbose tracers (full_data present). Uses cosine similarity
+    /// per step and reports any step below 0.99 threshold.
+    ///
+    /// Contract: layer-parity-v1.yaml (provable-contracts)
+    /// Catches: Graph replay divergence, quantization error accumulation
+    /// Reference: realizr#202, candle-vs-apr P15-06
+    pub fn validate_parity_contracts(
+        cpu: &BrickTracer,
+        gpu: &BrickTracer,
+    ) -> Vec<(ContractSeverity, String)> {
+        let mut violations = Vec::new();
+        const COSINE_THRESHOLD: f32 = 0.99;
+
+        for cpu_event in cpu.events() {
+            if let Some(gpu_event) = gpu.get(&cpu_event.name) {
+                if let Some(sim) = cpu_event.cosine_similarity(gpu_event) {
+                    if sim < COSINE_THRESHOLD {
+                        violations.push((
+                            ContractSeverity::Error,
+                            format!(
+                                "layer-parity-v1 COSINE_PARITY: '{}' cosine_sim={:.4} < {:.2} threshold. \
+                                 CPU L2={:.6}, GPU L2={:.6}. Graph replay or quantization divergence.",
+                                cpu_event.name, sim, COSINE_THRESHOLD,
+                                cpu_event.l2_norm, gpu_event.l2_norm
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+
+        violations
     }
 }
 
