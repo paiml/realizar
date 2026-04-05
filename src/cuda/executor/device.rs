@@ -65,6 +65,17 @@ impl CudaExecutor {
             )?;
         }
 
+        // trueno#243: Record kernel for manual graph construction
+        if self.graph_recording {
+            let module = self.modules.get_mut(&cache_key).expect("module exists");
+            let func = module.get_function(kernel_name)?;
+            self.graph_recorded_kernels.push(RecordedKernel {
+                func: SendCUfunction(func),
+                config,
+                arg_data: vec![ptr_output, ptr_weights, ptr_input, k_val as u64, n_val as u64],
+            });
+        }
+
         Ok(())
     }
 
@@ -129,6 +140,17 @@ impl CudaExecutor {
                     std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
+        }
+
+        // trueno#243: Record kernel for manual graph construction
+        if self.graph_recording {
+            let module = self.modules.get_mut(&cache_key).expect("module exists");
+            let func = module.get_function(kernel_name)?;
+            self.graph_recorded_kernels.push(RecordedKernel {
+                func: SendCUfunction(func),
+                config,
+                arg_data: vec![ptr_output, ptr_weights, ptr_input, k_val as u64, n_val as u64],
+            });
         }
 
         Ok(())
