@@ -1,290 +1,187 @@
-<div align="center">
-
 <p align="center">
-<img src="assets/hero.svg" alt="realizar - Pure Rust ML Inference Engine" width="800"/>
+  <img src="assets/hero.svg" width="800" alt="realizar - Production LLM Inference Engine">
 </p>
 
 <h1 align="center">realizar</h1>
 
-[![CI](https://github.com/paiml/realizar/actions/workflows/ci.yml/badge.svg)](https://github.com/paiml/realizar/actions/workflows/ci.yml)
-[![Documentation](https://docs.rs/realizar/badge.svg)](https://docs.rs/realizar)
+<p align="center">
+  <strong>Production LLM Inference Engine for the Sovereign AI Stack</strong>
+</p>
 
-</div>
+<p align="center">
+  <a href="https://crates.io/crates/realizar">
+    <img src="https://img.shields.io/crates/v/realizar.svg" alt="crates.io">
+  </a>
+  <a href="https://docs.rs/realizar">
+    <img src="https://docs.rs/realizar/badge.svg" alt="docs.rs">
+  </a>
+  <a href="https://github.com/paiml/realizar/actions">
+    <img src="https://github.com/paiml/realizar/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License">
+  </a>
+  <a href="https://www.rust-lang.org">
+    <img src="https://img.shields.io/badge/rust-1.89%2B-orange.svg" alt="Rust 1.89+">
+  </a>
+</p>
 
-ML inference from scratch in Rust. GGUF/SafeTensors parsing, quantization (Q4_K, Q8_0), transformer inference. SIMD/GPU via [Trueno](https://github.com/paiml/trueno).
+<p align="center">
+  <a href="#what-is-realizar">What is realizar?</a> |
+  <a href="#installation">Installation</a> |
+  <a href="#usage">Usage</a> |
+  <a href="#features">Features</a> |
+  <a href="#quality">Quality</a> |
+  <a href="#sovereign-ai-stack">Stack</a> |
+  <a href="#documentation">Docs</a>
+</p>
+
+---
 
 ## Table of Contents
 
-- [Quick Start](#quick-start)
+- [What is realizar?](#what-is-realizar)
+- [Installation](#installation)
+- [Usage](#usage)
 - [Features](#features)
 - [Benchmarks](#benchmarks)
-- [Chat Templates](#chat-templates)
-- [Examples](#examples)
-- [Usage](#usage)
-- [Architecture](#architecture)
-- [Contributing](#contributing)
+- [Quality](#quality)
+- [Sovereign AI Stack](#sovereign-ai-stack)
+- [Documentation](#documentation)
 - [License](#license)
 
-## Quick Start
+## What is realizar?
+
+realizar is a pure Rust LLM inference engine. It loads models in APR v2,
+GGUF, and SafeTensors formats, runs transformer inference with quantized
+kernels (Q4\_K through Q8\_0), and serves predictions over an
+OpenAI-compatible REST API.
+
+Key design decisions:
+
+- **Row-major mandate** -- All tensors are row-major internally. GGUF
+  column-major data is transposed at import by aprender. This matches
+  PyTorch/SafeTensors layout and simplifies kernel implementations.
+- **Pure Rust CUDA** -- GPU acceleration via trueno-gpu generates PTX
+  directly from Rust. No nvcc, no LLVM, no C++ dependencies.
+- **Cost-based dispatch** -- Backend selection (GPU/SIMD/scalar) uses a
+  5x PCIe cost model to avoid GPU overhead on small workloads.
+
+## Installation
+
+### CLI
 
 ```bash
 cargo install realizar
+```
+
+### Library
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+realizar = "0.8"
+```
+
+## Usage
+
+### Serving
+
+```bash
+# Start demo server
 realizar serve --demo --port 8080
-curl -X POST http://localhost:8080/generate -d '{"prompt": "Hello", "max_tokens": 10}'
+
+# Health check
+curl http://localhost:8080/health
+
+# Prometheus metrics
+curl http://localhost:8080/metrics
 ```
 
-## Features
-
-| Category | Details |
-|----------|---------|
-| Formats | GGUF, SafeTensors, APR (native) |
-| Quantization | Q4_0, Q8_0, Q4_K, Q5_K, Q6_K |
-| Inference | Transformer, RoPE, KV cache, Flash Attention |
-| Chat Templates | ChatML, LLaMA2, Mistral, Phi, Alpaca (auto-detect) |
-| API | REST, streaming, Prometheus metrics, health endpoint with inference validation |
-| GPU | CUDA via [trueno-gpu](https://crates.io/crates/trueno-gpu) (pure Rust PTX) |
-| Profiling | BrickProfiler in autoregressive hot path, trace flags from CLI to runtime |
-| ARM | Jetson Orin GEMV 72% faster (18.6 tok/s) |
-| Quality | 15,065+ tests, 95% function coverage |
-
-## Benchmarks
-
-### APR Format (Classical ML - Pure Rust)
-
-| Model | Parameters | Latency | Throughput |
-|-------|------------|---------|------------|
-| Iris | 131 | **103ns** | 9.6M inferences/sec |
-| MNIST | 103K | **73µs** | 13.6K inferences/sec |
-| Large NN | 1M | **410µs** | 2.4K inferences/sec |
-
-### GGUF / APR Format (LLM Inference)
-
-| Model | Size | Format | Runtime | Backend | Throughput |
-|-------|------|--------|---------|---------|------------|
-| Qwen2.5-Coder Q4_K_M | 1.5B | APR | **realizar** | RTX 4090 (CUDA) | **240 tok/s** |
-| Qwen2.5-Coder Q4_K_M | 1.5B | APR | realizar | CPU (AVX2) | 18 tok/s |
-| Phi-2 Q4_K_M | 2.7B | GGUF | **realizar** | RTX 4090 (CUDA) | **276 tok/s** |
-| Phi-2 Q4_K_M | 2.7B | GGUF | llama.cpp | RTX 4090 (CUDA) | 256 tok/s |
-| Phi-2 Q4_K_M | 2.7B | GGUF | Ollama | RTX 4090 (CUDA) | 228 tok/s |
-| Phi-2 Q4_K_M | 2.7B | GGUF | realizar | CPU (AVX2) | ~15 tok/s |
-
-*realizar achieves 8-21% faster inference than llama.cpp/Ollama via pure Rust CUDA PTX generation (no LLVM/nvcc). GQA models (Qwen2.5) fully supported on GPU via GH-88.*
-
-### The Complete Benchmark Matrix
-
-**Same model (Phi-2 2.7B Q4_K) across ALL runtimes and formats:**
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     GGUF Format (Phi-2 2.7B Q4_K)                           │
-├──────────────┬─────────┬─────────────┬─────────────┬───────────────────────┤
-│ Runtime      │ Backend │ p50 Latency │ Throughput  │ Command               │
-├──────────────┼─────────┼─────────────┼─────────────┼───────────────────────┤
-│ realizar     │ CUDA    │ ~3.6ms      │ 276 tok/s   │ --features cuda       │
-│ llama.cpp    │ CUDA    │ 162ms       │ 256 tok/s   │ llama-server -ngl 99  │
-│ Ollama       │ CUDA    │ ~120ms      │ 228 tok/s   │ ollama serve          │
-│ realizar     │ CPU     │ ~500ms      │ ~15 tok/s   │ cargo bench gguf_real │
-│ llama.cpp    │ CPU     │ ~3000ms     │ ~15 tok/s   │ llama-server -ngl 0   │
-├──────────────┴─────────┴─────────────┴─────────────┴───────────────────────┤
-│                     APR Format (Qwen2.5-Coder 1.5B Q4_K)                    │
-├──────────────┬─────────┬─────────────┬─────────────┬───────────────────────┤
-│ realizar     │ CUDA    │ ~4ms TTFT   │ 240 tok/s   │ apr bench --fast      │
-│ realizar     │ CPU     │ ~56ms       │ 18 tok/s    │ bench_forward example │
-├──────────────┴─────────┴─────────────┴─────────────┴───────────────────────┤
-│                     APR Format (Classical ML)                               │
-├──────────────┬─────────┬─────────────┬─────────────┬───────────────────────┤
-│ realizar     │ CPU     │ 103ns-410µs │ 2.4K-9.6M/s │ cargo bench apr_real  │
-└──────────────┴─────────┴─────────────┴─────────────┴───────────────────────┘
-```
-
-> **Note**: realizar is a pure Rust implementation with CUDA support via [trueno-gpu](https://crates.io/crates/trueno-gpu).
-> With GPU acceleration, realizar achieves 8-21% faster inference than llama.cpp/Ollama
-> while maintaining a pure Rust codebase (no C/C++ dependencies, no LLVM, no nvcc).
-
-**Run the full matrix yourself:**
+### OpenAI-Compatible API
 
 ```bash
-# 1. Start external servers
-llama-server -m phi-2-q4_k_m.gguf --port 8082 -ngl 99  # GPU
-llama-server -m phi-2-q4_k_m.gguf --port 8083 -ngl 0   # CPU
-ollama serve && ollama pull phi2:2.7b
+# Chat completions
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "default",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "max_tokens": 50
+  }'
 
-# 2. Run full matrix benchmark
-./scripts/bench-matrix.sh --full
-
-# 3. Run internal APR vs GGUF comparison (same model)
-cargo bench --bench comparative
-
-# 4. Convert GGUF to APR and compare
-realizar convert model.gguf --output model.apr  # Coming soon
+# Streaming
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "default",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "stream": true
+  }'
 ```
 
-### Benchmark Matrix (ELI5)
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                  What This Matrix Measures                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Think of it like comparing cars:                                │
-│                                                                  │
-│  ┌──────────┬──────────────────────────────────────────────┐    │
-│  │ Runtime  │ Which "engine" runs your model?              │    │
-│  ├──────────┼──────────────────────────────────────────────┤    │
-│  │ realizar │ Our pure Rust engine (this project)         │    │
-│  │ llama.cpp│ Popular C++ engine (industry standard)      │    │
-│  │ Ollama   │ User-friendly wrapper around llama.cpp      │    │
-│  └──────────┴──────────────────────────────────────────────┘    │
-│                                                                  │
-│  ┌──────────┬──────────────────────────────────────────────┐    │
-│  │ Backend  │ Which "fuel" powers the engine?             │    │
-│  ├──────────┼──────────────────────────────────────────────┤    │
-│  │ CPU      │ Regular processor (slower, always works)    │    │
-│  │ CUDA     │ NVIDIA GPU (fastest, needs GPU)             │    │
-│  │ WGPU     │ Cross-platform GPU (good balance)           │    │
-│  └──────────┴──────────────────────────────────────────────┘    │
-│                                                                  │
-│  ┌──────────┬──────────────────────────────────────────────┐    │
-│  │ Format   │ Which "fuel type" for your model?           │    │
-│  ├──────────┼──────────────────────────────────────────────┤    │
-│  │ GGUF     │ Quantized LLMs (smaller, fast)              │    │
-│  │ APR      │ Our native format (fastest for small ML)    │    │
-│  │ SafeT    │ HuggingFace format (full precision)         │    │
-│  └──────────┴──────────────────────────────────────────────┘    │
-│                                                                  │
-│  Matrix Result = Runtime × Backend × Format                      │
-│                                                                  │
-│  Example: "llama.cpp + CUDA + GGUF" = 256 tok/s on RTX 4090     │
-│           "realizar + CPU + APR"   = 9.6M inf/s for tiny models │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Why This Matters:**
-- **Small Models (Iris, MNIST)**: Use APR format → nanosecond latency
-- **Large Models (LLMs)**: Use GGUF format → GPU acceleration essential
-- **Production**: Match your hardware to the right runtime/backend combo
-
-<!-- SERVER_BENCHMARK_START -->
-## Server Benchmark Results
-
-| Server | Model | Backend | Mean Latency (ms) | Throughput (tok/s) |
-|--------|-------|---------|------------------|-------------------|
-| **realizar** | Qwen 1.5B Q4_K | CUDA | **4** | **240** |
-| **realizar** | Phi-2 2.7B Q4_K | CUDA | **3.6** | **276** |
-| llama.cpp | Phi-2 2.7B Q4_K | CUDA | 162 | 256 |
-| Ollama | Phi-2 2.7B Q4_K | CUDA | 120 | 228 |
-
-_Methodology: CV-based stopping per Hoefler & Belli SC15. RTX 4090. Qwen measured via `apr bench --fast`._
-<!-- SERVER_BENCHMARK_END -->
-
-### Run Benchmarks
-
-#### Quick Start
-
-```bash
-# Internal benchmarks (no external servers required)
-cargo bench --bench apr_real      # APR format (classical ML)
-cargo bench --bench gguf_real     # GGUF format (transformers)
-cargo bench --bench comparative   # APR vs GGUF comparison
-```
-
-#### Benchmark Against llama.cpp and Ollama
-
-**Step 1: Start External Servers**
-
-```bash
-# Terminal 1: llama.cpp with GPU (full GPU offload)
-llama-server -m /path/to/phi-2-q4_k_m.gguf --host 127.0.0.1 --port 8082 -ngl 99
-
-# Terminal 2: llama.cpp with CPU only
-llama-server -m /path/to/phi-2-q4_k_m.gguf --host 127.0.0.1 --port 8083 -ngl 0
-
-# Terminal 3: Ollama (uses GPU by default)
-ollama serve   # Default port 11434
-ollama pull phi2:2.7b  # Pull model first
-```
-
-**Step 2: Run the Benchmark Matrix**
-
-```bash
-# Full benchmark matrix (CV-based stopping, statistically significant)
-./scripts/bench-matrix.sh --full
-
-# Quick benchmark (fewer iterations)
-./scripts/bench-matrix.sh --quick
-
-# Programmatic benchmark via Rust
-cargo bench --bench external_matrix --features bench-http
-```
-
-**Step 3: View Results**
-
-Results are saved to `benches/comparative/results/`:
-- `benchmark_matrix_TIMESTAMP.json` - Raw data
-- `benchmark_matrix_TIMESTAMP.md` - Markdown table
-
-#### Full Backend × Runtime Matrix
-
-| What to Benchmark | Command |
-|-------------------|---------|
-| realizar (CPU) | `cargo bench --bench apr_real` |
-| realizar (WGPU) | `cargo bench --bench gguf_real --features gpu` |
-| llama.cpp (CPU) | Start server with `-ngl 0`, run `./scripts/bench-matrix.sh` |
-| llama.cpp (CUDA) | Start server with `-ngl 99`, run `./scripts/bench-matrix.sh` |
-| Ollama (GPU) | Start `ollama serve`, run `./scripts/bench-matrix.sh` |
-
-#### Methodology
-
-All benchmarks follow [Hoefler & Belli SC'15](https://doi.org/10.1145/2807591.2807644):
-- **CV-based stopping**: Iterate until coefficient of variation < 10%
-- **Warmup**: 2-10 iterations discarded before measurement
-- **Metrics**: p50, p99 latency, throughput (tok/s), cold start
-
-#### Example Output
-
-```
-╔════════════════════════════════════════════════════════════════╗
-║          Realizar Benchmark Matrix v1.1                        ║
-╚════════════════════════════════════════════════════════════════╝
-
-=== llama.cpp (GPU) ===
-  [10/30] Latency: 114.2ms | TPS: 477.1
-  CV stable at 0.048 after 10 iterations
-
-=== Ollama (GPU) ===
-  [12/30] Latency: 123.4ms | TPS: 258.6
-  CV stable at 0.089 after 12 iterations
-
-| Runtime | Backend | p50 Latency | p99 Latency | Throughput |
-|---------|---------|-------------|-------------|------------|
-| llama-cpp | gpu | 114.2ms | 161.0ms | 477.1 tok/s |
-| ollama | gpu | 123.4ms | 145.2ms | 258.6 tok/s |
-```
-
-See [docs/benchmarking-other-servers.md](docs/benchmarking-other-servers.md) for full methodology.
-
-## Chat Templates
-
-Format LLM conversations for different model families with automatic template detection:
+### Library API
 
 ```rust
-use realizar::chat_template::{
-    auto_detect_template, ChatMessage, ChatTemplateEngine
-};
+use realizar::chat_template::{auto_detect_template, ChatMessage};
 
-// Auto-detect template from model name
 let template = auto_detect_template("Qwen2-0.5B-Instruct");
-
 let messages = vec![
     ChatMessage::system("You are a helpful assistant."),
     ChatMessage::user("Hello!"),
 ];
-
 let formatted = template.format_conversation(&messages)?;
 ```
 
-**Supported Formats:**
+### Tracing
+
+Use the `X-Trace-Level` header for inference debugging:
+
+```bash
+# Brick-level: token-by-token timing
+curl -H "X-Trace-Level: brick" -X POST http://localhost:8080/v1/chat/completions ...
+
+# Layer-level: per-layer timing breakdown
+curl -H "X-Trace-Level: layer" -X POST http://localhost:8080/v1/chat/completions ...
+```
+
+## Features
+
+### Model Formats
+
+| Format | Description |
+|--------|-------------|
+| APR v2 | Native format with LZ4/ZSTD compression, zero-copy loading, Int4/Int8 quantization |
+| GGUF | llama.cpp-compatible quantized models |
+| SafeTensors | HuggingFace full-precision format |
+
+### GPU Kernels
+
+| Kernel | Purpose |
+|--------|---------|
+| `GemmKernel` | Matrix multiplication (naive, tiled, tensor core) |
+| `AttentionKernel` | FlashAttention-style tiled attention |
+| `SoftmaxKernel` | Numerically stable with warp shuffle |
+| `LayerNormKernel` | Fused layer normalization |
+| `QuantizeKernel` | Q4\_K dequantization fused with matmul |
+| `Q5KKernel` | Q5\_K dequantization |
+| `Q6KKernel` | Q6\_K dequantization |
+
+### Quantization
+
+Q4\_0, Q8\_0, Q4\_K, Q5\_K, Q6\_K -- SIMD-accelerated on AVX2, AVX-512,
+and NEON. GPU dequantization fused with matrix operations to avoid
+memory round-trips.
+
+### KV Cache
+
+Autoregressive decoding with persistent key-value cache. Supports
+grouped-query attention (GQA) for models like Qwen2.5 and Llama 3.
+
+### Chat Templates
+
+Automatic template detection from model metadata:
 
 | Format | Models | System Prompt |
 |--------|--------|---------------|
@@ -296,123 +193,69 @@ let formatted = template.format_conversation(&messages)?;
 | Raw | Fallback | Passthrough |
 | Custom | Any (Jinja2) | Configurable |
 
-See [`examples/chat_template.rs`](examples/chat_template.rs) for complete usage.
+### Feature Flags
 
-## Examples
+| Flag | Description |
+|------|-------------|
+| `default` | server + cli + gpu |
+| `cuda` | NVIDIA CUDA support (pure Rust PTX, no nvcc) |
+| `minimal` | Core inference only |
+| `bench-http` | External server benchmarking |
 
-```bash
-# All examples
-cargo run --example inference          # Basic inference demo
-cargo run --example api_server         # HTTP server demo
-cargo run --example chat_template      # Chat template formatting
-cargo run --example gguf_loading       # Load GGUF models
-cargo run --example apr_loading        # Load APR models
-cargo run --example tokenization       # Tokenizer demo
-cargo run --example safetensors_loading # SafeTensors demo
-cargo run --example observability_demo  # Metrics demo
-cargo run --example model_cache        # Caching demo
-```
+## Benchmarks
 
-## Usage
+### LLM Inference (GPU)
 
-```bash
-realizar serve --demo --port 8080     # Demo server
-curl http://localhost:8080/health     # Health check
-curl http://localhost:8080/metrics    # Prometheus
-```
+| Model | Size | Format | Backend | Throughput |
+|-------|------|--------|---------|------------|
+| Qwen2.5-Coder Q4\_K\_M | 1.5B | APR | RTX 4090 (CUDA) | 240 tok/s |
+| Phi-2 Q4\_K\_M | 2.7B | GGUF | RTX 4090 (CUDA) | 276 tok/s |
+| Phi-2 Q4\_K\_M | 2.7B | GGUF | llama.cpp CUDA | 256 tok/s |
+| Phi-2 Q4\_K\_M | 2.7B | GGUF | Ollama CUDA | 228 tok/s |
 
-### OpenAI-Compatible API
+realizar achieves 8--21% faster inference than llama.cpp/Ollama via pure
+Rust CUDA PTX generation.
 
-```bash
-# Chat completions
-curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model":"default","messages":[{"role":"user","content":"Hello!"}],"max_tokens":50}'
+### Classical ML (APR Format)
 
-# Streaming
-curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model":"default","messages":[{"role":"user","content":"Hello!"}],"stream":true}'
-```
+| Model | Parameters | Latency | Throughput |
+|-------|------------|---------|------------|
+| Iris | 131 | 103ns | 9.6M inferences/sec |
+| MNIST | 103K | 73us | 13.6K inferences/sec |
+| Large NN | 1M | 410us | 2.4K inferences/sec |
 
-### Debugging with Tracing
+Methodology follows Hoefler & Belli SC'15 (CV-based stopping, warmup
+iterations discarded).
 
-Trace flags thread from CLI args through Config to Runtime, enabling consistent observability at every layer.
+## Quality
 
-Use the `X-Trace-Level` header for inference debugging:
+- **15,000+ tests** across unit, integration, and property-based suites
+- **95%+ line coverage** via cargo-llvm-cov
+- **Zero clippy warnings** with `-D warnings`
+- **Mutation testing** via cargo-mutants
+- **Provable contracts** -- 1,725 bindings with AllImplemented policy
 
-```bash
-# Brick-level: token-by-token timing
-curl -H "X-Trace-Level: brick" -X POST http://localhost:8080/v1/chat/completions ...
+## Sovereign AI Stack
 
-# Step-level: forward pass steps (embed, attention, mlp, lm_head)
-curl -H "X-Trace-Level: step" -X POST http://localhost:8080/v1/chat/completions ...
+realizar is the inference layer of the PAIML Sovereign AI Stack:
 
-# Layer-level: per-layer timing breakdown
-curl -H "X-Trace-Level: layer" -X POST http://localhost:8080/v1/chat/completions ...
-```
+| Layer | Crate | Purpose |
+|-------|-------|---------|
+| Compute | [trueno](https://crates.io/crates/trueno) | SIMD/GPU primitives (AVX2/AVX-512/NEON, wgpu) |
+| ML | [aprender](https://crates.io/crates/aprender) | ML algorithms, APR v2 format |
+| Training | [entrenar](https://crates.io/crates/entrenar) | Autograd, LoRA/QLoRA, quantization |
+| Inference | **realizar** | LLM inference, GPU kernels, model serving |
+| Speech | [whisper-apr](https://crates.io/crates/whisper-apr) | Pure Rust Whisper ASR |
+| Distribution | [repartir](https://crates.io/crates/repartir) | Distributed compute (CPU/GPU/Remote) |
+| Registry | [pacha](https://crates.io/crates/pacha) | Model registry with Ed25519 signatures |
+| Orchestration | [batuta](https://crates.io/crates/batuta) | Stack coordination and CLI |
 
-Response includes trace data:
-```json
-{
-  "choices": [...],
-  "brick_trace": {
-    "level": "brick",
-    "operations": 5,
-    "total_time_us": 12345,
-    "breakdown": [{"name": "token_0", "time_us": 2469}, ...]
-  }
-}
-```
+## Documentation
 
-## Installation
-
-```bash
-cargo install realizar                # From crates.io
-cargo install --path .                # From source
-```
-
-## Feature Flags
-
-- `default` = server + cli + gpu
-- `cuda` = NVIDIA CUDA support (pure Rust PTX, no nvcc)
-- `minimal` = Core inference only
-- `bench-http` = External server benchmarking
-
-## Architecture
-
-```
-realizar/
-├── src/
-│   ├── gguf.rs         # GGUF parser + transformer inference
-│   ├── safetensors.rs  # SafeTensors parser
-│   ├── apr.rs          # APR format (native)
-│   ├── quantize.rs     # Q4_K, Q8_0 dequantization
-│   ├── layers.rs       # Transformer layers
-│   ├── tokenizer.rs    # BPE, SentencePiece
-│   ├── chat_template.rs # Chat templates (ChatML, LLaMA2, Mistral, etc.)
-│   ├── api.rs          # REST endpoints
-│   └── bench_preflight.rs # Deterministic benchmarking
-└── benches/
-    ├── apr_real.rs     # APR benchmarks
-    ├── gguf_real.rs    # GGUF benchmarks
-    ├── comparative.rs  # Format comparison
-    └── external_matrix.rs # External server benchmarks
-```
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and code quality requirements.
-
-
-## MSRV
-
-Minimum Supported Rust Version: **1.89**
-
-## See Also
-
-- [Cookbook](https://github.com/paiml/apr-cookbook)
+- **API docs**: [docs.rs/realizar](https://docs.rs/realizar)
+- **Repository**: [github.com/paiml/realizar](https://github.com/paiml/realizar)
+- **Cookbook**: [github.com/paiml/apr-cookbook](https://github.com/paiml/apr-cookbook)
 
 ## License
 
-MIT - [Pragmatic AI Labs](https://paiml.com)
+MIT -- [Pragmatic AI Labs](https://paiml.com)
