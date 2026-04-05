@@ -52,7 +52,10 @@ impl CudaExecutor {
 
         // trueno#243: Skip stream capture (code 901 poisons context on driver 570.207).
         // Use manual graph construction via cuGraphAddKernelNode instead.
-        eprintln!("[trueno#243] Manual graph construction (skipping stream capture)...");
+        eprintln!(
+            "[trueno#243] Manual graph construction: pos={}, has_graph={}, capture_failed={}, token_count={}",
+            position, self.decode_graph.is_some(), self.graph_capture_failed, self.decode_token_count
+        );
         self.begin_graph_recording();
         self.is_capturing = true;
         let eager_result = self.forward_workspace_captured(
