@@ -85,6 +85,91 @@ impl CudaExecutor {
                 if let Some(ref logits_buf) = self.workspace.logits_buf {
                     logits_buf.copy_to_host(logits)?;
                 }
+
+                // realizr#198 A/B TEST: Replay graph at SAME position.
+                // If graph == eager, logits should be identical.
+                // The eager pass already wrote the correct KV + logits.
+                // Graph replay re-runs all kernels with the same input/position.
+                static AB_TEST: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+                if position > 0 && *AB_TEST.get_or_init(|| std::env::var("GRAPH_AB_TEST").as_deref() == Ok("1")) {
+                    // Save eager intermediate buffers BEFORE graph replay overwrites them
+                    let eager_hb1 = if let Some(ref hb) = self.workspace.hidden_buf1 {
+                        let mut v = vec![0.0f32; hidden_dim as usize];
+                        hb.copy_to_host(&mut v)?;
+                        Some(v)
+                    } else { None };
+                    let eager_hb2 = if let Some(ref hb) = self.workspace.hidden_buf2 {
+                        let mut v = vec![0.0f32; hidden_dim as usize];
+                        hb.copy_to_host(&mut v)?;
+                        Some(v)
+                    } else { None };
+                    let eager_normed = if let Some(ref nb) = self.workspace.normed_hidden_buf {
+                        let mut v = vec![0.0f32; hidden_dim as usize];
+                        nb.copy_to_host(&mut v)?;
+                        Some(v)
+                    } else { None };
+
+                    // Replay with same buffers (input/position already set)
+                    if let Some(ref graph_exec) = self.decode_graph {
+                        self.stream.launch_graph(graph_exec)?;
+                        self.stream.synchronize()?;
+                    }
+
+                    // Compare hidden_buf1 (RMSNorm layer 0 output → overwritten by layer 0 output proj)
+                    if let (Some(eager_h), Some(ref hb)) = (&eager_hb1, &self.workspace.hidden_buf1) {
+                        let mut graph_h = vec![0.0f32; hidden_dim as usize];
+                        hb.copy_to_host(&mut graph_h)?;
+                        let h_diff: f32 = eager_h.iter().zip(graph_h.iter())
+                            .map(|(e, g)| (e - g).abs()).fold(0.0f32, f32::max);
+                        eprintln!(
+                            "[realizr#198-AB] hidden_buf1 max_diff={:.8}, eager[0..3]={:?}, graph[0..3]={:?}",
+                            h_diff, &eager_h[..3], &graph_h[..3]
+                        );
+                    }
+                    // Compare hidden_buf2 (output after ALL 28 layers)
+                    if let (Some(eager_h2), Some(ref hb2)) = (&eager_hb2, &self.workspace.hidden_buf2) {
+                        let mut graph_h2 = vec![0.0f32; hidden_dim as usize];
+                        hb2.copy_to_host(&mut graph_h2)?;
+                        let h2_diff: f32 = eager_h2.iter().zip(graph_h2.iter())
+                            .map(|(e, g)| (e - g).abs()).fold(0.0f32, f32::max);
+                        eprintln!(
+                            "[realizr#198-AB] hidden_buf2 max_diff={:.6}, eager[0..3]={:?}, graph[0..3]={:?}",
+                            h2_diff, &eager_h2[..3], &graph_h2[..3]
+                        );
+                    }
+                    // Compare normed_hidden_buf (output RMSNorm applied to final hidden)
+                    if let (Some(eager_n), Some(ref nb)) = (&eager_normed, &self.workspace.normed_hidden_buf) {
+                        let mut graph_n = vec![0.0f32; hidden_dim as usize];
+                        nb.copy_to_host(&mut graph_n)?;
+                        let n_diff: f32 = eager_n.iter().zip(graph_n.iter())
+                            .map(|(e, g)| (e - g).abs()).fold(0.0f32, f32::max);
+                        eprintln!(
+                            "[realizr#198-AB] normed_hidden max_diff={:.6}, eager[0..3]={:?}, graph[0..3]={:?}",
+                            n_diff, &eager_n[..3], &graph_n[..3]
+                        );
+                    }
+
+                    // Compare logits
+                    if let Some(ref lb) = self.workspace.logits_buf {
+                        let mut graph_logits = vec![0.0f32; vocab_size as usize];
+                        lb.copy_to_host(&mut graph_logits)?;
+                        let max_diff: f32 = logits.iter().zip(graph_logits.iter())
+                            .map(|(e, g)| (e - g).abs()).fold(0.0f32, f32::max);
+                        let eager_argmax = logits.iter().enumerate()
+                            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).map(|(i,_)| i).unwrap_or(0);
+                        let graph_argmax = graph_logits.iter().enumerate()
+                            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).map(|(i,_)| i).unwrap_or(0);
+                        eprintln!(
+                            "[realizr#198-AB] logits: eager_argmax={}, graph_argmax={}, max_diff={:.6}, match={}",
+                            eager_argmax, graph_argmax, max_diff, eager_argmax == graph_argmax
+                        );
+                        eprintln!(
+                            "[realizr#198-AB] eager[0..5]={:?}, graph[0..5]={:?}",
+                            &logits[..5], &graph_logits[..5]
+                        );
+                    }
+                }
+
                 Ok(())
             },
             Ok(_) => {
