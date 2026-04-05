@@ -289,6 +289,17 @@ impl CudaExecutor {
             )?;
         }
 
+        // trueno#243: Record kernel for manual graph construction
+        if self.graph_recording {
+            let module = self.modules.get_mut(&cache_key).expect("module exists");
+            let func = module.get_function(kernel_name)?;
+            self.graph_recorded_kernels.push(RecordedKernel {
+                func: SendCUfunction(func),
+                config,
+                arg_data: vec![ptr_input1, ptr_input2, ptr_output, n_val as u64],
+            });
+        }
+
         Ok(())
     }
 

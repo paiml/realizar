@@ -128,6 +128,17 @@ impl CudaExecutor {
             }
         }
 
+        // trueno#243: Record chunk kernel for manual graph construction
+        if self.graph_recording {
+            let module = self.modules.get_mut(&chunk_module_key).expect("module exists");
+            let func = module.get_function(chunk_kernel_name)?;
+            self.graph_recorded_kernels.push(RecordedKernel {
+                func: SendCUfunction(func),
+                config: chunk_config,
+                arg_data: vec![q_ptr, k_ptrs_ptr, v_ptrs_ptr, partials_ptr, seq_lens_ptr, max_chunks_val as u64],
+            });
+        }
+
         // PAR-118-FIX: No synchronize needed between chunk and reduce kernels.
         // CUDA stream semantics guarantee all blocks from kernel A complete before
         // kernel B starts on the same stream. The previous sync was a CPU-GPU
@@ -180,6 +191,17 @@ impl CudaExecutor {
                     ],
                 )?;
             }
+        }
+
+        // trueno#243: Record reduce kernel for manual graph construction
+        if self.graph_recording {
+            let module = self.modules.get_mut(&reduce_module_key).expect("module exists");
+            let func = module.get_function(reduce_kernel_name)?;
+            self.graph_recorded_kernels.push(RecordedKernel {
+                func: SendCUfunction(func),
+                config: reduce_config,
+                arg_data: vec![partials_ptr2, out_ptr, seq_lens_ptr, max_chunks_val2 as u64],
+            });
         }
 
         Ok(())

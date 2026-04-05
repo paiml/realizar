@@ -85,6 +85,7 @@ impl CudaExecutor {
         }
 
         // Scatter K
+        let k_record_args;
         {
             let k_buf = self.kv_cache_gpu.get_mut(k_key).ok_or_else(|| {
                 GpuError::InvalidLaunchConfig(format!(
@@ -97,6 +98,9 @@ impl CudaExecutor {
             let mut head_dim_val = head_dim as u32;
             let mut max_len_val = max_len as u32;
             let mut pos_ptr = pos_buf_ptr;
+
+            // trueno#243: Capture args for recording before module borrow
+            k_record_args = vec![k_src_ptr, k_dst_ptr, pos_ptr, head_dim_val as u64, max_len_val as u64];
 
             let scatter_module = self.modules.get_mut(&scatter_key).expect("just inserted");
 
@@ -119,7 +123,19 @@ impl CudaExecutor {
             }
         }
 
+        // trueno#243: Record K scatter for manual graph construction
+        if self.graph_recording {
+            let module = self.modules.get_mut(&scatter_key).expect("module exists");
+            let func = module.get_function(scatter_name)?;
+            self.graph_recorded_kernels.push(RecordedKernel {
+                func: SendCUfunction(func),
+                config: config.clone(),
+                arg_data: k_record_args,
+            });
+        }
+
         // Scatter V
+        let v_record_args;
         {
             let scatter_module = self.modules.get_mut(&scatter_key).expect("module exists");
             let v_buf = self.kv_cache_gpu.get_mut(v_key).ok_or_else(|| {
@@ -133,6 +149,9 @@ impl CudaExecutor {
             let mut pos_ptr = pos_buf_ptr;
             let mut head_dim_val = head_dim as u32;
             let mut max_len_val = max_len as u32;
+
+            // trueno#243: Capture args for recording
+            v_record_args = vec![v_src_ptr, v_dst_ptr, pos_ptr, head_dim_val as u64, max_len_val as u64];
 
             // CORRECTNESS-001 FIX: Same fix for V scatter
             // CORRECTNESS-011: Use self.stream for graph capture
@@ -151,6 +170,17 @@ impl CudaExecutor {
                     ],
                 )?;
             }
+        }
+
+        // trueno#243: Record V scatter for manual graph construction
+        if self.graph_recording {
+            let module = self.modules.get_mut(&scatter_key).expect("module exists");
+            let func = module.get_function(scatter_name)?;
+            self.graph_recorded_kernels.push(RecordedKernel {
+                func: SendCUfunction(func),
+                config: config.clone(),
+                arg_data: v_record_args,
+            });
         }
 
         Ok(())
@@ -389,10 +419,12 @@ impl CudaExecutor {
         let mut ptr_out = out_gpu.as_ptr();
 
         // PAR-069: Use graph mode (indirect kernel) ONLY when seq_len_buf is initialized
+        let seq_len_arg: u64;
         if let Some(ref seq_len_buf) = self.seq_len_buf {
             // Graph capture mode - pass seq_len_buf pointer
             // CORRECTNESS-011: Use self.stream for graph capture (graph captures on stream, not compute_stream)
             let mut seq_len_ptr = seq_len_buf.as_ptr();
+            seq_len_arg = seq_len_ptr;
             // SAFETY: Memory safety ensured by bounds checking and alignment
             unsafe {
                 self.stream.launch_kernel(
@@ -415,6 +447,7 @@ impl CudaExecutor {
             // Five-Whys: GPU garbage output -> race condition -> attention on compute_stream,
             // output projection on stream -> no sync -> data corruption
             let mut seq_len_val = new_len as u32;
+            seq_len_arg = seq_len_val as u64;
             // SAFETY: Memory safety ensured by bounds checking and alignment
             unsafe {
                 self.stream.launch_kernel(
@@ -430,6 +463,17 @@ impl CudaExecutor {
                     ],
                 )?;
             }
+        }
+
+        // trueno#243: Record kernel for manual graph construction
+        if self.graph_recording {
+            let module = self.modules.get_mut(&module_key).expect("module exists");
+            let func = module.get_function(kernel_name)?;
+            self.graph_recorded_kernels.push(RecordedKernel {
+                func: SendCUfunction(func),
+                config,
+                arg_data: vec![ptr_q, ptr_k, ptr_v, ptr_out, seq_len_arg],
+            });
         }
 
         Ok(())
