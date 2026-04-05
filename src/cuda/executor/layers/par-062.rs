@@ -12,6 +12,8 @@ impl CudaExecutor {
         epsilon: f32,
     ) -> Result<(), GpuError> {
         // Begin graph capture
+        // realizr#197: Both Global and ThreadLocal fail with code 901 on
+        // driver 570.207 (Ada Lovelace sm_89). Graph capture is DRIVER BLOCKED.
         self.stream.begin_capture(CaptureMode::Global)?;
 
         // Run workspace forward pass (all kernels will be captured)
