@@ -154,6 +154,18 @@ impl CudaExecutor {
             )?;
         }
 
+        // trueno#243: Record kernel for manual graph construction
+        // BUG FIX (realizr#198): MWV DP4A variant was missing recording.
+        if self.graph_recording {
+            let module = self.modules.get_mut(&cache_key).expect("module exists");
+            let func = module.get_function(kernel_name)?;
+            self.graph_recorded_kernels.push(RecordedKernel {
+                func: SendCUfunction(func),
+                config,
+                arg_data: vec![ptr_output, ptr_weights, ptr_q8, k_val as u64, n_val as u64],
+            });
+        }
+
         // Don't drop — q8_buf is a view into workspace.q8_activation_buf
         std::mem::forget(q8_buf);
 
@@ -484,6 +496,20 @@ impl CudaExecutor {
                     std::ptr::from_mut(&mut n_val) as *mut std::ffi::c_void,
                 ],
             )?;
+        }
+
+        // trueno#243: Record kernel for manual graph construction
+        // BUG FIX (realizr#198): This recording was MISSING — 28 fused gate+up+SwiGLU
+        // kernels per forward pass were never captured. Graph replay used stale
+        // ffn_act_buf from the eager pass, causing hidden_buf2 divergence (81.0).
+        if self.graph_recording {
+            let module = self.modules.get_mut(&cache_key).expect("module exists");
+            let func = module.get_function(kernel_name)?;
+            self.graph_recorded_kernels.push(RecordedKernel {
+                func: SendCUfunction(func),
+                config,
+                arg_data: vec![ptr_output, ptr_gate_weights, ptr_up_weights, ptr_q8, k_val as u64, n_val as u64],
+            });
         }
 
         std::mem::forget(q8_buf);

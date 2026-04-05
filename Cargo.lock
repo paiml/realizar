@@ -5386,6 +5386,7 @@ dependencies = [
  "serde_yaml_ng",
  "thiserror 2.0.18",
  "toml",
+ "trueno-gemm-codegen",
  "trueno-quant 0.1.0",
  "wgpu",
 ]
@@ -5427,6 +5428,15 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "trueno-gemm-codegen"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]

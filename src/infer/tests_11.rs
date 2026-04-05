@@ -175,7 +175,7 @@ fn test_validate_model_path_mixed_case_extension() {
 #[test]
 fn test_validate_model_path_json_extension_allowed() {
     // JSON is in the valid extensions list (for sharded SafeTensors index.json)
-    let tmp = std::env::temp_dir().join("test_validate.json");
+    let tmp = std::env::temp_dir().join(format!("test_validate_{}.json", std::process::id()));
     std::fs::write(&tmp, "{}").expect("write test file");
 
     let result = validate_model_path(&tmp);
