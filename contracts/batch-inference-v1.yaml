@@ -26,6 +26,8 @@ equations:
     invariants:
       - "Each request receives its own response via oneshot channel"
       - "Batch errors do not cascade: failure of request i does not affect request j"
+      - "Both stream=true AND stream=false route through batch scheduler when available (realizr#211)"
+      - "c=4 aggregate throughput >= 1.5x c=1 throughput (no write-lock serialization)"
   gpu_batch_threshold:
     formula: "use_gpu_batch = (batch_size >= gpu_threshold)"
     domain: "gpu_threshold > 0 (default 32)"
@@ -83,6 +85,11 @@ falsification_tests:
     prediction: "process_batch with empty vec returns immediately"
     test: test_batch_handler_rejects_empty_batch
     if_fails: "Empty batch triggers GPU allocation or panics"
+  - id: FALSIFY-BATCH-006
+    rule: "Non-streaming uses batch scheduler (realizr#211)"
+    prediction: "stream=false at c=4 achieves >= 1.5x c=1 aggregate throughput"
+    test: "probador llm load --concurrency 4 --stream false vs --concurrency 1"
+    if_fails: "Non-streaming path still bypasses batch scheduler via write-lock"
 
 kani_harnesses:
   - id: batch-kani-001

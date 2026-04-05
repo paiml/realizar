@@ -76,7 +76,7 @@ fn try_safetensors_cuda_backend(
 
 /// CUDA-optimized backend (true streaming support).
 #[cfg(feature = "cuda")]
-fn try_cuda_backend(
+async fn try_cuda_backend(
     state: &AppState,
     request: &ChatCompletionRequest,
     request_id: &str,
@@ -163,19 +163,46 @@ fn try_cuda_backend(
         ));
     }
 
-    // Non-streaming CUDA
-    let mut cuda_model = cuda_model_lock.write().expect("operation failed");
-    let generated = match cuda_model.generate_gpu_resident(&prompt_ids, &q_config) {
-        Ok(g) => g,
-        Err(e) => return Some(fail_response(state, StatusCode::INTERNAL_SERVER_ERROR, e)),
+    // Non-streaming CUDA — route through batch scheduler when available (realizr#211)
+    let (token_ids, completion_tokens, response_text) = if let Some(batch_tx) = state.cuda_batch_tx() {
+        // Use batch scheduler: submit request and collect all tokens
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<u32, String>>(16);
+        let batch_req = super::cuda_batch_scheduler::CudaBatchRequest {
+            prompt_ids,
+            config: q_config,
+            token_tx: tx,
+            enqueue_time: std::time::Instant::now(),
+        };
+        if let Err(e) = batch_tx.try_send(batch_req) {
+            return Some(fail_response(
+                state,
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("Batch queue full: {e}"),
+            ));
+        }
+        // Collect all tokens via async receive (realizr#211)
+        let mut tokens = Vec::new();
+        while let Some(result) = rx.recv().await {
+            match result {
+                Ok(token_id) => tokens.push(token_id),
+                Err(e) => return Some(fail_response(state, StatusCode::INTERNAL_SERVER_ERROR, e)),
+            }
+        }
+        let n = tokens.len();
+        let text = tokenizer.decode(&tokens).unwrap_or_else(|_| String::new());
+        (tokens, n, clean_chat_output(&text))
+    } else {
+        // Fallback: direct RwLock path (serialized, no batch scheduler)
+        let mut cuda_model = cuda_model_lock.write().expect("operation failed");
+        let generated = match cuda_model.generate_gpu_resident(&prompt_ids, &q_config) {
+            Ok(g) => g,
+            Err(e) => return Some(fail_response(state, StatusCode::INTERNAL_SERVER_ERROR, e)),
+        };
+        let tokens: Vec<u32> = generated.iter().skip(prompt_tokens).copied().collect();
+        let n = tokens.len();
+        let text = tokenizer.decode(&tokens).unwrap_or_else(|_| String::new());
+        (tokens, n, clean_chat_output(&text))
     };
-
-    let token_ids: Vec<u32> = generated.iter().skip(prompt_tokens).copied().collect();
-    let completion_tokens = token_ids.len();
-    let response_text = tokenizer
-        .decode(&token_ids)
-        .unwrap_or_else(|_| String::new());
-    let response_text = clean_chat_output(&response_text);
 
     let latency = start.elapsed();
     state.metrics.record_success(completion_tokens, latency);
@@ -563,7 +590,7 @@ pub async fn openai_chat_completions_handler(
     }
 
     #[cfg(feature = "cuda")]
-    if let Some(r) = try_cuda_backend(&state, &request, &request_id, trace_level.as_deref(), start)
+    if let Some(r) = try_cuda_backend(&state, &request, &request_id, trace_level.as_deref(), start).await
     {
         return r;
     }
