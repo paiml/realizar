@@ -75,10 +75,16 @@ impl CudaExecutor {
         self.decode_graph = Some(graph_exec);
         self.decode_token_count = 1;
 
-        eprintln!(
-            "[trueno#243] ✓ Manual graph built: {} kernel nodes (bypasses stream capture)",
-            num_kernels
-        );
+        // realizr#198 DEBUG: Log recorded arg pointers for first kernel (RMSNorm input)
+        if let Some(first) = self.graph_recorded_kernels.first() {
+            eprintln!(
+                "[trueno#243] ✓ Manual graph built: {} kernel nodes. First kernel args: {:?}",
+                num_kernels,
+                first.arg_data.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>()
+            );
+        } else {
+            eprintln!("[trueno#243] ✓ Manual graph built: {} kernel nodes", num_kernels);
+        }
 
         Ok(num_kernels)
     }

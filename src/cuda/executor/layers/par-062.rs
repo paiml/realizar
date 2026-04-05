@@ -61,24 +61,28 @@ impl CudaExecutor {
                 .unwrap_or(false)
         });
 
-        // Update position buffer (async memcpy, doesn't invalidate graph)
-        // CORRECTNESS-013: In stateless mode, always use position=0
+        // realizr#198 FIX: Use async copies on SAME stream as graph launch.
+        // copy_from_host() uses stream 0 (default), but launch_graph() uses self.stream.
+        // Different streams have NO ordering guarantee → stale data race.
+        // copy_from_host_async(&self.stream) ensures H2D completes before graph launch.
         if let Some(ref mut pos_buf) = self.position_buf {
             let pos_to_write = if use_stateless { 0 } else { position };
-            pos_buf.copy_from_host(&[pos_to_write])?;
+            // SAFETY: pos_to_write is stack-local, valid until stream sync
+            unsafe { pos_buf.copy_from_host_async(&[pos_to_write], &self.stream)?; }
         }
 
         // PAR-061-FIX: Update seq_len buffer (seq_len = position + 1)
-        // The attention kernel reads seq_len from device memory in indirect mode
         // CORRECTNESS-013: In stateless mode, always use seq_len=1
         if let Some(ref mut seq_len_buf) = self.seq_len_buf {
             let seq_len = if use_stateless { 1 } else { position + 1 };
-            seq_len_buf.copy_from_host(&[seq_len])?;
+            // SAFETY: seq_len is stack-local, valid until stream sync
+            unsafe { seq_len_buf.copy_from_host_async(&[seq_len], &self.stream)?; }
         }
 
         // Update input buffer
         if let Some(ref mut input_buf) = self.graph_input_buf {
-            input_buf.copy_from_host(input)?;
+            // SAFETY: input slice from caller, valid until stream sync
+            unsafe { input_buf.copy_from_host_async(input, &self.stream)?; }
         }
 
         // Launch captured graph
@@ -410,6 +414,17 @@ impl CudaExecutor {
             None
         };
 
+        // realizr#198 DIAGNOSTIC: Verify pointers match graph expectations
+        if self.decode_token_count <= 5 {
+            let input_dev = self.graph_input_buf.as_ref().map(|b| b.as_ptr()).unwrap_or(0);
+            let pos_dev = self.position_buf.as_ref().map(|b| b.as_ptr()).unwrap_or(0);
+            eprintln!(
+                "[realizr#198] REPLAY: pos={}, cnt={}, input_sum={:.6}, input_dev={:#x}, pos_dev={:#x}",
+                position, self.decode_token_count,
+                input.iter().sum::<f32>(), input_dev, pos_dev
+            );
+        }
+
         // PAR-072: Use ASYNC H2D copies to eliminate blocking overhead
         // Root cause: cuMemcpyHtoD has ~10-30µs overhead per call
         // Fix: Use cuMemcpyHtoDAsync on the same stream as graph launch
@@ -441,6 +456,17 @@ impl CudaExecutor {
         }
         let t_h2d = t_start.map(|_| std::time::Instant::now());
 
+        // realizr#198 DEBUG: Force sync before graph launch
+        self.stream.synchronize()?;
+        if self.decode_token_count <= 5 {
+            let input_ptr = self.graph_input_buf.as_ref().map(|b| b.as_ptr()).unwrap_or(0);
+            let pos_ptr = self.position_buf.as_ref().map(|b| b.as_ptr()).unwrap_or(0);
+            eprintln!(
+                "[realizr#198] PRE-LAUNCH: input_buf_dev_ptr={:#x}, pos_buf_dev_ptr={:#x}, graph_exists={}",
+                input_ptr, pos_ptr, self.decode_graph.is_some()
+            );
+        }
+
         // Launch captured graph (all H2D copies are ordered before this on same stream)
         if let Some(ref graph_exec) = self.decode_graph {
             self.stream.launch_graph(graph_exec)?;
@@ -448,6 +474,28 @@ impl CudaExecutor {
         let t_graph = t_start.map(|_| std::time::Instant::now());
 
         self.decode_token_count += 1;
+
+        // realizr#198 DIAGNOSTIC: Read back position_buf AFTER graph launch to verify
+        if self.decode_token_count <= 6 {
+            self.stream.synchronize()?;
+            if let Some(ref pos_buf) = self.position_buf {
+                let mut pos_check = [0u32; 1];
+                pos_buf.copy_to_host(&mut pos_check)?;
+                let mut seq_check = [0u32; 1];
+                if let Some(ref seq_buf) = self.seq_len_buf {
+                    seq_buf.copy_to_host(&mut seq_check)?;
+                }
+                // Also check first few logits
+                if let Some(ref logits_buf) = self.workspace.logits_buf {
+                    let mut logits_peek = [0.0f32; 5];
+                    logits_buf.copy_to_host(&mut logits_peek)?;
+                    eprintln!(
+                        "[realizr#198] AFTER graph: pos_buf={}, seq_len_buf={}, logits[0..5]={:?}",
+                        pos_check[0], seq_check[0], logits_peek
+                    );
+                }
+            }
+        }
 
         // PAR-068: GPU argmax instead of downloading 600KB logits
         // This reduces D2H transfer from 600KB to 4 bytes per token
@@ -534,6 +582,14 @@ impl CudaExecutor {
             eprintln!(
                 "[GRAPH-TIMING] h2d={}µs launch={}µs wait={}µs argmax+sync={}µs total={}µs",
                 h2d_us, graph_us, wait_us, argmax_us, total_us
+            );
+        }
+
+        // realizr#198 DIAGNOSTIC: Log sampled token
+        if self.decode_token_count <= 6 {
+            eprintln!(
+                "[realizr#198] graph_argmax result: token_id={}, decode_count={}",
+                gpu_result, self.decode_token_count
             );
         }
 
