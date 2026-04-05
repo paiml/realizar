@@ -1,4 +1,5 @@
 metadata:
+  kind: pattern
   version: "1.0.0"
   created: "2026-04-02"
   author: "candle-vs-apr F-PARITY-02 (12.1x regression root cause)"

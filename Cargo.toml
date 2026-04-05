@@ -93,24 +93,24 @@ workspace = true
 # OUR ecosystem - SIMD/GPU compute primitives (we control this)
 # High-performance SIMD compute library with GPU support
 # PAR-073: Using local path for development, version for crates.io
-trueno = { version = "0.17", path = "../trueno", features = ["gpu"] }
+trueno = { version = "0.17", features = ["gpu"] }
 # CUDA PTX generation and runtime for NVIDIA GPUs (optional, pure Rust, no LLVM/nvcc)
 # v0.4.12: BatchedQ6K, MultiWarp, RopeNeox, FlashDecoding kernels
-trueno-gpu = { version = "0.4", path = "../trueno/trueno-gpu", optional = true, features = ["cuda"] }
+trueno-gpu = { version = "0.4", optional = true, features = ["cuda"] }
 # KV cache storage (for attention caching)
-trueno-db = { version = "0.3.16", path = "../trueno-db", optional = true }
+trueno-db = { version = "0.3.16", optional = true }
 # K-quantization formats (Q4_K, Q5_K, Q6_K) - Toyota Way: ONE source of truth
-trueno-quant = { version = "0.1", path = "../trueno/crates/trueno-quant" }
+trueno-quant = { version = "0.1" }
 
 # Contract macros for pre/post-condition enforcement (zero cost in release)
-provable-contracts-macros = { version = "0.2", path = "../provable-contracts/crates/provable-contracts-macros" }
+provable-contracts-macros = { version = "0.2" }
 
 # PMAT-284: Core tracing primitives (zero-dep, breaks renacer circular dep)
-renacer-core = { version = "0.1", path = "../renacer/crates/renacer-core" }
+renacer-core = { version = "0.1" }
 
 # ML algorithms and .apr model format (optional for aprender model serving)
 # v0.24.1: chat templates, GGUF tokenizer preservation (local may be newer)
-aprender = { version = ">=0.27", path = "../aprender", optional = true }
+aprender = { version = ">=0.27", optional = true }
 
 # Data loading library (optional for data pipeline examples)
 alimentar = { version = "0.2", optional = true, default-features = false, features = ["local", "shuffle"] }
@@ -119,7 +119,7 @@ alimentar = { version = "0.2", optional = true, default-features = false, featur
 pacha = { version = "0.2", optional = true }
 
 # Terminal/PNG visualization for benchmarks and metrics
-trueno-viz = { version = "0.2", path = "../trueno-viz", optional = true, features = ["terminal"] }
+trueno-viz = { version = "0.2", optional = true, features = ["terminal"] }
 
 # HTTP server ONLY (swappable via HttpServer trait)
 axum = { version = "0.7", optional = true }
@@ -214,13 +214,13 @@ serde_yaml_ng = "0.10"
 
 [dev-dependencies]
 # Contract trait enforcement (Section 23)
-provable-contracts = { version = "0.2", path = "../provable-contracts/crates/provable-contracts" }
+provable-contracts = { version = "0.2" }
 
 # Visual regression testing framework (playbooks, TUI testing, GPU pixel verification)
 jugar-probar = { version = "0.4", features = ["tui", "gpu"] }
 
 # GPU edge-case test framework (null fuzzing, boundary probing, lifecycle chaos)
-trueno-cuda-edge = { version = "0.1", path = "../trueno/trueno-cuda-edge" }
+trueno-cuda-edge = { version = "0.1" }
 
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }
