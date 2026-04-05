@@ -127,14 +127,58 @@ impl CudaExecutor {
                 Ok(())
             },
             Err(e) => {
-                self.graph_capture_failed = true;
                 eprintln!(
-                    "[PAR-054] Graph capture failed: {:?}, using non-graphed path (no retry)", e
+                    "[PAR-054] Stream capture failed: {:?}", e
                 );
-                self.forward_all_layers_gpu_to_logits(
-                    input, logits, position, num_layers, hidden_dim,
-                    intermediate_dim, vocab_size, epsilon,
-                )
+                // trueno#243: Try manual graph construction (bypasses stream capture).
+                // Run one eager forward with recording, then build graph from records.
+                eprintln!("[trueno#243] Attempting manual graph construction...");
+                self.begin_graph_recording();
+                self.is_capturing = true;
+                let eager_result = self.forward_workspace_captured(
+                    num_layers, hidden_dim, intermediate_dim, vocab_size, epsilon,
+                );
+                self.is_capturing = false;
+
+                if let Err(eager_err) = eager_result {
+                    self.graph_recording = false;
+                    self.graph_capture_failed = true;
+                    eprintln!("[trueno#243] Eager forward during recording failed: {:?}", eager_err);
+                    return self.forward_all_layers_gpu_to_logits(
+                        input, logits, position, num_layers, hidden_dim,
+                        intermediate_dim, vocab_size, epsilon,
+                    );
+                }
+
+                match self.end_graph_recording() {
+                    Ok(n) if n > 0 => {
+                        // Manual graph built! Launch it for this token.
+                        if let Some(ref graph_exec) = self.decode_graph {
+                            self.stream.launch_graph(graph_exec)?;
+                        }
+                        self.stream.synchronize()?;
+                        if let Some(ref logits_buf) = self.workspace.logits_buf {
+                            logits_buf.copy_to_host(logits)?;
+                        }
+                        Ok(())
+                    },
+                    Ok(_) => {
+                        self.graph_capture_failed = true;
+                        eprintln!("[trueno#243] No kernels recorded, falling back to eager");
+                        self.forward_all_layers_gpu_to_logits(
+                            input, logits, position, num_layers, hidden_dim,
+                            intermediate_dim, vocab_size, epsilon,
+                        )
+                    },
+                    Err(graph_err) => {
+                        self.graph_capture_failed = true;
+                        eprintln!("[trueno#243] Manual graph build failed: {:?}, using eager", graph_err);
+                        self.forward_all_layers_gpu_to_logits(
+                            input, logits, position, num_layers, hidden_dim,
+                            intermediate_dim, vocab_size, epsilon,
+                        )
+                    },
+                }
             },
         }
     }

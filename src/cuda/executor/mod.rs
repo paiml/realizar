@@ -181,10 +181,32 @@ impl Drop for PoolableStream {
     }
 }
 
+use trueno_gpu::driver::sys::CUfunction;
 use trueno_gpu::driver::{
-    cuda_available, device_count, CaptureMode, CudaContext, CudaEvent, CudaGraphExec, CudaModule,
-    CudaStream, GpuBuffer, LaunchConfig,
+    cuda_available, device_count, CaptureMode, CudaContext, CudaEvent, CudaGraph, CudaGraphExec,
+    CudaModule, CudaStream, GpuBuffer, LaunchConfig,
 };
+
+/// trueno#243: Recorded kernel launch for manual graph construction.
+/// Stores everything needed to add a kernel node to a CudaGraph.
+#[derive(Clone)]
+pub(crate) struct RecordedKernel {
+    /// CUDA function handle (raw pointer, Send-safe via wrapper)
+    pub func: SendCUfunction,
+    pub config: LaunchConfig,
+    /// Raw bytes of kernel arguments (device pointers + dimension values).
+    /// Each arg is stored as 8 bytes (u64 for pointers, padded u32 for dims).
+    pub arg_data: Vec<u64>,
+}
+
+/// Send-safe wrapper for CUfunction (*mut c_void).
+/// SAFETY: CUDA function handles are safe to send between threads —
+/// they are process-wide handles resolved from cuModuleGetFunction.
+#[derive(Clone, Copy)]
+pub(crate) struct SendCUfunction(pub CUfunction);
+// SAFETY: CUfunction is a process-wide handle, not tied to a thread.
+unsafe impl Send for SendCUfunction {}
+unsafe impl Sync for SendCUfunction {}
 // All kernel types are imported for API completeness
 #[allow(unused_imports)]
 use trueno_gpu::kernels::{
@@ -490,6 +512,10 @@ pub struct CudaExecutor {
     // PAR-118: True while inside try_graph_capture — Flash Decoding uses
     // seq_len_buf (already populated) instead of copy_from_host.
     is_capturing: bool,
+    // trueno#243: Manual graph construction via kernel recording.
+    // When true, launch_kernel_or_record stores params for graph building.
+    graph_recording: bool,
+    graph_recorded_kernels: Vec<RecordedKernel>,
     // GH-94: True during batched prefill — Flash Decoding dispatch is suppressed
     // because sequential attention processes tiny seq_lens (1,2,3...) where flash
     // decoding's split-K chunking produces incorrect results.

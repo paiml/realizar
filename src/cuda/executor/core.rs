@@ -124,6 +124,8 @@ impl CudaExecutor {
             graph_capture_failed: false,
             prefill_graph_capture_failed: false,
             is_capturing: false,
+            graph_recording: false,
+            graph_recorded_kernels: Vec::new(),
             is_prefilling: false,
             // PAR-118: Flash Decoding (disabled by default, enable via init_flash_decoding)
             flash_decode_partials: None,
