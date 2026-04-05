@@ -417,11 +417,10 @@ impl CudaExecutor {
         // realizr#198 DIAGNOSTIC: Verify pointers match graph expectations
         if self.decode_token_count <= 5 {
             let input_dev = self.graph_input_buf.as_ref().map(|b| b.as_ptr()).unwrap_or(0);
-            let pos_dev = self.position_buf.as_ref().map(|b| b.as_ptr()).unwrap_or(0);
+            let logits_dev = self.workspace.logits_buf.as_ref().map(|b| b.as_ptr()).unwrap_or(0);
             eprintln!(
-                "[realizr#198] REPLAY: pos={}, cnt={}, input_sum={:.6}, input_dev={:#x}, pos_dev={:#x}",
-                position, self.decode_token_count,
-                input.iter().sum::<f32>(), input_dev, pos_dev
+                "[realizr#198] REPLAY: pos={}, cnt={}, input_dev={:#x}, logits_dev={:#x}",
+                position, self.decode_token_count, input_dev, logits_dev
             );
         }
 

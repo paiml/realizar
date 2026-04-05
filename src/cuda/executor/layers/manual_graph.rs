@@ -75,23 +75,32 @@ impl CudaExecutor {
         self.decode_graph = Some(graph_exec);
         self.decode_token_count = 1;
 
-        // realizr#198 DEBUG: Log recorded arg pointers for first kernel (RMSNorm input)
-        if let Some(first) = self.graph_recorded_kernels.first() {
-            eprintln!(
-                "[trueno#243] ✓ Manual graph built: {} kernel nodes. First kernel args: {:?}",
-                num_kernels,
-                first
-                    .arg_data
-                    .iter()
-                    .map(|a| format!("{:#x}", a))
-                    .collect::<Vec<_>>()
-            );
-        } else {
-            eprintln!(
-                "[trueno#243] ✓ Manual graph built: {} kernel nodes",
-                num_kernels
-            );
-        }
+        // realizr#198 DEBUG: Log recorded arg pointers for first AND last kernel
+        // First kernel = RMSNorm (reads graph_input_buf)
+        // Last kernel = LM head GEMV or bias add (writes logits_buf)
+        let first_args = self.graph_recorded_kernels.first().map(|k| {
+            k.arg_data
+                .iter()
+                .map(|a| format!("{:#x}", a))
+                .collect::<Vec<_>>()
+        });
+        let last_args = self.graph_recorded_kernels.last().map(|k| {
+            k.arg_data
+                .iter()
+                .map(|a| format!("{:#x}", a))
+                .collect::<Vec<_>>()
+        });
+        // Also log logits_buf current pointer for comparison
+        let logits_ptr = self
+            .workspace
+            .logits_buf
+            .as_ref()
+            .map(|b| b.as_ptr())
+            .unwrap_or(0);
+        eprintln!(
+            "[trueno#243] ✓ Manual graph: {} kernels. first_args={:?}, last_args={:?}, current_logits_buf={:#x}",
+            num_kernels, first_args, last_args, logits_ptr
+        );
 
         Ok(num_kernels)
     }
