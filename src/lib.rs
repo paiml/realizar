@@ -148,7 +148,6 @@
 #![allow(clippy::used_underscore_items)] // Allow using _prefixed items
 #![allow(clippy::field_reassign_with_default)] // Allow field reassign after default
 
-#[cfg(feature = "server")]
 // Contract assertions from YAML (pv codegen)
 #[macro_use]
 #[allow(unused_macros)]
