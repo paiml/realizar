@@ -635,4 +635,118 @@ impl CudaExecutor {
     pub fn max_kv_len(&self) -> usize {
         self.kv_cache_max_len
     }
+
+    /// realizr#199 (PMAT-450): Copy GPU KV cache to host for prefix caching.
+    ///
+    /// Returns per-layer (K, V) vectors covering positions 0..seq_len.
+    /// Layout per layer: flattened [num_kv_heads × seq_len × head_dim].
+    pub fn snapshot_kv_cache_to_host(
+        &mut self,
+        num_layers: usize,
+    ) -> Result<Vec<(Vec<f32>, Vec<f32>)>, GpuError> {
+        self.stream.synchronize()?;
+        let mut result = Vec::with_capacity(num_layers);
+        let kv_dim = self.kv_num_kv_heads * self.kv_head_dim;
+
+        for layer_idx in 0..num_layers {
+            let seq_len = self.kv_cache_lengths.get(&layer_idx).copied().unwrap_or(0);
+            let copy_elements = kv_dim * seq_len;
+
+            let k_key = format!("kv_{}_k", layer_idx);
+            let v_key = format!("kv_{}_v", layer_idx);
+
+            let mut k_host = vec![0.0f32; copy_elements];
+            let mut v_host = vec![0.0f32; copy_elements];
+
+            if copy_elements > 0 {
+                // KV layout is [num_kv_heads, max_len, head_dim].
+                // For prefix cache we need contiguous [num_kv_heads, seq_len, head_dim].
+                // Since max_len may differ from seq_len, copy per-head slices.
+                let k_buf = self.kv_cache_gpu.get(&k_key).ok_or_else(|| {
+                    GpuError::InvalidParameter(format!("KV cache not found: {}", k_key))
+                })?;
+                let v_buf = self.kv_cache_gpu.get(&v_key).ok_or_else(|| {
+                    GpuError::InvalidParameter(format!("KV cache not found: {}", v_key))
+                })?;
+
+                // Full D2H then extract (simpler than per-head strided copy)
+                let total = k_buf.len();
+                let mut k_full = vec![0.0f32; total];
+                let mut v_full = vec![0.0f32; total];
+                k_buf.copy_to_host(&mut k_full)?;
+                v_buf.copy_to_host(&mut v_full)?;
+
+                // Extract [num_kv_heads, seq_len, head_dim] from [num_kv_heads, max_len, head_dim]
+                let max_len = self.kv_cache_max_len;
+                let head_dim = self.kv_head_dim;
+                for head in 0..self.kv_num_kv_heads {
+                    for pos in 0..seq_len {
+                        let src_offset = head * max_len * head_dim + pos * head_dim;
+                        let dst_offset = head * seq_len * head_dim + pos * head_dim;
+                        k_host[dst_offset..dst_offset + head_dim]
+                            .copy_from_slice(&k_full[src_offset..src_offset + head_dim]);
+                        v_host[dst_offset..dst_offset + head_dim]
+                            .copy_from_slice(&v_full[src_offset..src_offset + head_dim]);
+                    }
+                }
+            }
+
+            result.push((k_host, v_host));
+        }
+
+        Ok(result)
+    }
+
+    /// realizr#199 (PMAT-450): Restore GPU KV cache from host snapshot.
+    ///
+    /// Copies per-layer (K, V) vectors into GPU buffers and sets cache lengths.
+    /// Used to skip prefill when a prompt prefix cache hits.
+    pub fn restore_kv_cache_from_host(
+        &mut self,
+        kv_data: &[(Vec<f32>, Vec<f32>)],
+        seq_len: usize,
+    ) -> Result<(), GpuError> {
+        let kv_dim = self.kv_num_kv_heads * self.kv_head_dim;
+        let max_len = self.kv_cache_max_len;
+        let head_dim = self.kv_head_dim;
+
+        if seq_len > max_len {
+            return Err(GpuError::InvalidParameter(format!(
+                "PMAT-450: seq_len {} > max_len {}", seq_len, max_len
+            )));
+        }
+
+        for (layer_idx, (k_host, v_host)) in kv_data.iter().enumerate() {
+            let k_key = format!("kv_{}_k", layer_idx);
+            let v_key = format!("kv_{}_v", layer_idx);
+
+            // Expand [num_kv_heads, seq_len, head_dim] → [num_kv_heads, max_len, head_dim]
+            let buf_len = self.kv_cache_gpu.get(&k_key)
+                .ok_or_else(|| GpuError::InvalidParameter(format!("KV cache not found: {}", k_key)))?
+                .len();
+            let mut k_full = vec![0.0f32; buf_len];
+            let mut v_full = vec![0.0f32; buf_len];
+
+            for head in 0..self.kv_num_kv_heads {
+                for pos in 0..seq_len {
+                    let src_offset = head * seq_len * head_dim + pos * head_dim;
+                    let dst_offset = head * max_len * head_dim + pos * head_dim;
+                    if src_offset + head_dim <= k_host.len() {
+                        k_full[dst_offset..dst_offset + head_dim]
+                            .copy_from_slice(&k_host[src_offset..src_offset + head_dim]);
+                        v_full[dst_offset..dst_offset + head_dim]
+                            .copy_from_slice(&v_host[src_offset..src_offset + head_dim]);
+                    }
+                }
+            }
+
+            let k_buf = self.kv_cache_gpu.get_mut(&k_key).expect("just checked");
+            k_buf.copy_from_host(&k_full)?;
+            let v_buf = self.kv_cache_gpu.get_mut(&v_key).expect("just checked");
+            v_buf.copy_from_host(&v_full)?;
+            self.kv_cache_lengths.insert(layer_idx, seq_len);
+        }
+
+        Ok(())
+    }
 }

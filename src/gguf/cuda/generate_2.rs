@@ -461,28 +461,60 @@ impl OwnedQuantizedModelCuda {
             );
         }
 
-        // PMAT-083: Prefill ALL tokens and extract first token (greedy only)
-        let greedy = config.temperature == 0.0 || config.top_k == 1;
-        let prefill_count = if greedy { prompt.len() } else { prompt.len() - 1 };
-        let prefill_first_token = self.run_prefill(prompt, &mut cache, prefill_count, config.trace, greedy)?;
+        // realizr#199 (PMAT-450): Check prefix cache before prefill.
+        // If prompt was seen before, skip prefill entirely (TTFT ~900ms → ~5ms).
+        #[cfg(feature = "gpu")]
+        let prefix_hit = self.prefix_cache.lookup(prompt);
+        #[cfg(not(feature = "gpu"))]
+        let prefix_hit: Option<(Vec<Vec<f32>>, Vec<Vec<f32>>)> = None;
+        #[cfg(feature = "gpu")]
+        let prefix_was_hit = prefix_hit.is_some();
+        #[cfg(not(feature = "gpu"))]
+        let prefix_was_hit = false;
 
         let mut position;
         let mut last_token;
         let max_decode;
 
-        if let Some(first_tok) = prefill_first_token {
-            // PMAT-083: First token from prefill LM head
-            position = prompt.len();
-            last_token = first_tok;
-            tokens.push(first_tok);
-            if config.stop_tokens.contains(&first_tok) {
-                return Ok(tokens);
+        if let Some((cached_k, cached_v)) = prefix_hit {
+            // PMAT-450: Prefix cache hit — skip prefill, restore GPU KV cache
+            let kv_pairs: Vec<(Vec<f32>, Vec<f32>)> = cached_k.into_iter().zip(cached_v).collect();
+            let cached_len = prompt.len();
+            self.executor
+                .restore_kv_cache_from_host(&kv_pairs, cached_len)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "restore_kv_cache_from_host".to_string(),
+                    reason: format!("Prefix cache restore failed: {e}"),
+                })?;
+
+            if config.trace {
+                eprintln!("[PMAT-450] Prefix cache HIT: skipped prefill for {} tokens", cached_len);
             }
-            max_decode = config.max_tokens.saturating_sub(1);
-        } else {
+
+            // After restore, generate first token via decode (no prefill extraction)
             position = prompt.len() - 1;
             last_token = prompt[prompt.len() - 1];
             max_decode = config.max_tokens;
+        } else {
+            // PMAT-083: Prefill ALL tokens and extract first token (greedy only)
+            let greedy = config.temperature == 0.0 || config.top_k == 1;
+            let prefill_count = if greedy { prompt.len() } else { prompt.len() - 1 };
+            let prefill_first_token = self.run_prefill(prompt, &mut cache, prefill_count, config.trace, greedy)?;
+
+            if let Some(first_tok) = prefill_first_token {
+                // PMAT-083: First token from prefill LM head
+                position = prompt.len();
+                last_token = first_tok;
+                tokens.push(first_tok);
+                if config.stop_tokens.contains(&first_tok) {
+                    return Ok(tokens);
+                }
+                max_decode = config.max_tokens.saturating_sub(1);
+            } else {
+                position = prompt.len() - 1;
+                last_token = prompt[prompt.len() - 1];
+                max_decode = config.max_tokens;
+            }
         }
 
         for _token_num in 0..max_decode {
@@ -512,6 +544,20 @@ impl OwnedQuantizedModelCuda {
             tokens.push(next_token);
             last_token = next_token;
             position += 1;
+        }
+
+        // realizr#199 (PMAT-450): Insert into prefix cache after generation.
+        // Only cache if prefill was actually computed (not a cache hit).
+        #[cfg(feature = "gpu")]
+        if !prefix_was_hit {
+            let num_layers = self.model.config.num_layers;
+            if let Ok(kv_snapshot) = self.executor.snapshot_kv_cache_to_host(num_layers) {
+                let (k_vecs, v_vecs): (Vec<_>, Vec<_>) = kv_snapshot.into_iter().unzip();
+                self.prefix_cache.insert(prompt.to_vec(), k_vecs, v_vecs);
+                if config.trace {
+                    eprintln!("[PMAT-450] Prefix cache INSERT: {} tokens cached", prompt.len());
+                }
+            }
         }
 
         Ok(tokens)

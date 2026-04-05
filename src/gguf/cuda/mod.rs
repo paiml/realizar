@@ -116,6 +116,11 @@ pub struct OwnedQuantizedModelCuda {
     /// Five-Whys root cause: embed() allocates Vec<f32> per token (~14KB for 7B).
     /// Fix: Reuse this buffer with embed_into().
     embed_buf: Vec<f32>,
+    /// realizr#199 (PMAT-450): Prefix cache for prompt KV reuse.
+    /// Stores GPU KV cache snapshots keyed by prompt tokens.
+    /// On cache hit, skip prefill entirely (TTFT ~900ms → ~5ms).
+    #[cfg(feature = "gpu")]
+    prefix_cache: crate::gguf::batch_scheduler::PrefixCache,
 }
 
 impl OwnedQuantizedModelCuda {
@@ -421,6 +426,8 @@ impl OwnedQuantizedModelCuda {
             device_name,
             memory_info,
             embed_buf,
+            #[cfg(feature = "gpu")]
+            prefix_cache: crate::gguf::batch_scheduler::PrefixCache::new(16),
         };
 
         // GH-199 ROOT CAUSE B + PARITY-GATE: preload weights and verify GPU correctness.
