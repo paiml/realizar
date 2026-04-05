@@ -259,7 +259,9 @@ fn main() {
         std::fs::write(
             contracts_path,
             "// Stub — generated_contracts.rs not available in crates.io build.\n\
-             // Run `pv codegen contracts/ -o src/generated_contracts.rs` to generate.\n",
+             // Run `pv codegen contracts/ -o src/generated_contracts.rs` to generate.\n\
+             macro_rules! contract_pre_matmul { () => {{}}; ($i:expr) => {{ let _ = &$i; }}; }\n\
+             macro_rules! contract_pre_prefill_phase { () => {{}}; ($i:expr) => {{ let _ = &$i; }}; }\n",
         )
         .expect("create stub generated_contracts.rs");
     }
