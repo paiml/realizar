@@ -53,15 +53,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("\n  Q bias ({} values):", q_bias.len());
         println!(
             "    max: {:.4}, min: {:.4}",
-            q_bias.iter().cloned().fold(f32::NEG_INFINITY, f32::max),
-            q_bias.iter().cloned().fold(f32::INFINITY, f32::min)
+            q_bias.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+            q_bias.iter().copied().fold(f32::INFINITY, f32::min)
         );
 
         println!("\n  K bias ({} values):", k_bias.len());
         println!(
             "    max: {:.4}, min: {:.4}",
-            k_bias.iter().cloned().fold(f32::NEG_INFINITY, f32::max),
-            k_bias.iter().cloned().fold(f32::INFINITY, f32::min)
+            k_bias.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+            k_bias.iter().copied().fold(f32::INFINITY, f32::min)
         );
         println!("    first 8: {:?}", &k_bias[..8]);
 

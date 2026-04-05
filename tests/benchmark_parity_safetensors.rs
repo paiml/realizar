@@ -199,6 +199,7 @@ fn bf16_to_f32_fast(input: &[u8]) -> Vec<f32> {
 
 /// SIMD-optimized BF16→F32 conversion (processes 8 values at once)
 #[cfg(target_arch = "x86_64")]
+#[allow(clippy::cast_ptr_alignment)]
 fn bf16_to_f32_simd_avx2(input: &[u8]) -> Vec<f32> {
     use std::arch::x86_64::*;
 
@@ -220,7 +221,7 @@ fn bf16_to_f32_simd_avx2(input: &[u8]) -> Vec<f32> {
             let out_offset = i * 8;
 
             // Load 8 BF16 values (16 bytes)
-            let bf16_bytes = _mm_loadu_si128(input.as_ptr().add(in_offset) as *const __m128i);
+            let bf16_bytes = _mm_loadu_si128(input.as_ptr().add(in_offset).cast::<__m128i>());
 
             // Unpack lower 4 BF16 to F32 (zero-extend and shift left by 16)
             let lo = _mm_unpacklo_epi16(bf16_bytes, _mm_setzero_si128());

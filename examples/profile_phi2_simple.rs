@@ -60,7 +60,7 @@ fn main() {
         }
     }
 
-    times.sort();
+    times.sort_unstable();
     let min = times[0];
     let max = times[times.len() - 1];
     let median = times[times.len() / 2];

@@ -12,7 +12,7 @@ use std::time::Instant;
 fn rms_norm(input: &[f32], weight: &[f32], eps: f32, output: &mut [f32]) {
     let n = input.len();
     let mut sum_sq = 0.0f32;
-    for &x in input.iter() {
+    for &x in input {
         sum_sq += x * x;
     }
     let rms = (sum_sq / n as f32 + eps).sqrt();

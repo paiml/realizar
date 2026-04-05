@@ -6,8 +6,9 @@ use std::time::Instant;
 
 fn main() -> Result<(), RealizarError> {
     let args: Vec<String> = std::env::args().collect();
-    let model_path = args.get(1).map(|s| s.as_str()).unwrap_or(
+    let model_path = args.get(1).map_or(
         "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+        |s| s.as_str(),
     );
 
     eprintln!("Loading model...");

@@ -43,8 +43,8 @@ fn test_trace_layer_by_layer() {
         // After attention (approximate - just track the hidden state evolution)
         let hidden_sum: f32 = hidden.iter().sum();
         let hidden_norm: f32 = hidden.iter().map(|x| x * x).sum::<f32>().sqrt();
-        let hidden_max: f32 = hidden.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let hidden_min: f32 = hidden.iter().cloned().fold(f32::INFINITY, f32::min);
+        let hidden_max: f32 = hidden.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let hidden_min: f32 = hidden.iter().copied().fold(f32::INFINITY, f32::min);
 
         if layer_idx < 3 || layer_idx >= model.config().num_layers - 2 {
             eprintln!(
@@ -68,8 +68,8 @@ fn test_trace_layer_by_layer() {
     // For now, check that logits aren't degenerate
     let logits_sum: f32 = logits.iter().sum();
     let logits_norm: f32 = logits.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let logits_max: f32 = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    let logits_min: f32 = logits.iter().cloned().fold(f32::INFINITY, f32::min);
+    let logits_max: f32 = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let logits_min: f32 = logits.iter().copied().fold(f32::INFINITY, f32::min);
 
     eprintln!(
         "\nLogits stats: sum={:.4}, norm={:.4}, range=[{:.2}, {:.2}]",

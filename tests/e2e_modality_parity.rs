@@ -1,3 +1,4 @@
+#![allow(clippy::write_with_newline, clippy::trivially_copy_pass_by_ref)]
 //! PARITY-110: End-to-End Modality Parity Tests
 //!
 //! Integration tests that verify ALL modalities work correctly.

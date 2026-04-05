@@ -42,9 +42,13 @@ fn main() {
     for layer_idx in 0..21 {
         let layer = &model.layers()[layer_idx];
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
-        let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
-            OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-            _ => panic!("Expected separate"),
+        let OwnedQKVWeights::Separate {
+            q: q_weight,
+            k: k_weight,
+            v: v_weight,
+        } = &layer.qkv_weight
+        else {
+            panic!("Expected separate")
         };
         let _q = fused_matmul(
             &normed,
@@ -133,9 +137,13 @@ fn main() {
     let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
     println!("\nAfter attn RMSNorm: L2={:.4}", l2_norm(&normed));
 
-    let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-        _ => panic!("Expected separate"),
+    let OwnedQKVWeights::Separate {
+        q: q_weight,
+        k: k_weight,
+        v: v_weight,
+    } = &layer.qkv_weight
+    else {
+        panic!("Expected separate")
     };
 
     let q = fused_matmul(

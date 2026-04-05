@@ -37,11 +37,11 @@ fn main() {
     println!("  Logits L2: {:.4}", l2_norm(&logits));
     println!(
         "  Logits min: {:.4}",
-        logits.iter().cloned().fold(f32::INFINITY, f32::min)
+        logits.iter().copied().fold(f32::INFINITY, f32::min)
     );
     println!(
         "  Logits max: {:.4}",
-        logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+        logits.iter().copied().fold(f32::NEG_INFINITY, f32::max)
     );
     println!(
         "  Logits mean: {:.6}",
@@ -83,19 +83,19 @@ fn main() {
     );
 
     // Top 20 tokens
-    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     println!("\n  Top 20 tokens:");
     for (rank, (idx, score)) in indexed.iter().take(20).enumerate() {
-        let tok = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok = vocab.get(*idx).map_or("?", |s| s.as_str());
         println!("    {:2}: {:5} = {:7.4} ('{}')", rank + 1, idx, score, tok);
     }
 
     // Bottom 5 tokens
     println!("\n  Bottom 5 tokens:");
     for (rank, (idx, score)) in indexed.iter().rev().take(5).enumerate() {
-        let tok = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok = vocab.get(*idx).map_or("?", |s| s.as_str());
         println!(
             "    {:2}: {:5} = {:7.4} ('{}')",
             indexed.len() - rank,

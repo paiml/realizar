@@ -46,7 +46,7 @@ fn apply_rope(qk: &mut [f32], head_dim: usize, num_heads: usize, pos: usize, the
 }
 
 fn softmax(x: &mut [f32]) {
-    let max = x.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let max = x.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let mut sum = 0.0f32;
     for v in x.iter_mut() {
         *v = (*v - max).exp();
@@ -103,9 +103,13 @@ fn main() {
             // Attention
             let normed = rms_norm(hidden, &layer.attn_norm_weight, eps);
 
-            let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
-                OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-                _ => panic!("Expected separate"),
+            let OwnedQKVWeights::Separate {
+                q: q_weight,
+                k: k_weight,
+                v: v_weight,
+            } = &layer.qkv_weight
+            else {
+                panic!("Expected separate")
             };
 
             let mut q = fused_matmul(
@@ -226,7 +230,7 @@ fn main() {
     }
 
     // Final norm and LM head for the last token (450)
-    let final_hidden = rms_norm(&hiddens[1], &model.output_norm_weight(), eps);
+    let final_hidden = rms_norm(&hiddens[1], model.output_norm_weight(), eps);
     println!(
         "\nFinal hidden (token 450) L2: {:.4}",
         l2_norm(&final_hidden)
@@ -250,7 +254,7 @@ fn main() {
     }
 
     // Top 10
-    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     println!("\nTop 10 predictions:");

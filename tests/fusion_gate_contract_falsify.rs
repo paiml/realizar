@@ -235,7 +235,7 @@ proptest! {
             // one of the known kernels (not a spurious substring match).
             let is_known = KNOWN_FUSED_KERNELS
                 .iter()
-                .any(|known| random_kernel_name.contains(known) || known.contains(&random_kernel_name.as_str()));
+                .any(|known| random_kernel_name.contains(known) || known.contains(random_kernel_name.as_str()));
 
             // A registered kernel that is NOT in our known list means the contract
             // has entries we are not tracking -- potential drift.
@@ -264,7 +264,7 @@ proptest! {
             .iter()
             .any(|(id, _)| *id == random_id.as_str());
 
-        let in_contract = CONTRACT_YAML.contains(&random_id.as_str());
+        let in_contract = CONTRACT_YAML.contains(random_id.as_str());
 
         if in_contract && !is_known {
             // Found a fusion ID in the contract that we do not track

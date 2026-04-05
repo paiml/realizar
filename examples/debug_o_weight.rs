@@ -50,9 +50,8 @@ fn main() {
     let normed = rms_norm(&embedding, &layer.attn_norm_weight, eps);
 
     // V projection
-    let v_weight = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { v, .. } => v,
-        _ => panic!("Expected separate"),
+    let OwnedQKVWeights::Separate { v: v_weight, .. } = &layer.qkv_weight else {
+        panic!("Expected separate")
     };
     let v = fused_matmul(
         &normed,

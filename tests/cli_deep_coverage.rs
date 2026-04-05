@@ -258,7 +258,7 @@ fn test_benchmark_suites_have_descriptions() {
 fn test_benchmark_suites_unique_names() {
     let names: Vec<&str> = BENCHMARK_SUITES.iter().map(|(n, _)| *n).collect();
     let mut unique_names = names.clone();
-    unique_names.sort();
+    unique_names.sort_unstable();
     unique_names.dedup();
     assert_eq!(
         names.len(),

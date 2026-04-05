@@ -18,8 +18,9 @@ use std::time::Instant;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
-    let model_path = args.get(1).map(|s| s.as_str()).unwrap_or(
+    let model_path = args.get(1).map_or(
         "/home/noah/src/single-shot-eval/models/raw/qwen2.5-coder-0.5b-instruct-q4_0.gguf",
+        |s| s.as_str(),
     );
 
     println!("╔══════════════════════════════════════════════════════════════════╗");

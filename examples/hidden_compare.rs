@@ -39,9 +39,13 @@ fn cpu_layer_forward(hidden: &mut [f32], model: &OwnedQuantizedModel, layer_idx:
         .collect();
 
     // Q/K/V
-    let (q_w, k_w, v_w) = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-        _ => panic!("Expected separate"),
+    let OwnedQKVWeights::Separate {
+        q: q_w,
+        k: k_w,
+        v: v_w,
+    } = &layer.qkv_weight
+    else {
+        panic!("Expected separate")
     };
 
     let _q = fused_matmul(&q_w.data, &normed, q_w.qtype, hidden_dim, q_w.out_dim);

@@ -55,8 +55,8 @@ fn main() {
 
             println!("\n  First 10 values: {:?}", &values[..10.min(values.len())]);
 
-            let min = values.iter().cloned().fold(f32::INFINITY, f32::min);
-            let max = values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let min = values.iter().copied().fold(f32::INFINITY, f32::min);
+            let max = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let mean: f32 = values.iter().sum::<f32>() / values.len() as f32;
             println!("  Stats: min={:.6}, max={:.6}, mean={:.6}", min, max, mean);
         } else if t.qtype == 1 {
@@ -69,8 +69,8 @@ fn main() {
 
             println!("\n  First 10 values: {:?}", &values[..10.min(values.len())]);
 
-            let min = values.iter().cloned().fold(f32::INFINITY, f32::min);
-            let max = values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let min = values.iter().copied().fold(f32::INFINITY, f32::min);
+            let max = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let mean: f32 = values.iter().sum::<f32>() / values.len() as f32;
             println!("  Stats: min={:.6}, max={:.6}, mean={:.6}", min, max, mean);
         }
@@ -92,8 +92,8 @@ fn main() {
             .expect("test");
         println!("  First 10 values: {:?}", &values[..10.min(values.len())]);
 
-        let min = values.iter().cloned().fold(f32::INFINITY, f32::min);
-        let max = values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let min = values.iter().copied().fold(f32::INFINITY, f32::min);
+        let max = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         let mean: f32 = values.iter().sum::<f32>() / values.len() as f32;
         println!("  Stats: min={:.6}, max={:.6}, mean={:.6}", min, max, mean);
     }

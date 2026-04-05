@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "  {}: {:?}",
             t,
-            vocab.get(*t as usize).map(|s| s.as_str()).unwrap_or("?")
+            vocab.get(*t as usize).map_or("?", |s| s.as_str())
         );
     }
 
@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     indexed.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     println!("Top 10 predictions:");
     for (tok_id, logit) in indexed.iter().take(10) {
-        let tok_str = vocab.get(*tok_id).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(*tok_id).map_or("?", |s| s.as_str());
         println!("  Token {} ({:?}): logit={:.4}", tok_id, tok_str, logit);
     }
 
@@ -51,8 +51,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("\nLogit statistics:");
-    let logit_min = logits.iter().cloned().fold(f32::INFINITY, f32::min);
-    let logit_max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let logit_min = logits.iter().copied().fold(f32::INFINITY, f32::min);
+    let logit_max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let logit_mean: f32 = logits.iter().sum::<f32>() / logits.len() as f32;
     println!("  min: {:.4}", logit_min);
     println!("  max: {:.4}", logit_max);
@@ -73,14 +73,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut indexed_pos: Vec<_> = logits_pos.iter().enumerate().collect();
         indexed_pos.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
 
-        let tok_str = vocab.get(tok as usize).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(tok as usize).map_or("?", |s| s.as_str());
         println!(
             "\nAfter processing token {} ({:?}) at position {}:",
             tok, tok_str, pos
         );
         println!("  Top 5 predictions:");
         for (tok_id, logit) in indexed_pos.iter().take(5) {
-            let next_str = vocab.get(*tok_id).map(|s| s.as_str()).unwrap_or("?");
+            let next_str = vocab.get(*tok_id).map_or("?", |s| s.as_str());
             println!("    Token {} ({:?}): logit={:.4}", tok_id, next_str, logit);
         }
         println!("  Digit logits: 0={:.2}, 1={:.2}, 2={:.2}, 3={:.2}, 4={:.2}, 5={:.2}, 6={:.2}, 7={:.2}, 8={:.2}, 9={:.2}",

@@ -58,12 +58,12 @@ fn main() {
     let logits = model.forward_cached(29950, &mut cache, 1).expect("test");
 
     // Top 10
-    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     println!("\nTop 10 after BOS + 'H':");
     for (rank, (idx, score)) in indexed.iter().take(10).enumerate() {
-        let tok = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok = vocab.get(*idx).map_or("?", |s| s.as_str());
         println!("  {}: token {} = {:.4} ('{}')", rank + 1, idx, score, tok);
     }
 
@@ -72,12 +72,12 @@ fn main() {
     let mut cache2 = OwnedQuantizedKVCache::new(model.config().num_layers, kv_dim, 128);
     let logits2 = model.forward_cached(bos, &mut cache2, 0).expect("test");
 
-    let mut indexed2: Vec<(usize, f32)> = logits2.iter().cloned().enumerate().collect();
+    let mut indexed2: Vec<(usize, f32)> = logits2.iter().copied().enumerate().collect();
     indexed2.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     println!("Top 10 after just BOS:");
     for (rank, (idx, score)) in indexed2.iter().take(10).enumerate() {
-        let tok = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok = vocab.get(*idx).map_or("?", |s| s.as_str());
         println!("  {}: token {} = {:.4} ('{}')", rank + 1, idx, score, tok);
     }
 
@@ -97,7 +97,7 @@ fn main() {
             .expect("test");
 
         generated.push(next_idx as u32);
-        let tok_str = vocab.get(next_idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(next_idx).map_or("?", |s| s.as_str());
         print!("{}", tok_str);
 
         // Stop at EOS

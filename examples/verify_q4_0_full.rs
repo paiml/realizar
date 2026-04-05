@@ -12,9 +12,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let layer0 = &model.layers()[0];
 
     // Get Q weight tensor
-    let q_weight = match &layer0.qkv_weight {
-        OwnedQKVWeights::Separate { q, .. } => q,
-        _ => panic!("Expected separate QKV"),
+    let OwnedQKVWeights::Separate { q: q_weight, .. } = &layer0.qkv_weight else {
+        panic!("Expected separate QKV")
     };
 
     println!(

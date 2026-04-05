@@ -133,14 +133,14 @@ fn main() {
         "  Min: {:.6}",
         dequant[0..256]
             .iter()
-            .cloned()
+            .copied()
             .fold(f32::INFINITY, f32::min)
     );
     println!(
         "  Max: {:.6}",
         dequant[0..256]
             .iter()
-            .cloned()
+            .copied()
             .fold(f32::NEG_INFINITY, f32::max)
     );
 }

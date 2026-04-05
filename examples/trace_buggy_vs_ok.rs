@@ -17,18 +17,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "OK token: {} ({:?})",
         ok_token,
-        vocab
-            .get(ok_token as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("?")
+        vocab.get(ok_token as usize).map_or("?", |s| s.as_str())
     );
     println!(
         "Buggy token: {} ({:?})",
         buggy_token,
-        vocab
-            .get(buggy_token as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("?")
+        vocab.get(buggy_token as usize).map_or("?", |s| s.as_str())
     );
 
     // Get embeddings
@@ -65,25 +59,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Top Predictions ===");
     println!(
         "OK token ({:?}) top 5 predictions:",
-        vocab
-            .get(ok_token as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("?")
+        vocab.get(ok_token as usize).map_or("?", |s| s.as_str())
     );
     for (i, (tok, logit)) in ok_idx.iter().take(5).enumerate() {
-        let name = vocab.get(*tok).map(|s| s.as_str()).unwrap_or("?");
+        let name = vocab.get(*tok).map_or("?", |s| s.as_str());
         println!("  {}: token {} ({:?}) = {:.4}", i + 1, tok, name, logit);
     }
 
     println!(
         "\nBuggy token ({:?}) top 5 predictions:",
-        vocab
-            .get(buggy_token as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("?")
+        vocab.get(buggy_token as usize).map_or("?", |s| s.as_str())
     );
     for (i, (tok, logit)) in buggy_idx.iter().take(5).enumerate() {
-        let name = vocab.get(*tok).map(|s| s.as_str()).unwrap_or("?");
+        let name = vocab.get(*tok).map_or("?", |s| s.as_str());
         let marker = if *tok == 0 { " <-- BUG!" } else { "" };
         println!(
             "  {}: token {} ({:?}) = {:.4}{}",
@@ -120,13 +108,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check if logits are all similar (would indicate dead neurons)
     let ok_range = ok_logits
         .iter()
-        .cloned()
+        .copied()
         .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), x| {
             (min.min(x), max.max(x))
         });
     let buggy_range = buggy_logits
         .iter()
-        .cloned()
+        .copied()
         .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), x| {
             (min.min(x), max.max(x))
         });
@@ -154,9 +142,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let top = idx[0].0;
         let second = idx[1].0;
-        let name = vocab.get(tok as usize).map(|s| s.as_str()).unwrap_or("?");
-        let top_name = vocab.get(top).map(|s| s.as_str()).unwrap_or("?");
-        let second_name = vocab.get(second).map(|s| s.as_str()).unwrap_or("?");
+        let name = vocab.get(tok as usize).map_or("?", |s| s.as_str());
+        let top_name = vocab.get(top).map_or("?", |s| s.as_str());
+        let second_name = vocab.get(second).map_or("?", |s| s.as_str());
 
         let margin = idx[0].1 - idx[1].1;
         println!(

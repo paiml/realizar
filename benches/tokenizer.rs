@@ -74,7 +74,7 @@ fn benchmark_basic_encode(c: &mut Criterion) {
         ),
     ];
 
-    for (name, text) in texts.iter() {
+    for (name, text) in &texts {
         group.bench_with_input(BenchmarkId::from_parameter(name), text, |b, &text| {
             let tokenizer = create_basic_tokenizer(100);
             b.iter(|| {
@@ -97,7 +97,7 @@ fn benchmark_basic_decode(c: &mut Criterion) {
         ("long", vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
     ];
 
-    for (name, tokens) in token_sequences.iter() {
+    for (name, tokens) in &token_sequences {
         group.bench_with_input(BenchmarkId::from_parameter(name), tokens, |b, tokens| {
             let tokenizer = create_basic_tokenizer(100);
             b.iter(|| {
@@ -120,7 +120,7 @@ fn benchmark_bpe_encode(c: &mut Criterion) {
         ("long", "tokens tokens tokens tokens tokens tokens"),
     ];
 
-    for (name, text) in texts.iter() {
+    for (name, text) in &texts {
         group.bench_with_input(BenchmarkId::from_parameter(name), text, |b, &text| {
             let tokenizer = create_bpe_tokenizer(100);
             b.iter(|| {
@@ -143,7 +143,7 @@ fn benchmark_bpe_decode(c: &mut Criterion) {
         ("long", vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
     ];
 
-    for (name, tokens) in token_sequences.iter() {
+    for (name, tokens) in &token_sequences {
         group.bench_with_input(BenchmarkId::from_parameter(name), tokens, |b, tokens| {
             let tokenizer = create_bpe_tokenizer(100);
             b.iter(|| {
@@ -166,7 +166,7 @@ fn benchmark_sentencepiece_encode(c: &mut Criterion) {
         ("long", "hello world test example sentence piece"),
     ];
 
-    for (name, text) in texts.iter() {
+    for (name, text) in &texts {
         group.bench_with_input(BenchmarkId::from_parameter(name), text, |b, &text| {
             let tokenizer = create_sentencepiece_tokenizer(100);
             b.iter(|| {
@@ -189,7 +189,7 @@ fn benchmark_sentencepiece_decode(c: &mut Criterion) {
         ("long", vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
     ];
 
-    for (name, tokens) in token_sequences.iter() {
+    for (name, tokens) in &token_sequences {
         group.bench_with_input(BenchmarkId::from_parameter(name), tokens, |b, tokens| {
             let tokenizer = create_sentencepiece_tokenizer(100);
             b.iter(|| {
@@ -206,7 +206,7 @@ fn benchmark_sentencepiece_decode(c: &mut Criterion) {
 fn benchmark_vocab_lookup(c: &mut Criterion) {
     let mut group = c.benchmark_group("vocab_lookup");
 
-    for vocab_size in [100, 1000, 10000].iter() {
+    for vocab_size in &[100, 1000, 10000] {
         group.bench_with_input(
             BenchmarkId::from_parameter(vocab_size),
             vocab_size,
@@ -238,7 +238,7 @@ fn benchmark_roundtrip(c: &mut Criterion) {
         ),
     ];
 
-    for (name, text) in texts.iter() {
+    for (name, text) in &texts {
         group.bench_with_input(BenchmarkId::from_parameter(name), text, |b, &text| {
             let tokenizer = create_basic_tokenizer(100);
             b.iter(|| {

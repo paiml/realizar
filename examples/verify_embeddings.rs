@@ -17,8 +17,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
         let sum: f32 = emb.iter().sum();
-        let max: f32 = emb.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let min: f32 = emb.iter().cloned().fold(f32::INFINITY, f32::min);
+        let max: f32 = emb.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let min: f32 = emb.iter().copied().fold(f32::INFINITY, f32::min);
 
         println!(
             "Token {}: norm={:.4}, sum={:.4}, max={:.4}, min={:.4}",

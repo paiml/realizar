@@ -24,18 +24,12 @@ fn main() {
     println!(
         "Token 1: {} ('{}')",
         token1,
-        vocab
-            .get(token1 as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("?")
+        vocab.get(token1 as usize).map_or("?", |s| s.as_str())
     );
     println!(
         "Token 2: {} ('{}')",
         token2,
-        vocab
-            .get(token2 as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("?")
+        vocab.get(token2 as usize).map_or("?", |s| s.as_str())
     );
 
     // Get embeddings
@@ -86,20 +80,20 @@ fn main() {
     println!("  Logits L2 difference: {:.4}", diff_l2);
 
     // Top tokens for each
-    let mut indexed1: Vec<(usize, f32)> = logits1.iter().cloned().enumerate().collect();
-    let mut indexed2: Vec<(usize, f32)> = logits2.iter().cloned().enumerate().collect();
+    let mut indexed1: Vec<(usize, f32)> = logits1.iter().copied().enumerate().collect();
+    let mut indexed2: Vec<(usize, f32)> = logits2.iter().copied().enumerate().collect();
     indexed1.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     indexed2.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     println!("\nTop 5 tokens for 'Once':");
     for (rank, (idx, score)) in indexed1.iter().take(5).enumerate() {
-        let tok_str = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(*idx).map_or("?", |s| s.as_str());
         println!("  {}: {} = {:.4} ('{}')", rank + 1, idx, score, tok_str);
     }
 
     println!("\nTop 5 tokens for 'The':");
     for (rank, (idx, score)) in indexed2.iter().take(5).enumerate() {
-        let tok_str = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(*idx).map_or("?", |s| s.as_str());
         println!("  {}: {} = {:.4} ('{}')", rank + 1, idx, score, tok_str);
     }
 

@@ -37,9 +37,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  sum: {:.6}", normed.iter().sum::<f32>());
 
     // Step 3: Q projection using fused_q4k_parallel_matvec (verified correct)
-    let (q_weight, _k_weight, _v_weight) = match &model.layers()[0].qkv_weight {
-        OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-        _ => panic!("Expected separate QKV"),
+    let OwnedQKVWeights::Separate {
+        q: q_weight,
+        k: _k_weight,
+        v: _v_weight,
+    } = &model.layers()[0].qkv_weight
+    else {
+        panic!("Expected separate QKV")
     };
 
     let q_cpu = fused_q4k_parallel_matvec(&q_weight.data, &normed, hidden_dim, q_weight.out_dim)?;

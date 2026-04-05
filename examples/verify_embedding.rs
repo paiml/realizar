@@ -26,11 +26,11 @@ fn main() {
     );
     println!(
         "  Min: {:.6}",
-        embedding.iter().cloned().fold(f32::INFINITY, f32::min)
+        embedding.iter().copied().fold(f32::INFINITY, f32::min)
     );
     println!(
         "  Max: {:.6}",
-        embedding.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+        embedding.iter().copied().fold(f32::NEG_INFINITY, f32::max)
     );
 
     // Count zeros

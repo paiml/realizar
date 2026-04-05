@@ -23,20 +23,20 @@ fn main() -> Result<(), RealizarError> {
     // Test 1: Measure overhead of scratch buffer creation
     let start = Instant::now();
     for _ in 0..100 {
-        let _cache = realizar::gguf::OwnedQuantizedKVCache::from_config(&model.config(), 100);
+        let _cache = realizar::gguf::OwnedQuantizedKVCache::from_config(model.config(), 100);
     }
     let cache_create_us = start.elapsed().as_micros() as f64 / 100.0;
     println!("KV Cache creation: {:.1} µs", cache_create_us);
 
     let start = Instant::now();
     for _ in 0..100 {
-        let _scratch = realizar::gguf::InferenceScratchBuffer::from_config(&model.config());
+        let _scratch = realizar::gguf::InferenceScratchBuffer::from_config(model.config());
     }
     let scratch_create_us = start.elapsed().as_micros() as f64 / 100.0;
     println!("Scratch buffer creation: {:.1} µs", scratch_create_us);
 
     // Test 2: Measure cache append overhead
-    let mut cache = realizar::gguf::OwnedQuantizedKVCache::from_config(&model.config(), 1000);
+    let mut cache = realizar::gguf::OwnedQuantizedKVCache::from_config(model.config(), 1000);
     let kv_dim = model.config().num_kv_heads * (hidden_dim / model.config().num_heads);
     let k_data = vec![0.1f32; kv_dim];
     let v_data = vec![0.1f32; kv_dim];

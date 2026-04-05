@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut idx: Vec<_> = logits.iter().enumerate().collect();
     idx.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     let top = idx[0].0;
-    let top_name = vocab.get(top).map(|s| s.as_str()).unwrap_or("?");
+    let top_name = vocab.get(top).map_or("?", |s| s.as_str());
     println!(
         "Token 15 (\"0\") -> top={} ({:?}), logit={:.2}",
         top, top_name, idx[0].1
@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut idx: Vec<_> = logits.iter().enumerate().collect();
     idx.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     let top = idx[0].0;
-    let top_name = vocab.get(top).map(|s| s.as_str()).unwrap_or("?");
+    let top_name = vocab.get(top).map_or("?", |s| s.as_str());
     println!(
         "Token 15 (\"0\") -> top={} ({:?}), logit={:.2}",
         top, top_name, idx[0].1
@@ -43,8 +43,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut idx: Vec<_> = logits.iter().enumerate().collect();
         idx.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
         let top = idx[0].0;
-        let name = vocab.get(tok as usize).map(|s| s.as_str()).unwrap_or("?");
-        let top_name = vocab.get(top).map(|s| s.as_str()).unwrap_or("?");
+        let name = vocab.get(tok as usize).map_or("?", |s| s.as_str());
+        let top_name = vocab.get(top).map_or("?", |s| s.as_str());
         let marker = if top == 0 && tok != 0 { " <-- BUG" } else { "" };
         println!(
             "Token {} ({:?}) -> top={} ({:?}){}",
@@ -60,8 +60,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut idx: Vec<_> = logits.iter().enumerate().collect();
         idx.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
         let top = idx[0].0;
-        let name = vocab.get(tok as usize).map(|s| s.as_str()).unwrap_or("?");
-        let top_name = vocab.get(top).map(|s| s.as_str()).unwrap_or("?");
+        let name = vocab.get(tok as usize).map_or("?", |s| s.as_str());
+        let top_name = vocab.get(top).map_or("?", |s| s.as_str());
         let marker = if top == 0 && tok != 0 { " <-- BUG" } else { "" };
         println!(
             "Token {} ({:?}) -> top={} ({:?}){}",
@@ -77,8 +77,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut idx: Vec<_> = logits.iter().enumerate().collect();
         idx.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
         let top = idx[0].0;
-        let name = vocab.get(tok as usize).map(|s| s.as_str()).unwrap_or("?");
-        let top_name = vocab.get(top).map(|s| s.as_str()).unwrap_or("?");
+        let name = vocab.get(tok as usize).map_or("?", |s| s.as_str());
+        let top_name = vocab.get(top).map_or("?", |s| s.as_str());
         let marker = if top == 0 && tok != 0 { " <-- BUG" } else { "" };
         println!(
             "Token {} ({:?}) -> top={} ({:?}){}",

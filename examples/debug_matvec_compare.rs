@@ -43,9 +43,8 @@ fn main() {
     println!("Input (normed) L2: {:.6}", l2_norm(&normed));
 
     // Get Q weight
-    let q_weight = match &layer0.qkv_weight {
-        OwnedQKVWeights::Separate { q, .. } => q,
-        _ => panic!("Expected separate"),
+    let OwnedQKVWeights::Separate { q: q_weight, .. } = &layer0.qkv_weight else {
+        panic!("Expected separate")
     };
 
     // Dequantize weight

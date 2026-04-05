@@ -1205,11 +1205,13 @@ DONE_NORM:
             ];
 
             for (qtype, ptr, n, k) in weights {
-                if ptr != 0 && (qtype == WeightQuantType::Q4K || qtype == WeightQuantType::Q6K)
-                    && self.fp16_weight_cache.get(&ptr).is_none() {
-                        self.get_or_cache_fp16_weight(qtype, ptr, n, k)?;
-                        cached += 1;
-                    }
+                if ptr != 0
+                    && (qtype == WeightQuantType::Q4K || qtype == WeightQuantType::Q6K)
+                    && self.fp16_weight_cache.get(&ptr).is_none()
+                {
+                    self.get_or_cache_fp16_weight(qtype, ptr, n, k)?;
+                    cached += 1;
+                }
             }
         }
 
@@ -1370,11 +1372,13 @@ DONE_NORM:
             ];
 
             for (qtype, ptr, n, k) in weights {
-                if ptr != 0 && (qtype == WeightQuantType::Q4K || qtype == WeightQuantType::Q6K)
-                    && !self.fp8_weight_cache.contains_key(&ptr) {
-                        self.get_or_cache_fp8_weight(qtype, ptr, n, k)?;
-                        cached += 1;
-                    }
+                if ptr != 0
+                    && (qtype == WeightQuantType::Q4K || qtype == WeightQuantType::Q6K)
+                    && !self.fp8_weight_cache.contains_key(&ptr)
+                {
+                    self.get_or_cache_fp8_weight(qtype, ptr, n, k)?;
+                    cached += 1;
+                }
             }
         }
 
@@ -1675,11 +1679,13 @@ DONE_NORM:
             ];
 
             for (qtype, ptr, n, k) in weights {
-                if ptr != 0 && qtype == WeightQuantType::Q4K
-                    && !self.interleaved_weight_cache.contains_key(&ptr) {
-                        self.get_or_cache_interleaved_weight(ptr, n, k)?;
-                        cached += 1;
-                    }
+                if ptr != 0
+                    && qtype == WeightQuantType::Q4K
+                    && !self.interleaved_weight_cache.contains_key(&ptr)
+                {
+                    self.get_or_cache_interleaved_weight(ptr, n, k)?;
+                    cached += 1;
+                }
             }
         }
 

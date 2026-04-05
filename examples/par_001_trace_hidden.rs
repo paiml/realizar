@@ -65,9 +65,13 @@ fn main() {
         }
 
         // QKV projection
-        let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
-            OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-            _ => panic!("Expected separate"),
+        let OwnedQKVWeights::Separate {
+            q: q_weight,
+            k: k_weight,
+            v: v_weight,
+        } = &layer.qkv_weight
+        else {
+            panic!("Expected separate")
         };
 
         let q = fused_matmul(
@@ -226,7 +230,7 @@ fn main() {
     }
 
     // Final norm
-    let final_hidden = rms_norm(&hidden, &model.output_norm_weight(), eps);
+    let final_hidden = rms_norm(&hidden, model.output_norm_weight(), eps);
     println!("\nAfter final norm: L2={:.4}", l2_norm(&final_hidden));
 
     // LM head projection
@@ -241,18 +245,18 @@ fn main() {
     println!(
         "Logits: L2={:.4}, min={:.4}, max={:.4}",
         l2_norm(&logits),
-        logits.iter().cloned().fold(f32::INFINITY, f32::min),
-        logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+        logits.iter().copied().fold(f32::INFINITY, f32::min),
+        logits.iter().copied().fold(f32::NEG_INFINITY, f32::max)
     );
 
     // Top 5
-    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     let vocab = mapped.model.vocabulary().expect("test");
     println!("\nTop 5 predictions:");
     for (rank, (idx, score)) in indexed.iter().take(5).enumerate() {
-        let tok = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok = vocab.get(*idx).map_or("?", |s| s.as_str());
         println!("  {}: {} = {:.4} ('{}')", rank + 1, idx, score, tok);
     }
 

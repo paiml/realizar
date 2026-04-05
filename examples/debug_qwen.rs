@@ -24,8 +24,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "\nLogits stats: len={}, min={:.4}, max={:.4}",
         logits.len(),
-        logits.iter().cloned().fold(f32::INFINITY, f32::min),
-        logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+        logits.iter().copied().fold(f32::INFINITY, f32::min),
+        logits.iter().copied().fold(f32::NEG_INFINITY, f32::max)
     );
 
     // Top 10 tokens

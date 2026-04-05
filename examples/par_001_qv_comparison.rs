@@ -103,8 +103,8 @@ fn main() {
                 "Q row 0: L2={:.4}, mean={:.6}, range=[{:.4}, {:.4}]",
                 l2_norm(&q_row0),
                 q_row0.iter().sum::<f32>() / q_row0.len() as f32,
-                q_row0.iter().cloned().fold(f32::INFINITY, f32::min),
-                q_row0.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+                q_row0.iter().copied().fold(f32::INFINITY, f32::min),
+                q_row0.iter().copied().fold(f32::NEG_INFINITY, f32::max)
             );
 
             // V weights (first row)
@@ -114,8 +114,8 @@ fn main() {
                 "V row 0: L2={:.4}, mean={:.6}, range=[{:.4}, {:.4}]",
                 l2_norm(&v_row0),
                 v_row0.iter().sum::<f32>() / v_row0.len() as f32,
-                v_row0.iter().cloned().fold(f32::INFINITY, f32::min),
-                v_row0.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+                v_row0.iter().copied().fold(f32::INFINITY, f32::min),
+                v_row0.iter().copied().fold(f32::NEG_INFINITY, f32::max)
             );
 
             // Check alignment between input and weights

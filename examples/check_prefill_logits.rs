@@ -43,15 +43,14 @@ Hello<|im_end|>
     );
 
     // Top 20 predictions
-    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     eprintln!("\nTop 20 predictions after seeing full prompt:");
     for (rank, (idx, score)) in indexed.iter().take(20).enumerate() {
         let tok_str = vocab
             .get(*idx)
-            .map(|s| s.escape_debug().to_string())
-            .unwrap_or("?".to_string());
+            .map_or("?".to_string(), |s| s.escape_debug().to_string());
         eprintln!(
             "{:2}. token {:6} score={:.4}  '{}'",
             rank + 1,
@@ -70,8 +69,7 @@ Hello<|im_end|>
             let rank = indexed
                 .iter()
                 .position(|(i, _)| *i == idx)
-                .map(|r| r + 1)
-                .unwrap_or(0);
+                .map_or(0, |r| r + 1);
             eprintln!(
                 "  '{}' (id={}) score={:.4} rank={}",
                 check_tok.escape_debug(),

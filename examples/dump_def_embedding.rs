@@ -36,7 +36,7 @@ fn main() {
     eprintln!("\n=== Tokenization of 'def' ===");
     eprintln!("Token count: {}", def_tokens.len());
     for (i, &tok) in def_tokens.iter().enumerate() {
-        let tok_str = vocab.get(tok as usize).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(tok as usize).map_or("?", |s| s.as_str());
         eprintln!("  [{}] token_id={}, string='{}'", i, tok, tok_str);
     }
 
@@ -90,8 +90,8 @@ fn main() {
             // Stats
             let sum: f32 = emb.iter().sum();
             let norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
-            let min = emb.iter().cloned().fold(f32::INFINITY, f32::min);
-            let max = emb.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let min = emb.iter().copied().fold(f32::INFINITY, f32::min);
+            let max = emb.iter().copied().fold(f32::NEG_INFINITY, f32::max);
 
             eprintln!("\nStats:");
             eprintln!("  sum:  {:.8}", sum);

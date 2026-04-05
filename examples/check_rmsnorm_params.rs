@@ -42,8 +42,8 @@ fn main() {
 
             // Load weight and show stats
             if let Ok(weight) = mapped.model.get_tensor_f32(&tensor.name, mapped.data()) {
-                let min = weight.iter().cloned().fold(f32::INFINITY, f32::min);
-                let max = weight.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                let min = weight.iter().copied().fold(f32::INFINITY, f32::min);
+                let max = weight.iter().copied().fold(f32::NEG_INFINITY, f32::max);
                 let mean: f32 = weight.iter().sum::<f32>() / weight.len() as f32;
                 println!(
                     "  Weight stats: min={:.6}, max={:.6}, mean={:.6}",

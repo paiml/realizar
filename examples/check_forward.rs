@@ -27,7 +27,7 @@ fn main() {
     println!("Logits shape: {}", logits.len());
 
     // Get top-5 predictions
-    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
     indexed.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 
     println!("\nTop 10 predictions:");
@@ -42,8 +42,8 @@ fn main() {
     }
 
     // Check logit statistics
-    let min = logits.iter().cloned().fold(f32::INFINITY, f32::min);
-    let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min = logits.iter().copied().fold(f32::INFINITY, f32::min);
+    let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let sum: f32 = logits.iter().sum();
     let mean = sum / logits.len() as f32;
 

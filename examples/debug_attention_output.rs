@@ -1,5 +1,10 @@
 //! Debug attention output - compare before attn_output projection
-#![allow(unused_variables, unused_assignments, clippy::manual_memcpy)]
+#![allow(
+    unused_variables,
+    unused_assignments,
+    clippy::manual_memcpy,
+    deprecated
+)]
 
 use realizar::apr_transformer::AprTransformer;
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};

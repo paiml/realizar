@@ -38,9 +38,13 @@ fn main() {
     for layer_idx in 0..2 {
         let layer = &model.layers()[layer_idx];
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
-        let (_, _, v_weight) = match &layer.qkv_weight {
-            OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-            _ => panic!(""),
+        let OwnedQKVWeights::Separate {
+            q: _,
+            k: _,
+            v: v_weight,
+        } = &layer.qkv_weight
+        else {
+            panic!("")
         };
         let v = fused_matmul(
             &normed,
@@ -108,9 +112,13 @@ fn main() {
     let layer = &model.layers()[2];
     // Get to FFN input
     let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
-    let (_, _, v_weight) = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-        _ => panic!(""),
+    let OwnedQKVWeights::Separate {
+        q: _,
+        k: _,
+        v: v_weight,
+    } = &layer.qkv_weight
+    else {
+        panic!("")
     };
     let v = fused_matmul(
         &normed,

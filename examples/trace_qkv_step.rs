@@ -53,12 +53,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         layer
             .attn_norm_weight
             .iter()
-            .cloned()
+            .copied()
             .fold(f32::INFINITY, f32::min),
         layer
             .attn_norm_weight
             .iter()
-            .cloned()
+            .copied()
             .fold(f32::NEG_INFINITY, f32::max)
     );
 
@@ -106,22 +106,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("\nQ bias stats:");
         println!("  First 8: {:?}", &q_bias[..8.min(q_bias.len())]);
         let q_mean: f32 = q_bias.iter().sum::<f32>() / q_bias.len() as f32;
-        let q_min = q_bias.iter().cloned().fold(f32::INFINITY, f32::min);
-        let q_max = q_bias.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let q_min = q_bias.iter().copied().fold(f32::INFINITY, f32::min);
+        let q_max = q_bias.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         println!("  mean={:.4}, range=[{:.4}, {:.4}]", q_mean, q_min, q_max);
 
         println!("\nK bias stats:");
         println!("  First 8: {:?}", &k_bias[..8.min(k_bias.len())]);
         let k_mean: f32 = k_bias.iter().sum::<f32>() / k_bias.len() as f32;
-        let k_min = k_bias.iter().cloned().fold(f32::INFINITY, f32::min);
-        let k_max = k_bias.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let k_min = k_bias.iter().copied().fold(f32::INFINITY, f32::min);
+        let k_max = k_bias.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         println!("  mean={:.4}, range=[{:.4}, {:.4}]", k_mean, k_min, k_max);
 
         println!("\nV bias stats:");
         println!("  First 8: {:?}", &v_bias[..8.min(v_bias.len())]);
         let v_mean: f32 = v_bias.iter().sum::<f32>() / v_bias.len() as f32;
-        let v_min = v_bias.iter().cloned().fold(f32::INFINITY, f32::min);
-        let v_max = v_bias.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let v_min = v_bias.iter().copied().fold(f32::INFINITY, f32::min);
+        let v_max = v_bias.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         println!("  mean={:.4}, range=[{:.4}, {:.4}]", v_mean, v_min, v_max);
     }
 
@@ -139,8 +139,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let logit_mean: f32 = logits.iter().sum::<f32>() / logits.len() as f32;
     let logit_std: f32 =
         (logits.iter().map(|x| (x - logit_mean).powi(2)).sum::<f32>() / logits.len() as f32).sqrt();
-    let logit_min = logits.iter().cloned().fold(f32::INFINITY, f32::min);
-    let logit_max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let logit_min = logits.iter().copied().fold(f32::INFINITY, f32::min);
+    let logit_max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
 
     println!(
         "Logit stats: mean={:.4}, std={:.4}, range=[{:.4}, {:.4}]",

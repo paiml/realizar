@@ -46,9 +46,8 @@ fn run_test() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     // Get Q weight from layer 0
-    let q_weight = match &model.layers()[0].qkv_weight {
-        OwnedQKVWeights::Separate { q, .. } => q,
-        _ => panic!("Expected separate QKV"),
+    let OwnedQKVWeights::Separate { q: q_weight, .. } = &model.layers()[0].qkv_weight else {
+        panic!("Expected separate QKV")
     };
 
     // === CPU Q4K ===

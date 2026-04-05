@@ -93,7 +93,7 @@ fn fkr_backend_f044_softmax_stability() {
     // Stable softmax: exp(x - max(x)) / sum(exp(x - max(x)))
     let max_val = large_values
         .iter()
-        .cloned()
+        .copied()
         .fold(f32::NEG_INFINITY, f32::max);
     let exp_shifted: Vec<f32> = large_values.iter().map(|x| (x - max_val).exp()).collect();
     let sum: f32 = exp_shifted.iter().sum();

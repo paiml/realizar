@@ -54,10 +54,10 @@ fn main() -> Result<(), RealizarError> {
         // Warmup
         match qtype {
             GGUF_TYPE_Q4_K => {
-                fused_q4k_parallel_matvec_into(weight_data, input, in_dim, out_dim, &mut output)?
+                fused_q4k_parallel_matvec_into(weight_data, input, in_dim, out_dim, &mut output)?;
             },
             GGUF_TYPE_Q6_K => {
-                fused_q6k_parallel_matvec_into(weight_data, input, in_dim, out_dim, &mut output)?
+                fused_q6k_parallel_matvec_into(weight_data, input, in_dim, out_dim, &mut output)?;
             },
             _ => return Ok(0.0),
         }

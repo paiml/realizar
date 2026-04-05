@@ -133,7 +133,7 @@ fn main() {
 
     // Calculate statistics
     fn stats(times: &mut [u128]) -> (u128, u128, u128) {
-        times.sort();
+        times.sort_unstable();
         let min = times[0];
         let median = times[times.len() / 2];
         let avg = times.iter().sum::<u128>() / times.len() as u128;

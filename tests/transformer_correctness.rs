@@ -675,7 +675,7 @@ fn create_transformer_with_identity_weights(config: &AprTransformerConfig) -> Ap
 
 /// Compute softmax with numerical stability (subtract max)
 fn compute_softmax(logits: &[f32]) -> Vec<f32> {
-    let max_logit = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let max_logit = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let exp_sum: f32 = logits.iter().map(|x| (x - max_logit).exp()).sum();
     logits
         .iter()

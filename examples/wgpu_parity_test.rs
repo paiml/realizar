@@ -1,3 +1,4 @@
+#![allow(clippy::many_single_char_names, clippy::needless_range_loop)]
 //! FALSIFY-MBP-001: wgpu parity test on Blackwell sm_121
 //!
 //! Tests whether trueno's WgslForwardPass produces correct results on the
@@ -24,15 +25,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let format = realizar::format::detect_format(&data[..8.min(data.len())])?;
     drop(data);
 
-    let model = match format {
-        realizar::format::ModelFormat::Apr { .. } => {
-            let mapped = MappedAprModel::from_path(std::path::Path::new(&path))?;
-            OwnedQuantizedModel::from_apr(&mapped)?
-        },
-        _ => {
-            let mapped = MappedGGUFModel::from_path(&path)?;
-            OwnedQuantizedModel::from_mapped(&mapped)?
-        },
+    let model = if format == realizar::format::ModelFormat::Apr {
+        let mapped = MappedAprModel::from_path(std::path::Path::new(&path))?;
+        OwnedQuantizedModel::from_apr(&mapped)?
+    } else {
+        let mapped = MappedGGUFModel::from_path(&path)?;
+        OwnedQuantizedModel::from_mapped(&mapped)?
     };
 
     let config = model.config();

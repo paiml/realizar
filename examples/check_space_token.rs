@@ -10,7 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Find space token
     let mut space_tokens = Vec::new();
     for i in 0..200 {
-        let tok_str = vocab.get(i).map(|s| s.as_str()).unwrap_or("");
+        let tok_str = vocab.get(i).map_or("", |s| s.as_str());
         if tok_str == " " || tok_str == "Ġ" || tok_str.contains(' ') {
             space_tokens.push((i, tok_str.to_string()));
         }

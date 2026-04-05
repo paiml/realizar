@@ -56,7 +56,7 @@ fn main() {
     }
 
     println!("\nTotal by qtype:");
-    for (qtype, count) in total.iter() {
+    for (qtype, count) in &total {
         println!("  {}: {} tensors", qtype_name(*qtype), count);
     }
 }

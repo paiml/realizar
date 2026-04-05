@@ -19,8 +19,8 @@ fn main() {
             let first_block = &gate.data[..Q4_K_BLOCK_SIZE];
             let dequant = dequantize_q4_k(first_block).expect("test");
             let l2: f32 = dequant.iter().map(|x| x * x).sum::<f32>().sqrt();
-            let min = dequant.iter().cloned().fold(f32::INFINITY, f32::min);
-            let max = dequant.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let min = dequant.iter().copied().fold(f32::INFINITY, f32::min);
+            let max = dequant.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             println!(
                 "Layer {} gate: L2={:.4}, min={:.4}, max={:.4}",
                 layer_idx, l2, min, max
@@ -31,8 +31,8 @@ fn main() {
         let first_block = &up.data[..Q4_K_BLOCK_SIZE];
         let dequant = dequantize_q4_k(first_block).expect("test");
         let l2: f32 = dequant.iter().map(|x| x * x).sum::<f32>().sqrt();
-        let min = dequant.iter().cloned().fold(f32::INFINITY, f32::min);
-        let max = dequant.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let min = dequant.iter().copied().fold(f32::INFINITY, f32::min);
+        let max = dequant.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         println!(
             "Layer {} up:   L2={:.4}, min={:.4}, max={:.4}",
             layer_idx, l2, min, max

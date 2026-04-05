@@ -86,7 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Output Norm ===");
     println!("GGUF first 8: {:?}", &gguf.output_norm_weight()[..8]);
     println!("APR first 8:  {:?}", &apr.output_norm_weight[..8]);
-    let out_norm_corr = correlation(&gguf.output_norm_weight(), &apr.output_norm_weight);
+    let out_norm_corr = correlation(gguf.output_norm_weight(), &apr.output_norm_weight);
     println!("Output norm correlation: {:.6}", out_norm_corr);
 
     // Check QKV weight sizes

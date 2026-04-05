@@ -94,12 +94,9 @@ fn main() -> Result<(), RealizarError> {
     println!("Gap: {:.1}x (other overhead)", toks_per_sec / 12.0);
 
     // Now test with QKV matmul (smaller)
-    let qkv_weight = match &layer.qkv_weight {
-        realizar::gguf::OwnedQKVWeights::Fused(w) => w,
-        _ => {
-            println!("\nQKV weight is not fused, skipping");
-            return Ok(());
-        },
+    let realizar::gguf::OwnedQKVWeights::Fused(qkv_weight) = &layer.qkv_weight else {
+        println!("\nQKV weight is not fused, skipping");
+        return Ok(());
     };
 
     println!("\n=== QKV Matmul Performance ===");

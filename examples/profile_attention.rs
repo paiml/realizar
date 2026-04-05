@@ -172,7 +172,7 @@ fn attention_gqa(
     }
 }
 
-#[inline(always)]
+#[inline]
 fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
 }
@@ -189,7 +189,7 @@ fn softmax(x: &mut [f32]) {
     }
 }
 
-#[inline(always)]
+#[inline]
 fn axpy(out: &mut [f32], a: f32, x: &[f32]) {
     for (o, &xi) in out.iter_mut().zip(x.iter()) {
         *o += a * xi;

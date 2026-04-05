@@ -15,13 +15,7 @@ fn silu(x: &mut [f32]) {
 fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: usize) -> Vec<f32> {
     match qtype {
         GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec(data, input, in_dim, out_dim).expect("test"),
-        GGUF_TYPE_Q6_K => {
-            if out_dim == 256 {
-                fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test")
-            } else {
-                fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test")
-            }
-        },
+        GGUF_TYPE_Q6_K => fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test"),
         _ => panic!(""),
     }
 }
@@ -46,9 +40,13 @@ fn main() {
         for layer_idx in 0..max_layers.min(model.config().num_layers) {
             let layer = &model.layers()[layer_idx];
             let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
-            let (q_weight, _, v_weight) = match &layer.qkv_weight {
-                OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-                _ => panic!(""),
+            let OwnedQKVWeights::Separate {
+                q: q_weight,
+                k: _,
+                v: v_weight,
+            } = &layer.qkv_weight
+            else {
+                panic!("")
             };
             let _ = fused_matmul(
                 &normed,
@@ -109,7 +107,7 @@ fn main() {
             }
         }
 
-        let final_hidden = rms_norm(&hidden, &model.output_norm_weight(), eps);
+        let final_hidden = rms_norm(&hidden, model.output_norm_weight(), eps);
         let logits = fused_matmul(
             &final_hidden,
             &model.lm_head_weight().data,
@@ -118,12 +116,12 @@ fn main() {
             model.lm_head_weight().out_dim,
         );
 
-        let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+        let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
         indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).expect("test"));
 
         println!("After {} layer(s), top 5:", max_layers);
         for (rank, (idx, score)) in indexed.iter().take(5).enumerate() {
-            let tok = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
+            let tok = vocab.get(*idx).map_or("?", |s| s.as_str());
             println!("  {}: {} = {:.4} ('{}')", rank + 1, idx, score, tok);
         }
         println!();

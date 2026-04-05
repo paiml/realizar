@@ -7,7 +7,7 @@ use realizar::Tensor;
 fn benchmark_tensor_creation(c: &mut Criterion) {
     let mut group = c.benchmark_group("tensor_creation");
 
-    for size in [10, 100, 1000, 10_000].iter() {
+    for size in &[10, 100, 1000, 10_000] {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let data: Vec<f32> = (0..size).map(|i| i as f32).collect();
             let shape = vec![size];

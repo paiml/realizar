@@ -21,13 +21,7 @@ fn silu(x: &mut [f32]) {
 fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: usize) -> Vec<f32> {
     match qtype {
         GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec(data, input, in_dim, out_dim).expect("test"),
-        GGUF_TYPE_Q6_K => {
-            if out_dim == 256 {
-                fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test")
-            } else {
-                fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test")
-            }
-        },
+        GGUF_TYPE_Q6_K => fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test"),
         _ => panic!(""),
     }
 }
@@ -54,9 +48,13 @@ fn main() {
     for layer_idx in 0..model.config().num_layers {
         let layer = &model.layers()[layer_idx];
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
-        let (q_weight, _, v_weight) = match &layer.qkv_weight {
-            OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-            _ => panic!(""),
+        let OwnedQKVWeights::Separate {
+            q: q_weight,
+            k: _,
+            v: v_weight,
+        } = &layer.qkv_weight
+        else {
+            panic!("")
         };
         let _ = fused_matmul(
             &normed,
@@ -117,7 +115,7 @@ fn main() {
         }
     }
 
-    let final_hidden = rms_norm(&hidden, &model.output_norm_weight(), eps);
+    let final_hidden = rms_norm(&hidden, model.output_norm_weight(), eps);
     let logits_manual = fused_matmul(
         &final_hidden,
         &model.lm_head_weight().data,
@@ -139,21 +137,21 @@ fn main() {
     println!("Difference L2: {:.6}", l2_norm(&diff));
 
     // Top predictions from each
-    let mut indexed_cached: Vec<(usize, f32)> = logits_cached.iter().cloned().enumerate().collect();
+    let mut indexed_cached: Vec<(usize, f32)> = logits_cached.iter().copied().enumerate().collect();
     indexed_cached.sort_by(|a, b| b.1.partial_cmp(&a.1).expect("test"));
 
-    let mut indexed_manual: Vec<(usize, f32)> = logits_manual.iter().cloned().enumerate().collect();
+    let mut indexed_manual: Vec<(usize, f32)> = logits_manual.iter().copied().enumerate().collect();
     indexed_manual.sort_by(|a, b| b.1.partial_cmp(&a.1).expect("test"));
 
     println!("\nCached top 5:");
     for (rank, (idx, score)) in indexed_cached.iter().take(5).enumerate() {
-        let tok = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok = vocab.get(*idx).map_or("?", |s| s.as_str());
         println!("  {}: {} = {:.4} ('{}')", rank + 1, idx, score, tok);
     }
 
     println!("\nManual top 5:");
     for (rank, (idx, score)) in indexed_manual.iter().take(5).enumerate() {
-        let tok = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok = vocab.get(*idx).map_or("?", |s| s.as_str());
         println!("  {}: {} = {:.4} ('{}')", rank + 1, idx, score, tok);
     }
 }

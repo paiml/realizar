@@ -65,8 +65,8 @@ fn main() {
                     let first_row = &v_dequant[..v.in_dim.min(v_dequant.len())];
                     println!("\n  First row stats:");
                     println!("    L2: {:.4}", l2_norm(first_row));
-                    let min = first_row.iter().cloned().fold(f32::INFINITY, f32::min);
-                    let max = first_row.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    let min = first_row.iter().copied().fold(f32::INFINITY, f32::min);
+                    let max = first_row.iter().copied().fold(f32::NEG_INFINITY, f32::max);
                     println!("    Range: [{:.6}, {:.6}]", min, max);
                 },
                 Err(e) => {

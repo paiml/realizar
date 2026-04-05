@@ -44,9 +44,8 @@ fn main() {
     println!("  First 10: {:?}", &normed[0..10]);
 
     // Step 3: Q projection (Q4_K)
-    let q_weight = match &layer0.qkv_weight {
-        OwnedQKVWeights::Separate { q, .. } => q,
-        _ => panic!("Expected separate"),
+    let OwnedQKVWeights::Separate { q: q_weight, .. } = &layer0.qkv_weight else {
+        panic!("Expected separate")
     };
 
     println!("\nQ weight info:");
@@ -71,8 +70,8 @@ fn main() {
     println!("  Inf count: {}", inf_count);
 
     // Statistics
-    let min = q_output.iter().cloned().fold(f32::INFINITY, f32::min);
-    let max = q_output.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min = q_output.iter().copied().fold(f32::INFINITY, f32::min);
+    let max = q_output.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let mean = q_output.iter().sum::<f32>() / q_output.len() as f32;
     println!("  Min: {:.6}", min);
     println!("  Max: {:.6}", max);

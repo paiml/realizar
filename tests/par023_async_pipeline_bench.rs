@@ -418,8 +418,8 @@ fn test_par023_e2e_gpu_resident_throughput() {
     let owned_model = OwnedQuantizedModel::from_mapped(&mapped_model)
         .expect("Failed to create OwnedQuantizedModel");
 
-    eprintln!("  Hidden dim: {}", owned_model.config.hidden_dim);
-    eprintln!("  Layers: {}", owned_model.config.num_layers);
+    eprintln!("  Hidden dim: {}", owned_model.config().hidden_dim);
+    eprintln!("  Layers: {}", owned_model.config().num_layers);
 
     // Create CUDA-accelerated model
     let mut cuda_model =

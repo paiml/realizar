@@ -41,7 +41,7 @@ Hello<|im_end|>
     let generated = &output_tokens[prompt_tokens.len()..];
     let output_str: String = generated
         .iter()
-        .map(|&t| vocab.get(t as usize).map(|s| s.as_str()).unwrap_or("?"))
+        .map(|&t| vocab.get(t as usize).map_or("?", |s| s.as_str()))
         .collect::<Vec<_>>()
         .join("");
 

@@ -19,7 +19,7 @@
 //! - Fuzzing-style adversarial payloads
 //! - Boundary condition exploitation
 
-#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_possible_truncation, clippy::match_wild_err_arm)]
 
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -503,12 +503,11 @@ fn test_falsify_metadata_deep_nesting() {
     let elapsed = start.elapsed();
 
     // Check for hang (>5 seconds)
-    if elapsed > Duration::from_secs(5) {
-        panic!(
-            "[FALSIFIED] Deep nesting caused hang ({}s)",
-            elapsed.as_secs()
-        );
-    }
+    assert!(
+        elapsed <= Duration::from_secs(5),
+        "[FALSIFIED] Deep nesting caused hang ({}s)",
+        elapsed.as_secs()
+    );
 
     match result {
         Ok(Ok(_)) => {

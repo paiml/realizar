@@ -39,9 +39,9 @@ fn main() {
             .collect();
 
         // Q projection only to check divergence
-        let q_weight = match &layer.qkv_weight {
-            realizar::gguf::OwnedQKVWeights::Separate { q, .. } => q,
-            _ => panic!("Expected separate QKV"),
+        let realizar::gguf::OwnedQKVWeights::Separate { q: q_weight, .. } = &layer.qkv_weight
+        else {
+            panic!("Expected separate QKV")
         };
 
         let q = realizar::quantize::fused_q4k_parallel_matvec(

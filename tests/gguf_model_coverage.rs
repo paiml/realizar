@@ -103,7 +103,7 @@ fn add_bool_meta(data: &mut Vec<u8>, key: &str, value: bool) {
     data.extend_from_slice(&(key.len() as u64).to_le_bytes());
     data.extend_from_slice(key.as_bytes());
     data.extend_from_slice(&7u32.to_le_bytes()); // Bool type
-    data.push(if value { 1 } else { 0 });
+    data.push(u8::from(value));
 }
 
 /// Add u64 metadata to GGUF data

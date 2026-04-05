@@ -173,6 +173,6 @@ fn test_cache_effects() {
 
 fn median(times: &[u128]) -> u128 {
     let mut sorted = times.to_vec();
-    sorted.sort();
+    sorted.sort_unstable();
     sorted[sorted.len() / 2]
 }

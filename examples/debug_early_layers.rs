@@ -66,9 +66,13 @@ fn main() {
         println!("After attn norm L2: {:.4}", l2_norm(&normed));
 
         // Q, K, V projections
-        let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
-            OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-            _ => panic!("Expected separate"),
+        let OwnedQKVWeights::Separate {
+            q: q_weight,
+            k: k_weight,
+            v: v_weight,
+        } = &layer.qkv_weight
+        else {
+            panic!("Expected separate")
         };
 
         let q = fused_matmul(

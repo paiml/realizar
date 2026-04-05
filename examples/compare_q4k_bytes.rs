@@ -1,5 +1,6 @@
 //! Compare raw Q4K bytes between GGUF and APR
 //! Debug tool for PMAT-103: Find where APR Q4K bytes diverge
+#![allow(deprecated, clippy::manual_let_else)]
 use realizar::apr_transformer::AprTransformer;
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
 
@@ -15,12 +16,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading APR from: {}", apr_path);
     let apr = AprTransformer::from_apr_file(apr_path)?;
 
-    let q4k_layers = match &apr.q4k_layers {
-        Some(layers) => layers,
-        None => {
-            println!("No Q4K layers in APR!");
-            return Ok(());
-        },
+    let q4k_layers = if let Some(layers) = &apr.q4k_layers {
+        layers
+    } else {
+        println!("No Q4K layers in APR!");
+        return Ok(());
     };
 
     // Compare ffn_gate bytes

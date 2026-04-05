@@ -42,10 +42,10 @@ fn main() {
             let end = start + hidden_dim;
             let embedding = &model.token_embedding()[start..end];
             let l2 = l2_norm(embedding);
-            let min = embedding.iter().cloned().fold(f32::INFINITY, f32::min);
-            let max = embedding.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let min = embedding.iter().copied().fold(f32::INFINITY, f32::min);
+            let max = embedding.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let mean = embedding.iter().sum::<f32>() / hidden_dim as f32;
-            let name = vocab.get(tok).map(|s| s.as_str()).unwrap_or("?");
+            let name = vocab.get(tok).map_or("?", |s| s.as_str());
 
             println!("\nToken {} ('{}'):", tok, name);
             println!(
@@ -79,7 +79,7 @@ fn main() {
     );
     println!(
         "output_norm_weight L2: {:.4}",
-        l2_norm(&model.output_norm_weight())
+        l2_norm(model.output_norm_weight())
     );
     println!(
         "First 10: {:?}",

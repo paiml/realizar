@@ -38,15 +38,14 @@ fn main() {
         .forward_single_with_cache(bos_token, &mut cache, 0)
         .expect("forward");
 
-    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     eprintln!("Top 10 after BOS:");
     for (rank, (idx, score)) in indexed.iter().take(10).enumerate() {
         let tok_str = vocab
             .get(*idx)
-            .map(|s| s.escape_debug().to_string())
-            .unwrap_or("?".to_string());
+            .map_or("?".to_string(), |s| s.escape_debug().to_string());
         eprintln!(
             "{:2}. {:6} score={:.4}  '{}'",
             rank + 1,
@@ -65,7 +64,7 @@ fn main() {
     let mut tokens = vec![bos_token];
 
     for i in 0..10 {
-        let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+        let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
         indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         let next_tok = indexed[0].0 as u32;
         let default = "?".to_string();

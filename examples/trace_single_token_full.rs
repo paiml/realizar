@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     indexed.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     println!("Top 10 predictions:");
     for (tok_id, logit) in indexed.iter().take(10) {
-        let tok_str = vocab.get(*tok_id).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(*tok_id).map_or("?", |s| s.as_str());
         println!("  Token {} ({:?}): logit={:.4}", tok_id, tok_str, logit);
     }
 
@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     indexed2.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     println!("Top 10 predictions:");
     for (tok_id, logit) in indexed2.iter().take(10) {
-        let tok_str = vocab.get(*tok_id).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(*tok_id).map_or("?", |s| s.as_str());
         println!("  Token {} ({:?}): logit={:.4}", tok_id, tok_str, logit);
     }
 
@@ -152,10 +152,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Final Logit Analysis ===");
 
     // Check if all logits are within reasonable range
-    let logit_min = logits_forward.iter().cloned().fold(f32::INFINITY, f32::min);
+    let logit_min = logits_forward.iter().copied().fold(f32::INFINITY, f32::min);
     let logit_max = logits_forward
         .iter()
-        .cloned()
+        .copied()
         .fold(f32::NEG_INFINITY, f32::max);
     let logit_mean: f32 = logits_forward.iter().sum::<f32>() / logits_forward.len() as f32;
     let logit_std: f32 = (logits_forward

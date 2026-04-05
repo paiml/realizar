@@ -23,8 +23,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let emb_norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
     let emb_sum: f32 = emb.iter().sum();
-    let emb_max: f32 = emb.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    let emb_min: f32 = emb.iter().cloned().fold(f32::INFINITY, f32::min);
+    let emb_max: f32 = emb.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let emb_min: f32 = emb.iter().copied().fold(f32::INFINITY, f32::min);
 
     println!("\n1. Initial Embedding (BOS token):");
     println!("   norm: {:.4}", emb_norm);

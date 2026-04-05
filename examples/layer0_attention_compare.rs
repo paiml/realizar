@@ -92,9 +92,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     // Q, K, V projections
-    let (q_weight, k_weight, v_weight) = match &model.layers()[0].qkv_weight {
-        OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-        _ => panic!("Expected separate QKV"),
+    let OwnedQKVWeights::Separate {
+        q: q_weight,
+        k: k_weight,
+        v: v_weight,
+    } = &model.layers()[0].qkv_weight
+    else {
+        panic!("Expected separate QKV")
     };
 
     let mut q = fused_matmul(

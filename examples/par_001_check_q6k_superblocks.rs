@@ -59,9 +59,9 @@ fn main() {
                     let l2 = (sb0_dequant.iter().map(|x| x * x).sum::<f32>()).sqrt();
                     let max = sb0_dequant
                         .iter()
-                        .cloned()
+                        .copied()
                         .fold(f32::NEG_INFINITY, f32::max);
-                    let min = sb0_dequant.iter().cloned().fold(f32::INFINITY, f32::min);
+                    let min = sb0_dequant.iter().copied().fold(f32::INFINITY, f32::min);
                     let mean = sb0_dequant.iter().sum::<f32>() / sb0_dequant.len() as f32;
                     let nonzero = sb0_dequant.iter().filter(|&&x| x.abs() > 1e-6).count();
 

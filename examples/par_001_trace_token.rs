@@ -15,8 +15,8 @@ fn l2_norm(v: &[f32]) -> f32 {
 
 fn stats(name: &str, v: &[f32]) {
     let l2 = l2_norm(v);
-    let min = v.iter().cloned().fold(f32::INFINITY, f32::min);
-    let max = v.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min = v.iter().copied().fold(f32::INFINITY, f32::min);
+    let max = v.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let mean = v.iter().sum::<f32>() / v.len() as f32;
     let has_nan = v.iter().any(|x| x.is_nan());
     let has_inf = v.iter().any(|x| x.is_infinite());
@@ -59,10 +59,7 @@ fn main() {
 
     let token_id: u32 = 26222; // "Once"
     let vocab = mapped.model.vocabulary().expect("test");
-    let token_str = vocab
-        .get(token_id as usize)
-        .map(|s| s.as_str())
-        .unwrap_or("?");
+    let token_str = vocab.get(token_id as usize).map_or("?", |s| s.as_str());
     println!("\nInput token: {} ('{}')", token_id, token_str);
 
     // Step 1: Embedding
@@ -79,9 +76,13 @@ fn main() {
 
     // Step 3: QKV projection
     println!("\n=== Step 3: QKV Projection ===");
-    let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-        _ => panic!("Expected separate QKV"),
+    let OwnedQKVWeights::Separate {
+        q: q_weight,
+        k: k_weight,
+        v: v_weight,
+    } = &layer.qkv_weight
+    else {
+        panic!("Expected separate QKV")
     };
 
     println!(

@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  embedding len: {} (expected: {})", emb_len, expected);
 
     // Check token 0 (padding)
-    let tok0_start = 0 * hidden_dim;
+    let tok0_start = 0;
     let tok0 = &emb[tok0_start..tok0_start + 10.min(hidden_dim)];
     println!("  token 0 first 10: {:?}", tok0);
 
@@ -80,8 +80,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  first non-zero token in 0..1000: {:?}", first_nonzero);
 
     let emb_mean: f32 = emb.iter().sum::<f32>() / emb_len as f32;
-    let emb_min = emb.iter().cloned().fold(f32::INFINITY, f32::min);
-    let emb_max = emb.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let emb_min = emb.iter().copied().fold(f32::INFINITY, f32::min);
+    let emb_max = emb.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     println!(
         "  mean: {:.6}, min: {:.6}, max: {:.6}",
         emb_mean, emb_min, emb_max
@@ -94,8 +94,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  lm_head len: {} (expected: {})", lm_len, lm_expected);
     println!("  first 10: {:?}", &lm[..10.min(lm_len)]);
     let lm_mean: f32 = lm.iter().sum::<f32>() / lm_len as f32;
-    let lm_min = lm.iter().cloned().fold(f32::INFINITY, f32::min);
-    let lm_max = lm.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let lm_min = lm.iter().copied().fold(f32::INFINITY, f32::min);
+    let lm_max = lm.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     println!(
         "  mean: {:.6}, min: {:.6}, max: {:.6}",
         lm_mean, lm_min, lm_max

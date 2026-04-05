@@ -117,16 +117,14 @@ fn main() {
             speedups
                 .iter()
                 .find(|(l, _)| *l == 512)
-                .map(|(_, s)| *s)
-                .unwrap_or(0.0)
+                .map_or(0.0, |(_, s)| *s)
         );
         println!(
             "- At seq_len=1024: {:.0}x speedup",
             speedups
                 .iter()
                 .find(|(l, _)| *l == 1024)
-                .map(|(_, s)| *s)
-                .unwrap_or(0.0)
+                .map_or(0.0, |(_, s)| *s)
         );
     } else {
         println!(

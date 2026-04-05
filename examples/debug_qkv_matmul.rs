@@ -138,8 +138,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Compare weight statistics
         println!("\n=== Weight Statistics ===");
         let apr_sum: f32 = apr_qkv.iter().sum();
-        let apr_max = apr_qkv.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let apr_min = apr_qkv.iter().cloned().fold(f32::INFINITY, f32::min);
+        let apr_max = apr_qkv.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let apr_min = apr_qkv.iter().copied().fold(f32::INFINITY, f32::min);
         println!(
             "APR: sum={:.4}, max={:.4}, min={:.4}",
             apr_sum, apr_max, apr_min

@@ -203,7 +203,7 @@ fn load_and_create_model(
         })
         .unwrap_or("Unknown")
         .to_string();
-    let n_layers = owned_model.layers.len();
+    let n_layers = owned_model.layers().len();
 
     println!("  Model: {} ({} layers)", model_name, n_layers);
     println!("  Load time: {:.2}s", load_start.elapsed().as_secs_f64());

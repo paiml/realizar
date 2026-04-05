@@ -23,8 +23,8 @@ fn mean(v: &[f32]) -> f32 {
 
 fn minmax(v: &[f32]) -> (f32, f32) {
     (
-        v.iter().cloned().fold(f32::INFINITY, f32::min),
-        v.iter().cloned().fold(f32::NEG_INFINITY, f32::max),
+        v.iter().copied().fold(f32::INFINITY, f32::min),
+        v.iter().copied().fold(f32::NEG_INFINITY, f32::max),
     )
 }
 

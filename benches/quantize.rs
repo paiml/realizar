@@ -116,7 +116,7 @@ fn create_q6_k_data(num_super_blocks: usize) -> Vec<u8> {
 fn benchmark_q4_0_dequantize(c: &mut Criterion) {
     let mut group = c.benchmark_group("q4_0_dequantize");
 
-    for num_blocks in [1, 10, 100, 1000].iter() {
+    for num_blocks in &[1, 10, 100, 1000] {
         let data = create_q4_0_data(*num_blocks);
         let num_values = num_blocks * 32; // 32 values per block
 
@@ -142,7 +142,7 @@ fn benchmark_q4_0_dequantize(c: &mut Criterion) {
 fn benchmark_q8_0_dequantize(c: &mut Criterion) {
     let mut group = c.benchmark_group("q8_0_dequantize");
 
-    for num_blocks in [1, 10, 100, 1000].iter() {
+    for num_blocks in &[1, 10, 100, 1000] {
         let data = create_q8_0_data(*num_blocks);
         let num_values = num_blocks * 32;
 
@@ -168,7 +168,7 @@ fn benchmark_q8_0_dequantize(c: &mut Criterion) {
 fn benchmark_q4_k_dequantize(c: &mut Criterion) {
     let mut group = c.benchmark_group("q4_k_dequantize");
 
-    for num_super_blocks in [1, 10, 100].iter() {
+    for num_super_blocks in &[1, 10, 100] {
         let data = create_q4_k_data(*num_super_blocks);
         let num_values = num_super_blocks * 256; // 256 values per super-block
 
@@ -198,7 +198,7 @@ fn benchmark_q4_k_dequantize(c: &mut Criterion) {
 fn benchmark_q5_k_dequantize(c: &mut Criterion) {
     let mut group = c.benchmark_group("q5_k_dequantize");
 
-    for num_super_blocks in [1, 10, 100].iter() {
+    for num_super_blocks in &[1, 10, 100] {
         let data = create_q5_k_data(*num_super_blocks);
         let num_values = num_super_blocks * 256;
 
@@ -228,7 +228,7 @@ fn benchmark_q5_k_dequantize(c: &mut Criterion) {
 fn benchmark_q6_k_dequantize(c: &mut Criterion) {
     let mut group = c.benchmark_group("q6_k_dequantize");
 
-    for num_super_blocks in [1, 10, 100].iter() {
+    for num_super_blocks in &[1, 10, 100] {
         let data = create_q6_k_data(*num_super_blocks);
         let num_values = num_super_blocks * 256;
 
@@ -361,7 +361,7 @@ fn benchmark_quantized_linear_forward(c: &mut Criterion) {
         (2560, 10240, "2560x10240"), // phi-2 FFN up
     ];
 
-    for (in_features, out_features, label) in test_cases.iter() {
+    for (in_features, out_features, label) in &test_cases {
         let weight_data = create_q4k_weight_data(*in_features, *out_features);
         let bias = vec![0.0f32; *out_features];
 
@@ -452,7 +452,7 @@ fn benchmark_quantized_batch_throughput(c: &mut Criterion) {
     let layer = QuantizedLinear::new(in_features, out_features, weight_data, bias)
         .expect("Should create QuantizedLinear");
 
-    for batch_size in [1, 4, 8, 16, 32].iter() {
+    for batch_size in &[1, 4, 8, 16, 32] {
         let input = Tensor::from_vec(
             vec![*batch_size, in_features],
             vec![1.0f32; batch_size * in_features],

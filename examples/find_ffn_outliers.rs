@@ -19,13 +19,7 @@ fn silu(x: &mut [f32]) {
 fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: usize) -> Vec<f32> {
     match qtype {
         GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec(data, input, in_dim, out_dim).expect("test"),
-        GGUF_TYPE_Q6_K => {
-            if out_dim == 256 {
-                fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test")
-            } else {
-                fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test")
-            }
-        },
+        GGUF_TYPE_Q6_K => fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test"),
         _ => panic!("Unsupported qtype"),
     }
 }
@@ -45,9 +39,13 @@ fn main() {
     for layer_idx in 0..2 {
         let layer = &model.layers()[layer_idx];
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
-        let (q_weight, _, v_weight) = match &layer.qkv_weight {
-            OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-            _ => panic!(""),
+        let OwnedQKVWeights::Separate {
+            q: q_weight,
+            k: _,
+            v: v_weight,
+        } = &layer.qkv_weight
+        else {
+            panic!("")
         };
         let _ = fused_matmul(
             &normed,
@@ -111,9 +109,13 @@ fn main() {
     // Layer 2
     let layer = &model.layers()[2];
     let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
-    let (q_weight, _, v_weight) = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-        _ => panic!(""),
+    let OwnedQKVWeights::Separate {
+        q: q_weight,
+        k: _,
+        v: v_weight,
+    } = &layer.qkv_weight
+    else {
+        panic!("")
     };
     let _ = fused_matmul(
         &normed,
@@ -164,7 +166,7 @@ fn main() {
         let ffn_h: Vec<f32> = gate.iter().zip(up.iter()).map(|(a, b)| a * b).collect();
 
         // Find outliers
-        let mut indexed: Vec<(usize, f32)> = ffn_h.iter().cloned().enumerate().collect();
+        let mut indexed: Vec<(usize, f32)> = ffn_h.iter().copied().enumerate().collect();
         indexed.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).expect("test"));
 
         println!("=== FFN hidden outliers (layer 2) ===\n");

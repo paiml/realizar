@@ -1835,7 +1835,9 @@ fn test_q4_0_zero_scale() {
     let result = dequantize_q4_0(&data).expect("valid block");
     assert_eq!(result.len(), 32);
     // All values should be 0 when scale is 0
-    result.iter().for_each(|val| assert!(val.abs() < 1e-6));
+    for val in &result {
+        assert!(val.abs() < 1e-6);
+    }
 }
 
 #[test]
@@ -1847,9 +1849,9 @@ fn test_q4_0_max_quant_values() {
     let result = dequantize_q4_0(&data).expect("valid block");
     assert_eq!(result.len(), 32);
     // Values should be around 7 (15 - 8 = 7)
-    result
-        .iter()
-        .for_each(|val| assert!((*val - 7.0).abs() < 0.1));
+    for val in &result {
+        assert!((*val - 7.0).abs() < 0.1);
+    }
 }
 
 #[test]
@@ -1861,9 +1863,9 @@ fn test_q4_0_min_quant_values() {
     let result = dequantize_q4_0(&data).expect("valid block");
     assert_eq!(result.len(), 32);
     // Values should be -8 (0 - 8 = -8)
-    result
-        .iter()
-        .for_each(|val| assert!((*val - (-8.0)).abs() < 0.1));
+    for val in &result {
+        assert!((*val - (-8.0)).abs() < 0.1);
+    }
 }
 
 #[test]
@@ -1894,7 +1896,9 @@ fn test_q8_0_zero_scale() {
 
     let result = dequantize_q8_0(&data).expect("valid block");
     assert_eq!(result.len(), 32);
-    result.iter().for_each(|val| assert!(val.abs() < 1e-6));
+    for val in &result {
+        assert!(val.abs() < 1e-6);
+    }
 }
 
 #[test]
@@ -2005,7 +2009,9 @@ fn test_q6k_all_max_scales() {
 
     let result = dequantize_q6_k(&data).expect("valid");
     assert_eq!(result.len(), 256);
-    result.iter().for_each(|val| assert!(val.is_finite()));
+    for val in &result {
+        assert!(val.is_finite());
+    }
 }
 
 // ============================================================================
@@ -2051,7 +2057,9 @@ fn test_quantize_activations_q8k_into_large() {
     quantize_activations_q8k_into(&activations, &mut scales, &mut quants).expect("valid");
 
     // Verify scales are positive
-    scales.iter().for_each(|s| assert!(*s > 0.0));
+    for s in &scales {
+        assert!(*s > 0.0);
+    }
 }
 
 // ============================================================================
@@ -2184,7 +2192,9 @@ fn test_fused_swiglu_simd_all_zeros() {
     fused_swiglu_simd(&mut gate, &up);
 
     // silu(0) = 0 * 0.5 = 0
-    gate.iter().for_each(|v| assert!(v.abs() < 1e-6));
+    for v in &gate {
+        assert!(v.abs() < 1e-6);
+    }
 }
 
 // ============================================================================
@@ -2460,7 +2470,9 @@ fn test_quantize_rmsnorm_q8_0_all_zeros() {
 
     assert_eq!(scales.len(), 2);
     assert_eq!(quants.len(), 64);
-    quants.iter().for_each(|q| assert_eq!(*q, 0));
+    for q in &quants {
+        assert_eq!(*q, 0);
+    }
 }
 
 #[test]

@@ -19,13 +19,7 @@ fn silu(x: &mut [f32]) {
 fn fused_matmul(input: &[f32], data: &[u8], qtype: u32, in_dim: usize, out_dim: usize) -> Vec<f32> {
     match qtype {
         GGUF_TYPE_Q4_K => fused_q4k_parallel_matvec(data, input, in_dim, out_dim).expect("test"),
-        GGUF_TYPE_Q6_K => {
-            if out_dim == 256 {
-                fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test")
-            } else {
-                fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test")
-            }
-        },
+        GGUF_TYPE_Q6_K => fused_q6k_parallel_matvec(data, input, in_dim, out_dim).expect("test"),
         _ => panic!("Unsupported qtype"),
     }
 }
@@ -47,9 +41,13 @@ fn main() {
     for layer_idx in 0..2 {
         let layer = &model.layers()[layer_idx];
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
-        let (q_weight, _, v_weight) = match &layer.qkv_weight {
-            OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-            _ => panic!("Expected separate"),
+        let OwnedQKVWeights::Separate {
+            q: q_weight,
+            k: _,
+            v: v_weight,
+        } = &layer.qkv_weight
+        else {
+            panic!("Expected separate")
         };
         let _ = fused_matmul(
             &normed,
@@ -131,9 +129,13 @@ fn main() {
     // Now layer 2 in detail
     let layer = &model.layers()[2];
     let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
-    let (q_weight, _, v_weight) = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-        _ => panic!("Expected separate"),
+    let OwnedQKVWeights::Separate {
+        q: q_weight,
+        k: _,
+        v: v_weight,
+    } = &layer.qkv_weight
+    else {
+        panic!("Expected separate")
     };
     let _ = fused_matmul(
         &normed,

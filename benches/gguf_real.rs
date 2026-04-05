@@ -126,9 +126,8 @@ fn benchmark_gguf_header_parse(c: &mut Criterion) {
 
     for config in get_available_models() {
         // Load file data once
-        let file_data = match fs::read(config.path) {
-            Ok(data) => data,
-            Err(_) => continue,
+        let Ok(file_data) = fs::read(config.path) else {
+            continue;
         };
 
         group.bench_with_input(
@@ -157,14 +156,12 @@ fn benchmark_gguf_transformer_load(c: &mut Criterion) {
 
     for config in get_available_models() {
         // Load file data once
-        let file_data = match fs::read(config.path) {
-            Ok(data) => data,
-            Err(_) => continue,
+        let Ok(file_data) = fs::read(config.path) else {
+            continue;
         };
 
-        let model = match GGUFModel::from_bytes(&file_data) {
-            Ok(m) => m,
-            Err(_) => continue,
+        let Ok(model) = GGUFModel::from_bytes(&file_data) else {
+            continue;
         };
 
         group.bench_with_input(

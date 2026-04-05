@@ -24,12 +24,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let emb_min = model
         .token_embedding()
         .iter()
-        .cloned()
+        .copied()
         .fold(f32::INFINITY, f32::min);
     let emb_max = model
         .token_embedding()
         .iter()
-        .cloned()
+        .copied()
         .fold(f32::NEG_INFINITY, f32::max);
 
     println!(
@@ -69,8 +69,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(ref bias) = layer0.qkv_bias {
         let bias_norm: f32 = bias.iter().map(|x| x * x).sum::<f32>().sqrt();
-        let bias_max = bias.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let bias_min = bias.iter().cloned().fold(f32::INFINITY, f32::min);
+        let bias_max = bias.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let bias_min = bias.iter().copied().fold(f32::INFINITY, f32::min);
         println!(
             "  QKV bias: len={}, norm={:.4}, range=[{:.4}, {:.4}]",
             bias.len(),

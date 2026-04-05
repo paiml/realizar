@@ -984,6 +984,7 @@ fn benchmark_cache_suite(c: &mut Criterion) {
 }
 
 /// Cached attention benchmark helper — single-token decode with KV cache
+#[allow(clippy::too_many_arguments)]
 fn bench_cached_attention(
     q: &[f32],
     k_cache: &[f32],
@@ -1076,7 +1077,7 @@ fn bench_full_recompute_attention(
 
 /// In-place softmax for benchmark attention helpers
 fn bench_softmax_inplace(scores: &mut [f32]) {
-    let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let max_score = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let mut exp_sum = 0.0f32;
     for s in scores.iter_mut() {
         *s = (*s - max_score).exp();
@@ -1539,6 +1540,7 @@ fn create_bench_q4k_data(in_dim: usize, out_dim: usize) -> realizar::gguf::Owned
 
 /// CPU reference matmul for benchmark comparison
 #[cfg(feature = "gpu")]
+#[allow(clippy::many_single_char_names)]
 fn cpu_matmul_bench(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
     let mut c = vec![0.0f32; m * n];
     for i in 0..m {
@@ -1584,7 +1586,7 @@ fn causal_attention_cpu_ref(
             }
 
             // Softmax
-            let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+            let max_score = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let mut exp_sum = 0.0f32;
             for s in &mut scores {
                 *s = (*s - max_score).exp();
@@ -1927,7 +1929,7 @@ fn bench_fused_batch_matmul(
             .map(|i| ((i % 17) as f32 - 8.0) * 0.05)
             .collect();
 
-        let weight = &model.layers[0].ffn_up_weight;
+        let weight = &model.layers()[0].ffn_up_weight;
 
         // Pre-dequantize weight for "separate" benchmark
         let weight_f32 = {

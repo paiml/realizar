@@ -23,13 +23,13 @@ fn main() {
     println!("  L2: {:.4}", l2_norm(norm_weight));
     println!(
         "  min: {:.4}",
-        norm_weight.iter().cloned().fold(f32::INFINITY, f32::min)
+        norm_weight.iter().copied().fold(f32::INFINITY, f32::min)
     );
     println!(
         "  max: {:.4}",
         norm_weight
             .iter()
-            .cloned()
+            .copied()
             .fold(f32::NEG_INFINITY, f32::max)
     );
     println!(
@@ -59,11 +59,11 @@ fn main() {
     println!("  L2: {:.4}", l2_norm(attn_norm));
     println!(
         "  min: {:.4}",
-        attn_norm.iter().cloned().fold(f32::INFINITY, f32::min)
+        attn_norm.iter().copied().fold(f32::INFINITY, f32::min)
     );
     println!(
         "  max: {:.4}",
-        attn_norm.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+        attn_norm.iter().copied().fold(f32::NEG_INFINITY, f32::max)
     );
     println!("  first 10: {:?}", &attn_norm[..10.min(attn_norm.len())]);
 

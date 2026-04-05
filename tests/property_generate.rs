@@ -139,10 +139,10 @@ proptest! {
 
         // Lower temperature should have larger differences between values
         if logits.size() >= 2 {
-            let range1 = scaled1.data().iter().cloned().fold(f32::NEG_INFINITY, f32::max)
-                - scaled1.data().iter().cloned().fold(f32::INFINITY, f32::min);
-            let range2 = scaled2.data().iter().cloned().fold(f32::NEG_INFINITY, f32::max)
-                - scaled2.data().iter().cloned().fold(f32::INFINITY, f32::min);
+            let range1 = scaled1.data().iter().copied().fold(f32::NEG_INFINITY, f32::max)
+                - scaled1.data().iter().copied().fold(f32::INFINITY, f32::min);
+            let range2 = scaled2.data().iter().copied().fold(f32::NEG_INFINITY, f32::max)
+                - scaled2.data().iter().copied().fold(f32::INFINITY, f32::min);
 
             // Higher temperature (t2) should have smaller range
             prop_assert!(range1 >= range2 - 1e-5);

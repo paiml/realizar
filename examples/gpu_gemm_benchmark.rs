@@ -9,6 +9,7 @@ use std::hint::black_box;
 use std::time::Instant;
 
 // Scalar GEMM for baseline
+#[allow(clippy::many_single_char_names)]
 fn gemm_scalar(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
     let mut c = vec![0.0f32; m * n];
     for i in 0..m {

@@ -124,7 +124,7 @@ fn main() {
 
     let start = Instant::now();
     for _ in 0..iterations {
-        attn_out.iter_mut().for_each(|x| *x = 0.0);
+        attn_out.fill(0.0);
         for q_head in 0..num_heads {
             let q_head_offset = q_head * head_dim;
             let kv_head = q_head / (num_heads / num_kv_heads);

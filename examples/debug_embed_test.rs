@@ -22,11 +22,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!(
         "  Max: {:.4}",
-        embedding.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+        embedding.iter().copied().fold(f32::NEG_INFINITY, f32::max)
     );
     println!(
         "  Min: {:.4}",
-        embedding.iter().cloned().fold(f32::INFINITY, f32::min)
+        embedding.iter().copied().fold(f32::INFINITY, f32::min)
     );
 
     // Check for NaN/Inf

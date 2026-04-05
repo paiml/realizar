@@ -117,7 +117,7 @@ fn test_error_display_data_shape_mismatch() {
 fn test_error_display_invalid_dimension() {
     let err = RealizarError::InvalidDimension { dim: 5, ndim: 3 };
     let msg = err.to_string();
-    assert!(msg.contains("5") || msg.contains("3") || msg.contains("dimension"));
+    assert!(msg.contains('5') || msg.contains('3') || msg.contains("dimension"));
 }
 
 #[test]

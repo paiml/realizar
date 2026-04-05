@@ -183,8 +183,8 @@ fn test_mock_backend_creation_multiple_devices() {
     let backend0 = MockBackend::new(0).expect("should create device 0");
     let backend1 = MockBackend::new(1).expect("should create device 1");
 
-    assert!(backend0.device_name().contains("0"));
-    assert!(backend1.device_name().contains("1"));
+    assert!(backend0.device_name().contains('0'));
+    assert!(backend1.device_name().contains('1'));
 }
 
 // ============================================================================
@@ -440,15 +440,15 @@ fn test_large_matmul() {
     let backend = MockBackend::new(0).unwrap();
 
     // Test larger matrix to ensure no issues with size
-    let m = 128;
-    let k = 256;
-    let n = 64;
+    let rows = 128;
+    let inner = 256;
+    let cols = 64;
 
-    let a: Vec<f32> = (0..m * k).map(|i| (i % 10) as f32 * 0.1).collect();
-    let b: Vec<f32> = (0..k * n).map(|i| (i % 10) as f32 * 0.1).collect();
+    let a: Vec<f32> = (0..rows * inner).map(|i| (i % 10) as f32 * 0.1).collect();
+    let b: Vec<f32> = (0..inner * cols).map(|i| (i % 10) as f32 * 0.1).collect();
 
-    let c = backend.matmul(&a, &b, m, k, n).unwrap();
-    assert_eq!(c.len(), m * n);
+    let c = backend.matmul(&a, &b, rows, inner, cols).unwrap();
+    assert_eq!(c.len(), rows * cols);
 
     // Just verify it runs without error and produces finite values
     for (i, &val) in c.iter().enumerate() {
@@ -648,9 +648,9 @@ fn test_backend_device_tracking() {
     let backend1 = MockBackend::new(1).unwrap();
     let backend2 = MockBackend::new(2).unwrap();
 
-    assert!(backend0.device_name().contains("0"));
-    assert!(backend1.device_name().contains("1"));
-    assert!(backend2.device_name().contains("2"));
+    assert!(backend0.device_name().contains('0'));
+    assert!(backend1.device_name().contains('1'));
+    assert!(backend2.device_name().contains('2'));
 }
 
 #[test]

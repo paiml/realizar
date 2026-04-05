@@ -246,14 +246,11 @@ fn test_generate_gpu_with_cpu_executor() {
     // With CpuExecutor, this should succeed
     // Note: forward_gpu may still fail due to model weight dimensions
     // but that's an integration issue, not an executor issue
-    match result {
-        Ok(tokens) => {
-            assert!(tokens.len() >= 2); // Original + at least 1 generated
-            assert_eq!(tokens[0], 5); // First token is prompt
-        },
-        Err(_) => {
-            // Integration errors are acceptable - we're testing executor injection
-        },
+    if let Ok(tokens) = result {
+        assert!(tokens.len() >= 2); // Original + at least 1 generated
+        assert_eq!(tokens[0], 5); // First token is prompt
+    } else {
+        // Integration errors are acceptable - we're testing executor injection
     }
 }
 
@@ -813,16 +810,13 @@ fn test_generate_gpu_large_vocab_uses_greedy_path() {
     // Generate tokens - should use forward_single_token_greedy internally
     let result = generate_gpu(&mut model, &[5], 2);
 
-    match result {
-        Ok(tokens) => {
-            assert!(tokens.len() >= 2, "Should have at least prompt + 1 token");
-            assert_eq!(tokens[0], 5, "First token should be prompt");
-            // All tokens should be valid
-            assert!(tokens.iter().all(|&t| t < 10000));
-        },
-        Err(_) => {
-            // Integration errors acceptable in test
-        },
+    if let Ok(tokens) = result {
+        assert!(tokens.len() >= 2, "Should have at least prompt + 1 token");
+        assert_eq!(tokens[0], 5, "First token should be prompt");
+        // All tokens should be valid
+        assert!(tokens.iter().all(|&t| t < 10000));
+    } else {
+        // Integration errors acceptable in test
     }
 }
 
@@ -1137,15 +1131,12 @@ fn test_generate_gpu_multi_token_prompt() {
     let prompt = vec![1, 2, 3, 4, 5];
     let result = generate_gpu(&mut model, &prompt, 2);
 
-    match result {
-        Ok(tokens) => {
-            assert!(tokens.len() > prompt.len());
-            // Verify prompt is preserved
-            assert_eq!(&tokens[..prompt.len()], &prompt[..]);
-        },
-        Err(_) => {
-            // Integration errors acceptable
-        },
+    if let Ok(tokens) = result {
+        assert!(tokens.len() > prompt.len());
+        // Verify prompt is preserved
+        assert_eq!(&tokens[..prompt.len()], &prompt[..]);
+    } else {
+        // Integration errors acceptable
     }
 }
 
@@ -1156,13 +1147,10 @@ fn test_generate_gpu_zero_max_tokens() {
     // Zero max_tokens should just return prompt with initial prediction
     let result = generate_gpu(&mut model, &[5], 0);
 
-    match result {
-        Ok(tokens) => {
-            // Should have prompt + at least one prediction from forward_gpu
-            assert!(tokens.len() >= 2);
-        },
-        Err(_) => {
-            // Integration errors acceptable
-        },
+    if let Ok(tokens) = result {
+        // Should have prompt + at least one prediction from forward_gpu
+        assert!(tokens.len() >= 2);
+    } else {
+        // Integration errors acceptable
     }
 }

@@ -1,6 +1,7 @@
 //! Debug Q4K attn_output kernel - compare APR vs GGUF intermediate output
 //!
 //! This isolates the attn_output projection to find if Q4K kernel is the issue
+#![allow(deprecated)]
 
 use realizar::apr_transformer::AprTransformer;
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};

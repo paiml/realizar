@@ -878,7 +878,7 @@ mod tests {
         );
 
         // Get layer 0 attention norm weight
-        let layer0 = &cpu_model.layers[0];
+        let layer0 = &cpu_model.layers()[0];
         let attn_norm_weight = &layer0.attn_norm_weight;
         let eps = cpu_model.config().eps;
 
@@ -1124,7 +1124,7 @@ mod tests {
 
         let bos_token = mapped.model.bos_token_id().unwrap_or(1);
         let hidden_dim = cpu_model.config().hidden_dim;
-        let num_layers = cpu_model.layers.len();
+        let num_layers = cpu_model.layers().len();
 
         eprintln!("Model: {} layers, hidden_dim={}", num_layers, hidden_dim);
         eprintln!("Token: {} (BOS)\n", bos_token);
@@ -1214,11 +1214,11 @@ mod tests {
         eprintln!("  GPU: {:?}", &gpu_logits[..5]);
 
         // Check LM head weight qtype
-        let lm_head_qtype = cpu_model.lm_head_weight.qtype;
+        let lm_head_qtype = cpu_model.lm_head_weight().qtype;
         eprintln!("\nLM head qtype: {} (12=Q4_K, 14=Q6_K)", lm_head_qtype);
 
         // Check layer 0 weight qtypes
-        let layer0 = &cpu_model.layers[0];
+        let layer0 = &cpu_model.layers()[0];
         eprintln!("\nLayer 0 weight qtypes (12=Q4_K, 14=Q6_K):");
         match &layer0.qkv_weight {
             realizar::gguf::OwnedQKVWeights::Fused(w) => {
@@ -1272,7 +1272,7 @@ mod tests {
         let cpu_model =
             OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load CPU model");
 
-        let layer0 = &cpu_model.layers[0];
+        let layer0 = &cpu_model.layers()[0];
         let ffn_down = &layer0.ffn_down_weight;
 
         eprintln!("ffn_down_weight:");
@@ -1396,7 +1396,7 @@ mod tests {
         let cpu_model =
             OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load CPU model");
 
-        let layer0 = &cpu_model.layers[0];
+        let layer0 = &cpu_model.layers()[0];
         let attn_output = &layer0.attn_output_weight;
 
         eprintln!("attn_output_weight:");
@@ -1499,7 +1499,7 @@ mod tests {
         let cpu_model =
             OwnedQuantizedModel::from_mapped(&mapped).expect("Failed to load CPU model");
 
-        let layer0 = &cpu_model.layers[0];
+        let layer0 = &cpu_model.layers()[0];
 
         // Create test input
         let in_dim = layer0.ffn_up_weight.in_dim;
@@ -1753,7 +1753,7 @@ mod tests {
         // Check all layers for dimension mismatches
         let mut mismatch_found = false;
 
-        for (layer_idx, layer) in cpu_model.layers.iter().enumerate() {
+        for (layer_idx, layer) in cpu_model.layers().iter().enumerate() {
             let qkv_weight = &layer.qkv_weight;
             let q_dim = qkv_weight.q_dim();
 
@@ -1803,7 +1803,7 @@ mod tests {
         if !mismatch_found {
             eprintln!(
                 "\n✅ All {} layers have matching Q/K/V dimensions",
-                cpu_model.layers.len()
+                cpu_model.layers().len()
             );
             eprintln!("   Bug is NOT in QKV extraction offsets");
         } else {
@@ -1860,7 +1860,7 @@ mod tests {
         eprintln!();
 
         // Step 2: Layer 0 attention norm
-        let layer = &cpu_model.layers[0];
+        let layer = &cpu_model.layers()[0];
         let use_rmsnorm = layer.ffn_gate_weight.is_some() && layer.attn_norm_bias.is_none();
         eprintln!("Step 2: Attention Norm (use_rmsnorm={})", use_rmsnorm);
 

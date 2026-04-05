@@ -89,8 +89,8 @@ fn demo_dequantize() {
     block[0] = scale_bytes[0];
     block[1] = scale_bytes[1];
     // Quants: all 0x88 -> nibbles (8, 8) -> values (0, 0) after subtracting 8
-    for i in 2..18 {
-        block[i] = 0x88;
+    for slot in &mut block[2..18] {
+        *slot = 0x88;
     }
 
     let result = realizar::quantize::dequant::dequantize_q4_0(&block);

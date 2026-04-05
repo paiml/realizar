@@ -144,7 +144,7 @@ fn test_ffn05_swiglu_differs_from_simple_ffn() {
 /// FFN-06: Gate weight loading from GGUF
 /// Falsification: TinyLlama GGUF loads with gate=None
 #[test]
-#[ignore] // Requires TinyLlama GGUF file
+#[ignore = "requires TinyLlama GGUF file"]
 fn test_ffn06_gguf_loads_gate_weight() {
     use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
     use std::path::Path;
@@ -168,7 +168,7 @@ fn test_ffn06_gguf_loads_gate_weight() {
 /// FFN-07: Gate weight dimensions match up weight
 /// Falsification: gate.out_dim != up.out_dim
 #[test]
-#[ignore] // Requires TinyLlama GGUF file
+#[ignore = "requires TinyLlama GGUF file"]
 fn test_ffn07_gate_dimensions_match_up() {
     use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};
     use std::path::Path;
@@ -206,7 +206,7 @@ fn test_ffn07_gate_dimensions_match_up() {
 /// FFN-08: SwiGLU forward produces coherent output
 /// Falsification: Generated tokens are random/garbage
 #[test]
-#[ignore] // Requires TinyLlama GGUF file
+#[ignore = "requires TinyLlama GGUF file"]
 fn test_ffn08_swiglu_forward_coherent() {
     use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel, QuantizedGenerateConfig};
     use std::path::Path;

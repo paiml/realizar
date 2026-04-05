@@ -27,8 +27,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .model
                 .get_tensor_f32(&tensor.name, qwen_mapped.data())?;
             let norm: f32 = data.iter().map(|x| x * x).sum::<f32>().sqrt();
-            let max = data.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-            let min = data.iter().cloned().fold(f32::INFINITY, f32::min);
+            let max = data.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let min = data.iter().copied().fold(f32::INFINITY, f32::min);
             println!(
                 "  {}: dims={:?}, len={}, norm={:.4}, range=[{:.4}, {:.4}]",
                 tensor.name,

@@ -48,11 +48,11 @@ fn main() {
 
     println!("\nToken embeddings:");
     for &token in &test_tokens {
-        let tok_str = vocab.get(token as usize).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(token as usize).map_or("?", |s| s.as_str());
         let emb = model.embed(&[token]);
         let l2 = l2_norm(&emb);
-        let min = emb.iter().cloned().fold(f32::INFINITY, f32::min);
-        let max = emb.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let min = emb.iter().copied().fold(f32::INFINITY, f32::min);
+        let max = emb.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         let mean = emb.iter().sum::<f32>() / emb.len() as f32;
         println!(
             "  {:6}: '{}' L2={:.4}, min={:.4}, max={:.4}, mean={:.6}",
@@ -64,7 +64,7 @@ fn main() {
     println!("\n=== Checking garbage tokens ===");
     let garbage_tokens = [18456u32, 26668, 23565];
     for &token in &garbage_tokens {
-        let tok_str = vocab.get(token as usize).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(token as usize).map_or("?", |s| s.as_str());
         let emb = model.embed(&[token]);
 
         // Check for NaN or Inf
@@ -89,10 +89,10 @@ fn main() {
     println!("\n=== Embedding Matrix Statistics ===");
     let all_embeddings = &model.token_embedding();
     let l2 = l2_norm(all_embeddings);
-    let min = all_embeddings.iter().cloned().fold(f32::INFINITY, f32::min);
+    let min = all_embeddings.iter().copied().fold(f32::INFINITY, f32::min);
     let max = all_embeddings
         .iter()
-        .cloned()
+        .copied()
         .fold(f32::NEG_INFINITY, f32::max);
     let mean = all_embeddings.iter().sum::<f32>() / all_embeddings.len() as f32;
     let has_nan = all_embeddings.iter().any(|x| x.is_nan());
@@ -155,7 +155,7 @@ fn main() {
         .enumerate()
         .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
         .expect("test");
-    let top_str = vocab.get(top_idx).map(|s| s.as_str()).unwrap_or("?");
+    let top_str = vocab.get(top_idx).map_or("?", |s| s.as_str());
     println!(
         "  Top token: {} = {:.4} ('{}')",
         top_idx, top_score, top_str

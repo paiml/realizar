@@ -14,9 +14,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Get the first layer's Q weight
     let layer = &model.layers()[0];
-    let q_weight = match &layer.qkv_weight {
-        realizar::gguf::OwnedQKVWeights::Separate { q, .. } => q,
-        _ => panic!("Expected separate Q/K/V weights"),
+    let realizar::gguf::OwnedQKVWeights::Separate { q: q_weight, .. } = &layer.qkv_weight else {
+        panic!("Expected separate Q/K/V weights")
     };
 
     println!("Q weight tensor:");

@@ -137,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  Raw scores: {:?}", scores);
 
         // Softmax
-        let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let max_score = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         let exp_scores: Vec<f32> = scores.iter().map(|s| (s - max_score).exp()).collect();
         let sum_exp: f32 = exp_scores.iter().sum();
         let weights: Vec<f32> = exp_scores.iter().map(|e| e / sum_exp).collect();

@@ -15,9 +15,14 @@ fn main() {
 
     // Get layer 0 Q weight
     let layer0 = &cpu_model.layers()[0];
-    let q_weight = match &layer0.qkv_weight {
-        OwnedQKVWeights::Separate { q, k: _, v: _ } => q,
-        _ => panic!("Expected separate Q/K/V weights"),
+    let OwnedQKVWeights::Separate {
+        q: q_weight,
+        k: _,
+        v: _,
+        ..
+    } = &layer0.qkv_weight
+    else {
+        panic!("Expected separate Q/K/V weights")
     };
 
     println!(

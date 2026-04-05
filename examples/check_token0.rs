@@ -11,18 +11,18 @@ fn main() {
 
     println!("First 20 tokens:");
     for id in 0..20 {
-        let s = vocab.get(id).map(|s| s.as_str()).unwrap_or("?");
+        let s = vocab.get(id).map_or("?", |s| s.as_str());
         println!("  {} = {:?}", id, s);
     }
 
     println!();
     println!("Special tokens:");
     if let Some(bos) = mapped.model.bos_token_id() {
-        let s = vocab.get(bos as usize).map(|s| s.as_str()).unwrap_or("?");
+        let s = vocab.get(bos as usize).map_or("?", |s| s.as_str());
         println!("  BOS = {} ({:?})", bos, s);
     }
     if let Some(eos) = mapped.model.eos_token_id() {
-        let s = vocab.get(eos as usize).map(|s| s.as_str()).unwrap_or("?");
+        let s = vocab.get(eos as usize).map_or("?", |s| s.as_str());
         println!("  EOS = {} ({:?})", eos, s);
     }
 

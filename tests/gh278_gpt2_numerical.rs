@@ -53,7 +53,7 @@ fn gh278_gpt2_gguf_forward_numerical() {
     );
 
     // Print position embedding values for position 0
-    if let Some(ref pos_emb) = model.position_embedding() {
+    if let Some(pos_emb) = model.position_embedding() {
         eprintln!("\n=== Position Embedding (pos=0) ===");
         eprintln!("  first 5: {:?}", &pos_emb[..5]);
         eprintln!("  total len: {} (expected {})", pos_emb.len(), 1024 * 768);
@@ -174,8 +174,8 @@ fn gh278_gpt2_gguf_forward_numerical() {
 
     // Print some logit statistics
     let sum: f32 = logits.iter().sum();
-    let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    let min = logits.iter().cloned().fold(f32::INFINITY, f32::min);
+    let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let min = logits.iter().copied().fold(f32::INFINITY, f32::min);
     eprintln!("  Logit sum: {:.4}", sum);
     eprintln!("  Logit max: {:.4}", max);
     eprintln!("  Logit min: {:.4}", min);

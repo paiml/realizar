@@ -112,12 +112,15 @@ fn create_benchmark_transformer() -> GGUFTransformer {
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         })
         .collect();
 
     GGUFTransformer {
         config,
         token_embedding: vec![0.1; vocab_size * hidden_dim],
+        position_embedding: None,
         layers,
         output_norm_weight: vec![1.0; hidden_dim],
         output_norm_bias: None,

@@ -174,7 +174,7 @@ proptest! {
 
     /// Empty string encodes to empty token list
     #[test]
-    fn test_empty_string_encoding(_ in Just(())) {
+    fn test_empty_string_encoding(() in Just(())) {
         let tokens = vec!["<unk>".to_string(), "a".to_string()];
         let vocab = Vocabulary::from_tokens(tokens).expect("test");
         let tokenizer = Tokenizer::new(vocab, "<unk>").expect("test");

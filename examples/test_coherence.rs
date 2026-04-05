@@ -35,7 +35,7 @@ fn main() {
     println!("Forward pass: {:.3}s", start.elapsed().as_secs_f32());
 
     // Find top 10 predictions
-    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
     indexed.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 
     println!("\nTop 10 predictions for next token:");

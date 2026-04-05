@@ -9,13 +9,13 @@ fn l2_norm(v: &[f32]) -> f32 {
 }
 
 /// Look up a token string from the vocabulary, returning "?" for unknown tokens.
-fn tok_str<'a>(vocab: &'a [String], id: usize) -> &'a str {
-    vocab.get(id).map(|s| s.as_str()).unwrap_or("?")
+fn tok_str(vocab: &[String], id: usize) -> &str {
+    vocab.get(id).map_or("?", |s| s.as_str())
 }
 
 /// Sort logits descending and return (index, score) pairs.
 fn sorted_logits(logits: &[f32]) -> Vec<(usize, f32)> {
-    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     indexed
 }
@@ -33,8 +33,8 @@ fn greedy_pick(logits: &[f32]) -> usize {
 /// Print logit statistics and top-k tokens for one forward-pass position.
 fn print_position_summary(vocab: &[String], logits: &[f32], pos: usize, token: u32) {
     let l2 = l2_norm(logits);
-    let min = logits.iter().cloned().fold(f32::INFINITY, f32::min);
-    let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min = logits.iter().copied().fold(f32::INFINITY, f32::min);
+    let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let ranked = sorted_logits(logits);
 
     println!(

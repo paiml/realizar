@@ -20,9 +20,8 @@ fn main() {
 
     // Get Q projection weight (Q4_K)
     let layer = &model.layers()[0];
-    let q_weight = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { q, .. } => q,
-        _ => panic!("Expected separate QKV"),
+    let OwnedQKVWeights::Separate { q: q_weight, .. } = &layer.qkv_weight else {
+        panic!("Expected separate QKV")
     };
 
     let in_dim = q_weight.in_dim;

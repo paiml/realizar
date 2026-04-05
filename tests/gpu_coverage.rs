@@ -331,6 +331,7 @@ fn test_naive_matmul_identity() {
 }
 
 #[test]
+#[allow(clippy::many_single_char_names)]
 fn test_blocked_matmul_equals_naive() {
     let m = 16;
     let k = 16;
@@ -923,7 +924,7 @@ fn test_timeout_manager_check_expired() {
     let mut manager = TimeoutManager::new();
 
     // Register one that's already expired
-    let past = Instant::now() - Duration::from_secs(1);
+    let past = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
     manager.register(1, past);
 
     // Register one that's not expired
@@ -3441,6 +3442,7 @@ fn test_speculative_buffer_accept_all() {
 // ============================================================================
 
 #[test]
+#[allow(clippy::many_single_char_names)]
 fn test_blocked_matmul_small() {
     let m = 4;
     let k = 4;
@@ -3457,6 +3459,7 @@ fn test_blocked_matmul_small() {
 }
 
 #[test]
+#[allow(clippy::many_single_char_names)]
 fn test_blocked_matmul_non_divisible() {
     let m = 5;
     let k = 7;
@@ -4262,7 +4265,7 @@ fn test_gpu_pool_stats_debug_clone() {
     };
 
     let debug_str = format!("{:?}", stats);
-    assert!(debug_str.contains("5"));
+    assert!(debug_str.contains('5'));
     assert!(debug_str.contains("1024"));
 
     let cloned = stats;

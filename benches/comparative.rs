@@ -47,7 +47,7 @@ fn simulate_cnn_forward(input: &Tensor<f32>, hidden_dim: usize, num_classes: usi
         let end = start + num_classes;
         let slice = &mut output[start..end];
 
-        let max_val = slice.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let max_val = slice.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         let mut sum = 0.0f32;
         for v in slice.iter_mut() {
             *v = (*v - max_val).exp();
@@ -251,12 +251,15 @@ fn create_test_gguf_transformer(
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
         })
         .collect();
 
     GGUFTransformer {
         config,
         token_embedding: vec![0.1; vocab_size * hidden_dim],
+        position_embedding: None,
         layers,
         output_norm_weight: vec![1.0; hidden_dim],
         output_norm_bias: None,
@@ -283,6 +286,7 @@ fn create_test_apr_transformer(
         context_length: 512,
         rope_theta: 10000.0,
         eps: 1e-5,
+        ..Default::default()
     };
 
     let layers: Vec<AprTransformerLayer> = (0..num_layers)
@@ -301,6 +305,22 @@ fn create_test_apr_transformer(
             ffn_down_bias: None,
             ffn_norm_weight: None,
             ffn_norm_bias: None,
+            attn_q_norm_weight: None,
+            attn_k_norm_weight: None,
+            linear_attn_z_weight: None,
+            linear_attn_b_weight: None,
+            linear_attn_a_weight: None,
+            linear_attn_conv1d_weight: None,
+            linear_attn_a_log: None,
+            linear_attn_dt_bias: None,
+            linear_attn_norm_weight: None,
+            moe_gate_weight: None,
+            moe_expert_gate_up: None,
+            moe_expert_down: None,
+            moe_shared_gate: None,
+            moe_shared_up: None,
+            moe_shared_down: None,
+            moe_shared_expert_gate_weight: None,
         })
         .collect();
 

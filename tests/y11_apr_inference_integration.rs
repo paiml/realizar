@@ -162,7 +162,7 @@ fn y11_3b_apr_generate() {
 /// Y11.4a: `realizar run model.apr` uses native APR loader
 /// FALSIFICATION: Falls back to GGUF parser (error mentions GGUF magic)
 #[test]
-#[ignore] // Run manually with: cargo test y11_4a --ignored
+#[ignore = "Run manually with: cargo test y11_4a --ignored"]
 fn y11_4a_cli_uses_native_apr_loader() {
     use std::process::Command;
 
@@ -215,7 +215,7 @@ fn y11_4a_cli_uses_native_apr_loader() {
 /// Y12.1: APR inference speed >= 95% of GGUF
 /// FALSIFICATION: APR throughput < 95% of GGUF on same model
 #[test]
-#[ignore] // Requires both APR and GGUF versions of same model
+#[ignore = "Requires both APR and GGUF versions of same model"]
 fn y12_1_apr_performance_parity() {
     use realizar::apr_transformer::{AprBenchmarkRunner, AprTransformer};
 

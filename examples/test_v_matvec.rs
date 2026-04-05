@@ -26,9 +26,13 @@ fn main() {
     println!("Input L2: {:.6}", l2_norm(&normed));
     println!("Input first 5: {:?}", &normed[..5]);
 
-    let (_, _, v_weight) = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-        _ => panic!("Expected separate"),
+    let OwnedQKVWeights::Separate {
+        q: _,
+        k: _,
+        v: v_weight,
+    } = &layer.qkv_weight
+    else {
+        panic!("Expected separate")
     };
 
     // V weight is [in_dim=2048, out_dim=256] in GGUF column-major

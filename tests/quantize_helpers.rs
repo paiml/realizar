@@ -117,10 +117,10 @@ fn test_dequantize_q8_blocks_large_values() {
     // Large values should still be representable
     assert_eq!(dequantized.len(), 32);
     // Check approximate preservation of magnitude
-    let orig_max = values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let orig_max = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let deq_max = dequantized
         .iter()
-        .cloned()
+        .copied()
         .fold(f32::NEG_INFINITY, f32::max);
     assert!(
         (orig_max - deq_max).abs() / orig_max < 0.1,

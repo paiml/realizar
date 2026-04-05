@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     indexed.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     println!("  Top 5:");
     for (tok, logit) in indexed.iter().take(5) {
-        let s = vocab.get(*tok).map(|s| s.as_str()).unwrap_or("?");
+        let s = vocab.get(*tok).map_or("?", |s| s.as_str());
         println!("    Token {} ({:?}): {:.4}", tok, s, logit);
     }
 
@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     indexed2.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     println!("  Top 5:");
     for (tok, logit) in indexed2.iter().take(5) {
-        let s = vocab.get(*tok).map(|s| s.as_str()).unwrap_or("?");
+        let s = vocab.get(*tok).map_or("?", |s| s.as_str());
         println!("    Token {} ({:?}): {:.4}", tok, s, logit);
     }
 
@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         idx.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
 
         let top_tok = idx[0].0;
-        let top_s = vocab.get(top_tok).map(|s| s.as_str()).unwrap_or("?");
+        let top_s = vocab.get(top_tok).map_or("?", |s| s.as_str());
 
         println!(
             "  '{}' [{},{}] -> Top: {} ({:?}) = {:.4}",

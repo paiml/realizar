@@ -1,3 +1,4 @@
+#![allow(clippy::many_single_char_names)]
 //! Performance Parity Benchmark Example
 //!
 //! Demonstrates the performance parity implementation from the specification:
@@ -588,8 +589,7 @@ fn bench_token_generation() -> BenchResult {
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).expect("test"))
-            .map(|(i, _)| i)
-            .unwrap_or(0);
+            .map_or(0, |(i, _)| i);
         tokens.push(next_token % 500); // Keep in vocab range
     }
     let elapsed = start.elapsed();
@@ -608,28 +608,25 @@ fn bench_token_generation() -> BenchResult {
 
 /// Check if GPU is available
 fn check_gpu_availability() -> bool {
-    match GpuCompute::new(ComputeBackend::Auto) {
-        Ok(gpu) => {
-            let available = gpu.is_gpu();
-            if available {
-                println!("  {} GPU detected and available", style("✓").green().bold());
-            } else {
-                println!(
-                    "  {} GPU not available, using CPU fallback",
-                    style("⚠").yellow()
-                );
-            }
-            println!();
-            available
-        },
-        Err(_) => {
+    if let Ok(gpu) = GpuCompute::new(ComputeBackend::Auto) {
+        let available = gpu.is_gpu();
+        if available {
+            println!("  {} GPU detected and available", style("✓").green().bold());
+        } else {
             println!(
-                "  {} GPU initialization failed, using CPU only",
+                "  {} GPU not available, using CPU fallback",
                 style("⚠").yellow()
             );
-            println!();
-            false
-        },
+        }
+        println!();
+        available
+    } else {
+        println!(
+            "  {} GPU initialization failed, using CPU only",
+            style("⚠").yellow()
+        );
+        println!();
+        false
     }
 }
 
@@ -2260,7 +2257,7 @@ fn bench_quantized_compute() -> BenchResult {
         name: "GPU-026: Quantized Compute".to_string(),
         metric: "Score".to_string(),
         value: combined_score,
-        unit: "".to_string(),
+        unit: String::new(),
         target: 1.0, // All features working
         passed: combined_score >= 1.0 && all_features_ok,
     }
@@ -2350,7 +2347,7 @@ fn bench_streaming_pipelining() -> BenchResult {
         name: "GPU-027: Streaming & Pipelining".to_string(),
         metric: "Score".to_string(),
         value: combined_score,
-        unit: "".to_string(),
+        unit: String::new(),
         target: 1.0, // All features working
         passed: combined_score >= 1.0 && all_features_ok,
     }
@@ -2454,7 +2451,7 @@ fn bench_token_batching_speculative() -> BenchResult {
         name: "GPU-028: Token Batching & Speculative".to_string(),
         metric: "Score".to_string(),
         value: combined_score,
-        unit: "".to_string(),
+        unit: String::new(),
         target: 1.0, // All features working
         passed: combined_score >= 1.0 && all_features_ok,
     }
@@ -2567,7 +2564,7 @@ fn bench_async_io_event_driven() -> BenchResult {
         name: "GPU-029: Async I/O & Event-Driven".to_string(),
         metric: "Score".to_string(),
         value: combined_score,
-        unit: "".to_string(),
+        unit: String::new(),
         target: 1.0, // All features working
         passed: combined_score >= 1.0 && all_features_ok,
     }
@@ -2662,7 +2659,7 @@ fn bench_request_scheduling_resources() -> BenchResult {
         name: "GPU-030: Request Scheduling & Resources".to_string(),
         metric: "Score".to_string(),
         value: combined_score,
-        unit: "".to_string(),
+        unit: String::new(),
         target: 1.0, // All features working
         passed: combined_score >= 1.0 && all_features_ok,
     }
@@ -2757,7 +2754,7 @@ fn bench_metrics_health_monitoring() -> BenchResult {
         name: "GPU-031: Metrics & Health Monitoring".to_string(),
         metric: "Score".to_string(),
         value: combined_score,
-        unit: "".to_string(),
+        unit: String::new(),
         target: 1.0, // All features working
         passed: combined_score >= 1.0 && all_features_ok,
     }
@@ -2996,7 +2993,7 @@ fn bench_fused_kernels() -> BenchResult {
     } else {
         1.0
     };
-    let combined = ((softmax_speedup + gen_speedup) / 2.0) * capability_bonus;
+    let combined = f64::midpoint(softmax_speedup, gen_speedup) * capability_bonus;
 
     // M18 target: Validate fused kernel implementations work
     // Target 0.9x ensures no regression, bonus for actual speedup

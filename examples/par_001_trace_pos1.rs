@@ -17,8 +17,8 @@ fn l2_norm(v: &[f32]) -> f32 {
 
 fn stats(name: &str, v: &[f32]) {
     let l2 = l2_norm(v);
-    let min = v.iter().cloned().fold(f32::INFINITY, f32::min);
-    let max = v.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min = v.iter().copied().fold(f32::INFINITY, f32::min);
+    let max = v.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let mean = v.iter().sum::<f32>() / v.len() as f32;
     println!(
         "{}: L2={:.4}, min={:.4}, max={:.4}, mean={:.6}",
@@ -94,24 +94,22 @@ fn main() {
     println!(
         "\nToken 0: {} ('{}')",
         token0,
-        vocab
-            .get(token0 as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("?")
+        vocab.get(token0 as usize).map_or("?", |s| s.as_str())
     );
     println!(
         "Token 1: {} ('{}')",
         token1,
-        vocab
-            .get(token1 as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("?")
+        vocab.get(token1 as usize).map_or("?", |s| s.as_str())
     );
 
     let layer = &model.layers()[0];
-    let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-        _ => panic!("Expected separate QKV"),
+    let OwnedQKVWeights::Separate {
+        q: q_weight,
+        k: k_weight,
+        v: v_weight,
+    } = &layer.qkv_weight
+    else {
+        panic!("Expected separate QKV")
     };
 
     // === POSITION 0 ===
@@ -268,11 +266,11 @@ fn main() {
     stats("Model logits at pos 1", &logits1);
 
     // Show top tokens
-    let mut indexed: Vec<(usize, f32)> = logits1.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits1.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     println!("\nTop 5 tokens:");
     for (rank, (idx, score)) in indexed.iter().take(5).enumerate() {
-        let tok_str = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(*idx).map_or("?", |s| s.as_str());
         println!(
             "  {}: token {} = {:.4} ('{}')",
             rank + 1,

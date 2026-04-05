@@ -75,7 +75,7 @@ fn benchmark_cache_miss(c: &mut Criterion) {
 fn benchmark_cache_eviction(c: &mut Criterion) {
     let mut group = c.benchmark_group("cache_eviction");
 
-    for capacity in [2, 5, 10].iter() {
+    for capacity in &[2, 5, 10] {
         group.bench_with_input(
             BenchmarkId::from_parameter(capacity),
             capacity,
@@ -182,7 +182,7 @@ fn benchmark_cache_key_creation(c: &mut Criterion) {
 fn benchmark_cache_varying_capacity(c: &mut Criterion) {
     let mut group = c.benchmark_group("cache_capacity");
 
-    for capacity in [1, 5, 10, 50, 100].iter() {
+    for capacity in &[1, 5, 10, 50, 100] {
         group.bench_with_input(
             BenchmarkId::from_parameter(capacity),
             capacity,

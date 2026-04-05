@@ -596,12 +596,12 @@ fn calculate_trend(data: &[f64]) -> &'static str {
     if data.len() < 5 {
         return "→";
     }
-    let recent: Vec<f64> = data.iter().rev().take(5).cloned().collect();
-    let first_avg = (recent[3] + recent[4]) / 2.0;
-    let last_avg = (recent[0] + recent[1]) / 2.0;
+    let recent: Vec<f64> = data.iter().rev().take(5).copied().collect();
+    let first_avg = f64::midpoint(recent[3], recent[4]);
+    let last_avg = f64::midpoint(recent[0], recent[1]);
 
-    let min = data.iter().cloned().reduce(f64::min).unwrap_or(0.0);
-    let max = data.iter().cloned().reduce(f64::max).unwrap_or(1.0);
+    let min = data.iter().copied().reduce(f64::min).unwrap_or(0.0);
+    let max = data.iter().copied().reduce(f64::max).unwrap_or(1.0);
     let range = max - min;
     let threshold = range * 0.05;
 

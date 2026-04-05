@@ -57,9 +57,13 @@ fn main() {
     for layer_idx in 0..2 {
         let layer = &model.layers()[layer_idx];
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
-        let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
-            OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-            _ => panic!("Expected separate"),
+        let OwnedQKVWeights::Separate {
+            q: q_weight,
+            k: k_weight,
+            v: v_weight,
+        } = &layer.qkv_weight
+        else {
+            panic!("Expected separate")
         };
         let _q = fused_matmul(
             &normed,
@@ -150,9 +154,13 @@ fn main() {
 
     // Attention
     let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
-    let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-        _ => panic!("Expected separate"),
+    let OwnedQKVWeights::Separate {
+        q: q_weight,
+        k: k_weight,
+        v: v_weight,
+    } = &layer.qkv_weight
+    else {
+        panic!("Expected separate")
     };
     let _q = fused_matmul(
         &normed,
@@ -288,16 +296,16 @@ fn main() {
 
     // Check statistics
     println!("\n=== Gate Value Statistics ===");
-    let min = gate_fused.iter().cloned().fold(f32::INFINITY, f32::min);
-    let max = gate_fused.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min = gate_fused.iter().copied().fold(f32::INFINITY, f32::min);
+    let max = gate_fused.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let mean = gate_fused.iter().sum::<f32>() / gate_fused.len() as f32;
     println!(
         "Gate fused - min: {:.4}, max: {:.4}, mean: {:.4}",
         min, max, mean
     );
 
-    let min = gate_ref.iter().cloned().fold(f32::INFINITY, f32::min);
-    let max = gate_ref.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min = gate_ref.iter().copied().fold(f32::INFINITY, f32::min);
+    let max = gate_ref.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let mean = gate_ref.iter().sum::<f32>() / gate_ref.len() as f32;
     println!(
         "Gate ref   - min: {:.4}, max: {:.4}, mean: {:.4}",

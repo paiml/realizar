@@ -4,8 +4,8 @@ use realizar::quantize::dequantize_q4_0;
 use std::fs;
 
 fn stats(x: &[f32]) -> (f32, f32, f32, f32) {
-    let min = x.iter().cloned().fold(f32::INFINITY, f32::min);
-    let max = x.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min = x.iter().copied().fold(f32::INFINITY, f32::min);
+    let max = x.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let mean: f32 = x.iter().sum::<f32>() / x.len() as f32;
     let std: f32 = (x.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / x.len() as f32).sqrt();
     (min, max, mean, std)

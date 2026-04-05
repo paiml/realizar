@@ -172,7 +172,7 @@ proptest! {
         // Skip if hidden_dim exceeds upper bound
         prop_assume!(hidden_dim <= 65_536);
         prop_assume!(num_heads <= 256);
-        prop_assume!(num_kv_heads >= 1 && num_kv_heads <= 256);
+        prop_assume!((1..=256).contains(&num_kv_heads));
 
         let intermediate_dim = hidden_dim * ffn_mult;
         prop_assume!(intermediate_dim <= 262_144);

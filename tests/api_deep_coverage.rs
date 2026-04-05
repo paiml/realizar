@@ -658,7 +658,7 @@ fn test_model_lineage_minimal() {
 
 #[test]
 fn test_reload_request_empty() {
-    let json = r#"{}"#;
+    let json = r"{}";
     let request: ReloadRequest = serde_json::from_str(json).expect("deserialize");
     assert!(request.model.is_none());
     assert!(request.path.is_none());
@@ -1218,7 +1218,7 @@ fn test_chat_choice_content_filter() {
         index: 0,
         message: ChatMessage {
             role: "assistant".to_string(),
-            content: "".to_string(),
+            content: String::new(),
             name: None,
         },
         finish_reason: "content_filter".to_string(),

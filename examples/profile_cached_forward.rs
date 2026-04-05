@@ -7,10 +7,10 @@ use std::{env, time::Instant};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let path = args
-        .get(1)
-        .map(|s| s.as_str())
-        .unwrap_or("/home/noah/.cache/gguf/tinyllama-1.1b-chat-v1.0.Q4_0.gguf");
+    let path = args.get(1).map_or(
+        "/home/noah/.cache/gguf/tinyllama-1.1b-chat-v1.0.Q4_0.gguf",
+        |s| s.as_str(),
+    );
 
     println!("=== Cached Forward Pass Profiling ===\n");
 
@@ -87,7 +87,7 @@ fn main() {
     let avg = sum / times_us.len() as u128;
 
     let mut sorted = times_us;
-    sorted.sort();
+    sorted.sort_unstable();
     let median = sorted[sorted.len() / 2];
     let p95 = sorted[(sorted.len() as f64 * 0.95) as usize];
 

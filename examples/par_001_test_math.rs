@@ -34,7 +34,7 @@ fn main() {
 
     println!("\nTest tokens: {:?}", tokens);
     for &t in &tokens {
-        let s = vocab.get(t as usize).map(|s| s.as_str()).unwrap_or("?");
+        let s = vocab.get(t as usize).map_or("?", |s| s.as_str());
         println!("  {} = '{}'", t, s);
     }
 
@@ -51,12 +51,12 @@ fn main() {
     }
 
     // Top 10 predictions
-    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     println!("\nTop 10 predictions after '2+2=':");
     for (rank, (idx, score)) in indexed.iter().take(10).enumerate() {
-        let tok = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok = vocab.get(*idx).map_or("?", |s| s.as_str());
         println!("  {}: token {} = {:.4} ('{}')", rank + 1, idx, score, tok);
     }
 
@@ -84,7 +84,7 @@ fn main() {
             .expect("test");
 
         generated.push(next_idx as u32);
-        let tok_str = vocab.get(next_idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(next_idx).map_or("?", |s| s.as_str());
         print!("{}", tok_str);
     }
     println!();

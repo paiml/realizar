@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         generated.push(argmax_idx as u32);
 
-        let tok_str = vocab.get(argmax_idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(argmax_idx).map_or("?", |s| s.as_str());
         println!(
             "  Token {}: {} ({:?}) logit={:.4}",
             i, argmax_idx, tok_str, argmax_val

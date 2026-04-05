@@ -24,7 +24,7 @@ fn main() {
         let logits = model.forward(&tokens).expect("test");
 
         // Find top 5 predictions
-        let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+        let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
         indexed.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 
         println!("Top 5 predictions:");

@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .enumerate()
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
         .unwrap();
-    let argmax_str = vocab.get(argmax_idx).map(|s| s.as_str()).unwrap_or("?");
+    let argmax_str = vocab.get(argmax_idx).map_or("?", |s| s.as_str());
     println!(
         "Argmax: {} ({:?}) logit={:.4}",
         argmax_idx, argmax_str, argmax_val

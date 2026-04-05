@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut single_indexed: Vec<_> = logits_single.iter().enumerate().collect();
     single_indexed.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     for (tok, logit) in single_indexed.iter().take(10) {
-        let s = vocab.get(*tok).map(|s| s.as_str()).unwrap_or("?");
+        let s = vocab.get(*tok).map_or("?", |s| s.as_str());
         println!("  Token {} ({:?}): {:.4}", tok, s, logit);
     }
 
@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut multi_indexed: Vec<_> = logits_multi.iter().enumerate().collect();
     multi_indexed.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     for (tok, logit) in multi_indexed.iter().take(10) {
-        let s = vocab.get(*tok).map(|s| s.as_str()).unwrap_or("?");
+        let s = vocab.get(*tok).map_or("?", |s| s.as_str());
         println!("  Token {} ({:?}): {:.4}", tok, s, logit);
     }
 
@@ -46,9 +46,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .sqrt();
     let single_max = logits_single
         .iter()
-        .cloned()
+        .copied()
         .fold(f32::NEG_INFINITY, f32::max);
-    let single_min = logits_single.iter().cloned().fold(f32::INFINITY, f32::min);
+    let single_min = logits_single.iter().copied().fold(f32::INFINITY, f32::min);
 
     let multi_mean = logits_multi.iter().sum::<f32>() / logits_multi.len() as f32;
     let multi_std = (logits_multi
@@ -59,9 +59,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .sqrt();
     let multi_max = logits_multi
         .iter()
-        .cloned()
+        .copied()
         .fold(f32::NEG_INFINITY, f32::max);
-    let multi_min = logits_multi.iter().cloned().fold(f32::INFINITY, f32::min);
+    let multi_min = logits_multi.iter().copied().fold(f32::INFINITY, f32::min);
 
     println!(
         "Single: mean={:.4}, std={:.4}, range=[{:.4}, {:.4}]",

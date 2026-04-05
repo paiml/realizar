@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! GH-559: Minimal GPU kernel correctness test
 //!
 //! Tests individual CUDA kernels (RMSNorm, GEMV) in isolation to find which

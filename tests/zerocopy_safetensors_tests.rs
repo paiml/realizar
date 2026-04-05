@@ -80,20 +80,13 @@ mod mapped_model_tests {
     // F-ZC-001: Verify tensor names
     #[test]
     fn test_fzc001_tensor_names() {
+        let l1w_data = vec![0u8; 128 * 256 * 4];
+        let l1b_data = vec![0u8; 128 * 4];
+        let l2w_data = vec![0u8; 64 * 128 * 4];
         let tensors = [
-            (
-                "layer1.weight",
-                "F32",
-                &[128, 256][..],
-                &[0u8; 128 * 256 * 4][..],
-            ),
-            ("layer1.bias", "F32", &[128][..], &[0u8; 128 * 4][..]),
-            (
-                "layer2.weight",
-                "F32",
-                &[64, 128][..],
-                &[0u8; 64 * 128 * 4][..],
-            ),
+            ("layer1.weight", "F32", &[128, 256][..], &l1w_data[..]),
+            ("layer1.bias", "F32", &[128][..], &l1b_data[..]),
+            ("layer2.weight", "F32", &[64, 128][..], &l2w_data[..]),
         ];
         let file = create_test_safetensors(&tensors);
 
@@ -147,7 +140,8 @@ mod mapped_model_tests {
     // F-ZC-001: Tensor info access
     #[test]
     fn test_fzc001_tensor_info() {
-        let tensors = [("matrix", "F32", &[64, 128][..], &[0u8; 64 * 128 * 4][..])];
+        let matrix_data = vec![0u8; 64 * 128 * 4];
+        let tensors = [("matrix", "F32", &[64, 128][..], &matrix_data[..])];
         let file = create_test_safetensors(&tensors);
 
         let model = MappedSafeTensorsModel::load(file.path()).expect("load model");
@@ -835,7 +829,7 @@ mod ttft_benchmark_tests {
     // F-ZC-003: CRITICAL - TTFT < 500ms for 3GB model
     // This is the main performance gate from the spec
     #[test]
-    #[ignore] // Ignore by default as it creates a 3GB file
+    #[ignore = "creates a 3GB file, run manually"]
     fn test_fzc003_ttft_3gb_critical() {
         let (file, size) = create_large_safetensors(3 * 1024);
         assert!(

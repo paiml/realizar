@@ -16,8 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .iter()
                 .enumerate()
                 .find(|(_, s)| s.as_str() == c.to_string())
-                .map(|(i, _)| i as u32)
-                .unwrap_or(0);
+                .map_or(0, |(i, _)| i as u32);
             (c, tok_id)
         })
         .collect();
@@ -39,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             indexed.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
 
             let top_tok = indexed[0].0;
-            let top_s = vocab.get(top_tok).map(|s| s.as_str()).unwrap_or("?");
+            let top_s = vocab.get(top_tok).map_or("?", |s| s.as_str());
 
             // Highlight if "!" is top
             let marker = if top_tok == 0 { " <-- BUG!" } else { "" };
@@ -61,8 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .enumerate()
         .find(|(_, s)| s.as_str() == "+")
-        .map(|(i, _)| i as u32)
-        .unwrap_or(0);
+        .map_or(0, |(i, _)| i as u32);
     println!("'+' token ID: {}", plus_tok);
 
     for (c, t) in &digit_tokens {
@@ -73,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         indexed.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
 
         let top_tok = indexed[0].0;
-        let top_s = vocab.get(top_tok).map(|s| s.as_str()).unwrap_or("?");
+        let top_s = vocab.get(top_tok).map_or("?", |s| s.as_str());
 
         let marker = if top_tok == 0 { " <-- BUG!" } else { "" };
         println!(
@@ -95,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         indexed.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
 
         let top_tok = indexed[0].0;
-        let top_s = vocab.get(top_tok).map(|s| s.as_str()).unwrap_or("?");
+        let top_s = vocab.get(top_tok).map_or("?", |s| s.as_str());
 
         let marker = if top_tok == 0 { " <-- BUG!" } else { "" };
         println!(

@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check special tokens
     println!("\n=== Qwen2 Special Tokens ===");
     for tok in 0..10 {
-        let name = qwen_vocab.get(tok).map(|s| s.as_str()).unwrap_or("?");
+        let name = qwen_vocab.get(tok).map_or("?", |s| s.as_str());
         println!("  Token {}: {:?}", tok, name);
     }
 
@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hidden_dim = qwen_model.config().hidden_dim;
 
     for tok in buggy_tokens {
-        let name = qwen_vocab.get(tok).map(|s| s.as_str()).unwrap_or("?");
+        let name = qwen_vocab.get(tok).map_or("?", |s| s.as_str());
         let start = tok * hidden_dim;
         let end = start + hidden_dim;
 
@@ -58,8 +58,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
         let sum: f32 = emb.iter().sum();
         let mean = sum / hidden_dim as f32;
-        let min = emb.iter().cloned().fold(f32::INFINITY, f32::min);
-        let max = emb.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let min = emb.iter().copied().fold(f32::INFINITY, f32::min);
+        let max = emb.iter().copied().fold(f32::NEG_INFINITY, f32::max);
 
         println!(
             "  Token {} ({:?}): norm={:.4}, mean={:.6}, range=[{:.4}, {:.4}]",
@@ -72,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ok_tokens = [0, 1, 2, 4, 5, 6, 8, 9, 10, 11];
 
     for tok in ok_tokens {
-        let name = qwen_vocab.get(tok).map(|s| s.as_str()).unwrap_or("?");
+        let name = qwen_vocab.get(tok).map_or("?", |s| s.as_str());
         let start = tok * hidden_dim;
         let end = start + hidden_dim;
 
@@ -85,8 +85,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
         let sum: f32 = emb.iter().sum();
         let mean = sum / hidden_dim as f32;
-        let min = emb.iter().cloned().fold(f32::INFINITY, f32::min);
-        let max = emb.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let min = emb.iter().copied().fold(f32::INFINITY, f32::min);
+        let max = emb.iter().copied().fold(f32::NEG_INFINITY, f32::max);
 
         println!(
             "  Token {} ({:?}): norm={:.4}, mean={:.6}, range=[{:.4}, {:.4}]",

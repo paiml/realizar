@@ -1,4 +1,5 @@
 //! Verify Q4K data layout by comparing against F32 reference
+#![allow(deprecated)]
 
 use realizar::apr_transformer::AprTransformer;
 use realizar::gguf::{MappedGGUFModel, OwnedQuantizedModel};

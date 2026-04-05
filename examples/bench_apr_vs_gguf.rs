@@ -163,7 +163,7 @@ fn main() {
             // Initialize batched workspace
             let hidden_dim = cuda_model.model().config().hidden_dim;
             let intermediate_dim = cuda_model.model().layers()[0].ffn_up_weight.out_dim;
-            let num_layers = cuda_model.model().layers.len();
+            let num_layers = cuda_model.model().layers().len();
 
             cuda_model
                 .executor_mut()

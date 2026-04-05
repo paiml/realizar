@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         idx.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
 
         let top_tok = idx[0].0;
-        let tok_name = vocab.get(tok as usize).map(|s| s.as_str()).unwrap_or("?");
+        let tok_name = vocab.get(tok as usize).map_or("?", |s| s.as_str());
 
         if top_tok == 0 && tok != 0 {
             // Predicting "!" for non-"!" input is buggy

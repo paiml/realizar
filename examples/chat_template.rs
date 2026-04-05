@@ -152,8 +152,8 @@ fn main() {
     // -------------------------------------------------------------------------
     println!("8. Custom HuggingFace Template (Jinja2)\n");
 
-    let template_str = r#"{% for message in messages %}{{ message.role }}: {{ message.content }}
-{% endfor %}Assistant:"#;
+    let template_str = r"{% for message in messages %}{{ message.role }}: {{ message.content }}
+{% endfor %}Assistant:";
 
     let hf_template = HuggingFaceTemplate::new(
         template_str.to_string(),

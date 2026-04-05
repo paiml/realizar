@@ -186,7 +186,7 @@ proptest! {
 
     /// Empty data returns empty result
     #[test]
-    fn test_empty_data(_ in Just(())) {
+    fn test_empty_data(() in Just(())) {
         let result_q4 = dequantize_q4_0(&[]).expect("test");
         prop_assert!(result_q4.is_empty());
 

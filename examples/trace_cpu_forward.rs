@@ -46,9 +46,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   sum = {:.6}, inv_rms = {:.8}", norm_sum, inv_rms);
 
     // Step 3: Direct Q4K GEMV (standalone function)
-    let q_weight = match &model.layers()[0].qkv_weight {
-        OwnedQKVWeights::Separate { q, .. } => q,
-        _ => panic!("Expected separate QKV"),
+    let OwnedQKVWeights::Separate { q: q_weight, .. } = &model.layers()[0].qkv_weight else {
+        panic!("Expected separate QKV")
     };
     println!("\n3. Q weight info:");
     println!(

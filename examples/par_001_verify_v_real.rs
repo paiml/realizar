@@ -29,8 +29,7 @@ fn main() {
             .vocabulary()
             .expect("test")
             .get(token_id as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("?")
+            .map_or("?", |s| s.as_str())
     );
 
     // Get embedding and normalize
@@ -42,9 +41,8 @@ fn main() {
     println!("Normed L2: {:.4}", l2_norm(&normed));
 
     // Get V weight
-    let v_weight = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { v, .. } => v,
-        _ => panic!("Expected separate QKV"),
+    let OwnedQKVWeights::Separate { v: v_weight, .. } = &layer.qkv_weight else {
+        panic!("Expected separate QKV")
     };
 
     println!(
@@ -125,10 +123,10 @@ fn main() {
     // Also check: what does dequantized weight look like?
     println!("\n=== Weight Statistics ===");
     let w_l2 = l2_norm(&all_weights);
-    let w_min = all_weights.iter().cloned().fold(f32::INFINITY, f32::min);
+    let w_min = all_weights.iter().copied().fold(f32::INFINITY, f32::min);
     let w_max = all_weights
         .iter()
-        .cloned()
+        .copied()
         .fold(f32::NEG_INFINITY, f32::max);
     println!(
         "Dequantized weights: L2={:.4}, min={:.4}, max={:.4}",

@@ -149,7 +149,7 @@ fn test_seq_id_uniqueness_across_many() {
 
     // All IDs should be unique
     let mut values: Vec<u64> = ids.iter().map(|id| id.value()).collect();
-    values.sort();
+    values.sort_unstable();
     values.dedup();
     assert_eq!(values.len(), 1000);
 }
@@ -402,9 +402,7 @@ fn test_q4_quantize_extreme_values() {
 #[test]
 fn test_q8_quantize_tiny_values() {
     let mut values = [0.0f32; KV_QUANT_BLOCK_SIZE];
-    for v in values.iter_mut() {
-        *v = 1e-11; // Below threshold
-    }
+    values.fill(1e-11); // Below threshold
 
     let block = Q8KvBlock::quantize(&values);
     // Scale should be 0, resulting in zero output
@@ -414,9 +412,7 @@ fn test_q8_quantize_tiny_values() {
 #[test]
 fn test_q4_quantize_tiny_values() {
     let mut values = [0.0f32; KV_QUANT_BLOCK_SIZE];
-    for v in values.iter_mut() {
-        *v = 1e-11;
-    }
+    values.fill(1e-11);
 
     let block = Q4KvBlock::quantize(&values);
     assert_eq!(block.scale, 0.0);

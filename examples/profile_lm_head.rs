@@ -59,7 +59,7 @@ fn profile_matmul(name: &str, in_dim: usize, out_dim: usize) {
     let _avg = sum / times_us.len() as u128;
 
     let mut sorted = times_us;
-    sorted.sort();
+    sorted.sort_unstable();
     let median = sorted[sorted.len() / 2];
 
     let flops = 2.0 * in_dim as f64 * out_dim as f64;

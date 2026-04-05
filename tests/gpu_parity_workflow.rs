@@ -86,8 +86,8 @@ impl MatmulResult {
     #[allow(dead_code)]
     fn new(output: Vec<f32>, duration: std::time::Duration, scheduler: &str) -> Self {
         let output_sum: f32 = output.iter().sum();
-        let output_min = output.iter().cloned().fold(f32::INFINITY, f32::min);
-        let output_max = output.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let output_min = output.iter().copied().fold(f32::INFINITY, f32::min);
+        let output_max = output.iter().copied().fold(f32::NEG_INFINITY, f32::max);
 
         Self {
             output,
@@ -180,7 +180,7 @@ impl ParityResult {
 // ============================================================================
 
 /// CPU reference matmul for ground truth comparison
-#[allow(dead_code)]
+#[allow(dead_code, clippy::many_single_char_names)]
 fn cpu_matmul_reference(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
     let mut c = vec![0.0f32; m * n];
     for i in 0..m {
@@ -777,13 +777,14 @@ impl TuiFrame {
     }
 
     fn render(&self) -> String {
+        use std::fmt::Write;
         let border = "═".repeat(self.width);
         let mut output = format!("╔{}╗\n", border);
         for line in &self.lines {
             let padded = format!("{:width$}", line, width = self.width);
-            output.push_str(&format!("║{}║\n", padded));
+            let _ = writeln!(output, "║{}║", padded);
         }
-        output.push_str(&format!("╚{}╝", border));
+        let _ = write!(output, "╚{}╝", border);
         output
     }
 }

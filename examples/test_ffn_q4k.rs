@@ -1,5 +1,6 @@
 //! Test FFN Q4K vs F32 paths
 //! Debug tool for PMAT-103: Isolate where APR diverges from correct output
+#![allow(deprecated)]
 use realizar::apr_transformer::AprTransformer;
 use trueno::backends::q4k::matmul_q4k_f32_colmajor_dispatch as matmul_q4k_f32;
 use trueno::backends::q6k::matmul_q6k_f32_colmajor_dispatch as matmul_q6k_f32;
@@ -17,12 +18,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Intermediate dim: {}", intermediate_dim);
 
     // Check if we have Q4K layers
-    let q4k_layers = match &apr.q4k_layers {
-        Some(layers) => layers,
-        None => {
-            println!("No Q4K layers found!");
-            return Ok(());
-        },
+    let Some(q4k_layers) = &apr.q4k_layers else {
+        println!("No Q4K layers found!");
+        return Ok(());
     };
 
     println!("\n=== Layer 0 Q4K Status ===");

@@ -1,3 +1,4 @@
+#![allow(clippy::many_single_char_names)]
 //! EXTREME TDD: Inference Module Coverage Tests
 //!
 //! Additional tests for inference.rs to increase coverage to 85%+.
@@ -72,8 +73,8 @@ fn test_cov_thread_config_debug() {
     let config = ThreadConfig::new(4, 2);
     let debug = format!("{config:?}");
     assert!(debug.contains("ThreadConfig"));
-    assert!(debug.contains("4"));
-    assert!(debug.contains("2"));
+    assert!(debug.contains('4'));
+    assert!(debug.contains('2'));
 }
 
 // ===== InferenceMode Tests =====

@@ -25,7 +25,7 @@ fn main() {
     eprintln!("=== Token count: {} ===", tokens.len());
     eprintln!("\n=== All tokens ===");
     for (i, &tok) in tokens.iter().enumerate() {
-        let tok_str = vocab.get(tok as usize).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(tok as usize).map_or("?", |s| s.as_str());
         eprintln!("{:3}: {:6} = '{}'", i, tok, tok_str);
     }
 }

@@ -21,8 +21,7 @@ fn main() {
         "0: '{}'",
         vocab
             .first()
-            .map(|s| s.escape_debug().to_string())
-            .unwrap_or("?".to_string())
+            .map_or("?".to_string(), |s| s.escape_debug().to_string())
     );
 
     // Check some specific indices

@@ -24,7 +24,7 @@ fn benchmark_model_forward(c: &mut Criterion) {
     let model = create_test_model();
     let mut group = c.benchmark_group("model_forward");
 
-    for seq_len in [1, 5, 10, 20].iter() {
+    for seq_len in &[1, 5, 10, 20] {
         group.bench_with_input(
             BenchmarkId::from_parameter(seq_len),
             seq_len,
@@ -92,7 +92,7 @@ fn benchmark_generation_varying_length(c: &mut Criterion) {
     let model = create_test_model();
     let mut group = c.benchmark_group("generation_varying_length");
 
-    for max_tokens in [1, 5, 10, 20].iter() {
+    for max_tokens in &[1, 5, 10, 20] {
         let config = GenerationConfig::greedy().with_max_tokens(*max_tokens);
         group.bench_with_input(
             BenchmarkId::from_parameter(max_tokens),
@@ -146,7 +146,7 @@ fn benchmark_batch_generation(c: &mut Criterion) {
     let mut group = c.benchmark_group("batch_generation");
 
     // Benchmark different batch sizes
-    for batch_size in [1, 2, 4, 8, 16].iter() {
+    for batch_size in &[1, 2, 4, 8, 16] {
         group.bench_with_input(
             BenchmarkId::from_parameter(batch_size),
             batch_size,

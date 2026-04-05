@@ -453,8 +453,8 @@ fn test_phi2_dequantize_q4_k_tensor() {
                 println!("  First 10 values: {:?}", &v[..10.min(v.len())]);
                 println!(
                     "  Min: {}, Max: {}",
-                    v.iter().cloned().reduce(f32::min).unwrap_or(0.0),
-                    v.iter().cloned().reduce(f32::max).unwrap_or(0.0)
+                    v.iter().copied().reduce(f32::min).unwrap_or(0.0),
+                    v.iter().copied().reduce(f32::max).unwrap_or(0.0)
                 );
 
                 // Basic sanity checks
@@ -501,8 +501,8 @@ fn test_phi2_dequantize_q5_k_tensor() {
                 println!("  First 10 values: {:?}", &v[..10.min(v.len())]);
                 println!(
                     "  Min: {}, Max: {}",
-                    v.iter().cloned().reduce(f32::min).unwrap_or(0.0),
-                    v.iter().cloned().reduce(f32::max).unwrap_or(0.0)
+                    v.iter().copied().reduce(f32::min).unwrap_or(0.0),
+                    v.iter().copied().reduce(f32::max).unwrap_or(0.0)
                 );
 
                 // Basic sanity checks
@@ -549,8 +549,8 @@ fn test_phi2_dequantize_q6_k_tensor() {
                 println!("  First 10 values: {:?}", &v[..10.min(v.len())]);
                 println!(
                     "  Min: {}, Max: {}",
-                    v.iter().cloned().reduce(f32::min).unwrap_or(0.0),
-                    v.iter().cloned().reduce(f32::max).unwrap_or(0.0)
+                    v.iter().copied().reduce(f32::min).unwrap_or(0.0),
+                    v.iter().copied().reduce(f32::max).unwrap_or(0.0)
                 );
 
                 // Basic sanity checks

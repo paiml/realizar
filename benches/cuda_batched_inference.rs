@@ -97,11 +97,11 @@ fn setup_cuda_model() -> Option<BenchContext> {
     let mut cuda_model = OwnedQuantizedModelCuda::new(model, 0).ok()?;
     cuda_model.preload_weights_gpu().ok()?;
 
-    let hidden_dim = cuda_model.model().config.hidden_dim;
-    let intermediate_dim = cuda_model.model().layers[0].ffn_up_weight.out_dim;
-    let num_layers = cuda_model.model().layers.len();
-    let vocab_size = cuda_model.model().lm_head_weight.out_dim;
-    let eps = cuda_model.model().config.eps;
+    let hidden_dim = cuda_model.model().config().hidden_dim;
+    let intermediate_dim = cuda_model.model().layers()[0].ffn_up_weight.out_dim;
+    let num_layers = cuda_model.model().layers().len();
+    let vocab_size = cuda_model.model().lm_head_weight().out_dim;
+    let eps = cuda_model.model().config().eps;
 
     let model_name = std::path::Path::new(&model_path)
         .file_name()

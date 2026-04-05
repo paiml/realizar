@@ -1,3 +1,4 @@
+#![allow(clippy::used_underscore_binding)]
 //! Y5: Quantized APR Format Tests (EXTREME TDD - RED Phase)
 //!
 //! Per Section Y of the spec, APR format MUST support INT8/INT4 quantization.

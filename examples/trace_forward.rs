@@ -42,15 +42,14 @@ fn main() {
     stats("Logits", &logits);
 
     // Top 10
-    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     eprintln!("\nTop 10 after seeing '<|im_start|>':");
     for (rank, (idx, score)) in indexed.iter().take(10).enumerate() {
         let tok_str = vocab
             .get(*idx)
-            .map(|s| s.escape_debug().to_string())
-            .unwrap_or("?".to_string());
+            .map_or("?".to_string(), |s| s.escape_debug().to_string());
         eprintln!(
             "{:2}. {:6} score={:.4}  '{}'",
             rank + 1,
@@ -68,8 +67,7 @@ fn main() {
             let rank = indexed
                 .iter()
                 .position(|(i, _)| *i == idx)
-                .map(|r| r + 1)
-                .unwrap_or(0);
+                .map_or(0, |r| r + 1);
             eprintln!(
                 "  '{}' (id={}) score={:.4} rank={}",
                 check, idx, score, rank
@@ -90,15 +88,14 @@ fn main() {
         .forward_single_with_cache(8948, &mut cache, 1)
         .expect("forward2");
 
-    let mut indexed2: Vec<(usize, f32)> = logits2.iter().cloned().enumerate().collect();
+    let mut indexed2: Vec<(usize, f32)> = logits2.iter().copied().enumerate().collect();
     indexed2.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     eprintln!("\nTop 10 after '<|im_start|>system' (expecting newline Ċ):");
     for (rank, (idx, score)) in indexed2.iter().take(10).enumerate() {
         let tok_str = vocab
             .get(*idx)
-            .map(|s| s.escape_debug().to_string())
-            .unwrap_or("?".to_string());
+            .map_or("?".to_string(), |s| s.escape_debug().to_string());
         eprintln!(
             "{:2}. {:6} score={:.4}  '{}'",
             rank + 1,
@@ -114,8 +111,7 @@ fn main() {
         let rank = indexed2
             .iter()
             .position(|(i, _)| *i == idx)
-            .map(|r| r + 1)
-            .unwrap_or(0);
+            .map_or(0, |r| r + 1);
         eprintln!(
             "\n  'Ċ' (newline, id={}) score={:.4} rank={}",
             idx, score, rank

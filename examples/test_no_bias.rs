@@ -49,15 +49,14 @@ fn main() {
         .forward_single_with_cache(token_id, &mut cache, 0)
         .expect("forward");
 
-    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     eprintln!("Top 5 predictions:");
     for (rank, (idx, score)) in indexed.iter().take(5).enumerate() {
         let tok_str = vocab
             .get(*idx)
-            .map(|s| s.escape_debug().to_string())
-            .unwrap_or("?".to_string());
+            .map_or_else(|| "?".to_string(), |s| s.escape_debug().to_string());
         eprintln!("{}: {} score={:.4} '{}'", rank + 1, idx, score, tok_str);
     }
 
@@ -67,8 +66,7 @@ fn main() {
     let system_rank = indexed
         .iter()
         .position(|(i, _)| *i == system_id)
-        .map(|r| r + 1)
-        .unwrap_or(0);
+        .map_or(0, |r| r + 1);
     eprintln!(
         "\n'system' (id={}) score={:.4} rank={}",
         system_id, system_score, system_rank

@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check logits for relevant tokens
     println!("\nLogits for relevant tokens:");
     for tok in [0, 17, 18, 19, 20, 21] {
-        let tok_str = vocab.get(tok).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(tok).map_or("?", |s| s.as_str());
         println!("  Token {} ({:?}): logit={:.4}", tok, tok_str, logits[tok]);
     }
 
@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .enumerate()
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
         .unwrap();
-    let argmax_str = vocab.get(argmax_idx).map(|s| s.as_str()).unwrap_or("?");
+    let argmax_str = vocab.get(argmax_idx).map_or("?", |s| s.as_str());
     println!(
         "\nArgmax: {} ({:?}) logit={:.4}",
         argmax_idx, argmax_str, argmax_val
@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut indexed: Vec<_> = logits.iter().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     for (tok, logit) in indexed.iter().take(10) {
-        let tok_str = vocab.get(*tok).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(*tok).map_or("?", |s| s.as_str());
         println!("  Token {} ({:?}): logit={:.4}", tok, tok_str, logit);
     }
 

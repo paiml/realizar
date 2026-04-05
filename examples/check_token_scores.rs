@@ -45,9 +45,13 @@ fn main() {
 
         // Attention
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
-        let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
-            OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-            _ => panic!("Expected separate"),
+        let OwnedQKVWeights::Separate {
+            q: q_weight,
+            k: k_weight,
+            v: v_weight,
+        } = &layer.qkv_weight
+        else {
+            panic!("Expected separate")
         };
         let _q = fused_matmul(
             &normed,
@@ -127,7 +131,7 @@ fn main() {
     }
 
     // Final norm
-    let final_hidden = rms_norm(&hidden, &model.output_norm_weight(), eps);
+    let final_hidden = rms_norm(&hidden, model.output_norm_weight(), eps);
 
     // LM head projection
     let logits = fused_matmul(
@@ -157,7 +161,7 @@ fn main() {
     }
 
     // Top 10
-    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     println!("\nTop 10 predictions:");

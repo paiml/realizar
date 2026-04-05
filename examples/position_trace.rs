@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut single_idx: Vec<_> = logits_single.iter().enumerate().collect();
     single_idx.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     let top = single_idx[0].0;
-    let top_s = vocab.get(top).map(|s| s.as_str()).unwrap_or("?");
+    let top_s = vocab.get(top).map_or("?", |s| s.as_str());
     println!("  Top: {} ({:?}) = {:.4}", top, top_s, single_idx[0].1);
 
     println!("\nToken '2' (token 17) at position 1 (after various prefixes):");
@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         idx.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
 
         let top_tok = idx[0].0;
-        let top_s = vocab.get(top_tok).map(|s| s.as_str()).unwrap_or("?");
+        let top_s = vocab.get(top_tok).map_or("?", |s| s.as_str());
 
         let marker = if top_tok == 0 { " <-- BUG" } else { "" };
 
@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         idx.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
 
         let top_tok = idx[0].0;
-        let top_s = vocab.get(top_tok).map(|s| s.as_str()).unwrap_or("?");
+        let top_s = vocab.get(top_tok).map_or("?", |s| s.as_str());
 
         println!(
             "  '{}' (tok {}): Logit[0]={:.4}, Top={} ({:?})",

@@ -64,8 +64,8 @@ fn demo_density_rejection() {
     let vocab_size = 1000;
     let hidden_dim = 64;
     let mut data = vec![0.0f32; vocab_size * hidden_dim];
-    for i in (945 * hidden_dim)..(vocab_size * hidden_dim) {
-        data[i] = 0.1;
+    for item in &mut data[(945 * hidden_dim)..(vocab_size * hidden_dim)] {
+        *item = 0.1;
     }
 
     println!("  Creating embedding with 94.5% zeros...");

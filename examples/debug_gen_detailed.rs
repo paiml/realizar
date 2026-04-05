@@ -33,7 +33,7 @@ fn main() {
     eprintln!("\n=== Prefill ===");
     let mut logits = Vec::new();
     for (pos, &tok) in prompt.iter().enumerate() {
-        let tok_str = vocab.get(tok as usize).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(tok as usize).map_or("?", |s| s.as_str());
         eprintln!("Prefill: token {} '{}' at position {}", tok, tok_str, pos);
         logits = model
             .forward_single_with_cache(tok, &mut cache, pos)
@@ -51,11 +51,11 @@ fn main() {
     }
 
     // Print top 5 from prefill logits
-    let mut indexed: Vec<(usize, f32)> = logits.iter().cloned().enumerate().collect();
+    let mut indexed: Vec<(usize, f32)> = logits.iter().copied().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     eprintln!("\nPrefill logits top 5:");
     for (idx, score) in indexed.iter().take(5) {
-        let tok_str = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(*idx).map_or("?", |s| s.as_str());
         eprintln!("  {} '{}' = {:.4}", idx, tok_str, score);
     }
 
@@ -64,10 +64,7 @@ fn main() {
     let mut tokens = prompt.clone();
     for gen_idx in 0..5 {
         let next_token = indexed[0].0 as u32; // greedy
-        let next_str = vocab
-            .get(next_token as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("?");
+        let next_str = vocab.get(next_token as usize).map_or("?", |s| s.as_str());
 
         let position = prompt.len() + gen_idx;
         eprintln!(
@@ -112,12 +109,12 @@ fn main() {
         }
 
         // Update indexed for next iteration
-        indexed = logits.iter().cloned().enumerate().collect();
+        indexed = logits.iter().copied().enumerate().collect();
         indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         eprintln!("  Top 5 next:");
         for (idx, score) in indexed.iter().take(5) {
-            let tok_str = vocab.get(*idx).map(|s| s.as_str()).unwrap_or("?");
+            let tok_str = vocab.get(*idx).map_or("?", |s| s.as_str());
             eprintln!("    {} '{}' = {:.4}", idx, tok_str, score);
         }
     }
@@ -125,7 +122,7 @@ fn main() {
     eprintln!("\n=== Final output ===");
     let output_str: String = tokens
         .iter()
-        .map(|&t| vocab.get(t as usize).map(|s| s.as_str()).unwrap_or("?"))
+        .map(|&t| vocab.get(t as usize).map_or("?", |s| s.as_str()))
         .collect::<Vec<_>>()
         .join("");
     eprintln!("{}", output_str);

@@ -9,9 +9,8 @@ fn main() {
     let model = OwnedQuantizedModel::from_mapped(&mapped).expect("test");
 
     // Get Q weight
-    let q_weight = match &model.layers()[0].qkv_weight {
-        OwnedQKVWeights::Separate { q, .. } => q,
-        _ => panic!("Expected separate"),
+    let OwnedQKVWeights::Separate { q: q_weight, .. } = &model.layers()[0].qkv_weight else {
+        panic!("Expected separate")
     };
 
     println!("=== Q Weight Row Comparison ===\n");

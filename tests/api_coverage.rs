@@ -1058,7 +1058,7 @@ fn test_dispatch_metrics_response_serialization() {
 
 #[test]
 fn test_dispatch_metrics_query_default() {
-    let json = r#"{}"#;
+    let json = r"{}";
     let query: realizar::api::DispatchMetricsQuery =
         serde_json::from_str(json).expect("should deserialize empty query");
     assert!(query.format.is_none());
@@ -1347,7 +1347,7 @@ fn test_model_lineage_minimal() {
 
 #[test]
 fn test_reload_request_empty() {
-    let json = r#"{}"#;
+    let json = r"{}";
     let request: ReloadRequest = serde_json::from_str(json).expect("should deserialize");
 
     assert!(request.model.is_none());
@@ -1826,7 +1826,7 @@ fn test_max_tokens_boundary() {
 fn test_empty_string_content() {
     let message = ChatMessage {
         role: "user".to_string(),
-        content: "".to_string(),
+        content: String::new(),
         name: None,
     };
 

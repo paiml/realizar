@@ -57,12 +57,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let k_norm: f32 = k_bias.iter().map(|x| x * x).sum::<f32>().sqrt();
         let v_norm: f32 = v_bias.iter().map(|x| x * x).sum::<f32>().sqrt();
 
-        let q_min = q_bias.iter().cloned().fold(f32::INFINITY, f32::min);
-        let q_max = q_bias.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let k_min = k_bias.iter().cloned().fold(f32::INFINITY, f32::min);
-        let k_max = k_bias.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let v_min = v_bias.iter().cloned().fold(f32::INFINITY, f32::min);
-        let v_max = v_bias.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let q_min = q_bias.iter().copied().fold(f32::INFINITY, f32::min);
+        let q_max = q_bias.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let k_min = k_bias.iter().copied().fold(f32::INFINITY, f32::min);
+        let k_max = k_bias.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let v_min = v_bias.iter().copied().fold(f32::INFINITY, f32::min);
+        let v_max = v_bias.iter().copied().fold(f32::NEG_INFINITY, f32::max);
 
         println!(
             "    Q bias: len={}, norm={:.4}, range=[{:.4}, {:.4}]",
@@ -146,8 +146,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  V norm: {:.4}", v_biased_norm);
 
     // Check for extreme values that could cause attention issues
-    let q_max = q_biased.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    let k_max = k_biased.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let q_max = q_biased.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let k_max = k_biased.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     println!("\n  Q max: {:.4}, K max: {:.4}", q_max, k_max);
 
     // Attention score analysis

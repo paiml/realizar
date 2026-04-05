@@ -29,9 +29,13 @@ fn process_layer(
     let normed = rms_norm(hidden, &layer.attn_norm_weight, eps);
 
     // Q, K, V projections
-    let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-        _ => panic!("Expected separate QKV"),
+    let OwnedQKVWeights::Separate {
+        q: q_weight,
+        k: k_weight,
+        v: v_weight,
+    } = &layer.qkv_weight
+    else {
+        panic!("Expected separate QKV")
     };
 
     let _q = fused_matmul(
@@ -209,7 +213,7 @@ fn main() {
     );
 
     // Final RMSNorm + LM head
-    let final_normed = rms_norm(&hidden, &model.output_norm_weight(), eps);
+    let final_normed = rms_norm(&hidden, model.output_norm_weight(), eps);
     println!("\nNormed hidden:");
     println!("  CPU first 5: {:?}", &final_normed[..5]);
 

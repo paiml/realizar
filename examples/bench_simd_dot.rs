@@ -1,6 +1,6 @@
 //! Benchmark AVX2 vs AVX-VNNI for Q4_0×Q8_0 dot product
 #![allow(unsafe_op_in_unsafe_fn)]
-#![allow(clippy::needless_range_loop)]
+#![allow(clippy::needless_range_loop, clippy::cast_ptr_alignment)]
 
 use std::arch::x86_64::*;
 use std::time::Instant;
@@ -27,11 +27,11 @@ unsafe fn dot_avx2(q4_data: &[u8], q8_scales: &[f32], q8_quants: &[i8]) -> f32 {
         let q8_ptr = q8_quants.as_ptr().add(block_idx * Q4_BLOCK_SIZE);
 
         // Read Q4 scale (f16 stored as 2 bytes)
-        let scale_bytes = std::ptr::read_unaligned(q4_ptr as *const u16);
+        let scale_bytes = std::ptr::read_unaligned(q4_ptr.cast::<u16>());
         let q4_scale = half::f16::from_bits(scale_bytes).to_f32();
 
         // Load Q4 nibbles and unpack
-        let q4_packed = _mm_loadu_si128(q4_ptr.add(2) as *const __m128i);
+        let q4_packed = _mm_loadu_si128(q4_ptr.add(2).cast::<__m128i>());
         let q4_lo = _mm256_and_si256(_mm256_cvtepu8_epi16(q4_packed), low_mask);
         let q4_hi = _mm256_and_si256(_mm256_cvtepu8_epi16(_mm_srli_epi16(q4_packed, 4)), low_mask);
 
@@ -39,7 +39,7 @@ unsafe fn dot_avx2(q4_data: &[u8], q8_scales: &[f32], q8_quants: &[i8]) -> f32 {
         let q4_vals = _mm256_sub_epi8(_mm256_packus_epi16(q4_lo, q4_hi), offset);
 
         // Load Q8 values
-        let q8_vals = _mm256_loadu_si256(q8_ptr as *const __m256i);
+        let q8_vals = _mm256_loadu_si256(q8_ptr.cast::<__m256i>());
 
         // maddubs: pairs of (u8 × i8) -> i16, then horizontal add pairs
         let products = _mm256_maddubs_epi16(
@@ -77,17 +77,17 @@ unsafe fn dot_avx_vnni(q4_data: &[u8], q8_scales: &[f32], q8_quants: &[i8]) -> f
         let q4_ptr = q4_data.as_ptr().add(block_idx * Q4_BLOCK_BYTES);
         let q8_ptr = q8_quants.as_ptr().add(block_idx * Q4_BLOCK_SIZE);
 
-        let scale_bytes = std::ptr::read_unaligned(q4_ptr as *const u16);
+        let scale_bytes = std::ptr::read_unaligned(q4_ptr.cast::<u16>());
         let q4_scale = half::f16::from_bits(scale_bytes).to_f32();
 
-        let q4_packed = _mm_loadu_si128(q4_ptr.add(2) as *const __m128i);
+        let q4_packed = _mm_loadu_si128(q4_ptr.add(2).cast::<__m128i>());
         let q4_lo = _mm256_and_si256(_mm256_cvtepu8_epi16(q4_packed), low_mask);
         let q4_hi = _mm256_and_si256(_mm256_cvtepu8_epi16(_mm_srli_epi16(q4_packed, 4)), low_mask);
         let q4_vals = _mm256_sub_epi8(_mm256_packus_epi16(q4_lo, q4_hi), offset);
 
         // Make unsigned by adding 8 back
         let q4_unsigned = _mm256_add_epi8(q4_vals, offset);
-        let q8_vals = _mm256_loadu_si256(q8_ptr as *const __m256i);
+        let q8_vals = _mm256_loadu_si256(q8_ptr.cast::<__m256i>());
 
         // Use vpdpbusd: u8 × i8 -> i32 accumulate (VEX-encoded for AVX-VNNI)
         let mut int_acc = _mm256_setzero_si256();

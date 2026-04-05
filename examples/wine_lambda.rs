@@ -1,3 +1,4 @@
+#![allow(clippy::format_push_string)]
 //! Wine Quality Prediction - AWS Lambda Example
 //!
 //! A production-ready wine quality rating predictor deployable to AWS Lambda.

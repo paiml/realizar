@@ -45,9 +45,13 @@ fn main() {
     println!("After RMSNorm L2: {:.6}", l2_norm(&normed));
 
     // QKV weights
-    let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-        _ => panic!("Expected separate QKV"),
+    let OwnedQKVWeights::Separate {
+        q: q_weight,
+        k: k_weight,
+        v: v_weight,
+    } = &layer.qkv_weight
+    else {
+        panic!("Expected separate QKV")
     };
 
     println!("\nWeight types:");
@@ -90,10 +94,10 @@ fn main() {
     println!("  Contains NaN: {}", v.iter().any(|x| x.is_nan()));
     println!(
         "  Min: {:.6}",
-        v.iter().cloned().fold(f32::INFINITY, f32::min)
+        v.iter().copied().fold(f32::INFINITY, f32::min)
     );
     println!(
         "  Max: {:.6}",
-        v.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+        v.iter().copied().fold(f32::NEG_INFINITY, f32::max)
     );
 }

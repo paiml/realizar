@@ -77,15 +77,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // If lm_head_weight is Q8_0 quantized, it's dequantized then dot product computed
 
     // Let me check if there's a bias in the LM head
-    if let Some(ref bias) = model.lm_head_bias() {
+    if let Some(bias) = model.lm_head_bias() {
         println!("\nLM head has bias!");
         println!("  Bias[0] ('!'): {:.4}", bias[0]);
         println!("  Bias[19] ('4'): {:.4}", bias[19]);
 
         // Check if bias[0] is unusually high
         let bias_mean: f32 = bias.iter().sum::<f32>() / bias.len() as f32;
-        let bias_max = bias.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let bias_min = bias.iter().cloned().fold(f32::INFINITY, f32::min);
+        let bias_max = bias.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let bias_min = bias.iter().copied().fold(f32::INFINITY, f32::min);
 
         println!(
             "  Bias stats: mean={:.4}, range=[{:.4}, {:.4}]",
@@ -157,7 +157,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\nTop 10 tokens by boost (multi - single):");
     for (tok, boost) in boost_indexed.iter().take(10) {
-        let s = vocab.get(*tok).map(|s| s.as_str()).unwrap_or("?");
+        let s = vocab.get(*tok).map_or("?", |s| s.as_str());
         println!("  Token {} ({:?}): +{:.4}", tok, s, boost);
     }
 

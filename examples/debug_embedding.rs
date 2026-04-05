@@ -74,8 +74,8 @@ fn main() {
 
     // Check statistics
     println!("\n=== Embedding Statistics ===");
-    let min = embedding.iter().cloned().fold(f32::INFINITY, f32::min);
-    let max = embedding.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min = embedding.iter().copied().fold(f32::INFINITY, f32::min);
+    let max = embedding.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let mean = embedding.iter().sum::<f32>() / embedding.len() as f32;
     println!(
         "Token 450 - min: {:.6}, max: {:.6}, mean: {:.8}",

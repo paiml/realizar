@@ -351,6 +351,7 @@ fn test_q4_adapter_weight_byte_count() {
 // Helper Functions
 // ============================================================================
 
+#[allow(dead_code)]
 fn create_minimal_q4_transformer(num_layers: usize) -> QuantizedAprTransformerQ4 {
     let hidden_dim = 64;
     let vocab_size = 100;
@@ -389,6 +390,7 @@ fn create_minimal_q4_transformer(num_layers: usize) -> QuantizedAprTransformerQ4
     }
 }
 
+#[allow(dead_code)]
 fn create_q4_transformer_with_gate(num_layers: usize) -> QuantizedAprTransformerQ4 {
     let hidden_dim = 64;
     let vocab_size = 100;

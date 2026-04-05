@@ -81,7 +81,7 @@ fn y6_apr_decode_meets_cpu_threshold() {
 /// Y6 Parity: APR decode >= 95% of GGUF decode speed
 /// FALSIFICATION: APR < 95% of GGUF on same model
 #[test]
-#[ignore] // Run manually with: cargo test y6_apr_decode_parity --ignored
+#[ignore = "requires model files, run manually"]
 fn y6_apr_decode_parity_with_gguf() {
     if !models_available() {
         eprintln!("SKIP: Models not found");
@@ -194,7 +194,7 @@ fn y8_apr_prefill_meets_threshold() {
 /// Y9: APR load time does not exceed 1.2x GGUF load time
 /// FALSIFICATION: APR load > 1.2x GGUF load
 #[test]
-#[ignore] // Run manually with: cargo test y9_apr_load_time --ignored
+#[ignore = "requires model files, run manually"]
 fn y9_apr_load_time_parity() {
     if !models_available() {
         eprintln!("SKIP: Models not found");
@@ -295,7 +295,7 @@ fn y10_apr_memory_efficiency() {
 /// Generate full Y6-Y10 parity report
 /// FALSIFICATION: Any metric below threshold
 #[test]
-#[ignore] // Run manually with: cargo test y6_y10_full_parity_report --ignored
+#[ignore = "requires model files, run manually"]
 fn y6_y10_full_parity_report() {
     if !models_available() {
         eprintln!("SKIP: Models not found");

@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("\nTop 10 predictions after '1+1=':");
         for (tok_id, logit) in indexed.iter().take(10) {
-            let tok_str = vocab.get(*tok_id).map(|s| s.as_str()).unwrap_or("?");
+            let tok_str = vocab.get(*tok_id).map_or("?", |s| s.as_str());
             println!("  Token {} ({:?}): logit={:.4}", tok_id, tok_str, logit);
         }
 
@@ -78,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut indexed_pos: Vec<_> = logits_pos.iter().enumerate().collect();
             indexed_pos.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
 
-            let tok_str = vocab.get(tok as usize).map(|s| s.as_str()).unwrap_or("?");
+            let tok_str = vocab.get(tok as usize).map_or("?", |s| s.as_str());
             println!("\nAfter token {} ({:?}) at position {}:", tok, tok_str, pos);
             println!(
                 "  Top 3: {:?}",

@@ -94,8 +94,8 @@ fn main() {
             println!("  - First 5 values: {:?}", &weights[..5.min(weights.len())]);
             println!(
                 "  - Stats: min={:.4}, max={:.4}, mean={:.4}",
-                weights.iter().cloned().fold(f32::INFINITY, f32::min),
-                weights.iter().cloned().fold(f32::NEG_INFINITY, f32::max),
+                weights.iter().copied().fold(f32::INFINITY, f32::min),
+                weights.iter().copied().fold(f32::NEG_INFINITY, f32::max),
                 weights.iter().sum::<f32>() / weights.len() as f32
             );
         },
@@ -114,10 +114,10 @@ fn main() {
             );
             println!(
                 "  - Stats: min={:.4}, max={:.4}, mean={:.4}",
-                dequantized.iter().cloned().fold(f32::INFINITY, f32::min),
+                dequantized.iter().copied().fold(f32::INFINITY, f32::min),
                 dequantized
                     .iter()
-                    .cloned()
+                    .copied()
                     .fold(f32::NEG_INFINITY, f32::max),
                 dequantized.iter().sum::<f32>() / dequantized.len() as f32
             );

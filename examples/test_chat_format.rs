@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut indexed: Vec<_> = logits.iter().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     for (tok, logit) in indexed.iter().take(10) {
-        let tok_str = vocab.get(*tok).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(*tok).map_or("?", |s| s.as_str());
         println!("  Token {} ({:?}): logit={:.4}", tok, tok_str, logit);
     }
 
@@ -89,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut indexed: Vec<_> = logits.iter().enumerate().collect();
     indexed.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
     for (tok, logit) in indexed.iter().take(10) {
-        let tok_str = vocab.get(*tok).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(*tok).map_or("?", |s| s.as_str());
         println!("  Token {} ({:?}): logit={:.4}", tok, tok_str, logit);
     }
 

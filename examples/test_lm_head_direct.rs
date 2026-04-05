@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..25 {
         let tok_emb = &model.token_embedding()[i * hidden_dim..(i + 1) * hidden_dim];
         let logit: f32 = normed.iter().zip(tok_emb.iter()).map(|(a, b)| a * b).sum();
-        let tok_str = vocab.get(i).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(i).map_or("?", |s| s.as_str());
         manual_logits.push((i, logit, tok_str.to_string()));
     }
 
@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Top 10 (forward):");
     for (tok_id, logit) in indexed.iter().take(10) {
-        let tok_str = vocab.get(*tok_id).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(*tok_id).map_or("?", |s| s.as_str());
         println!("  Token {} ({:?}): {:.4}", tok_id, tok_str, logit);
     }
 

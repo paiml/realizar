@@ -22,7 +22,7 @@ Hello<|im_end|>
     // Print decoded tokens for verification
     eprintln!("\nDecoded tokens:");
     for (i, &tok) in prompt_tokens.iter().enumerate() {
-        let tok_str = vocab.get(tok as usize).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(tok as usize).map_or("?", |s| s.as_str());
         eprintln!("{:3}: {:6} = '{}'", i, tok, tok_str.escape_debug());
     }
 
@@ -42,13 +42,13 @@ Hello<|im_end|>
 
     eprintln!("\nGenerated tokens:");
     for (i, &tok) in output_tokens[prompt_tokens.len()..].iter().enumerate() {
-        let tok_str = vocab.get(tok as usize).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(tok as usize).map_or("?", |s| s.as_str());
         eprintln!("{:3}: {:6} = '{}'", i, tok, tok_str.escape_debug());
     }
 
     let output_str: String = output_tokens[prompt_tokens.len()..]
         .iter()
-        .map(|&t| vocab.get(t as usize).map(|s| s.as_str()).unwrap_or("?"))
+        .map(|&t| vocab.get(t as usize).map_or("?", |s| s.as_str()))
         .collect::<Vec<_>>()
         .join("");
     println!("\nOutput: {}", output_str);

@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check raw metadata
     println!("\n=== Raw GGUF Metadata (RoPE related) ===");
-    for (key, value) in qwen_mapped.model.metadata.iter() {
+    for (key, value) in &qwen_mapped.model.metadata {
         if key.contains("rope") || key.contains("eps") {
             println!("  {}: {:?}", key, value);
         }
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Epsilon: {}", tiny_model.config().eps);
 
         println!("\n=== TinyLlama Raw Metadata (RoPE related) ===");
-        for (key, value) in tiny_mapped.model.metadata.iter() {
+        for (key, value) in &tiny_mapped.model.metadata {
             if key.contains("rope") || key.contains("eps") {
                 println!("  {}: {:?}", key, value);
             }

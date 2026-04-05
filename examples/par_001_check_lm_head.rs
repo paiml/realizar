@@ -39,7 +39,7 @@ fn main() {
 
     println!("\nOutput norm weight:");
     println!("  length: {}", model.output_norm_weight().len());
-    println!("  L2 norm: {:.4}", l2_norm(&model.output_norm_weight()));
+    println!("  L2 norm: {:.4}", l2_norm(model.output_norm_weight()));
     println!(
         "  first 5: {:?}",
         &model.output_norm_weight()[..5.min(model.output_norm_weight().len())]

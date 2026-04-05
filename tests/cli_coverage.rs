@@ -69,7 +69,7 @@ fn test_cov_benchmark_suites_contains_expected() {
 fn test_cov_benchmark_suites_unique_names() {
     let names: Vec<&str> = BENCHMARK_SUITES.iter().map(|(n, _)| *n).collect();
     let mut unique_names = names.clone();
-    unique_names.sort();
+    unique_names.sort_unstable();
     unique_names.dedup();
     assert_eq!(
         names.len(),
@@ -788,7 +788,7 @@ fn test_cov_run_bench_compare_first_file_parse_error() {
     let file2 = dir.join("bench_cmp_second_ok.json");
 
     // First file has invalid JSON
-    let json1 = r#"not valid json"#;
+    let json1 = r"not valid json";
     let json2 = r#"{"test": true}"#;
 
     let mut f1 = std::fs::File::create(&file1).expect("create file1");
@@ -819,7 +819,7 @@ fn test_cov_run_bench_regression_first_file_parse_error() {
     let current = dir.join("bench_regress_curr_ok.json");
 
     // First file has invalid JSON
-    let json1 = r#"{invalid"#;
+    let json1 = r"{invalid";
     let json2 = r#"{"test": true}"#;
 
     let mut f1 = std::fs::File::create(&baseline).expect("create baseline");
@@ -1482,7 +1482,7 @@ mod config_validation_tests {
     fn test_benchmark_suites_unique_names() {
         let mut names: Vec<&str> = BENCHMARK_SUITES.iter().map(|(n, _)| *n).collect();
         let original_len = names.len();
-        names.sort();
+        names.sort_unstable();
         names.dedup();
         assert_eq!(
             names.len(),

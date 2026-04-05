@@ -7,8 +7,8 @@ use realizar::gguf::{MappedGGUFModel, OwnedQuantizedKVCache, OwnedQuantizedModel
 fn print_stats(name: &str, data: &[f32]) {
     let sum: f32 = data.iter().sum();
     let norm: f32 = data.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let max: f32 = data.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    let min: f32 = data.iter().cloned().fold(f32::INFINITY, f32::min);
+    let max: f32 = data.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let min: f32 = data.iter().copied().fold(f32::INFINITY, f32::min);
     let mean = sum / data.len() as f32;
     eprintln!(
         "{}: sum={:.4}, norm={:.4}, mean={:.6}, range=[{:.4}, {:.4}]",
@@ -89,7 +89,7 @@ fn test_debug_forward_pass() {
 
     // Run forward pass
     eprintln!("\n=== Running Forward Pass ===");
-    let mut cache = OwnedQuantizedKVCache::from_config(&model.config(), 64);
+    let mut cache = OwnedQuantizedKVCache::from_config(model.config(), 64);
     let logits = model
         .forward_single_with_cache(token_id, &mut cache, 0)
         .expect("Forward failed");
@@ -127,7 +127,7 @@ fn test_debug_forward_pass() {
     let top_text = mapped.model.decode(&[top_token]);
 
     eprintln!("\n=== Verdict ===");
-    if top_text.contains("Hello") || top_text.contains("Hi") || top_text.contains("!") {
+    if top_text.contains("Hello") || top_text.contains("Hi") || top_text.contains('!') {
         eprintln!("PASS: Top token is a reasonable greeting response");
     } else {
         eprintln!(

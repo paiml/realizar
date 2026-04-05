@@ -584,10 +584,10 @@ fn test_parity_101a_single_request_comparison() {
         .filter_map(|_| measure_ollama_throughput(prompt, max_tokens))
         .collect();
 
-    let ollama_avg_tps = if !ollama_results.is_empty() {
-        ollama_results.iter().map(|r| r.2).sum::<f64>() / ollama_results.len() as f64
-    } else {
+    let ollama_avg_tps = if ollama_results.is_empty() {
         0.0
+    } else {
+        ollama_results.iter().map(|r| r.2).sum::<f64>() / ollama_results.len() as f64
     };
 
     // Measure Realizar
@@ -596,10 +596,10 @@ fn test_parity_101a_single_request_comparison() {
         .filter_map(|_| measure_realizar_throughput(prompt, max_tokens))
         .collect();
 
-    let realizar_avg_tps = if !realizar_results.is_empty() {
-        realizar_results.iter().map(|r| r.2).sum::<f64>() / realizar_results.len() as f64
-    } else {
+    let realizar_avg_tps = if realizar_results.is_empty() {
         0.0
+    } else {
+        realizar_results.iter().map(|r| r.2).sum::<f64>() / realizar_results.len() as f64
     };
 
     // Report results

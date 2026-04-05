@@ -56,9 +56,13 @@ fn main() {
 
         // Attention
         let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
-        let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
-            OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-            _ => panic!("Expected separate"),
+        let OwnedQKVWeights::Separate {
+            q: q_weight,
+            k: k_weight,
+            v: v_weight,
+        } = &layer.qkv_weight
+        else {
+            panic!("Expected separate")
         };
         let _q = fused_matmul(
             &normed,
@@ -159,9 +163,13 @@ fn main() {
     let normed = rms_norm(&hidden, &layer.attn_norm_weight, eps);
     println!("1. Attention norm output L2: {:.4}", l2_norm(&normed));
 
-    let (q_weight, k_weight, v_weight) = match &layer.qkv_weight {
-        OwnedQKVWeights::Separate { q, k, v } => (q, k, v),
-        _ => panic!("Expected separate"),
+    let OwnedQKVWeights::Separate {
+        q: q_weight,
+        k: k_weight,
+        v: v_weight,
+    } = &layer.qkv_weight
+    else {
+        panic!("Expected separate")
     };
     let _q = fused_matmul(
         &normed,
@@ -265,8 +273,8 @@ fn main() {
     );
     println!(
         "   FFN up min/max: {:.4} / {:.4}",
-        ffn_up.iter().cloned().fold(f32::INFINITY, f32::min),
-        ffn_up.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+        ffn_up.iter().copied().fold(f32::INFINITY, f32::min),
+        ffn_up.iter().copied().fold(f32::NEG_INFINITY, f32::max)
     );
 
     // FFN gate projection
@@ -314,8 +322,8 @@ fn main() {
     );
     println!(
         "   FFN hidden min/max: {:.4} / {:.4}",
-        ffn_hidden.iter().cloned().fold(f32::INFINITY, f32::min),
-        ffn_hidden.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
+        ffn_hidden.iter().copied().fold(f32::INFINITY, f32::min),
+        ffn_hidden.iter().copied().fold(f32::NEG_INFINITY, f32::max)
     );
 
     // FFN down projection

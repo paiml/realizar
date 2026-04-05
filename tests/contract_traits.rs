@@ -238,6 +238,7 @@ fn cross_entropy_kernel_v1_properties() {
 }
 
 #[test]
+#[allow(clippy::many_single_char_names)]
 fn swiglu_kernel_v1_properties() {
     let k = ReferenceKernels;
 
@@ -266,6 +267,7 @@ fn swiglu_kernel_v1_properties() {
 // ---------------------------------------------------------------------------
 // AttentionKernelV1 -- naive scaled dot-product attention
 // ---------------------------------------------------------------------------
+#[allow(clippy::many_single_char_names)]
 impl AttentionKernelV1 for ReferenceKernels {
     fn attention(&self, q: &[f32], k: &[f32], v: &[f32]) -> Vec<f32> {
         let n = (q.len() as f32).sqrt() as usize;

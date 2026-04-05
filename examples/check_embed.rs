@@ -66,8 +66,8 @@ fn main() {
     );
 
     // Check embedding stats
-    let min = embed.iter().cloned().fold(f32::INFINITY, f32::min);
-    let max = embed.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min = embed.iter().copied().fold(f32::INFINITY, f32::min);
+    let max = embed.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let mean: f32 = embed.iter().sum::<f32>() / embed.len() as f32;
     println!("\nEmbedding stats:");
     println!("  min: {:.6}", min);

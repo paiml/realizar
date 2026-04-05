@@ -40,9 +40,8 @@ fn main() {
         let normed = rms_norm(&cpu_hidden, &layer.attn_norm_weight, eps);
 
         // Q weight
-        let q_weight = match &layer.qkv_weight {
-            OwnedQKVWeights::Separate { q, .. } => q,
-            _ => panic!("Expected separate QKV"),
+        let OwnedQKVWeights::Separate { q: q_weight, .. } = &layer.qkv_weight else {
+            panic!("Expected separate QKV")
         };
         let q =
             fused_q4k_parallel_matvec(&q_weight.data, &normed, q_weight.in_dim, q_weight.out_dim)

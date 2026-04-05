@@ -260,7 +260,7 @@ mod tests {
         eprintln!("  First 8: {:?}\n", &embedding[..8.min(embedding.len())]);
 
         // Step 2: RMSNorm (first layer, attention norm)
-        let layer = &cpu_model.layers[0];
+        let layer = &cpu_model.layers()[0];
         let attn_norm_weight = &layer.attn_norm_weight;
 
         // Manual RMSNorm computation
@@ -405,7 +405,7 @@ mod tests {
         let embedding = cpu_model.embed(&[bos_token]);
 
         // Compute RMSNorm
-        let layer = &cpu_model.layers[0];
+        let layer = &cpu_model.layers()[0];
         let attn_norm_weight = &layer.attn_norm_weight;
         let sq_sum: f32 = embedding.iter().map(|x| x * x).sum();
         let rms = (sq_sum / hidden_dim as f32 + eps).sqrt();
@@ -544,7 +544,7 @@ mod tests {
         let embedding = cpu_model.embed(&[bos_token]);
 
         // Compute RMSNorm
-        let layer = &cpu_model.layers[0];
+        let layer = &cpu_model.layers()[0];
         let attn_norm_weight = &layer.attn_norm_weight;
         let sq_sum: f32 = embedding.iter().map(|x| x * x).sum();
         let rms = (sq_sum / hidden_dim as f32 + eps).sqrt();

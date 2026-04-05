@@ -56,10 +56,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let sum: f32 = row.iter().sum();
         let norm: f32 = row.iter().map(|x| x * x).sum::<f32>().sqrt();
-        let min = row.iter().cloned().fold(f32::INFINITY, f32::min);
-        let max = row.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let min = row.iter().copied().fold(f32::INFINITY, f32::min);
+        let max = row.iter().copied().fold(f32::NEG_INFINITY, f32::max);
 
-        let token_str = vocab.get(token_id).map(|s| s.as_str()).unwrap_or("?");
+        let token_str = vocab.get(token_id).map_or("?", |s| s.as_str());
         println!(
             "  Row {} (token {:?}): sum={:.4}, norm={:.4}, min={:.4}, max={:.4}",
             token_id, token_str, sum, norm, min, max
@@ -102,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let row_start = token_id * hidden_dim;
         let row = &lm_head_f32[row_start..row_start + hidden_dim];
         let dot: f32 = test_hidden.iter().zip(row.iter()).map(|(a, b)| a * b).sum();
-        let token_str = vocab.get(token_id).map(|s| s.as_str()).unwrap_or("?");
+        let token_str = vocab.get(token_id).map_or("?", |s| s.as_str());
         println!("  Token {} ({:?}): logit = {:.4}", token_id, token_str, dot);
     }
 
@@ -119,7 +119,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .enumerate()
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
         .unwrap();
-    let argmax_str = vocab.get(argmax_idx).map(|s| s.as_str()).unwrap_or("?");
+    let argmax_str = vocab.get(argmax_idx).map_or("?", |s| s.as_str());
     println!(
         "  Argmax: token {} ({:?}) with logit {:.4}",
         argmax_idx, argmax_str, argmax_val

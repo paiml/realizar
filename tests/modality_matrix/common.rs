@@ -56,6 +56,7 @@ pub mod renacer {
 
     /// Assertion types for renacer validation (QA-H01-H10)
     #[derive(Debug, Clone)]
+    #[allow(clippy::struct_field_names)]
     pub struct Assertion {
         pub name: String,
         pub description: String,
@@ -233,15 +234,17 @@ pub mod renacer {
 
     /// Generate assertion report (QA-H09)
     pub fn generate_report(assertions: &[Assertion]) -> String {
+        use std::fmt::Write;
         let mut report = String::new();
         report.push_str("# Renacer Assertion Report\n\n");
 
         let passed = assertions.iter().filter(|a| a.passed).count();
         let total = assertions.len();
-        report.push_str(&format!(
+        let _ = write!(
+            report,
             "**Result: {}/{} assertions passed**\n\n",
             passed, total
-        ));
+        );
 
         for assertion in assertions {
             let status = if assertion.passed {
@@ -249,11 +252,11 @@ pub mod renacer {
             } else {
                 "✗ FAIL"
             };
-            report.push_str(&format!("## {} - {}\n", assertion.name, status));
-            report.push_str(&format!("- Description: {}\n", assertion.description));
-            report.push_str(&format!("- Severity: {:?}\n", assertion.severity));
+            let _ = write!(report, "## {} - {}\n", assertion.name, status);
+            let _ = write!(report, "- Description: {}\n", assertion.description);
+            let _ = write!(report, "- Severity: {:?}\n", assertion.severity);
             if let Some(msg) = &assertion.message {
-                report.push_str(&format!("- Message: {}\n", msg));
+                let _ = write!(report, "- Message: {}\n", msg);
             }
             report.push('\n');
         }

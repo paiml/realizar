@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "  Token {} ({}): norm={:.4}, sum={:.4}",
             tok,
-            vocab.get(tok as usize).map(|s| s.as_str()).unwrap_or("?"),
+            vocab.get(tok as usize).map_or("?", |s| s.as_str()),
             norm,
             sum
         );
@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "\nLM head bias: {:?}",
         model.lm_head_bias().as_ref().map(|b| b.len())
     );
-    if let Some(ref bias) = model.lm_head_bias() {
+    if let Some(bias) = model.lm_head_bias() {
         println!("  Token 0 bias: {:.4}", bias[0]);
         println!("  Token 19 (\"4\") bias: {:.4}", bias[19]);
     }
@@ -79,7 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     dot_products.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     println!("Top 10 dot products with synthetic hidden:");
     for (tok, dot) in dot_products.iter().take(10) {
-        let tok_str = vocab.get(*tok).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(*tok).map_or("?", |s| s.as_str());
         println!("  Token {} ({:?}): dot={:.4}", tok, tok_str, dot);
     }
 
@@ -87,20 +87,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tok0_rank = dot_products.iter().position(|(t, _)| *t == 0);
     let tok19_rank = dot_products.iter().position(|(t, _)| *t == 19);
     println!("\nRanking:");
-    println!(
-        "  Token 0 ('!'): rank {}",
-        tok0_rank.map(|r| r + 1).unwrap_or(0)
-    );
-    println!(
-        "  Token 19 ('4'): rank {}",
-        tok19_rank.map(|r| r + 1).unwrap_or(0)
-    );
+    println!("  Token 0 ('!'): rank {}", tok0_rank.map_or(0, |r| r + 1));
+    println!("  Token 19 ('4'): rank {}", tok19_rank.map_or(0, |r| r + 1));
 
     // Check if token 0 embedding has unusual properties
     println!("\n=== Token 0 Embedding Analysis ===\n");
     let emb0 = &model.token_embedding()[0..hidden_dim];
-    let emb0_min = emb0.iter().cloned().fold(f32::INFINITY, f32::min);
-    let emb0_max = emb0.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let emb0_min = emb0.iter().copied().fold(f32::INFINITY, f32::min);
+    let emb0_max = emb0.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let emb0_mean: f32 = emb0.iter().sum::<f32>() / hidden_dim as f32;
     let emb0_abs_sum: f32 = emb0.iter().map(|x| x.abs()).sum();
     println!("Token 0 ('!') embedding stats:");
@@ -113,8 +107,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Compare with token 19 ("4")
     let emb19 = &model.token_embedding()[19 * hidden_dim..20 * hidden_dim];
-    let emb19_min = emb19.iter().cloned().fold(f32::INFINITY, f32::min);
-    let emb19_max = emb19.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let emb19_min = emb19.iter().copied().fold(f32::INFINITY, f32::min);
+    let emb19_max = emb19.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let emb19_mean: f32 = emb19.iter().sum::<f32>() / hidden_dim as f32;
     let emb19_abs_sum: f32 = emb19.iter().map(|x| x.abs()).sum();
     println!("\nToken 19 ('4') embedding stats:");

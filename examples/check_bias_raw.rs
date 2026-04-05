@@ -20,8 +20,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let norm: f32 = data.iter().map(|x| x * x).sum::<f32>().sqrt();
             let sum: f32 = data.iter().sum();
-            let max = data.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-            let min = data.iter().cloned().fold(f32::INFINITY, f32::min);
+            let max = data.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let min = data.iter().copied().fold(f32::INFINITY, f32::min);
 
             println!("  len: {}, norm: {:.4}, sum: {:.4}", data.len(), norm, sum);
             println!("  max: {:.4}, min: {:.4}", max, min);

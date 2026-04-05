@@ -705,7 +705,7 @@ fn test_bpe_tokenizer_decode_out_of_bounds() {
         special_tokens: HashMap::new(),
     };
     let decoded = tokenizer.decode(&[0, 100]);
-    assert!(decoded.contains("a"));
+    assert!(decoded.contains('a'));
     assert!(decoded.contains("[100]"));
 }
 
@@ -920,7 +920,7 @@ fn test_apr_v2_model_decode_tokens() {
 fn test_apr_v2_model_decode_tokens_out_of_bounds() {
     let vocab = vec!["a".to_string()];
     let result = AprV2Model::decode_tokens(&vocab, &[0, 99]);
-    assert!(result.contains("a"));
+    assert!(result.contains('a'));
     assert!(result.contains("[99]"));
 }
 
@@ -2857,7 +2857,7 @@ fn test_apr_v2_model_decode_tokens_special_chars() {
     ];
     let result = AprV2Model::decode_tokens(&vocab, &[0, 3, 1]);
     assert!(result.contains("<s>"));
-    assert!(result.contains(" "));
+    assert!(result.contains(' '));
     assert!(result.contains("</s>"));
 }
 
@@ -3462,7 +3462,7 @@ fn test_bpe_tokenizer_decode_bpe_special_chars() {
 
     // Ġ → space, Ċ → newline, ĉ → tab
     assert!(result.contains(" hello"));
-    assert!(result.contains("\n"));
+    assert!(result.contains('\n'));
     assert!(result.contains("\tworld"));
 }
 
@@ -3710,7 +3710,7 @@ fn test_apr_v2_model_from_bytes_empty_metadata() {
 #[test]
 fn test_apr_v2_model_tensor_index_parse_error_handled() {
     // Create model where tensor index has malformed entries
-    let metadata = r#"{}"#;
+    let metadata = r"{}";
     let metadata_bytes = metadata.as_bytes();
     let metadata_padded_size = metadata_bytes.len().div_ceil(64) * 64;
 

@@ -133,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Top 5 predictions:");
     let vocab = mapped.model.vocabulary().expect("vocab");
     for (tok_id, logit) in indexed.iter().take(5) {
-        let tok_str = vocab.get(*tok_id).map(|s| s.as_str()).unwrap_or("?");
+        let tok_str = vocab.get(*tok_id).map_or("?", |s| s.as_str());
         println!("  Token {} ({:?}): logit={:.4}", tok_id, tok_str, logit);
     }
 

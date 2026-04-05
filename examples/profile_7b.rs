@@ -21,7 +21,7 @@ fn main() {
 
     let hidden = cuda_model.model().config().hidden_dim;
     let inter = cuda_model.model().layers()[0].ffn_up_weight.out_dim;
-    let layers = cuda_model.model().layers.len();
+    let layers = cuda_model.model().layers().len();
     let vocab = cuda_model.model().lm_head_weight().out_dim;
     let eps = cuda_model.model().config().eps;
 
