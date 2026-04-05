@@ -455,16 +455,9 @@ impl CudaExecutor {
         }
         let t_h2d = t_start.map(|_| std::time::Instant::now());
 
-        // realizr#198 DEBUG: Force sync before graph launch
-        self.stream.synchronize()?;
-        if self.decode_token_count <= 5 {
-            let input_ptr = self.graph_input_buf.as_ref().map(|b| b.as_ptr()).unwrap_or(0);
-            let pos_ptr = self.position_buf.as_ref().map(|b| b.as_ptr()).unwrap_or(0);
-            eprintln!(
-                "[realizr#198] PRE-LAUNCH: input_buf_dev_ptr={:#x}, pos_buf_dev_ptr={:#x}, graph_exists={}",
-                input_ptr, pos_ptr, self.decode_graph.is_some()
-            );
-        }
+        // realizr#200: NO sync before graph launch — CUDA stream ordering guarantees
+        // async H2D copies complete before cuGraphLaunch on the same stream.
+        // Previous unconditional sync (realizr#198 DEBUG) added ~20-30µs/token overhead.
 
         // Launch captured graph (all H2D copies are ordered before this on same stream)
         if let Some(ref graph_exec) = self.decode_graph {
@@ -473,28 +466,6 @@ impl CudaExecutor {
         let t_graph = t_start.map(|_| std::time::Instant::now());
 
         self.decode_token_count += 1;
-
-        // realizr#198 DIAGNOSTIC: Read back position_buf AFTER graph launch to verify
-        if self.decode_token_count <= 6 {
-            self.stream.synchronize()?;
-            if let Some(ref pos_buf) = self.position_buf {
-                let mut pos_check = [0u32; 1];
-                pos_buf.copy_to_host(&mut pos_check)?;
-                let mut seq_check = [0u32; 1];
-                if let Some(ref seq_buf) = self.seq_len_buf {
-                    seq_buf.copy_to_host(&mut seq_check)?;
-                }
-                // Also check first few logits
-                if let Some(ref logits_buf) = self.workspace.logits_buf {
-                    let mut logits_peek = [0.0f32; 5];
-                    logits_buf.copy_to_host(&mut logits_peek)?;
-                    eprintln!(
-                        "[realizr#198] AFTER graph: pos_buf={}, seq_len_buf={}, logits[0..5]={:?}",
-                        pos_check[0], seq_check[0], logits_peek
-                    );
-                }
-            }
-        }
 
         // PAR-068: GPU argmax instead of downloading 600KB logits
         // This reduces D2H transfer from 600KB to 4 bytes per token
