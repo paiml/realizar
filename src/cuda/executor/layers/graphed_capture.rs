@@ -50,20 +50,33 @@ impl CudaExecutor {
             );
         }
 
-        // PAR-054: Try CUDA graph capture, fall back on failure
+        // trueno#243: Skip stream capture (code 901 poisons context on driver 570.207).
+        // Use manual graph construction via cuGraphAddKernelNode instead.
+        eprintln!("[trueno#243] Manual graph construction (skipping stream capture)...");
+        self.begin_graph_recording();
         self.is_capturing = true;
-        let capture_result = self.try_graph_capture(
+        let eager_result = self.forward_workspace_captured(
             num_layers, hidden_dim, intermediate_dim, vocab_size, epsilon,
         );
         self.is_capturing = false;
 
-        match capture_result {
-            Ok(()) => {
-                // CORRECTNESS-010: Graph capture defines the work but doesn't execute it.
-                if let Some(ref graph_exec) = self.decode_graph {
-                    self.stream.launch_graph(graph_exec)?;
-                }
-                // GH-93: Increment token count so subsequent calls replay instead of recapture.
+        if let Err(eager_err) = eager_result {
+            self.graph_recording = false;
+            self.graph_capture_failed = true;
+            eprintln!("[trueno#243] Eager forward during recording failed: {:?}", eager_err);
+            // Re-prepare buffers and fall back to non-recorded eager
+            let _ = self.stream.synchronize();
+            self.prepare_graph_buffers(input, position, hidden_dim, vocab_size)?;
+            return self.forward_all_layers_gpu_to_logits(
+                input, logits, position, num_layers, hidden_dim,
+                intermediate_dim, vocab_size, epsilon,
+            );
+        }
+
+        // Eager pass succeeded — build graph from recorded kernels
+        match self.end_graph_recording() {
+            Ok(n) if n > 0 => {
+                // Manual graph built! First token computed by eager pass.
                 self.decode_token_count += 1;
                 self.stream.synchronize()?;
                 if let Some(ref logits_buf) = self.workspace.logits_buf {
@@ -71,18 +84,25 @@ impl CudaExecutor {
                 }
                 Ok(())
             },
-            Err(e) => {
+            Ok(_) => {
+                // No kernels recorded — recording not wired to all ops yet.
+                // First token was computed by eager pass.
+                eprintln!("[trueno#243] 0 kernels recorded, using eager path for subsequent tokens");
                 self.graph_capture_failed = true;
-                eprintln!(
-                    "[PAR-054] Graph capture failed: {:?}, using non-graphed path (no retry)", e
-                );
-                // PMAT-374: Sync stream + re-upload input (capture modified workspace state)
-                let _ = self.stream.synchronize();
-                self.prepare_graph_buffers(input, position, hidden_dim, vocab_size)?;
-                self.forward_all_layers_gpu_to_logits(
-                    input, logits, position, num_layers, hidden_dim,
-                    intermediate_dim, vocab_size, epsilon,
-                )
+                self.stream.synchronize()?;
+                if let Some(ref logits_buf) = self.workspace.logits_buf {
+                    logits_buf.copy_to_host(logits)?;
+                }
+                Ok(())
+            },
+            Err(graph_err) => {
+                self.graph_capture_failed = true;
+                eprintln!("[trueno#243] Manual graph build failed: {:?}", graph_err);
+                self.stream.synchronize()?;
+                if let Some(ref logits_buf) = self.workspace.logits_buf {
+                    logits_buf.copy_to_host(logits)?;
+                }
+                Ok(())
             },
         }
     }

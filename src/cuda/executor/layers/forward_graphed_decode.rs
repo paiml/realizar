@@ -106,79 +106,58 @@ impl CudaExecutor {
         self.prepare_capture_buffers(input, position, hidden_dim, vocab_size)?;
         self.preload_modules_for_capture(num_layers, hidden_dim, intermediate_dim, vocab_size)?;
 
-        // PAR-118: Set is_capturing flag so Flash Decoding uses seq_len_buf
-        // (already populated by prepare_capture_buffers) instead of copy_from_host.
+        // trueno#243: Skip stream capture (code 901 poisons context on driver 570.207).
+        // Go directly to manual graph construction via cuGraphAddKernelNode.
+        // Run one eager forward with recording, then build graph from records.
+        eprintln!("[trueno#243] Manual graph construction (skipping stream capture)...");
+        self.begin_graph_recording();
         self.is_capturing = true;
-        let capture_result = self.try_graph_capture(
+        let eager_result = self.forward_workspace_captured(
             num_layers, hidden_dim, intermediate_dim, vocab_size, epsilon,
         );
         self.is_capturing = false;
 
-        match capture_result {
-            Ok(()) => {
-                // CORRECTNESS-010: Graph capture defines the work but doesn't execute it.
-                if let Some(ref graph_exec) = self.decode_graph {
-                    self.stream.launch_graph(graph_exec)?;
-                }
+        if let Err(eager_err) = eager_result {
+            self.graph_recording = false;
+            self.graph_capture_failed = true;
+            eprintln!("[trueno#243] Eager forward during recording failed: {:?}", eager_err);
+            return self.forward_all_layers_gpu_to_logits(
+                input, logits, position, num_layers, hidden_dim,
+                intermediate_dim, vocab_size, epsilon,
+            );
+        }
+
+        // Eager pass succeeded — now build graph from recorded kernels
+        match self.end_graph_recording() {
+            Ok(n) if n > 0 => {
+                // Manual graph built! First token already computed by eager pass.
+                // Download logits from workspace buffer.
                 self.stream.synchronize()?;
                 if let Some(ref logits_buf) = self.workspace.logits_buf {
                     logits_buf.copy_to_host(logits)?;
                 }
                 Ok(())
             },
-            Err(e) => {
-                eprintln!(
-                    "[PAR-054] Stream capture failed: {:?}", e
-                );
-                // trueno#243: Try manual graph construction (bypasses stream capture).
-                // Run one eager forward with recording, then build graph from records.
-                eprintln!("[trueno#243] Attempting manual graph construction...");
-                self.begin_graph_recording();
-                self.is_capturing = true;
-                let eager_result = self.forward_workspace_captured(
-                    num_layers, hidden_dim, intermediate_dim, vocab_size, epsilon,
-                );
-                self.is_capturing = false;
-
-                if let Err(eager_err) = eager_result {
-                    self.graph_recording = false;
-                    self.graph_capture_failed = true;
-                    eprintln!("[trueno#243] Eager forward during recording failed: {:?}", eager_err);
-                    return self.forward_all_layers_gpu_to_logits(
-                        input, logits, position, num_layers, hidden_dim,
-                        intermediate_dim, vocab_size, epsilon,
-                    );
+            Ok(_) => {
+                eprintln!("[trueno#243] No kernels recorded (recording not wired to all ops yet)");
+                // First token was computed by eager pass, download logits
+                self.stream.synchronize()?;
+                if let Some(ref logits_buf) = self.workspace.logits_buf {
+                    logits_buf.copy_to_host(logits)?;
                 }
-
-                match self.end_graph_recording() {
-                    Ok(n) if n > 0 => {
-                        // Manual graph built! Launch it for this token.
-                        if let Some(ref graph_exec) = self.decode_graph {
-                            self.stream.launch_graph(graph_exec)?;
-                        }
-                        self.stream.synchronize()?;
-                        if let Some(ref logits_buf) = self.workspace.logits_buf {
-                            logits_buf.copy_to_host(logits)?;
-                        }
-                        Ok(())
-                    },
-                    Ok(_) => {
-                        self.graph_capture_failed = true;
-                        eprintln!("[trueno#243] No kernels recorded, falling back to eager");
-                        self.forward_all_layers_gpu_to_logits(
-                            input, logits, position, num_layers, hidden_dim,
-                            intermediate_dim, vocab_size, epsilon,
-                        )
-                    },
-                    Err(graph_err) => {
-                        self.graph_capture_failed = true;
-                        eprintln!("[trueno#243] Manual graph build failed: {:?}, using eager", graph_err);
-                        self.forward_all_layers_gpu_to_logits(
-                            input, logits, position, num_layers, hidden_dim,
-                            intermediate_dim, vocab_size, epsilon,
-                        )
-                    },
+                // Mark graph as failed so subsequent tokens use eager path
+                self.graph_capture_failed = true;
+                Ok(())
+            },
+            Err(graph_err) => {
+                self.graph_capture_failed = true;
+                eprintln!("[trueno#243] Manual graph build failed: {:?}, using eager", graph_err);
+                // First token was already computed, just download logits
+                self.stream.synchronize()?;
+                if let Some(ref logits_buf) = self.workspace.logits_buf {
+                    logits_buf.copy_to_host(logits)?;
                 }
+                Ok(())
             },
         }
     }

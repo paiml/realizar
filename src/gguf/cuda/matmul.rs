@@ -11,11 +11,16 @@ impl OwnedQuantizedModelCuda {
         weight: &OwnedQuantizedTensor,
         cache_key: &str,
     ) -> Result<Vec<f32>> {
-        // Only Q4_K is supported for GPU acceleration
+        // PMAT-181: Support both Q4_K and Q6_K on GPU.
+        // Q4_K_M GGUF files use Q4_K for most weights but Q6_K for
+        // V projection, FFN down, and token embedding. Without Q6K GPU
+        // support, these fall back to CPU causing precision divergence
+        // that produces semi-coherent but wrong output (five-whys root cause).
         const GGUF_TYPE_Q4_K: u32 = 12;
+        const GGUF_TYPE_Q6_K: u32 = 14;
 
-        if weight.qtype != GGUF_TYPE_Q4_K {
-            // Fallback to CPU for non-Q4_K weights
+        if weight.qtype != GGUF_TYPE_Q4_K && weight.qtype != GGUF_TYPE_Q6_K {
+            // Fallback to CPU for unsupported quantization types
             return self.model.fused_matmul(input, weight);
         }
 
@@ -39,18 +44,28 @@ impl OwnedQuantizedModelCuda {
             self.executor
                 .load_quantized_weights(cache_key, &weight.data)
                 .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "cuda_q4k_cache".to_string(),
-                    reason: format!("Failed to cache Q4_K weights: {e}"),
+                    operation: format!("cuda_q{}k_cache", if weight.qtype == GGUF_TYPE_Q4_K { 4 } else { 6 }),
+                    reason: format!("Failed to cache weights: {e}"),
                 })?;
         }
 
-        // Execute Q4_K matmul on GPU using cached weights
-        self.executor
-            .q4k_gemv_cached(cache_key, input, &mut output, out_dim as u32, in_dim as u32)
-            .map_err(|e| RealizarError::UnsupportedOperation {
-                operation: "q4k_gemv_cached".to_string(),
-                reason: format!("CUDA Q4_K GEMV failed: {e}"),
-            })?;
+        // Dispatch to appropriate kernel based on quantization type
+        if weight.qtype == GGUF_TYPE_Q4_K {
+            self.executor
+                .q4k_gemv_cached(cache_key, input, &mut output, out_dim as u32, in_dim as u32)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "q4k_gemv_cached".to_string(),
+                    reason: format!("CUDA Q4_K GEMV failed: {e}"),
+                })?;
+        } else {
+            // Q6_K path (PMAT-181)
+            self.executor
+                .q6k_gemv_cached(cache_key, input, &mut output, out_dim as u32, in_dim as u32)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "q6k_gemv_cached".to_string(),
+                    reason: format!("CUDA Q6_K GEMV failed: {e}"),
+                })?;
+        }
 
         Ok(output)
     }

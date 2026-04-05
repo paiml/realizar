@@ -80,10 +80,17 @@ impl CudaExecutor {
             eprintln!(
                 "[trueno#243] ✓ Manual graph built: {} kernel nodes. First kernel args: {:?}",
                 num_kernels,
-                first.arg_data.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>()
+                first
+                    .arg_data
+                    .iter()
+                    .map(|a| format!("{:#x}", a))
+                    .collect::<Vec<_>>()
             );
         } else {
-            eprintln!("[trueno#243] ✓ Manual graph built: {} kernel nodes", num_kernels);
+            eprintln!(
+                "[trueno#243] ✓ Manual graph built: {} kernel nodes",
+                num_kernels
+            );
         }
 
         Ok(num_kernels)
