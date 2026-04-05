@@ -38,8 +38,12 @@ obligations:
 
 falsification_tests:
   - id: "FALSIFY-TP-001"
-    description: "GGUF tool parity: |delta| <= 5%"
-    check: "probador llm load on both, assert delta <= 0.05"
+    rule: "GGUF tool parity: |delta| <= 5%"
+    prediction: "|apr_cli_tok_s - realizr_tok_s| / max(apr_cli, realizr) <= 0.05 on GGUF"
+    test: probador_llm_load_tool_parity_gguf
+    if_fails: "Feature flag divergence causes throughput delta on GGUF format"
   - id: "FALSIFY-TP-002"
-    description: "APR tool parity: |delta| <= 5%"
-    check: "probador llm load on both, assert delta <= 0.05"
+    rule: "APR tool parity: |delta| <= 5%"
+    prediction: "|apr_cli_tok_s - realizr_tok_s| / max(apr_cli, realizr) <= 0.05 on APR"
+    test: probador_llm_load_tool_parity_apr
+    if_fails: "Feature flag divergence causes throughput delta on APR format"

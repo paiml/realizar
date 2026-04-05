@@ -48,8 +48,12 @@ obligations:
 
 falsification_tests:
   - id: "FALSIFY-SGP-001"
-    description: "SafeTensors F16 model uses FP16 weights on GPU"
-    check: "executor.has_weights_f16('blk.0.attn_qkv') == true"
+    rule: "SafeTensors F16 weights preserved on GPU"
+    prediction: "executor.has_weights_f16('blk.0.attn_qkv') == true"
+    test: probador_llm_load_safetensors_f16_weights
+    if_fails: "F16 tensors converted to F32 on upload — dtype-preserving path not active"
   - id: "FALSIFY-SGP-002"
-    description: "SafeTensors F16 decode >= 0.3x GGUF Q4K decode"
-    check: "probador llm load --format safetensors-f16 >= 0.3 × gguf"
+    rule: "SafeTensors F16 decode >= 0.3x GGUF Q4K"
+    prediction: "safetensors_f16_tok_s / gguf_q4k_tok_s >= 0.3"
+    test: probador_llm_load_safetensors_vs_gguf
+    if_fails: "FP32 SGEMM still dispatched instead of cuBLAS HGEMM for F16 weights"

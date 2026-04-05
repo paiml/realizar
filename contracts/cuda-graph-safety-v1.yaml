@@ -63,21 +63,25 @@ proof_obligations:
 
 falsification_tests:
   - id: "FALSIFY-CGS-001"
-    test: "Run apr serve WITHOUT CUDA_GRAPH_ENABLE=1. Verify decode tok/s > 200."
-    expected: "Eager path achieves full throughput (no context poisoning)"
-    gate: "probador llm load --concurrency 1 --duration 10s --max-tokens 64"
+    rule: "Eager path full throughput without CUDA_GRAPH_ENABLE"
+    prediction: "decode tok/s > 200 without CUDA_GRAPH_ENABLE=1"
+    test: probador_llm_load_eager_throughput
+    if_fails: "CUDA context poisoned by attempted graph capture on default path"
 
   - id: "FALSIFY-CGS-002"
-    test: "Run apr serve WITH CUDA_GRAPH_ENABLE=1 on driver that returns error 901."
-    expected: "Graph fails, graph_capture_failed=true, fallback to eager with full throughput"
-    gate: "Verify tok/s > 200 after graph failure"
+    rule: "Graph capture failure falls back to eager"
+    prediction: "graph_capture_failed=true, fallback tok/s > 200 after driver error 901"
+    test: probador_llm_load_graph_failure_fallback
+    if_fails: "Failed graph capture corrupts CUDA context, no eager fallback"
 
   - id: "FALSIFY-CGS-003"
-    test: "grep -rn 'CUDA_GRAPH_DISABLE' src/ must return 0 matches"
-    expected: "No opt-out pattern exists in codebase"
-    gate: "compile-time assertion"
+    rule: "No CUDA_GRAPH_DISABLE opt-out in codebase"
+    prediction: "grep -rn 'CUDA_GRAPH_DISABLE' src/ returns 0 matches"
+    test: grep_cuda_graph_disable_absent
+    if_fails: "Opt-out pattern exists, violating opt-in-only policy"
 
   - id: "FALSIFY-CGS-004"
-    test: "Two concurrent graph capture paths use identical guard condition"
-    expected: "graphed_capture.rs and forward_graphed_decode.rs both check CUDA_GRAPH_ENABLE"
-    gate: "code review + grep verification"
+    rule: "Consistent graph capture guard condition"
+    prediction: "graphed_capture.rs and forward_graphed_decode.rs both check CUDA_GRAPH_ENABLE"
+    test: grep_cuda_graph_enable_consistency
+    if_fails: "Guard condition diverged between two graph capture code paths"

@@ -40,8 +40,12 @@ obligations:
 
 falsification_tests:
   - id: "FALSIFY-ALP-001"
-    description: "APR CUDA load time <= 2x GGUF load time"
-    check: "apr_load_ms / gguf_load_ms <= 2.0"
+    rule: "APR CUDA load time <= 2x GGUF load time"
+    prediction: "apr_load_ms / gguf_load_ms <= 2.0"
+    test: probador_llm_load_apr_vs_gguf_time
+    if_fails: "APR model loading still does eager CPU dequantization on the critical path"
   - id: "FALSIFY-ALP-002"
-    description: "APR CUDA decode tok/s within 10% of GGUF"
-    check: "apr_tok_s / gguf_tok_s >= 0.9"
+    rule: "APR CUDA decode tok/s within 10% of GGUF"
+    prediction: "apr_tok_s / gguf_tok_s >= 0.9"
+    test: probador_llm_load_apr_vs_gguf_throughput
+    if_fails: "APR decode path has overhead beyond load-time dequantization"

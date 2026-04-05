@@ -48,20 +48,28 @@ proof_obligations:
 
 falsification_tests:
   - id: "FALSIFY-SS-001"
-    test: "Non-streaming request succeeds (baseline)"
-    gate: "curl with stream:false returns 200 + valid JSON"
+    rule: "Non-streaming request succeeds (baseline)"
+    prediction: "stream:false returns 200 + valid JSON"
+    test: curl_non_streaming_baseline
+    if_fails: "Handler Future too large even for non-streaming path"
 
   - id: "FALSIFY-SS-002"
-    test: "Streaming request succeeds"
-    gate: "curl with stream:true returns SSE events without stack overflow"
+    rule: "Streaming request succeeds"
+    prediction: "stream:true returns SSE events without stack overflow"
+    test: curl_streaming_sse
+    if_fails: "Async state machine inflated beyond tokio worker stack size"
 
   - id: "FALSIFY-SS-003"
-    test: "Print sizeof handler Future in debug build"
-    gate: "std::mem::size_of_val(&handler_future) < 1MB"
+    rule: "Handler Future size bounded"
+    prediction: "std::mem::size_of_val(&handler_future) < 1MB"
+    test: sizeof_handler_future_debug
+    if_fails: "Handler Future exceeds 1MB — needs Box::pin or spawn_blocking"
 
   - id: "FALSIFY-SS-004"
-    test: "Streaming works with ONLY cuda feature (no gpu, no cached)"
-    gate: "Build with --features cuda only, test streaming"
+    rule: "Streaming works with minimal features"
+    prediction: "Build with --features cuda only, streaming returns SSE events"
+    test: streaming_minimal_features_cuda_only
+    if_fails: "Unused backend features inflate async state machine beyond stack"
 
 diagnosis_protocol: |
   BEFORE any code change:
