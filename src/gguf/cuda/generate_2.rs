@@ -391,6 +391,8 @@ impl OwnedQuantizedModelCuda {
         prompt: &[u32],
         config: &QuantizedGenerateConfig,
     ) -> Result<Vec<u32>> {
+        // PMAT-450 DIAGNOSTIC
+        let _ = std::fs::write("/tmp/pmat450_status.txt", format!("ENTERED generate_gpu_resident prompt_len={}\n", prompt.len()));
         if prompt.is_empty() {
             return Ok(Vec::new());
         }
@@ -478,6 +480,9 @@ impl OwnedQuantizedModelCuda {
 
         if let Some((cached_k, cached_v)) = prefix_hit {
             // PMAT-450: Prefix cache hit — skip prefill, restore GPU KV cache
+            eprintln!("[PMAT-450] PREFIX CACHE HIT: {} prompt tokens, skipping prefill", prompt.len());
+            // Also write to file for diagnostics (stderr redirect unreliable in some envs)
+            let _ = std::fs::write("/tmp/pmat450_status.txt", format!("HIT {}\n", prompt.len()));
             let kv_pairs: Vec<(Vec<f32>, Vec<f32>)> = cached_k.into_iter().zip(cached_v).collect();
             let cached_len = prompt.len();
             self.executor
@@ -551,11 +556,16 @@ impl OwnedQuantizedModelCuda {
         #[cfg(feature = "gpu")]
         if !prefix_was_hit {
             let num_layers = self.model.config.num_layers;
-            if let Ok(kv_snapshot) = self.executor.snapshot_kv_cache_to_host(num_layers) {
-                let (k_vecs, v_vecs): (Vec<_>, Vec<_>) = kv_snapshot.into_iter().unzip();
-                self.prefix_cache.insert(prompt.to_vec(), k_vecs, v_vecs);
-                if config.trace {
-                    eprintln!("[PMAT-450] Prefix cache INSERT: {} tokens cached", prompt.len());
+            let _ = std::fs::write("/tmp/pmat450_status.txt", format!("ATTEMPTING_SNAPSHOT layers={}\n", num_layers));
+            match self.executor.snapshot_kv_cache_to_host(num_layers) {
+                Ok(kv_snapshot) => {
+                    let (k_vecs, v_vecs): (Vec<_>, Vec<_>) = kv_snapshot.into_iter().unzip();
+                    self.prefix_cache.insert(prompt.to_vec(), k_vecs, v_vecs);
+                    eprintln!("[PMAT-450] PREFIX CACHE INSERT: {} prompt tokens cached ({} layers)", prompt.len(), num_layers);
+                    let _ = std::fs::write("/tmp/pmat450_status.txt", format!("INSERT {}\n", prompt.len()));
+                }
+                Err(e) => {
+                    let _ = std::fs::write("/tmp/pmat450_status.txt", format!("SNAPSHOT_ERROR: {}\n", e));
                 }
             }
         }
