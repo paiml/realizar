@@ -139,7 +139,6 @@ impl ProfileReport {
             .map(|(name, stats)| (name.clone(), (stats.total_us / total) * 100.0))
             .collect()
     }
-
 }
 
 include!("profiler_contracts.rs");
