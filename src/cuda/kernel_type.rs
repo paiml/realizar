@@ -457,6 +457,12 @@ pub enum KernelType {
         n: u32,
     },
 
+    /// trueno#237: Fused K+V HW DP4A Q4K GEMV — 2 projections in 1 launch
+    FusedKVHwDp4aQ4KGemv {
+        k: u32,
+        n: u32,
+    },
+
     /// QWEN-009: 3-way fused kernel: RMSNorm → Gate/Up Q4K GEMV → SwiGLU
     FusedRmsNormGateUpSwigluQ4K {
         k: u32,
