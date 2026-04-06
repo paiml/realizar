@@ -226,6 +226,7 @@ impl GpuModel {
         &mut self,
         input: &[f32],
     ) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>)> {
+        contract_pre_fused_qkv!();
         let hidden_dim = self.config.hidden_dim;
         let kv_dim = self.config.kv_dim();
         let qkv_dim = self.config.qkv_dim();

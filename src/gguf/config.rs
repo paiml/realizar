@@ -129,6 +129,7 @@ impl ArchConstraints {
     /// AUTO-GENERATED via build.rs from arch-constraints-v1.yaml.
     #[must_use]
     pub fn from_architecture(arch: &str) -> Self {
+        contract_pre_o_projection_transpose!();
         from_architecture_generated(arch)
     }
 

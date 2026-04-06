@@ -271,6 +271,7 @@ impl LambdaHandler {
     /// Get model bytes size
     #[must_use]
     pub fn model_size_bytes(&self) -> usize {
+        contract_pre_model_bytes!();
         self.model_bytes.len()
     }
 

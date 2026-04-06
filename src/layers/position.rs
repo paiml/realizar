@@ -67,6 +67,7 @@ impl RoPE {
             });
         }
 
+        contract_pre_ntk_scaled_base!();
         // Compute inverse frequencies: base^(-2i/dim) for i in 0..dim/2
         let half_dim = dim / 2;
         let mut inv_freq = Vec::with_capacity(half_dim);

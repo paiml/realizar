@@ -448,6 +448,7 @@ impl PagedKvCache {
     ///
     /// Contract: paged-kv-cache-v1 / slot_mapping
     pub fn slot(&self, seq_id: SeqId, position: usize) -> Result<usize, PagedCacheError> {
+        contract_pre_slot_mapping!();
         let page_idx = position / self.block_size;
         let offset = position % self.block_size;
         let pages = self
@@ -469,6 +470,7 @@ impl PagedKvCache {
     ///
     /// Contract: paged-kv-cache-v1 / block_allocation
     pub fn allocate_blocks(&mut self, num_blocks: usize) -> Result<Vec<PageId>, PagedCacheError> {
+        contract_pre_block_allocation!();
         if self.free_pages.len() < num_blocks {
             return Err(PagedCacheError::OutOfPages {
                 requested: num_blocks,

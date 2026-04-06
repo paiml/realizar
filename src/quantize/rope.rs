@@ -65,6 +65,7 @@ pub fn apply_rope_rotation_simd(
     cos_vals: &[f32],
     sin_vals: &[f32],
 ) {
+    contract_pre_rotation_matrix!();
     debug_assert_eq!(x1.len(), x2.len());
     debug_assert_eq!(x1.len(), cos_vals.len());
     debug_assert_eq!(x1.len(), sin_vals.len());

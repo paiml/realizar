@@ -6,6 +6,7 @@ impl SafeTensorsCudaModel {
     ///
     /// PMAT-120 FIX: RoPE is now applied explicitly here (not in incremental_attention_gpu).
     fn forward_layer(&mut self, layer_idx: usize, hidden: &[f32]) -> Result<Vec<f32>> {
+        contract_pre_residual_stream!();
         // GH-201: Load layer weights on-demand if in streaming mode
         self.ensure_layer_weights_loaded(layer_idx)?;
 

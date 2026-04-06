@@ -92,6 +92,7 @@ impl GpuProfile {
     /// This means `HW_DP4A_Q4K=1` still works for experimentation,
     /// but production deployments need zero env vars.
     pub fn detect(context: &CudaContext) -> Self {
+        contract_pre_target_parity!();
         let (major, minor) = context.compute_capability().unwrap_or((7, 0));
         // GH-480: PTX source `.target` must use a version that PTX 8.0 supports (max sm_90).
         // The CUDA JIT compiler (`CU_JIT_TARGET` in module.rs) receives the REAL

@@ -90,6 +90,7 @@ impl GGUFModel {
     /// Uses "tokenizer.ggml.merges" key from GGUF metadata.
     #[must_use]
     pub fn merge_rules(&self) -> Option<Vec<(String, String)>> {
+        contract_pre_merge_rule!();
         if let Some(GGUFValue::Array(arr)) = self.metadata.get("tokenizer.ggml.merges") {
             let merges: Vec<(String, String)> = arr
                 .iter()

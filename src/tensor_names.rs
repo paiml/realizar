@@ -23,6 +23,7 @@ pub(crate) fn resolve_global<S: TensorSource>(
     arch: &str,
     role: GlobalTensorRole,
 ) -> Result<Vec<f32>> {
+    contract_pre_name_bijection!();
     let arch_key = normalize_architecture(arch);
     let mut tried = Vec::new();
 

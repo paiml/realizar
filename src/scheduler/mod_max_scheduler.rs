@@ -115,6 +115,7 @@ impl Scheduler {
         kv_cache: &mut PagedKvCache,
         eos_token: u32,
     ) -> Result<SchedulerOutput, SchedulerError> {
+        contract_pre_token_budget!();
         self.schedule(kv_cache, eos_token)
     }
 
@@ -183,6 +184,7 @@ impl Scheduler {
 
     /// Handle preemption under memory pressure
     fn handle_preemption(&mut self, output: &mut SchedulerOutput, kv_cache: &mut PagedKvCache) {
+        contract_pre_scheduling_fairness!();
         // Simple preemption: if running at max and waiting queue has higher priority
         if self.running.len() >= self.max_batch_size && !self.waiting_queue.is_empty() {
             // Check if waiting has higher priority than lowest running

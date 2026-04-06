@@ -138,6 +138,7 @@ const _: () = assert!(ROLES_QK_NORM_AND_BIAS.len() == 14, "YAML declares 14 role
 /// Returns the required weight roles for a given architecture.
 #[must_use]
 pub fn required_roles(arch: &ArchConstraints) -> &'static [WeightRole] {
+    contract_pre_constraint_matrix_exhaustiveness!();
     match (arch.has_qk_norm, arch.has_bias) {
         (false, false) => ROLES_NO_QK_NORM_NO_BIAS,
         (false, true) => ROLES_NO_QK_NORM_BIAS,

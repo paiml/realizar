@@ -272,62 +272,19 @@ impl CudaExecutor {
         Ok(token_ids)
     }
 
-    /// realizr#214: Manual-graph batched forward (trueno#243 pattern, not stream capture).
+    /// PAR-121: Graph-captured batched forward pass for M sequences
+    ///
+    /// Uses CUDA graph capture to reduce kernel launch overhead for batched decode.
+    /// First call with batch size M: captures the kernel sequence into a graph.
+    /// Subsequent calls with same M: replays captured graph with updated inputs.
+    ///
+    /// # Performance
+    ///
+    /// - Without graphs (M=2): 404.6 tok/s
+    /// - With graphs (M=2): Target ~550+ tok/s (2x Ollama)
+    /// - Key: Combines batched GEMV efficiency + CUDA graph launch reduction
     #[allow(clippy::too_many_arguments)]
-    pub fn forward_batched_manual_graph(
-        &mut self, inputs: &[f32], positions: &[u32], num_layers: usize,
-        hidden_dim: u32, intermediate_dim: u32, vocab_size: u32, epsilon: f32,
-    ) -> Result<Vec<u32>, GpuError> {
-        let m = positions.len();
-        // Upload dynamic state before graph launch/capture
-        if let Some(ref mut b) = self.batched_graph_input_buf { b.copy_from_host(inputs)?; }
-        if let Some(ref mut b) = self.batched_graph_positions_buf { b.copy_from_host(positions)?; }
-        let sl: Vec<u32> = positions.iter().map(|&p| p + 1).collect();
-        if let Some(ref mut b) = self.batched_graph_seq_lens_buf {
-            if b.len() >= sl.len() { b.copy_from_host(&sl)?; }
-        }
-        // realizr#214: Update batched attention GPU buffers that the graph reads.
-        // During eager, head_dim.rs uploads these per-step via copy_from_host_async.
-        // During graph replay, those H2D copies don't execute — we must do it here.
-        for seq_idx in 0..m {
-            let pos = positions[seq_idx] as usize;
-            if seq_idx < self.batched_kv_lengths.len() {
-                self.batched_kv_lengths[seq_idx] = pos + 1;
-            }
-        }
-        // Upload batched attention seq_lens + positions (padded to buf length)
-        if let Some(ref mut b) = self.batched_seq_lens_gpu {
-            let mut p = sl.clone(); p.resize(b.len(), 0); b.copy_from_host(&p)?;
-        }
-        if let Some(ref mut b) = self.workspace.positions_buf {
-            let mut p = positions.to_vec(); p.resize(b.len(), 0); b.copy_from_host(&p)?;
-        }
-        // Replay cached graph
-        if let Some(ref gx) = self.batched_decode_graphs.get(&m) {
-            self.stream.launch_graph(gx)?;
-            self.stream.synchronize()?;
-            let lp = self.workspace.logits_buf.as_ref()
-                .ok_or_else(|| GpuError::InvalidLaunchConfig("No logits".into()))?.as_ptr();
-            let lb = unsafe { GpuBuffer::<f32>::from_raw_parts(lp, m * vocab_size as usize) };
-            let ap = lb.as_ptr(); std::mem::forget(lb);
-            return self.batched_gpu_argmax(ap, vocab_size, m);
-        }
-        // First call: init buffers, record eager, build graph
-        self.init_batched_graph_buffers(m, hidden_dim, vocab_size)?;
-        self.begin_graph_recording();
-        let result = self.forward_batched_to_token_ids(
-            inputs, positions, num_layers, hidden_dim, intermediate_dim, vocab_size, epsilon,
-        );
-        let nk = self.end_graph_recording()?;
-        if nk > 0 { if let Some(g) = self.decode_graph.take() {
-            eprintln!("[realizr#214] ✓ Manual batched graph: M={m}, {nk} kernels");
-            self.batched_decode_graphs.insert(m, g);
-        }}
-        result
-    }
-
-    /// PAR-121: Stream-capture batched forward (BROKEN, use BATCHED_MANUAL_GRAPH=1).
-    #[allow(clippy::too_many_arguments)] pub fn forward_batched_to_token_ids_graphed(
+    pub fn forward_batched_to_token_ids_graphed(
         &mut self,
         inputs: &[f32],
         positions: &[u32],
@@ -446,12 +403,26 @@ impl CudaExecutor {
     }
 
     /// PAR-121: Initialize stable buffers for batched graph capture
-    fn init_batched_graph_buffers(&mut self, m: usize, hidden_dim: u32, vocab_size: u32,
+    fn init_batched_graph_buffers(
+        &mut self,
+        m: usize,
+        hidden_dim: u32,
+        vocab_size: u32,
     ) -> Result<(), GpuError> {
         let input_size = m * hidden_dim as usize;
-        if self.batched_graph_input_buf.as_ref().map_or(true, |b| b.len() != input_size) {
+
+        // Allocate or reallocate input buffer
+        if self.batched_graph_input_buf.is_none()
+            || self
+                .batched_graph_input_buf
+                .as_ref()
+                .map_or(0, trueno_gpu::driver::GpuBuffer::len)
+                != input_size
+        {
             self.batched_graph_input_buf = Some(GpuBuffer::new(&self.context, input_size)?);
         }
+
+        // Allocate or reallocate positions buffer
         if self.batched_graph_positions_buf.is_none()
             || self
                 .batched_graph_positions_buf

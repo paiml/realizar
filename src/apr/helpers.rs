@@ -206,6 +206,7 @@ pub(crate) fn simple_attention(
     num_kv_heads: usize,
     head_dim: usize,
 ) -> Vec<f32> {
+    contract_pre_attention!();
     let hidden_dim = num_heads * head_dim;
     let kv_dim = num_kv_heads * head_dim;
     let heads_per_kv = num_heads / num_kv_heads;

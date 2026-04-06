@@ -31,6 +31,7 @@ impl OwnedQuantizedModel {
         current_v: &[f32],
         block_size: usize,
     ) -> Vec<f32> {
+        contract_pre_flash_attention!();
         let num_heads = self.config.num_heads;
         // GH-479: Use config methods (Qwen3 head_dim != hidden/heads)
         let head_dim = self.config.head_dim();

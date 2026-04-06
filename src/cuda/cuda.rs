@@ -24,6 +24,7 @@ impl CudaKernels {
     /// PMAT-044: All PTX targets self.sm_target (device compute capability).
     #[must_use]
     pub fn generate_ptx(&self, kernel_type: &KernelType) -> String {
+        contract_pre_no_hardcoded_targets!();
         let target = &self.sm_target;
         Self::generate_gemm_ptx(kernel_type, target)
             .or_else(|| Self::generate_gemv_ptx(kernel_type, target))

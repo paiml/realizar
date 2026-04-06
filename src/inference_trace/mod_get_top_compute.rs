@@ -30,6 +30,7 @@ fn compute_top_k_probs(logits: &[f32], top_k: &[(u32, f32)]) -> Vec<(u32, f32)> 
 
 /// Check if decoded output contains garbage characters (APR-TOK-001)
 fn is_garbage_output(text: &str) -> bool {
+    contract_pre_garbage_oracle!();
     if text.is_empty() {
         return false;
     }

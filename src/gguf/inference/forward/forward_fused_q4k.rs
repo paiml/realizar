@@ -15,6 +15,7 @@ impl OwnedQuantizedModel {
     ///
     /// Returns error if tensor operations fail
     pub fn forward(&self, token_ids: &[u32]) -> Result<Vec<f32>> {
+        contract_pre_decode_step!();
         let hidden_dim = self.config.hidden_dim;
         // Note: intermediate_dim is encoded in layer weight tensors (in_dim/out_dim)
         let _ = self.config.intermediate_dim;

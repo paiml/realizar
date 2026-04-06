@@ -110,6 +110,7 @@ impl OwnedQuantizedModelCuda {
         configs: &[QuantizedGenerateConfig],
         on_tokens: Vec<Box<dyn FnMut(u32) -> bool + Send>>,
     ) -> Result<Vec<Vec<u32>>> {
+        contract_pre_correctness_under_batching!();
         let m = prompts.len();
         eprintln!("[PMAT-044] generate_batched_streaming ENTRY m={m}");
         if m == 0 {
@@ -342,17 +343,12 @@ impl OwnedQuantizedModelCuda {
 
         timer.mark("prep");
 
-        // Graph mode selection for batched decode:
-        // BATCHED_GRAPH=1: stream capture (broken on driver 570+, -21%, slots 0,1 → token 0)
-        // BATCHED_MANUAL_GRAPH=1: manual cuGraphAddKernelNode (realizr#214, trueno#243 pattern)
-        // Default: eager (no graph at M>1)
-        static BATCHED_MODE: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
-        let mode = *BATCHED_MODE.get_or_init(|| {
-            if std::env::var("BATCHED_MANUAL_GRAPH").as_deref() == Ok("1") { 2 }
-            else if std::env::var("BATCHED_GRAPH").as_deref() == Ok("1") { 1 }
-            else { 0 }
-        });
-        let token_ids = if mode == 1 {
+        // PMAT-056: Multi-stream root cause fixed (scatter moved to self.stream),
+        // but graph replay still 25% slower than eager due to capture overhead.
+        // Keep eager by default until graph replay is optimized.
+        // Enable with BATCHED_GRAPH=1 for testing.
+        let use_graph = std::env::var("BATCHED_GRAPH").as_deref() == Ok("1");
+        let token_ids = if use_graph {
             self.executor
                 .forward_batched_to_token_ids_graphed(
                     &state.embed_buf,
@@ -366,22 +362,6 @@ impl OwnedQuantizedModelCuda {
                 .map_err(|e| RealizarError::UnsupportedOperation {
                     operation: "forward_batched_to_token_ids_graphed".to_string(),
                     reason: format!("Batched forward failed: {e}"),
-                })?
-        } else if mode == 2 {
-            // realizr#214: Manual graph construction for M>1 (like M=1 trueno#243)
-            self.executor
-                .forward_batched_manual_graph(
-                    &state.embed_buf,
-                    &state.pos_buf,
-                    state.num_layers,
-                    state.hidden_dim as u32,
-                    state.intermediate_dim as u32,
-                    state.vocab_size as u32,
-                    state.eps,
-                )
-                .map_err(|e| RealizarError::UnsupportedOperation {
-                    operation: "forward_batched_manual_graph".to_string(),
-                    reason: format!("Batched manual graph failed: {e}"),
                 })?
         } else {
             self.executor

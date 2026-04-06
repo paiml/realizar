@@ -248,6 +248,7 @@ impl CudaExecutor {
     /// context), this method returns an error immediately without calling
     /// `cuModuleLoadData`, preventing repeated context poisoning.
     pub(crate) fn compile_ptx(&self, ptx: &str) -> Result<CudaModule, GpuError> {
+        contract_pre_jit_compilation_success!();
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         ptx.hash(&mut hasher);

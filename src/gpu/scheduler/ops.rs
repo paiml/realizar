@@ -161,6 +161,7 @@ pub(crate) fn layer_norm_static(
 
 /// Top-k sampling with temperature (returns highest prob token in top-k for determinism)
 pub(super) fn sample_topk(logits: &[f32], temperature: f32, top_k: usize) -> usize {
+    contract_pre_temperature!();
     // Apply temperature
     let scaled: Vec<f32> = logits.iter().map(|&x| x / temperature).collect();
 

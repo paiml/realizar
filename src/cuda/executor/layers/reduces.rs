@@ -12,6 +12,7 @@ impl CudaExecutor {
         vocab_size: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
+        contract_pre_cuda_graph_guard!();
         // Begin graph capture
         // PMAT-374: Use ThreadLocal instead of Global to avoid poisoning
         // the entire CUDA context if capture fails (driver 590.48.01 bug).

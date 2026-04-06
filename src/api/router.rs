@@ -121,9 +121,39 @@ pub fn create_router_with_config(state: AppState, config: RouterConfig) -> Route
         )
     });
 
+    // GH-649: Sanitize axum deserialization errors to avoid leaking internals to clients.
+    // Axum returns 422 with raw serde error details by default; replace with a generic message.
+    router = router.layer(axum::middleware::from_fn(sanitize_json_rejection));
+
     // GH-671: CORS support — allow cross-origin requests from browser-based clients
     let cors = tower_http::cors::CorsLayer::permissive();
     router.layer(cors).with_state(state)
+}
+
+/// GH-649: Middleware that intercepts axum's 422 JSON rejection responses and replaces
+/// the body with a generic error message, preventing internal serde error details from
+/// leaking to API clients.
+async fn sanitize_json_rejection(
+    request: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    let response = next.run(request).await;
+
+    // Axum returns 422 Unprocessable Entity for JSON deserialization failures.
+    // Replace the body to avoid leaking serde error internals.
+    if response.status() == StatusCode::UNPROCESSABLE_ENTITY {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ErrorResponse {
+                error: "Invalid request body. Check that the JSON structure matches the expected schema.".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    response
 }
 
 /// Health check handler

@@ -65,6 +65,7 @@ pub fn quantize_rmsnorm_q8_0_into(
 /// * `gate` - Gate values, modified in-place to contain result
 /// * `up` - Up projection values
 pub fn fused_swiglu_simd(gate: &mut [f32], up: &[f32]) {
+    contract_pre_ffn_sublayer!();
     debug_assert_eq!(gate.len(), up.len());
 
     #[cfg(target_arch = "x86_64")]

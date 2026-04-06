@@ -266,6 +266,7 @@ fn validate_completeness(
     present: &[WeightRole],
     arch_name: &str,
 ) -> std::result::Result<(), ModelLoadError> {
+    contract_pre_weight_completeness!();
     let required = required_roles(arch);
     let mut missing = Vec::new();
 
@@ -395,6 +396,7 @@ pub fn system_memory_bytes() -> Option<u64> {
 /// Panics if `data.len() != rows * cols`.
 #[must_use]
 pub fn transpose_f32(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
+    contract_pre_transpose_involution!();
     assert_eq!(
         data.len(),
         rows * cols,

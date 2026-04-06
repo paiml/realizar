@@ -330,6 +330,7 @@ impl CudaExecutor {
     where
         F: Fn(usize) -> String,
     {
+        contract_pre_gguf_loader_validation!();
         let mut indexed = Vec::with_capacity(num_layers);
 
         for layer_idx in 0..num_layers {
