@@ -110,6 +110,17 @@ pub fn create_router_with_config(state: AppState, config: RouterConfig) -> Route
             .route("/v1/perplexity", post(perplexity_handler));
     }
 
+    // GH-672: Return JSON error body for unmatched routes (not empty 404)
+    router = router.fallback(|| async {
+        (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "not_found",
+                "message": "Route not found. See /health for available endpoints."
+            })),
+        )
+    });
+
     router.with_state(state)
 }
 
