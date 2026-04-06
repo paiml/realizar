@@ -286,6 +286,22 @@ impl CudaExecutor {
         if let Some(ref mut b) = self.batched_graph_seq_lens_buf {
             if b.len() >= sl.len() { b.copy_from_host(&sl)?; }
         }
+        // realizr#214: Update batched attention GPU buffers that the graph reads.
+        // During eager, head_dim.rs uploads these per-step via copy_from_host_async.
+        // During graph replay, those H2D copies don't execute — we must do it here.
+        for seq_idx in 0..m {
+            let pos = positions[seq_idx] as usize;
+            if seq_idx < self.batched_kv_lengths.len() {
+                self.batched_kv_lengths[seq_idx] = pos + 1;
+            }
+        }
+        // Upload batched attention seq_lens + positions (padded to buf length)
+        if let Some(ref mut b) = self.batched_seq_lens_gpu {
+            let mut p = sl.clone(); p.resize(b.len(), 0); b.copy_from_host(&p)?;
+        }
+        if let Some(ref mut b) = self.workspace.positions_buf {
+            let mut p = positions.to_vec(); p.resize(b.len(), 0); b.copy_from_host(&p)?;
+        }
         // Replay cached graph
         if let Some(ref gx) = self.batched_decode_graphs.get(&m) {
             self.stream.launch_graph(gx)?;
@@ -310,9 +326,8 @@ impl CudaExecutor {
         result
     }
 
-    /// PAR-121: Stream-capture batched forward (BROKEN on driver 570+, use manual graph).
-    #[allow(clippy::too_many_arguments)]
-    pub fn forward_batched_to_token_ids_graphed(
+    /// PAR-121: Stream-capture batched forward (BROKEN, use BATCHED_MANUAL_GRAPH=1).
+    #[allow(clippy::too_many_arguments)] pub fn forward_batched_to_token_ids_graphed(
         &mut self,
         inputs: &[f32],
         positions: &[u32],
@@ -431,26 +446,12 @@ impl CudaExecutor {
     }
 
     /// PAR-121: Initialize stable buffers for batched graph capture
-    fn init_batched_graph_buffers(
-        &mut self,
-        m: usize,
-        hidden_dim: u32,
-        vocab_size: u32,
+    fn init_batched_graph_buffers(&mut self, m: usize, hidden_dim: u32, vocab_size: u32,
     ) -> Result<(), GpuError> {
         let input_size = m * hidden_dim as usize;
-
-        // Allocate or reallocate input buffer
-        if self.batched_graph_input_buf.is_none()
-            || self
-                .batched_graph_input_buf
-                .as_ref()
-                .map_or(0, trueno_gpu::driver::GpuBuffer::len)
-                != input_size
-        {
+        if self.batched_graph_input_buf.as_ref().map_or(true, |b| b.len() != input_size) {
             self.batched_graph_input_buf = Some(GpuBuffer::new(&self.context, input_size)?);
         }
-
-        // Allocate or reallocate positions buffer
         if self.batched_graph_positions_buf.is_none()
             || self
                 .batched_graph_positions_buf
