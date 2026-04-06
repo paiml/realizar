@@ -35,7 +35,8 @@ pub async fn openai_chat_completions_stream_handler(
     let prompt_len = prompt_ids.len();
     let prompt: Vec<usize> = prompt_ids.iter().map(|&id| id as usize).collect();
 
-    let max_tokens = request.max_tokens.unwrap_or(256);
+    // GH-665: Cap max_tokens to prevent hangs on large values
+    let max_tokens = request.max_tokens.unwrap_or(256).min(4096);
     let temperature = request.temperature.unwrap_or(0.7);
 
     let mut config = GenerationConfig::default()
