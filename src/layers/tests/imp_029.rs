@@ -115,7 +115,10 @@ fn test_imp_029_text_generation() {
 
 /// IMP-030: Benchmark harness for apples-to-apples comparison (M15)
 /// Target: Reproducible measurements with < 5% variance
+/// Perf test: CV < 1.0 assertion is flaky under CPU contention and coverage
+/// instrumentation. Run via `cargo test -- --ignored` for targeted perf validation.
 #[test]
+#[ignore]
 #[cfg(feature = "gpu")]
 fn test_imp_030_benchmark_harness() {
     use crate::gpu::{GpuGenerateConfig, GpuModel, GpuModelConfig};
