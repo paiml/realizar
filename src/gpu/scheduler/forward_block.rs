@@ -15,7 +15,6 @@ impl GpuModel {
         block_idx: usize,
         kv_cache: &mut StreamingKVCache,
     ) -> Result<Vec<f32>> {
-        contract_pre_forward_block_traced!(input);
         // Phase 21 Debug: trace first forward call only
         static DEBUG_COUNTER: std::sync::atomic::AtomicUsize =
             std::sync::atomic::AtomicUsize::new(0);

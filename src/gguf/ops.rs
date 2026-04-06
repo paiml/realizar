@@ -194,7 +194,7 @@ pub fn layer_norm_into(
 /// * `input` - Input tensor (modified in-place)
 #[inline]
 pub fn gelu(input: &mut [f32]) {
-    contract_pre_gelu!(input);
+    if !input.is_empty() { contract_pre_gelu!(input); }
     // ONE PATH: Per-element delegates to trueno::gelu_scalar (UCBD §4).
     for x in input.iter_mut() {
         *x = trueno::gelu_scalar(*x);
@@ -210,7 +210,7 @@ pub fn gelu(input: &mut [f32]) {
 /// * `input` - Input tensor (modified in-place)
 #[inline]
 pub fn silu(input: &mut [f32]) {
-    contract_pre_silu!(input);
+    if !input.is_empty() { contract_pre_silu!(input); }
     // ONE PATH: Per-element delegates to trueno::silu_scalar (UCBD §4).
     for x in input.iter_mut() {
         *x = trueno::silu_scalar(*x);
