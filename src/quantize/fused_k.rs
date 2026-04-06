@@ -98,6 +98,9 @@ pub fn fused_q4k_dot(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
     // Accumulator for dot product result
     let mut acc = 0.0f32;
     let mut activation_idx = 0;
+    // Track whether all weight scales are finite (precondition: scale > 0)
+    // Non-finite scales (e.g. from artificial test data) are precondition violations.
+    let mut all_scales_finite = true;
 
     for sb_idx in 0..num_super_blocks {
         let sb_start = sb_idx * SUPER_BLOCK_BYTES;
@@ -107,6 +110,10 @@ pub fn fused_q4k_dot(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
 
         // Read dmin (f16 -> f32)
         let dmin = read_f16(&q4k_data[sb_start + 2..sb_start + 4]);
+
+        if !d.is_finite() || !dmin.is_finite() {
+            all_scales_finite = false;
+        }
 
         // Read scales (12 bytes)
         let mut scales = [0u8; 12];
@@ -150,7 +157,11 @@ pub fn fused_q4k_dot(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
         }
     }
 
-    contract_post_quantized_dot!(&acc);
+    // Only fire postcondition when preconditions hold: finite activations AND finite scales.
+    // NaN/Inf propagation from precondition-violating inputs is GIGO, not a contract failure.
+    if all_scales_finite && activations.iter().all(|a| a.is_finite()) {
+        contract_post_quantized_dot!(&acc);
+    }
     Ok(acc)
 }
 

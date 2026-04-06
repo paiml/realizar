@@ -156,13 +156,13 @@ pub fn softmax(input: &Tensor<f32>) -> Result<Tensor<f32>> {
         // Sum of exponentials
         let sum_exp: f32 = exp_vals.iter().sum();
 
-        // Normalize to get probabilities
+        // Normalize to get probabilities — check postcondition per row (contract is 1D)
+        let row_start = output.len();
         for &exp_val in &exp_vals {
             output.push(exp_val / sum_exp);
         }
+        contract_post_softmax!(&output[row_start..]);
     }
-
-    contract_post_softmax!(&output);
     Tensor::from_vec(shape.to_vec(), output)
 }
 
