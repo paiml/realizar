@@ -59,18 +59,31 @@ impl Default for CudaBatchConfig {
 pub fn generate_single_request(cuda_model: &mut OwnedQuantizedModelCuda, req: CudaBatchRequest) {
     if req.non_streaming {
         let mut tokens = Vec::new();
-        let result = cuda_model.generate_gpu_resident_streaming(
-            &req.prompt_ids, &req.config, |tid| { tokens.push(tid); true },
-        );
+        let result =
+            cuda_model.generate_gpu_resident_streaming(&req.prompt_ids, &req.config, |tid| {
+                tokens.push(tid);
+                true
+            });
         match result {
-            Ok(_) => { for t in tokens { if req.token_tx.try_send(Ok(t)).is_err() { break; } } },
-            Err(e) => { let _ = req.token_tx.try_send(Err(e.to_string())); },
+            Ok(_) => {
+                for t in tokens {
+                    if req.token_tx.try_send(Ok(t)).is_err() {
+                        break;
+                    }
+                }
+            },
+            Err(e) => {
+                let _ = req.token_tx.try_send(Err(e.to_string()));
+            },
         }
     } else {
-        let result = cuda_model.generate_gpu_resident_streaming(
-            &req.prompt_ids, &req.config, |tid| req.token_tx.try_send(Ok(tid)).is_ok(),
-        );
-        if let Err(e) = result { let _ = req.token_tx.try_send(Err(e.to_string())); }
+        let result =
+            cuda_model.generate_gpu_resident_streaming(&req.prompt_ids, &req.config, |tid| {
+                req.token_tx.try_send(Ok(tid)).is_ok()
+            });
+        if let Err(e) = result {
+            let _ = req.token_tx.try_send(Err(e.to_string()));
+        }
     }
 }
 
