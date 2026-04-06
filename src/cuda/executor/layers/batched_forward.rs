@@ -272,17 +272,45 @@ impl CudaExecutor {
         Ok(token_ids)
     }
 
-    /// PAR-121: Graph-captured batched forward pass for M sequences
-    ///
-    /// Uses CUDA graph capture to reduce kernel launch overhead for batched decode.
-    /// First call with batch size M: captures the kernel sequence into a graph.
-    /// Subsequent calls with same M: replays captured graph with updated inputs.
-    ///
-    /// # Performance
-    ///
-    /// - Without graphs (M=2): 404.6 tok/s
-    /// - With graphs (M=2): Target ~550+ tok/s (2x Ollama)
-    /// - Key: Combines batched GEMV efficiency + CUDA graph launch reduction
+    /// realizr#214: Manual-graph batched forward (trueno#243 pattern, not stream capture).
+    #[allow(clippy::too_many_arguments)]
+    pub fn forward_batched_manual_graph(
+        &mut self, inputs: &[f32], positions: &[u32], num_layers: usize,
+        hidden_dim: u32, intermediate_dim: u32, vocab_size: u32, epsilon: f32,
+    ) -> Result<Vec<u32>, GpuError> {
+        let m = positions.len();
+        // Upload dynamic state before graph launch/capture
+        if let Some(ref mut b) = self.batched_graph_input_buf { b.copy_from_host(inputs)?; }
+        if let Some(ref mut b) = self.batched_graph_positions_buf { b.copy_from_host(positions)?; }
+        let sl: Vec<u32> = positions.iter().map(|&p| p + 1).collect();
+        if let Some(ref mut b) = self.batched_graph_seq_lens_buf {
+            if b.len() >= sl.len() { b.copy_from_host(&sl)?; }
+        }
+        // Replay cached graph
+        if let Some(ref gx) = self.batched_decode_graphs.get(&m) {
+            self.stream.launch_graph(gx)?;
+            self.stream.synchronize()?;
+            let lp = self.workspace.logits_buf.as_ref()
+                .ok_or_else(|| GpuError::InvalidLaunchConfig("No logits".into()))?.as_ptr();
+            let lb = unsafe { GpuBuffer::<f32>::from_raw_parts(lp, m * vocab_size as usize) };
+            let ap = lb.as_ptr(); std::mem::forget(lb);
+            return self.batched_gpu_argmax(ap, vocab_size, m);
+        }
+        // First call: init buffers, record eager, build graph
+        self.init_batched_graph_buffers(m, hidden_dim, vocab_size)?;
+        self.begin_graph_recording();
+        let result = self.forward_batched_to_token_ids(
+            inputs, positions, num_layers, hidden_dim, intermediate_dim, vocab_size, epsilon,
+        );
+        let nk = self.end_graph_recording()?;
+        if nk > 0 { if let Some(g) = self.decode_graph.take() {
+            eprintln!("[realizr#214] ✓ Manual batched graph: M={m}, {nk} kernels");
+            self.batched_decode_graphs.insert(m, g);
+        }}
+        result
+    }
+
+    /// PAR-121: Stream-capture batched forward (BROKEN on driver 570+, use manual graph).
     #[allow(clippy::too_many_arguments)]
     pub fn forward_batched_to_token_ids_graphed(
         &mut self,

@@ -436,9 +436,13 @@ DONE:
         self.flash_decode_max_chunks = max_chunks;
         self.flash_decode_enabled = true;
 
-        // PAR-118: Persistent seq_lens buffer — remains valid for the lifetime of async kernels,
-        // ensuring the device pointer is not invalidated before kernel completion.
-        self.flash_decode_seq_lens_buf = Some(GpuBuffer::from_host(&self.context, &[0u32])?);
+        // PAR-118 + realizr#214: Persistent seq_lens buffer — sized for max_batch (not M=1)
+        // to support per-batch CUDA graph capture. During M=1 decode, only index 0 is used.
+        // During M>1 batched graph replay, all M indices are updated before graph launch.
+        let max_batch = std::env::var("CUDA_MAX_BATCH")
+            .ok().and_then(|v| v.parse().ok()).unwrap_or(32usize);
+        let initial_seq_lens = vec![0u32; max_batch];
+        self.flash_decode_seq_lens_buf = Some(GpuBuffer::from_host(&self.context, &initial_seq_lens)?);
 
         // PAR-118: Populate per-layer K/V pointer buffers for graph-compatible Flash Decoding.
         // These contain the GPU base address of each layer's KV cache, enabling the
@@ -463,8 +467,12 @@ DONE:
             if let (Some(k_cache), Some(v_cache)) =
                 (self.kv_cache_gpu.get(&k_key), self.kv_cache_gpu.get(&v_key))
             {
-                let k_ptr_buf = GpuBuffer::from_host(&self.context, &[k_cache.as_ptr()])?;
-                let v_ptr_buf = GpuBuffer::from_host(&self.context, &[v_cache.as_ptr()])?;
+                // realizr#214: Size for max_batch to support per-batch graph capture.
+                // All M slots point to the same cache base; the kernel indexes via batch_idx.
+                let k_ptrs = vec![k_cache.as_ptr(); max_batch];
+                let v_ptrs = vec![v_cache.as_ptr(); max_batch];
+                let k_ptr_buf = GpuBuffer::from_host(&self.context, &k_ptrs)?;
+                let v_ptr_buf = GpuBuffer::from_host(&self.context, &v_ptrs)?;
                 self.flash_decode_k_ptrs.insert(layer_idx, k_ptr_buf);
                 self.flash_decode_v_ptrs.insert(layer_idx, v_ptr_buf);
             }
