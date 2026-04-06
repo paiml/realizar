@@ -747,9 +747,12 @@ impl OwnedQuantizedModelCuda {
                     count += 1;
                 }
                 Err(e) => {
-                    // Reset KV cache to prevent poisoned state from affecting
-                    // subsequent requests (C-GRAPH-RECOVERY-01).
+                    // realizr#194: Reset KV cache AND invalidate decode graph
+                    // to prevent poisoned CUDA state from affecting subsequent
+                    // requests. Without graph invalidation, the stale graph
+                    // replays with invalid pointers → CUDA_ERROR_INVALID_VALUE.
                     self.executor.reset_kv_cache_gpu();
+                    self.executor.clear_decode_graph();
                     return Err(e);
                 }
             }
