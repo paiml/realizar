@@ -121,7 +121,9 @@ pub fn create_router_with_config(state: AppState, config: RouterConfig) -> Route
         )
     });
 
-    router.with_state(state)
+    // GH-671: CORS support — allow cross-origin requests from browser-based clients
+    let cors = tower_http::cors::CorsLayer::permissive();
+    router.layer(cors).with_state(state)
 }
 
 /// Health check handler
