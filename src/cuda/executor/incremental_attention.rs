@@ -199,6 +199,7 @@ impl CudaExecutor {
         v_gpu: &GpuBuffer<f32>,
         out_gpu: &GpuBuffer<f32>,
     ) -> Result<usize, GpuError> {
+        contract_pre_paged_contiguous_equivalence!();
         // Paged ≡ contiguous for single-sequence (no block table indirection needed).
         // When multi-tenant paged attention is wired, this will use block_table
         // to gather KV pages instead of linear stride.

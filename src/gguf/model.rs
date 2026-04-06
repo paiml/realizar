@@ -434,6 +434,7 @@ impl OwnedQuantizedModel {
     /// Position embedding weights (GPT-2 only, read-only).
     #[must_use]
     pub fn position_embedding(&self) -> Option<&[f32]> {
+        contract_pre_position_embedding!();
         self.position_embedding.as_deref()
     }
 

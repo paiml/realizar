@@ -189,6 +189,7 @@ impl HybridScheduler {
     /// Get GPU threshold
     #[must_use]
     pub fn gpu_threshold(&self) -> usize {
+        contract_pre_gpu_threshold!();
         self.gpu_threshold
     }
 

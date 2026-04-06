@@ -99,6 +99,7 @@ impl KVCache {
     ///
     /// Returns error if layer is out of bounds, cache is full, or tensor sizes don't match
     pub fn update(&mut self, layer: usize, key: &Tensor<f32>, value: &Tensor<f32>) -> Result<()> {
+        contract_pre_update!();
         if layer >= self.num_layers {
             return Err(RealizarError::InvalidShape {
                 reason: format!(

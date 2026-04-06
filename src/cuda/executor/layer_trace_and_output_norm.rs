@@ -314,6 +314,7 @@ impl CudaExecutor {
         _scale: f32,
         causal: bool,
     ) -> Result<(), GpuError> {
+        contract_pre_flash_attention!();
         let expected_size = (seq_len * head_dim) as usize;
 
         if q.len() != expected_size

@@ -97,6 +97,7 @@ impl GpuCompute {
         k: usize,
         n: usize,
     ) -> Result<Vec<f32>> {
+        contract_pre_matmul!();
         // Validate dimensions
         if a.len() != m * k {
             return Err(RealizarError::InvalidShape {
@@ -199,6 +200,7 @@ impl GpuCompute {
     ///
     /// Returns error if GPU compute fails.
     pub fn relu(&mut self, input: &[f32]) -> Result<Vec<f32>> {
+        contract_pre_relu!();
         if let Some(gpu) = &mut self.gpu {
             #[allow(clippy::implicit_clone)]
             gpu.relu(input).map_err(|e| RealizarError::GpuError {
@@ -215,6 +217,7 @@ impl GpuCompute {
     ///
     /// Returns error if GPU compute fails.
     pub fn sigmoid(&mut self, input: &[f32]) -> Result<Vec<f32>> {
+        contract_pre_sigmoid!();
         if let Some(gpu) = &mut self.gpu {
             #[allow(clippy::implicit_clone)]
             gpu.sigmoid(input).map_err(|e| RealizarError::GpuError {

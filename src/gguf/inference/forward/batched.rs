@@ -315,6 +315,7 @@ impl OwnedQuantizedModel {
         config: &QuantizedGenerateConfig,
         metrics: &std::sync::Arc<DispatchMetrics>,
     ) -> Result<Vec<u32>> {
+        contract_pre_batched_serial_equivalence!();
         if prompt.is_empty() {
             return Err(RealizarError::InvalidShape {
                 reason: "Prompt cannot be empty".to_string(),

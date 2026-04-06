@@ -30,6 +30,7 @@ use crate::error::{RealizarError, Result};
 /// # Errors
 /// Returns error if buffer is too small.
 pub fn precompute_q8k_bsums(q8k_quants: &[i8], num_superblocks: usize) -> Result<Vec<[i32; 8]>> {
+    contract_pre_bsum!();
     let expected_len = num_superblocks * QK_K;
     if q8k_quants.len() < expected_len {
         return Err(RealizarError::InvalidShape {

@@ -155,6 +155,7 @@ impl ShardedSafeTensorsModel {
     /// Get total number of tensors across all shards
     #[must_use]
     pub fn tensor_count(&self) -> usize {
+        contract_pre_tensor_count!();
         self.tensor_to_shard.len()
     }
 

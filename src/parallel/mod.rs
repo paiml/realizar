@@ -270,6 +270,7 @@ impl ParallelTensor {
 
     /// Transpose for 2D tensors
     pub fn transpose(&self) -> Result<Self, ParallelError> {
+        contract_pre_transpose!();
         if self.shape.len() != 2 {
             return Err(ParallelError::ShapeMismatch {
                 expected: vec![2],

@@ -223,6 +223,7 @@ impl OwnedQuantizedModel {
     /// IMP-111a: Reference implementation for testing online softmax.
     /// Computes softmax in the standard way: exp(x - max) / sum(exp(x - max))
     pub fn standard_softmax(&self, scores: &[f32]) -> Vec<f32> {
+        contract_pre_standard_softmax!();
         if scores.is_empty() {
             return Vec::new();
         }

@@ -226,6 +226,7 @@ impl GpuProfile {
     /// Enable FP8 prefill on all cc >= 89; warmup_fp8_cache separately guards
     /// against the warmup crash (cc < 100 check in attention.rs).
     fn detect_fp8_prefill(cc: u32) -> bool {
+        contract_pre_fp8_architecture_guard!();
         match std::env::var("FP8_PREFILL").as_deref() {
             Ok("0") => false,
             Ok("1") => true,

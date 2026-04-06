@@ -318,6 +318,7 @@ impl CudaExecutor {
         layer_weights: &ValidatedLayerWeights,
         epsilon: f32,
     ) -> Result<(), GpuError> {
+        contract_pre_qk_norm_score_bound!();
         if layer_weights.attn_q_norm_len > 0 {
             // SAFETY: Pointer valid from rmsnorm_cache, length verified at model load time
             let q_norm_buf = unsafe {

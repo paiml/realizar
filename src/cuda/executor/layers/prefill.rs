@@ -118,6 +118,7 @@ impl CudaExecutor {
         intermediate_dim: u32,
         epsilon: f32,
     ) -> Result<(), GpuError> {
+        contract_pre_prefill_incremental!();
         let s = positions.len();
         if s == 0 {
             return Ok(());

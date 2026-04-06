@@ -26,6 +26,7 @@ impl CudaExecutor {
         current_v: &[f32],
         output: &mut [f32],
     ) -> Result<usize, GpuError> {
+        contract_pre_fused_kernel!();
         let num_heads = self.kv_num_heads;
         let head_dim = self.kv_head_dim;
         let hidden_dim = num_heads * head_dim;

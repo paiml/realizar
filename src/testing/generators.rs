@@ -299,6 +299,7 @@ pub struct ModelWeights {
 impl ModelWeights {
     /// Total size in bytes
     pub fn total_bytes(&self) -> usize {
+        contract_pre_total_bytes!();
         let embed = self.embed_weights.len();
         let layers: usize = self
             .layer_weights

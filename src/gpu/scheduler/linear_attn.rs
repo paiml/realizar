@@ -148,6 +148,7 @@ pub fn forward_linear_block_incremental(
     block_idx: usize,
     state: &mut LinearAttnState,
 ) -> Result<Vec<f32>> {
+    contract_pre_gdn_sublayer!();
     let hidden_dim = model.config.hidden_dim;
     let intermediate_dim = model.config.intermediate_dim;
 
@@ -641,6 +642,11 @@ fn gated_delta_rule_step(
     kd: usize,
     vd: usize,
 ) {
+    contract_pre_decay!();
+    contract_pre_read!();
+    contract_pre_write!();
+    contract_pre_delta!();
+    contract_pre_output!();
     // Contract: dimension checks
     debug_assert_eq!(q.len(), num_v_heads * kd, "Q dim mismatch");
     debug_assert_eq!(k.len(), num_v_heads * kd, "K dim mismatch");

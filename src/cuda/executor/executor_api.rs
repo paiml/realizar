@@ -133,6 +133,7 @@ impl CudaExecutor {
         &mut self,
         brick_id: trueno::BrickId,
     ) -> Option<trueno::BrickIdTimer> {
+        contract_pre_report_fidelity!();
         if !self.profiler.is_enabled() {
             return None;
         }
@@ -145,6 +146,7 @@ impl CudaExecutor {
     /// Stop timing a brick using BrickId (PAR-200 fast path).
     #[inline]
     pub(crate) fn stop_brick_id(&mut self, timer: Option<trueno::BrickIdTimer>, elements: u64) {
+        contract_pre_report_completeness!();
         if let Some(t) = timer {
             if self.profiler.sync_mode() == trueno::SyncMode::Immediate {
                 let _ = self.stream.synchronize();

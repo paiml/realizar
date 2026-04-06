@@ -387,6 +387,7 @@ impl SamplerChain {
     ///
     /// Returns error if sampling fails
     pub fn sample(&self, logits: &Tensor<f32>, context: &SamplerContext) -> Result<usize> {
+        contract_pre_sample!();
         let mut modified = logits.clone();
         self.apply(&mut modified, context);
         sample_greedy(&modified)

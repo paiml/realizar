@@ -463,6 +463,7 @@ impl SafetensorsConfig {
     /// GH-278: Check if model uses hybrid attention (has layer_types with both types)
     #[must_use]
     pub fn is_hybrid_attention(&self) -> bool {
+        contract_pre_hybrid_block!();
         self.layer_types.as_ref().is_some_and(|types| {
             let has_attn = types.iter().any(|t| t == "attention");
             let has_linear = types.iter().any(|t| t == "linear");

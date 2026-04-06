@@ -135,6 +135,7 @@ impl DecisionTree {
 
     /// Predict for a single instance
     pub fn predict(&self, instance: &[f32]) -> f32 {
+        contract_pre_predict!();
         let mut node = 0;
         while !self.is_leaf(node) {
             let feature_idx = self.feature[node] as usize;

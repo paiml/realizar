@@ -279,6 +279,7 @@ impl OwnedQuantizedModel {
         prompt: &[u32],
         cache: &mut OwnedQuantizedKVCache,
     ) -> Result<Vec<f32>> {
+        contract_pre_prefill_phase!();
         if prompt.is_empty() {
             return Err(RealizarError::InvalidShape {
                 reason: "Prompt cannot be empty".to_string(),

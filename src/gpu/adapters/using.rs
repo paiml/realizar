@@ -106,6 +106,7 @@ impl GpuModelQ4 {
         layer_idx: usize,
         seq_len: usize,
     ) -> Result<GpuBuffer<f32>> {
+        contract_pre_layer_composition!();
         let hidden_dim = self.config.hidden_dim;
         let num_heads = self.config.num_heads;
         let num_kv_heads = self.config.num_kv_heads;

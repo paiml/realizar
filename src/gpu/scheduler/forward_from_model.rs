@@ -187,6 +187,7 @@ impl GpuModel {
         seq_len: usize,
         block_idx: usize,
     ) -> Result<(Vec<f32>, LayerActivation)> {
+        contract_pre_attention_sublayer!();
         let hidden_dim = self.config.hidden_dim;
         let intermediate_dim = self.config.intermediate_dim;
         let qkv_dim = self.config.qkv_dim();

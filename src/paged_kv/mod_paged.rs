@@ -9,6 +9,7 @@ impl PagedKvCache {
     /// * `num_heads` - Number of attention heads
     /// * `head_dim` - Dimension per attention head
     pub fn new(total_pages: usize, block_size: usize, num_heads: usize, head_dim: usize) -> Self {
+        contract_pre_page_shape!();
         let mut physical_pages = Vec::with_capacity(total_pages);
         let mut free_pages = VecDeque::with_capacity(total_pages);
 

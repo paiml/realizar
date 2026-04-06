@@ -32,6 +32,7 @@ impl CudaExecutor {
     ///
     /// Returns error if GPU allocation or transfer fails.
     pub fn load_weights(&mut self, name: &str, weights: &[f32]) -> Result<usize, GpuError> {
+        contract_pre_throughput_target!();
         // PMAT-396: On unified memory (cc>=120), register mmap'd pages directly
         let buf = if self.gpu_profile.cc >= 120 {
             unsafe { GpuBuffer::from_host_registered(weights.as_ptr().cast_mut(), weights.len())? }

@@ -197,6 +197,7 @@ impl QuantBlockFormat for Q4K {
 
     #[inline]
     fn dequant_value(superblock: &[u8], i: usize) -> f32 {
+        contract_pre_dequantization!();
         let d = Self::read_d(superblock);
         let dmin = Self::read_dmin(superblock);
         let block_idx = i / 32;

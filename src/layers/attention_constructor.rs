@@ -136,6 +136,7 @@ impl MultiHeadAttention {
     /// - `hidden_dim` is not divisible by `num_heads`
     /// - `num_heads` is not divisible by `num_kv_heads`
     pub fn gqa(hidden_dim: usize, num_heads: usize, num_kv_heads: usize) -> Result<Self> {
+        contract_pre_gqa!();
         Self::new(hidden_dim, num_heads, num_kv_heads)
     }
 

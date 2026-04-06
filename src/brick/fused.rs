@@ -81,6 +81,7 @@ impl CoalescedDp4aBrick {
     /// Arithmetic intensity (FLOPS / bytes).
     #[must_use]
     pub fn arithmetic_intensity(&self) -> f64 {
+        contract_pre_compute_ceiling!();
         let bytes = (self.k as f64 * 4.5) / 8.0 + self.n as f64 * 4.0; // Q4K weights + f32 output
         self.flops() as f64 / bytes
     }

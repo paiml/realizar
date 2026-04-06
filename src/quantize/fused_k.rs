@@ -179,6 +179,7 @@ pub fn fused_q4k_dot(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
 /// - Fused operation: 8x memory bandwidth reduction vs dequant-then-dot
 /// - Combined potential: Up to 64x improvement for memory-bound operations
 pub fn fused_q4k_dot_simd(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
+    contract_pre_simd_only_threshold!();
     // Runtime feature detection with fallback (per RustBelt pattern)
     #[cfg(target_arch = "x86_64")]
     {

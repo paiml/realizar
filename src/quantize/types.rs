@@ -72,6 +72,7 @@ impl Q8_0Block {
     /// ```
     #[must_use]
     pub fn quantize(values: &[f32; 32]) -> Self {
+        contract_pre_quantize!();
         // Find max absolute value for symmetric quantization
         let max_abs = values.iter().map(|v| v.abs()).fold(0.0f32, f32::max);
 
