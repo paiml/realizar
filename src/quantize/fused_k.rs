@@ -150,6 +150,7 @@ pub fn fused_q4k_dot(q4k_data: &[u8], activations: &[f32]) -> Result<f32> {
         }
     }
 
+    contract_post_quantized_dot!(&acc);
     Ok(acc)
 }
 

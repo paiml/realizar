@@ -90,6 +90,7 @@ pub fn apply_rope_rotation_simd(
 
     // Scalar fallback
     apply_rope_rotation_scalar(x1, x2, cos_vals, sin_vals);
+    contract_post_rotation_matrix!(&x1);
 }
 
 /// Scalar fallback for RoPE rotation

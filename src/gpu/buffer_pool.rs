@@ -190,7 +190,9 @@ impl HybridScheduler {
     #[must_use]
     pub fn gpu_threshold(&self) -> usize {
         contract_pre_gpu_threshold!();
-        self.gpu_threshold
+        let result = self.gpu_threshold;
+        contract_post_gpu_threshold!(&result);
+        result
     }
 
     /// Decide whether to use GPU for given workload

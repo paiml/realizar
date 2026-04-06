@@ -122,7 +122,7 @@ impl GpuCompute {
             });
         }
 
-        if let Some(gpu) = &mut self.gpu {
+        let result = if let Some(gpu) = &mut self.gpu {
             // GPU path
             #[allow(clippy::implicit_clone)]
             gpu.matmul(a, b, m, k, n)
@@ -132,7 +132,11 @@ impl GpuCompute {
         } else {
             // CPU fallback: naive matmul
             Ok(cpu_matmul(a, b, m, k, n))
+        };
+        if let Ok(ref r) = result {
+            contract_post_matmul!(r);
         }
+        result
     }
 
     /// GPU-accelerated matrix multiplication with Tensor input/output
@@ -201,14 +205,18 @@ impl GpuCompute {
     /// Returns error if GPU compute fails.
     pub fn relu(&mut self, input: &[f32]) -> Result<Vec<f32>> {
         contract_pre_relu!();
-        if let Some(gpu) = &mut self.gpu {
+        let result = if let Some(gpu) = &mut self.gpu {
             #[allow(clippy::implicit_clone)]
             gpu.relu(input).map_err(|e| RealizarError::GpuError {
                 reason: e.to_string(),
             })
         } else {
             Ok(input.iter().map(|&x| x.max(0.0)).collect())
+        };
+        if let Ok(ref r) = result {
+            contract_post_relu!(r);
         }
+        result
     }
 
     /// GPU-accelerated sigmoid activation
@@ -218,14 +226,18 @@ impl GpuCompute {
     /// Returns error if GPU compute fails.
     pub fn sigmoid(&mut self, input: &[f32]) -> Result<Vec<f32>> {
         contract_pre_sigmoid!();
-        if let Some(gpu) = &mut self.gpu {
+        let result = if let Some(gpu) = &mut self.gpu {
             #[allow(clippy::implicit_clone)]
             gpu.sigmoid(input).map_err(|e| RealizarError::GpuError {
                 reason: e.to_string(),
             })
         } else {
             Ok(input.iter().map(|&x| 1.0 / (1.0 + (-x).exp())).collect())
+        };
+        if let Ok(ref r) = result {
+            contract_post_sigmoid!(r);
         }
+        result
     }
 }
 

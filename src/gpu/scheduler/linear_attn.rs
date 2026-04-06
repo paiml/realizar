@@ -358,6 +358,7 @@ pub fn forward_linear_block_incremental(
         *x += fc2_out[i] + block.ffn_fc2_bias[i];
     }
 
+    contract_post_gdn_sublayer!(&residual1);
     Ok(residual1)
 }
 
@@ -665,6 +666,7 @@ fn gated_delta_rule_step(
 
         gated_delta_rule_head(q_h, k_h, v_h, g[h], beta[h], state_h, out_h, kd, vd);
     }
+    contract_post_decay!(&output);
 }
 
 /// Single-head gated delta rule recurrence (GDN-1/2/3).

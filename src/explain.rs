@@ -148,7 +148,9 @@ impl DecisionTree {
                 node = self.right[node];
             }
         }
-        self.value.get(node).copied().unwrap_or(0.0)
+        let result = self.value.get(node).copied().unwrap_or(0.0);
+        contract_post_predict!(&result);
+        result
     }
 }
 

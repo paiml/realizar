@@ -45,6 +45,7 @@ pub(super) fn apply_rope_inline(
             x[idx2_start + i] = x1 * sin_val + x2 * cos_val;
         }
     }
+    contract_post_rope!(&x);
 }
 
 /// GQA multi-head attention (IMP-089, IMP-092, IMP-094)
@@ -123,6 +124,7 @@ pub(super) fn gqa_multihead_attention(
         }
     }
 
+    contract_post_attention!(&output);
     output
 }
 
@@ -177,7 +179,9 @@ pub(super) fn sample_topk(logits: &[f32], temperature: f32, top_k: usize) -> usi
 
     // Truncate to top_k and return highest probability token (deterministic)
     indexed.truncate(top_k);
-    indexed.first().map_or(0, |&(idx, _)| idx)
+    let result = indexed.first().map_or(0, |&(idx, _)| idx);
+    contract_post_temperature!(&result);
+    result
 }
 
 /// Transpose weight matrix from [rows, cols] to [cols, rows].

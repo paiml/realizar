@@ -288,6 +288,7 @@ fn validate_completeness(
         });
     }
 
+    contract_post_weight_completeness!(&());
     Ok(())
 }
 
@@ -408,6 +409,7 @@ pub fn transpose_f32(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
     // trueno::blis::transpose handles cache-blocking for large matrices
     trueno::blis::transpose::transpose(rows, cols, data, &mut out)
         .expect("transpose_f32: dimension mismatch (should be impossible after assert)");
+    contract_post_transpose!(&out);
     out
 }
 

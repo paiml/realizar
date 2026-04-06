@@ -288,6 +288,7 @@ impl ParallelTensor {
             }
         }
 
+        contract_post_transpose!(&new_data);
         Ok(Self {
             shape: vec![cols, rows],
             data: new_data,

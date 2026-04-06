@@ -139,6 +139,7 @@ impl OwnedQuantizedModel {
             }
         }
 
+        contract_post_flash_attention!(&output);
         output
     }
 

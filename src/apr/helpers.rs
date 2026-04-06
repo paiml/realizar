@@ -238,6 +238,7 @@ pub(crate) fn simple_attention(
         }
     }
 
+    contract_post_attention!(&output);
     output
 }
 

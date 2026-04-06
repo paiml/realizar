@@ -344,6 +344,7 @@ impl OwnedQuantizedModel {
             ops::add_bias(&mut logits, bias);
         }
 
+        contract_post_decode_step!(&logits);
         Ok(logits)
     }
 }

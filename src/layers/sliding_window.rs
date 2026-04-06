@@ -337,7 +337,9 @@ impl SlidingWindowAttention {
         contract_pre_effective_context!();
         let window_end = (position + 1).min(seq_len);
         let window_start = window_end.saturating_sub(self.window_size);
-        window_end - window_start
+        let result = window_end - window_start;
+        contract_post_effective_context!(&result);
+        result
     }
 
     /// Memory usage relative to full attention

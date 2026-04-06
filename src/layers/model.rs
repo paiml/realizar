@@ -137,6 +137,7 @@ impl KVCache {
         self.keys[layer][offset..offset + self.head_dim].copy_from_slice(k_data);
         self.values[layer][offset..offset + self.head_dim].copy_from_slice(v_data);
 
+        contract_post_update!(&());
         Ok(())
     }
 

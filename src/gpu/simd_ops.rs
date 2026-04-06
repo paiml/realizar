@@ -106,9 +106,11 @@ pub fn scalar_rope(input: &[f32], seq_len: usize, head_dim: usize, theta: f32) -
 /// Pre-compute the RoPE frequency table for the given head dimension and theta.
 fn rope_frequency_table(half_head: usize, head_dim: usize, theta: f32) -> Vec<f32> {
     contract_pre_rope_frequency!();
-    (0..half_head)
+    let result: Vec<f32> = (0..half_head)
         .map(|i| 1.0 / theta.powf((2.0 * i as f32) / head_dim as f32))
-        .collect()
+        .collect();
+    contract_post_rope_frequency!(&result);
+    result
 }
 
 /// Compute cos and sin trueno vectors for a given position and frequency table.

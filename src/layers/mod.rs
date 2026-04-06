@@ -162,6 +162,7 @@ pub fn softmax(input: &Tensor<f32>) -> Result<Tensor<f32>> {
         }
     }
 
+    contract_post_softmax!(&output);
     Tensor::from_vec(shape.to_vec(), output)
 }
 
@@ -201,6 +202,7 @@ pub fn gelu(input: &Tensor<f32>) -> Result<Tensor<f32>> {
     // ONE PATH: Per-element delegates to trueno::gelu_scalar (UCBD §4).
     let output: Vec<f32> = data.iter().map(|&x| trueno::gelu_scalar(x)).collect();
 
+    contract_post_gelu!(&output);
     Tensor::from_vec(input.shape().to_vec(), output)
 }
 

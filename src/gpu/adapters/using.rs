@@ -252,11 +252,15 @@ impl GpuModelQ4 {
 
         // 9. Final residual (GPU)
         // PAR-023: Keep data on GPU - residual1 + ffn_out
-        executor
+        let result = executor
             .residual_add_gpu(&residual1, &ffn_out, hidden_dim as u32)
             .map_err(|e| RealizarError::GpuError {
                 reason: format!("Final residual add failed: {e}"),
-            })
+            });
+        if result.is_ok() {
+            contract_post_layer_composition!(&());
+        }
+        result
     }
 
     /// SwiGLU FFN using Q4_0 kernels

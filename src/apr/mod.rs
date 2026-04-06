@@ -398,7 +398,9 @@ impl TensorEntry {
     /// Calculate element count from shape
     pub fn element_count(&self) -> usize {
         contract_pre_element_count!();
-        self.shape.iter().product()
+        let result = self.shape.iter().product();
+        contract_post_element_count!(&result);
+        result
     }
 }
 

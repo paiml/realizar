@@ -81,6 +81,7 @@ pub fn fused_swiglu_simd(gate: &mut [f32], up: &[f32]) {
 
     // Scalar fallback
     fused_swiglu_scalar(gate, up);
+    contract_post_ffn_sublayer!(&gate);
 }
 
 /// Scalar fused SwiGLU: silu(gate) * up

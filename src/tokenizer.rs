@@ -328,6 +328,7 @@ impl BPETokenizer {
             }
         }
 
+        contract_post_encode!(&tokens);
         tokens
     }
 
@@ -398,7 +399,9 @@ impl BPETokenizer {
         }
 
         // Decode as UTF-8, replacing invalid sequences
-        Ok(String::from_utf8_lossy(&bytes).into_owned())
+        let result = String::from_utf8_lossy(&bytes).into_owned();
+        contract_post_decode!(&result);
+        Ok(result)
     }
 
     /// Convert GPT-2 unicode character to original byte value

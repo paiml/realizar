@@ -79,6 +79,8 @@ impl RoPE {
             inv_freq.push(base.powf(exponent));
         }
 
+        contract_post_base_frequency!(&inv_freq);
+        contract_post_ntk_scaled_base!(&());
         Ok(Self {
             dim,
             base,

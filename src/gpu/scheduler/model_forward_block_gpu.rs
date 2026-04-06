@@ -245,6 +245,7 @@ impl GpuModel {
         let k = qkv[hidden_dim..hidden_dim + kv_dim].to_vec();
         let v = qkv[hidden_dim + kv_dim..].to_vec();
 
+        contract_post_attention!(&q);
         Ok((q, k, v))
     }
 

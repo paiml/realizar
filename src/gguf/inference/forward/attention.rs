@@ -236,7 +236,9 @@ impl OwnedQuantizedModel {
         let sum: f32 = exp_scores.iter().sum();
 
         // Normalize
-        exp_scores.iter().map(|&e| e / sum).collect()
+        let result: Vec<f32> = exp_scores.iter().map(|&e| e / sum).collect();
+        contract_post_softmax!(&result);
+        result
     }
 
     /// Online softmax with tiled processing (O(1) memory per tile)

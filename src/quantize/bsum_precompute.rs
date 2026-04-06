@@ -59,6 +59,7 @@ pub fn precompute_q8k_bsums(q8k_quants: &[i8], num_superblocks: usize) -> Result
         bsums.push(block_sums);
     }
 
+    contract_post_bsum!(&bsums);
     Ok(bsums)
 }
 

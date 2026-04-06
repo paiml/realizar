@@ -145,6 +145,22 @@ impl CudaExecutor {
             // Prevent drop of borrowed buffer (from_raw_parts doesn't own the memory)
             std::mem::forget(layer_input_buf);
 
+            // realizr#220 DIAGNOSTIC: dump hidden state after layer 0 for M>=3
+            if layer_idx == 0 && m >= 3 {
+                self.stream.synchronize()?;
+                let debug_len = m * hidden_dim as usize;
+                let debug_buf = unsafe { GpuBuffer::<f32>::from_raw_parts(hidden_buf2_ptr, debug_len) };
+                let mut debug_host = vec![0.0f32; debug_len];
+                debug_buf.copy_to_host(&mut debug_host)?;
+                std::mem::forget(debug_buf);
+                for seq in 0..m {
+                    let off = seq * hidden_dim as usize;
+                    let first4: Vec<f32> = debug_host[off..off+4].to_vec();
+                    let sum: f32 = debug_host[off..off+hidden_dim as usize].iter().sum();
+                    let nonzero = debug_host[off..off+hidden_dim as usize].iter().filter(|&&v| v != 0.0).count();
+                    eprintln!("[#220-DIAG] layer0 seq{}: first4={:?} sum={:.4} nonzero={}/{}", seq, first4, sum, nonzero, hidden_dim);
+                }
+            }
         }
 
         self.batched_output_norm_lm_head_argmax(m, hidden_dim, vocab_size, epsilon)

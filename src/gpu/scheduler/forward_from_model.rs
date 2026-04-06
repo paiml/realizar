@@ -345,6 +345,7 @@ impl GpuModel {
         for i in 0..residual1.len() {
             residual1[i] += ffn_output[i];
         }
+        contract_post_attention_sublayer!(&residual1);
         let output_stats = ActivationStats::from_slice(&residual1);
 
         Ok((

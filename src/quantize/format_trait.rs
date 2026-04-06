@@ -213,7 +213,9 @@ impl QuantBlockFormat for Q4K {
             ((byte >> 4) & 0x0F) as i32
         };
 
-        d * scale * (q as f32) - dmin * min
+        let result = d * scale * (q as f32) - dmin * min;
+        contract_post_dequantization!(&result);
+        result
     }
 }
 

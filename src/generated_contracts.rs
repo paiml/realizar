@@ -105,6 +105,22 @@ macro_rules! contract_inv_relu {
     }};
 }
 
+/// Postconditions for equation `relu`.
+/// Call before return: `contract_post_relu!(result_expr)`
+macro_rules! contract_post_relu {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.iter().all(|v| v.is_finite()),
+            "Contract relu: postcondition violated — result.iter().all(|v| v.is_finite())"
+        );
+        debug_assert!(
+            _contract_result.iter().all(|v| *v >= 0.0),
+            "Contract relu: postcondition violated — result.iter().all(|v| *v >= 0.0)"
+        );
+    }};
+}
+
 /// Preconditions for equation `silu`.
 /// Domain-specific. Call: `contract_pre_silu!(slice_expr)`
 macro_rules! contract_pre_silu {
@@ -4519,6 +4535,14 @@ macro_rules! contract_inv_weight_completeness {
     }};
 }
 
+/// Postconditions for equation `weight_completeness`.
+/// Call before return: `contract_post_weight_completeness!(result_expr)`
+macro_rules! contract_post_weight_completeness {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
 // Auto-generated from contracts/arima-v1.yaml — DO NOT EDIT
 // Contract: arima-v1
 
@@ -5284,6 +5308,14 @@ macro_rules! contract_inv_gpu_threshold {
     }};
 }
 
+/// Postconditions for equation `gpu_threshold`.
+/// Call before return: `contract_post_gpu_threshold!(result_expr)`
+macro_rules! contract_post_gpu_threshold {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
 /// Preconditions for equation `qk_norm_score_bound`.
 /// Domain-specific. Call: `contract_pre_qk_norm_score_bound!(slice_expr)`
 macro_rules! contract_pre_qk_norm_score_bound {
@@ -5325,6 +5357,18 @@ macro_rules! contract_inv_simd_only_threshold {
     () => {{}};
     ($result:expr) => {{
         let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `simd_only_threshold`.
+/// Call before return: `contract_post_simd_only_threshold!(result_expr)`
+macro_rules! contract_post_simd_only_threshold {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.is_finite(),
+            "Contract simd_only_threshold: postcondition violated — result.is_finite()"
+        );
     }};
 }
 
@@ -6078,6 +6122,14 @@ macro_rules! contract_inv_decode {
     }};
 }
 
+/// Postconditions for equation `decode`.
+/// Call before return: `contract_post_decode!(result_expr)`
+macro_rules! contract_post_decode {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
 /// Preconditions for equation `encode`.
 /// Domain-specific. Call: `contract_pre_encode!(slice_expr)`
 macro_rules! contract_pre_encode {
@@ -6095,6 +6147,14 @@ macro_rules! contract_pre_encode {
 /// Check after computation: `contract_inv_encode!(result_expr)`
 macro_rules! contract_inv_encode {
     () => {{}};
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `encode`.
+/// Call before return: `contract_post_encode!(result_expr)`
+macro_rules! contract_post_encode {
     ($result:expr) => {{
         let _contract_result = &$result;
     }};
@@ -10308,6 +10368,14 @@ macro_rules! contract_inv_decode {
     }};
 }
 
+/// Postconditions for equation `decode`.
+/// Call before return: `contract_post_decode!(result_expr)`
+macro_rules! contract_post_decode {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
 /// Preconditions for equation `encode`.
 /// Domain-specific. Call: `contract_pre_encode!(slice_expr)`
 macro_rules! contract_pre_encode {
@@ -10321,6 +10389,14 @@ macro_rules! contract_pre_encode {
 /// Check after computation: `contract_inv_encode!(result_expr)`
 macro_rules! contract_inv_encode {
     () => {{}};
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `encode`.
+/// Call before return: `contract_post_encode!(result_expr)`
+macro_rules! contract_post_encode {
     ($result:expr) => {{
         let _contract_result = &$result;
     }};
@@ -10598,6 +10674,18 @@ macro_rules! contract_inv_flash_attention {
     }};
 }
 
+/// Postconditions for equation `flash_attention`.
+/// Call before return: `contract_post_flash_attention!(result_expr)`
+macro_rules! contract_post_flash_attention {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.iter().all(|v| v.is_finite()),
+            "Contract flash_attention: postcondition violated — result.iter().all(|v| v.is_finite())"
+        );
+    }};
+}
+
 // Auto-generated from contracts/format-parity-v1.yaml — DO NOT EDIT
 // Contract: format-parity-v1
 
@@ -10618,6 +10706,14 @@ macro_rules! contract_pre_element_count {
 /// Check after computation: `contract_inv_element_count!(result_expr)`
 macro_rules! contract_inv_element_count {
     () => {{}};
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `element_count`.
+/// Call before return: `contract_post_element_count!(result_expr)`
+macro_rules! contract_post_element_count {
     ($result:expr) => {{
         let _contract_result = &$result;
     }};
@@ -10851,6 +10947,14 @@ macro_rules! contract_inv_decay {
     }};
 }
 
+/// Postconditions for equation `decay`.
+/// Call before return: `contract_post_decay!(result_expr)`
+macro_rules! contract_post_decay {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
 /// Preconditions for equation `delta`.
 /// Domain-specific. Call: `contract_pre_delta!(slice_expr)`
 macro_rules! contract_pre_delta {
@@ -10872,6 +10976,14 @@ macro_rules! contract_pre_delta {
 /// Check after computation: `contract_inv_delta!(result_expr)`
 macro_rules! contract_inv_delta {
     () => {{}};
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `delta`.
+/// Call before return: `contract_post_delta!(result_expr)`
+macro_rules! contract_post_delta {
     ($result:expr) => {{
         let _contract_result = &$result;
     }};
@@ -10929,6 +11041,14 @@ macro_rules! contract_inv_read {
     }};
 }
 
+/// Postconditions for equation `read`.
+/// Call before return: `contract_post_read!(result_expr)`
+macro_rules! contract_post_read {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
 /// Preconditions for equation `write`.
 /// Domain-specific. Call: `contract_pre_write!(slice_expr)`
 macro_rules! contract_pre_write {
@@ -10950,6 +11070,14 @@ macro_rules! contract_pre_write {
 /// Check after computation: `contract_inv_write!(result_expr)`
 macro_rules! contract_inv_write {
     () => {{}};
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `write`.
+/// Call before return: `contract_post_write!(result_expr)`
+macro_rules! contract_post_write {
     ($result:expr) => {{
         let _contract_result = &$result;
     }};
@@ -11025,6 +11153,18 @@ macro_rules! contract_inv_predict {
     () => {{}};
     ($result:expr) => {{
         let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `predict`.
+/// Call before return: `contract_post_predict!(result_expr)`
+macro_rules! contract_post_predict {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.is_finite(),
+            "Contract predict: postcondition violated — result.is_finite()"
+        );
     }};
 }
 
@@ -12137,6 +12277,14 @@ macro_rules! contract_pre_gqa {
 /// Check after computation: `contract_inv_gqa!(result_expr)`
 macro_rules! contract_inv_gqa {
     () => {{}};
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `gqa`.
+/// Call before return: `contract_post_gqa!(result_expr)`
+macro_rules! contract_post_gqa {
     ($result:expr) => {{
         let _contract_result = &$result;
     }};
@@ -13305,6 +13453,18 @@ macro_rules! contract_inv_decode_step {
     }};
 }
 
+/// Postconditions for equation `decode_step`.
+/// Call before return: `contract_post_decode_step!(result_expr)`
+macro_rules! contract_post_decode_step {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.iter().all(|v| v.is_finite()),
+            "Contract decode_step: postcondition violated — result.iter().all(|v| v.is_finite())"
+        );
+    }};
+}
+
 /// Preconditions for equation `hybrid_layer_schedule`.
 /// Call at function entry: `contract_pre_hybrid_layer_schedule!(input_expr)`
 macro_rules! contract_pre_hybrid_layer_schedule {
@@ -13362,6 +13522,14 @@ macro_rules! contract_pre_layer_composition {
 /// Check after computation: `contract_inv_layer_composition!(result_expr)`
 macro_rules! contract_inv_layer_composition {
     () => {{}};
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `layer_composition`.
+/// Call before return: `contract_post_layer_composition!(result_expr)`
+macro_rules! contract_post_layer_composition {
     ($result:expr) => {{
         let _contract_result = &$result;
     }};
@@ -13760,6 +13928,14 @@ macro_rules! contract_inv_update {
     }};
 }
 
+/// Postconditions for equation `update`.
+/// Call before return: `contract_post_update!(result_expr)`
+macro_rules! contract_post_update {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
 // Auto-generated from contracts/kv-cache-equivalence-v1.yaml — DO NOT EDIT
 // Contract: kv-cache-equivalence-v1
 
@@ -13812,6 +13988,14 @@ macro_rules! contract_pre_page_shape {
 /// Check after computation: `contract_inv_page_shape!(result_expr)`
 macro_rules! contract_inv_page_shape {
     () => {{}};
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `page_shape`.
+/// Call before return: `contract_post_page_shape!(result_expr)`
+macro_rules! contract_post_page_shape {
     ($result:expr) => {{
         let _contract_result = &$result;
     }};
@@ -14694,6 +14878,18 @@ macro_rules! contract_inv_quantized_dot {
     () => {{}};
     ($result:expr) => {{
         let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `quantized_dot`.
+/// Call before return: `contract_post_quantized_dot!(result_expr)`
+macro_rules! contract_post_quantized_dot {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.is_finite(),
+            "Contract quantized_dot: postcondition violated — result.is_finite()"
+        );
     }};
 }
 
@@ -17214,6 +17410,14 @@ macro_rules! contract_inv_block_allocation {
     }};
 }
 
+/// Postconditions for equation `block_allocation`.
+/// Call before return: `contract_post_block_allocation!(result_expr)`
+macro_rules! contract_post_block_allocation {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
 /// Preconditions for equation `block_table_lookup`.
 /// Domain-specific. Call: `contract_pre_block_table_lookup!(slice_expr)`
 macro_rules! contract_pre_block_table_lookup {
@@ -17278,6 +17482,14 @@ macro_rules! contract_pre_block_allocation {
 /// Check after computation: `contract_inv_block_allocation!(result_expr)`
 macro_rules! contract_inv_block_allocation {
     () => {{}};
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `block_allocation`.
+/// Call before return: `contract_post_block_allocation!(result_expr)`
+macro_rules! contract_post_block_allocation {
     ($result:expr) => {{
         let _contract_result = &$result;
     }};
@@ -17380,6 +17592,14 @@ macro_rules! contract_pre_slot_mapping {
 /// Check after computation: `contract_inv_slot_mapping!(result_expr)`
 macro_rules! contract_inv_slot_mapping {
     () => {{}};
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `slot_mapping`.
+/// Call before return: `contract_post_slot_mapping!(result_expr)`
+macro_rules! contract_post_slot_mapping {
     ($result:expr) => {{
         let _contract_result = &$result;
     }};
@@ -18652,6 +18872,14 @@ macro_rules! contract_inv_bsum {
     }};
 }
 
+/// Postconditions for equation `bsum`.
+/// Call before return: `contract_post_bsum!(result_expr)`
+macro_rules! contract_post_bsum {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
 /// Preconditions for equation `dequantization`.
 /// Domain-specific. Call: `contract_pre_dequantization!(slice_expr)`
 macro_rules! contract_pre_dequantization {
@@ -18671,6 +18899,18 @@ macro_rules! contract_inv_dequantization {
     () => {{}};
     ($result:expr) => {{
         let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `dequantization`.
+/// Call before return: `contract_post_dequantization!(result_expr)`
+macro_rules! contract_post_dequantization {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.is_finite(),
+            "Contract dequantization: postcondition violated — result.is_finite()"
+        );
     }};
 }
 
@@ -19596,6 +19836,18 @@ macro_rules! contract_inv_rope_frequency {
     }};
 }
 
+/// Postconditions for equation `rope_frequency`.
+/// Call before return: `contract_post_rope_frequency!(result_expr)`
+macro_rules! contract_post_rope_frequency {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.iter().all(|v| v.is_finite()),
+            "Contract rope_frequency: postcondition violated — result.iter().all(|v| v.is_finite())"
+        );
+    }};
+}
+
 /// Preconditions for equation `swiglu_ratio`.
 /// Domain-specific. Call: `contract_pre_swiglu_ratio!(slice_expr)`
 macro_rules! contract_pre_swiglu_ratio {
@@ -19932,6 +20184,18 @@ macro_rules! contract_inv_rope_frequency {
     }};
 }
 
+/// Postconditions for equation `rope_frequency`.
+/// Call before return: `contract_post_rope_frequency!(result_expr)`
+macro_rules! contract_post_rope_frequency {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.iter().all(|v| v.is_finite()),
+            "Contract rope_frequency: postcondition violated — result.iter().all(|v| v.is_finite())"
+        );
+    }};
+}
+
 /// Preconditions for equation `swiglu_ratio`.
 /// Domain-specific. Call: `contract_pre_swiglu_ratio!(slice_expr)`
 macro_rules! contract_pre_swiglu_ratio {
@@ -20136,6 +20400,18 @@ macro_rules! contract_inv_attention_sublayer {
     }};
 }
 
+/// Postconditions for equation `attention_sublayer`.
+/// Call before return: `contract_post_attention_sublayer!(result_expr)`
+macro_rules! contract_post_attention_sublayer {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.iter().all(|v| v.is_finite()),
+            "Contract attention_sublayer: postcondition violated — result.iter().all(|v| v.is_finite())"
+        );
+    }};
+}
+
 /// Preconditions for equation `ffn_sublayer`.
 /// Domain-specific. Call: `contract_pre_ffn_sublayer!(slice_expr)`
 macro_rules! contract_pre_ffn_sublayer {
@@ -20158,6 +20434,18 @@ macro_rules! contract_inv_ffn_sublayer {
     }};
 }
 
+/// Postconditions for equation `ffn_sublayer`.
+/// Call before return: `contract_post_ffn_sublayer!(result_expr)`
+macro_rules! contract_post_ffn_sublayer {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.iter().all(|v| v.is_finite()),
+            "Contract ffn_sublayer: postcondition violated — result.iter().all(|v| v.is_finite())"
+        );
+    }};
+}
+
 /// Preconditions for equation `gdn_sublayer`.
 /// Domain-specific. Call: `contract_pre_gdn_sublayer!(slice_expr)`
 macro_rules! contract_pre_gdn_sublayer {
@@ -20177,6 +20465,18 @@ macro_rules! contract_inv_gdn_sublayer {
     () => {{}};
     ($result:expr) => {{
         let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `gdn_sublayer`.
+/// Call before return: `contract_post_gdn_sublayer!(result_expr)`
+macro_rules! contract_post_gdn_sublayer {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.iter().all(|v| v.is_finite()),
+            "Contract gdn_sublayer: postcondition violated — result.iter().all(|v| v.is_finite())"
+        );
     }};
 }
 
@@ -20312,6 +20612,18 @@ macro_rules! contract_inv_rope_frequency {
     () => {{}};
     ($result:expr) => {{
         let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `rope_frequency`.
+/// Call before return: `contract_post_rope_frequency!(result_expr)`
+macro_rules! contract_post_rope_frequency {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.iter().all(|v| v.is_finite()),
+            "Contract rope_frequency: postcondition violated — result.iter().all(|v| v.is_finite())"
+        );
     }};
 }
 
@@ -20626,6 +20938,18 @@ macro_rules! contract_inv_rope_frequency {
     () => {{}};
     ($result:expr) => {{
         let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `rope_frequency`.
+/// Call before return: `contract_post_rope_frequency!(result_expr)`
+macro_rules! contract_post_rope_frequency {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.iter().all(|v| v.is_finite()),
+            "Contract rope_frequency: postcondition violated — result.iter().all(|v| v.is_finite())"
+        );
     }};
 }
 
@@ -21312,6 +21636,14 @@ macro_rules! contract_inv_base_frequency {
     }};
 }
 
+/// Postconditions for equation `base_frequency`.
+/// Call before return: `contract_post_base_frequency!(result_expr)`
+macro_rules! contract_post_base_frequency {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
 /// Preconditions for equation `linear_interpolation`.
 /// Domain-specific. Call: `contract_pre_linear_interpolation!(slice_expr)`
 macro_rules! contract_pre_linear_interpolation {
@@ -21356,6 +21688,14 @@ macro_rules! contract_inv_ntk_scaled_base {
     }};
 }
 
+/// Postconditions for equation `ntk_scaled_base`.
+/// Call before return: `contract_post_ntk_scaled_base!(result_expr)`
+macro_rules! contract_post_ntk_scaled_base {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
 /// Preconditions for equation `rotation_matrix`.
 /// Domain-specific. Call: `contract_pre_rotation_matrix!(slice_expr)`
 macro_rules! contract_pre_rotation_matrix {
@@ -21375,6 +21715,18 @@ macro_rules! contract_inv_rotation_matrix {
     () => {{}};
     ($result:expr) => {{
         let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `rotation_matrix`.
+/// Call before return: `contract_post_rotation_matrix!(result_expr)`
+macro_rules! contract_post_rotation_matrix {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.iter().all(|v| v.is_finite()),
+            "Contract rotation_matrix: postcondition violated — result.iter().all(|v| v.is_finite())"
+        );
     }};
 }
 
@@ -21822,6 +22174,14 @@ macro_rules! contract_pre_temperature {
 /// Check after computation: `contract_inv_temperature!(result_expr)`
 macro_rules! contract_inv_temperature {
     () => {{}};
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `temperature`.
+/// Call before return: `contract_post_temperature!(result_expr)`
+macro_rules! contract_post_temperature {
     ($result:expr) => {{
         let _contract_result = &$result;
     }};
@@ -22553,6 +22913,22 @@ macro_rules! contract_inv_sigmoid {
     }};
 }
 
+/// Postconditions for equation `sigmoid`.
+/// Call before return: `contract_post_sigmoid!(result_expr)`
+macro_rules! contract_post_sigmoid {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.iter().all(|v| v.is_finite()),
+            "Contract sigmoid: postcondition violated — result.iter().all(|v| v.is_finite())"
+        );
+        debug_assert!(
+            _contract_result.iter().all(|v| *v >= 0.0 && *v <= 1.0),
+            "Contract sigmoid: postcondition violated — result.iter().all(|v| *v >= 0.0 && *v <= 1.0)"
+        );
+    }};
+}
+
 /// Preconditions for equation `silu`.
 /// Domain-specific. Call: `contract_pre_silu!(slice_expr)`
 macro_rules! contract_pre_silu {
@@ -22978,6 +23354,14 @@ macro_rules! contract_pre_effective_context {
 /// Check after computation: `contract_inv_effective_context!(result_expr)`
 macro_rules! contract_inv_effective_context {
     () => {{}};
+    ($result:expr) => {{
+        let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `effective_context`.
+/// Call before return: `contract_post_effective_context!(result_expr)`
+macro_rules! contract_post_effective_context {
     ($result:expr) => {{
         let _contract_result = &$result;
     }};
@@ -25118,6 +25502,18 @@ macro_rules! contract_inv_transpose {
     () => {{}};
     ($result:expr) => {{
         let _contract_result = &$result;
+    }};
+}
+
+/// Postconditions for equation `transpose`.
+/// Call before return: `contract_post_transpose!(result_expr)`
+macro_rules! contract_post_transpose {
+    ($result:expr) => {{
+        let _contract_result = &$result;
+        debug_assert!(
+            _contract_result.iter().all(|v| v.is_finite()),
+            "Contract transpose: postcondition violated — result.iter().all(|v| v.is_finite())"
+        );
     }};
 }
 

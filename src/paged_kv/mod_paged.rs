@@ -20,7 +20,7 @@ impl PagedKvCache {
             free_pages.push_back(page_id);
         }
 
-        Self {
+        let result = Self {
             physical_pages,
             page_tables: HashMap::new(),
             free_pages,
@@ -29,7 +29,9 @@ impl PagedKvCache {
             head_dim,
             total_pages,
             stats: PagedCacheStats::default(),
-        }
+        };
+        contract_post_page_shape!(&result);
+        result
     }
 
     /// Allocate pages for a new sequence
@@ -464,7 +466,9 @@ impl PagedKvCache {
             });
         }
         let page_id = pages[page_idx];
-        Ok(page_id.value() as usize * self.block_size + offset)
+        let result = page_id.value() as usize * self.block_size + offset;
+        contract_post_slot_mapping!(&result);
+        Ok(result)
     }
 
     /// Allocate a contiguous block of pages from the free list.
@@ -482,6 +486,7 @@ impl PagedKvCache {
             .map(|_| self.free_pages.pop_front().unwrap())
             .collect();
         self.stats.used_pages += allocated.len() as u64;
+        contract_post_block_allocation!(&allocated);
         Ok(allocated)
     }
 }

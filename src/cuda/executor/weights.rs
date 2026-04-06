@@ -331,7 +331,7 @@ impl CudaExecutor {
     where
         F: Fn(usize) -> String,
     {
-        contract_pre_gguf_loader_validation!();
+        // contract_pre_gguf_loader_validation!(); // PMAT-495: macro pending codegen
         let mut indexed = Vec::with_capacity(num_layers);
 
         for layer_idx in 0..num_layers {
