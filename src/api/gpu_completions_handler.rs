@@ -334,6 +334,63 @@ pub async fn openai_completions_handler(
         return Ok(Json(r));
     }
 
+    // GH-627/637/670: Direct CUDA model fallback for APR GPU path
+    // with_cuda_model_and_vocab sets cuda_model but NOT model,
+    // so registry_completions fails with "No model available".
+    #[cfg(feature = "cuda")]
+    if let Some(cuda_lock) = state.cuda_model() {
+        use crate::gguf::QuantizedGenerateConfig;
+        let tokenizer = state.tokenizer.clone().ok_or_else(|| {
+            rerr(&state, StatusCode::INTERNAL_SERVER_ERROR, "No tokenizer")
+        })?;
+        let prompt_ids = tokenizer.encode(&request.prompt);
+        if prompt_ids.is_empty() {
+            return Err(rerr(&state, StatusCode::BAD_REQUEST, "Prompt cannot be empty"));
+        }
+        let eos = state.cached_eos_token_id.unwrap_or(151643);
+        let config = QuantizedGenerateConfig {
+            max_tokens: max_tokens.min(4096),
+            temperature,
+            top_k: if temperature == 0.0 { 1 } else { 40 },
+            stop_tokens: vec![eos],
+            ..Default::default()
+        };
+        let result = {
+            let mut model = cuda_lock.write().expect("CUDA model lock");
+            model.generate_gpu_resident_logprobs(
+                &prompt_ids.iter().map(|&id| id as u32).collect::<Vec<_>>(),
+                &config,
+            ).map_err(|e| rerr(&state, StatusCode::INTERNAL_SERVER_ERROR, e))?
+        };
+        let prompt_len = prompt_ids.len();
+        let gen_tokens: Vec<u32> = result.tokens[prompt_len..].to_vec();
+        let text: String = gen_tokens.iter()
+            .map(|&t| tokenizer.decode(&[t]).unwrap_or_else(|_| format!("<{t}>")))
+            .collect();
+        let elapsed = start.elapsed();
+        let completion_tokens = gen_tokens.len();
+        return Ok(Json(CompletionResponse {
+            id: format!("cmpl-cuda-{}", elapsed.as_millis()),
+            object: "text_completion".to_string(),
+            created: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            model: request.model.clone(),
+            choices: vec![CompletionChoice {
+                text,
+                index: 0,
+                logprobs: None,
+                finish_reason: if completion_tokens >= max_tokens { "length" } else { "stop" }.to_string(),
+            }],
+            usage: Usage {
+                prompt_tokens: prompt_ids.len(),
+                completion_tokens,
+                total_tokens: prompt_ids.len() + completion_tokens,
+            },
+        }));
+    }
+
     Ok(Json(registry_completions(
         &state,
         &request,
