@@ -121,6 +121,7 @@ pub use attention::{Attention, FusedQKVAttention, MultiHeadAttention, SlidingWin
 /// // output sums to 1.0
 /// ```
 pub fn softmax(input: &Tensor<f32>) -> Result<Tensor<f32>> {
+    contract_pre_softmax!(input.data());
     let data = input.data();
     let shape = input.shape();
 
@@ -189,6 +190,7 @@ pub fn softmax(input: &Tensor<f32>) -> Result<Tensor<f32>> {
 /// let output = gelu(&input)?;
 /// ```
 pub fn gelu(input: &Tensor<f32>) -> Result<Tensor<f32>> {
+    contract_pre_gelu!(input.data());
     let data = input.data();
     if data.is_empty() {
         return Err(RealizarError::InvalidShape {

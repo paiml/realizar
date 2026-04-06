@@ -257,6 +257,7 @@ impl BPETokenizer {
     /// Vector of token IDs
     #[must_use]
     pub fn encode(&self, text: &str) -> Vec<u32> {
+        contract_pre_encode!();
         if text.is_empty() {
             return Vec::new();
         }
@@ -340,6 +341,7 @@ impl BPETokenizer {
     ///
     /// Returns error if any token ID is invalid
     pub fn decode(&self, token_ids: &[u32]) -> Result<String> {
+        contract_pre_decode!();
         let mut bytes: Vec<u8> = Vec::new();
 
         for &id in token_ids {

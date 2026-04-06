@@ -218,6 +218,7 @@ impl GenerationConfig {
 ///
 /// Returns error if temperature is not positive
 pub fn apply_temperature(logits: &Tensor<f32>, temperature: f32) -> Result<Tensor<f32>> {
+    contract_pre_temperature!();
     if temperature <= 0.0 {
         return Err(RealizarError::InvalidShape {
             reason: "Temperature must be positive".to_string(),
@@ -248,6 +249,7 @@ pub fn apply_temperature(logits: &Tensor<f32>, temperature: f32) -> Result<Tenso
 ///
 /// Returns error if logits are empty
 pub fn sample_greedy(logits: &Tensor<f32>) -> Result<usize> {
+    contract_pre_greedy!();
     let data = logits.data();
     if data.is_empty() {
         return Err(RealizarError::InvalidShape {
@@ -283,6 +285,7 @@ pub fn sample_greedy(logits: &Tensor<f32>) -> Result<usize> {
 ///
 /// Returns error if k is 0 or logits are empty
 pub fn sample_top_k(logits: &Tensor<f32>, k: usize, rng_value: f32) -> Result<usize> {
+    contract_pre_top_k!();
     let data = logits.data();
     if data.is_empty() {
         return Err(RealizarError::InvalidShape {

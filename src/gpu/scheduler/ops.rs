@@ -23,6 +23,7 @@ pub(super) fn apply_rope_inline(
     rope_theta: f32,
     position: usize,
 ) {
+    contract_pre_rope!(x);
     let half_dim = head_dim / 2;
     let head_dim_f32 = head_dim as f32;
     let pos_f32 = position as f32;
@@ -65,6 +66,7 @@ pub(super) fn gqa_multihead_attention(
     num_kv_heads: usize, // Number of K/V heads (for GQA, < num_heads)
     head_dim: usize,
 ) -> Vec<f32> {
+    contract_pre_attention!(q);
     let hidden_dim = num_heads * head_dim;
     let kv_dim = num_kv_heads * head_dim;
     let scale = 1.0 / (head_dim as f32).sqrt();

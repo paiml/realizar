@@ -37,6 +37,7 @@ use trueno::Vector as TruenoVector;
 /// Normalized output [seq_len * hidden_dim]
 #[contract("forward-pass-v1", equation = "rms_norm")]
 pub fn rms_norm(input: &[f32], weight: &[f32], eps: f32) -> Vec<f32> {
+    contract_pre_rmsnorm!(input);
     let hidden_dim = weight.len();
     let seq_len = input.len() / hidden_dim;
     let mut output = Vec::with_capacity(input.len());
@@ -126,6 +127,7 @@ pub fn rms_norm_into(input: &[f32], weight: &[f32], eps: f32, output: &mut [f32]
 /// * `bias` - Optional bias [hidden_dim]
 /// * `eps` - Small constant for numerical stability
 pub fn layer_norm(input: &[f32], weight: &[f32], bias: Option<&[f32]>, eps: f32) -> Vec<f32> {
+    contract_pre_layernorm!(input);
     let hidden_dim = weight.len();
     let seq_len = input.len() / hidden_dim;
     let mut output = Vec::with_capacity(input.len());
@@ -192,6 +194,7 @@ pub fn layer_norm_into(
 /// * `input` - Input tensor (modified in-place)
 #[inline]
 pub fn gelu(input: &mut [f32]) {
+    contract_pre_gelu!(input);
     // ONE PATH: Per-element delegates to trueno::gelu_scalar (UCBD §4).
     for x in input.iter_mut() {
         *x = trueno::gelu_scalar(*x);
@@ -207,6 +210,7 @@ pub fn gelu(input: &mut [f32]) {
 /// * `input` - Input tensor (modified in-place)
 #[inline]
 pub fn silu(input: &mut [f32]) {
+    contract_pre_silu!(input);
     // ONE PATH: Per-element delegates to trueno::silu_scalar (UCBD §4).
     for x in input.iter_mut() {
         *x = trueno::silu_scalar(*x);
@@ -261,6 +265,7 @@ pub fn argmax(logits: &[f32]) -> u32 {
 /// * `logits` - Input logits (modified in-place to probabilities)
 #[contract("sampling-v1", equation = "softmax_inplace")]
 pub fn softmax(logits: &mut [f32]) {
+    contract_pre_softmax!(logits);
     // Find max for numerical stability
     let max_val = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
 
