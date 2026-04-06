@@ -124,6 +124,7 @@ async fn try_cuda_backend(
                 prompt_ids,
                 config: q_config,
                 token_tx: tx,
+                non_streaming: false,
                 enqueue_time: std::time::Instant::now(),
             };
             if let Err(e) = batch_tx.try_send(batch_req) {
@@ -166,11 +167,13 @@ async fn try_cuda_backend(
     // Non-streaming CUDA — route through batch scheduler when available (realizr#211)
     let (token_ids, completion_tokens, response_text) = if let Some(batch_tx) = state.cuda_batch_tx() {
         // Use batch scheduler: submit request and collect all tokens
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<u32, String>>(16);
+        // realizr#212: capacity 512 for bulk-send after non-streaming generation
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<u32, String>>(512);
         let batch_req = super::cuda_batch_scheduler::CudaBatchRequest {
             prompt_ids,
             config: q_config,
             token_tx: tx,
+            non_streaming: true, // realizr#212: scheduler accumulates + bulk-sends
             enqueue_time: std::time::Instant::now(),
         };
         if let Err(e) = batch_tx.try_send(batch_req) {

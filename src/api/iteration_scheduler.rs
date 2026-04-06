@@ -232,17 +232,12 @@ fn process_iteration_batch(
 
     let m = batch.len();
 
-    // Single request — fast M=1 path (CUDA graph replay, 154.8 tok/s)
+    // Single request — fast M=1 path (CUDA graph replay)
+    // realizr#212: non_streaming accumulates via Vec::push then bulk-sends
     if m == 1 && waiting.is_empty() {
         let req = batch.into_iter().next().unwrap();
         let mut cuda_model = model.write().expect("PMAT-088: model lock poisoned");
-        let result =
-            cuda_model.generate_gpu_resident_streaming(&req.prompt_ids, &req.config, |token_id| {
-                req.token_tx.try_send(Ok(token_id)).is_ok()
-            });
-        if let Err(e) = result {
-            let _ = req.token_tx.try_send(Err(e.to_string()));
-        }
+        crate::api::cuda_batch_scheduler::generate_single_request(&mut cuda_model, req);
         *total_iterations += 1;
         return;
     }

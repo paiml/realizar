@@ -16,6 +16,9 @@ pub struct CudaBatchRequest {
     pub config: QuantizedGenerateConfig,
     /// Channel to stream generated token IDs back to the HTTP handler
     pub token_tx: tokio::sync::mpsc::Sender<Result<u32, String>>,
+    /// realizr#212: When true, scheduler accumulates tokens internally (Vec::push)
+    /// and bulk-sends after generation — eliminates per-token channel overhead.
+    pub non_streaming: bool,
     /// PMAT-086: Timestamp when request was enqueued (for queue latency measurement)
     pub enqueue_time: std::time::Instant,
 }
@@ -47,6 +50,27 @@ impl Default for CudaBatchConfig {
             max_batch,
             window_ms,
         }
+    }
+}
+
+/// realizr#212: Generate tokens for a single request, using bulk-send for non-streaming.
+/// Shared by both batch scheduler (PMAT-044) and iteration scheduler (PMAT-088).
+#[cfg(feature = "cuda")]
+pub fn generate_single_request(cuda_model: &mut OwnedQuantizedModelCuda, req: CudaBatchRequest) {
+    if req.non_streaming {
+        let mut tokens = Vec::new();
+        let result = cuda_model.generate_gpu_resident_streaming(
+            &req.prompt_ids, &req.config, |tid| { tokens.push(tid); true },
+        );
+        match result {
+            Ok(_) => { for t in tokens { if req.token_tx.try_send(Ok(t)).is_err() { break; } } },
+            Err(e) => { let _ = req.token_tx.try_send(Err(e.to_string())); },
+        }
+    } else {
+        let result = cuda_model.generate_gpu_resident_streaming(
+            &req.prompt_ids, &req.config, |tid| req.token_tx.try_send(Ok(tid)).is_ok(),
+        );
+        if let Err(e) = result { let _ = req.token_tx.try_send(Err(e.to_string())); }
     }
 }
 
@@ -216,13 +240,7 @@ fn process_cuda_batch(
                 req.enqueue_time.elapsed().as_secs_f64() * 1000.0
             );
         }
-        let result =
-            cuda_model.generate_gpu_resident_streaming(&req.prompt_ids, &req.config, |token_id| {
-                req.token_tx.try_send(Ok(token_id)).is_ok()
-            });
-        if let Err(e) = result {
-            let _ = req.token_tx.try_send(Err(e.to_string()));
-        }
+        generate_single_request(&mut cuda_model, req);
         return;
     }
 

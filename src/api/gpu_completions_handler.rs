@@ -246,13 +246,14 @@ async fn try_cuda_gguf_completions(
         ..Default::default()
     };
 
-    // Streaming channel — collect all tokens for non-streaming response
+    // realizr#212: non_streaming flag tells scheduler to accumulate + bulk-send.
     let (token_tx, mut token_rx) = tokio::sync::mpsc::channel::<Result<u32, String>>(max_tokens + 1);
 
     let batch_req = CudaBatchRequest {
         prompt_ids,
         config: q_config,
         token_tx,
+        non_streaming: true,
         enqueue_time: std::time::Instant::now(),
     };
 
