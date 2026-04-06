@@ -353,7 +353,7 @@ impl OwnedQuantizedModelCuda {
                 head_dim,
                 max_seq_len,
             );
-            eprintln!("[PMAT-399] Auto-sized CUDA_MAX_BATCH={auto_batch} (no env var set)");
+            // GH-611: Suppressed — was noisy in non-verbose mode
             // Store for scheduler to pick up
             std::env::set_var("CUDA_MAX_BATCH", auto_batch.to_string());
         }

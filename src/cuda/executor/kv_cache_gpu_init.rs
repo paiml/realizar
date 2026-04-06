@@ -57,12 +57,7 @@ impl CudaExecutor {
 
         let max_batch = if kv_per_slot > 0 { available / kv_per_slot } else { 32 };
         let clamped = max_batch.clamp(1, 32);
-        eprintln!(
-            "[PMAT-399] Memory fit: {:.1} GB free, {:.1} GB reserve, \
-             {:.1} GB/slot KV, max_batch={}",
-            free as f64 / 1e9, reserve as f64 / 1e9,
-            kv_per_slot as f64 / 1e9, clamped,
-        );
+        // GH-611: Suppressed — was noisy in non-verbose mode
         if clamped <= 1 && free < reserve {
             eprintln!(
                 "[GH-178] WARNING: Only {:.1} GB free VRAM (need {:.1} GB \

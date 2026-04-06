@@ -132,12 +132,7 @@ impl GpuProfile {
             cc,
         };
 
-        eprintln!(
-            "[GpuProfile] {}: q4k={:?}, q6k={:?}, warps={}, batched_prefill={}, hgemm_decode={}, fused_gate_up={}, fp8_prefill={}, fp8_decode={}, w4a16_il={}, sms={}",
-            profile.sm_target, profile.q4k, profile.q6k, profile.mwv_warps,
-            profile.batched_prefill, profile.hgemm_decode, profile.fused_gate_up,
-            profile.fp8_prefill, profile.fp8_decode, profile.w4a16_interleaved, num_sms,
-        );
+        // GH-611: Suppressed — was noisy in non-verbose mode
 
         profile
     }
