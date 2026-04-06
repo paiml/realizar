@@ -53,4 +53,5 @@ impl CudaExecutor {
 }
 
 include!("batched_forward.rs");
+include!("prefill_logits.rs");
 include!("par-121.rs");

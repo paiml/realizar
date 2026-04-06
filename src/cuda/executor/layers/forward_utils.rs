@@ -510,6 +510,32 @@ impl CudaExecutor {
             &normed_hidden, logits, vocab_size, hidden_dim, debug_enabled,
         )
     }
+
+    /// realizr#203: Apply output norm + LM head to a pre-computed hidden state.
+    ///
+    /// Used by batched prefill PPL: prefill computes hidden states for all positions,
+    /// then this function extracts logits per-position via the standard M=1 path.
+    pub fn hidden_to_logits(
+        &mut self,
+        hidden_state: &[f32],
+        logits: &mut [f32],
+        hidden_dim: u32,
+        vocab_size: u32,
+        epsilon: f32,
+    ) -> Result<(), GpuError> {
+        // Upload hidden state
+        let hidden_gpu = self.pad_and_upload_input(hidden_state)?;
+
+        // Output RMSNorm
+        let normed_hidden = self.apply_output_rmsnorm(
+            &hidden_gpu, false, hidden_dim, epsilon,
+        )?;
+
+        // LM head + download
+        self.dispatch_lm_head_and_download(
+            &normed_hidden, logits, vocab_size, hidden_dim, false,
+        )
+    }
 }
 
 include!("logits.rs");

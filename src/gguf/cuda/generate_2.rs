@@ -765,4 +765,152 @@ impl OwnedQuantizedModelCuda {
         };
         Ok(ppl)
     }
+
+    /// realizr#203: Batched prefill perplexity using FP8 GEMM path.
+    ///
+    /// Processes all tokens in one prefill forward (M=S uses FP8 cuBLASLt),
+    /// then extracts per-position logits via batched LM head GEMM.
+    /// Expected to close PPL gap vs llama.cpp (24.2 → ~13-16 target).
+    ///
+    /// Five-whys root cause: `perplexity_gpu_resident` used M=1 DP4A GEMV
+    /// per token, accumulating int8 precision loss over 28 layers.
+    pub fn perplexity_gpu_batched(
+        &mut self,
+        tokens: &[u32],
+    ) -> Result<f64> {
+        use super::super::logprobs::logprob_of;
+
+        if tokens.len() < 2 {
+            return Ok(0.0);
+        }
+
+        // Validate against GPU KV cache capacity
+        let gpu_max_len = self.executor.max_kv_len();
+        let effective_max = if gpu_max_len > 0 {
+            gpu_max_len.min(self.model.config.context_length)
+        } else {
+            self.model.config.context_length
+        };
+        if tokens.len() > effective_max {
+            return Err(RealizarError::ContextLimitExceeded {
+                provided: tokens.len(),
+                maximum: effective_max,
+            });
+        }
+
+        self.executor
+            .make_current()
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "cuda_make_current".to_string(),
+                reason: format!("Failed to set CUDA context current: {e}"),
+            })?;
+
+        if !self.supports_gpu_resident() {
+            return Err(RealizarError::UnsupportedOperation {
+                operation: "perplexity_gpu_batched".to_string(),
+                reason: "Architecture not supported".to_string(),
+            });
+        }
+
+        let s = tokens.len();
+        let hidden_dim = self.model.config.hidden_dim;
+        let intermediate_dim = self.model.layers[0].ffn_up_weight.out_dim;
+        let num_layers = self.model.layers.len();
+        let vocab_size = self.model.lm_head_weight.out_dim;
+        let eps = self.model.config.eps;
+
+        // 1. Reset KV cache and initialize prefill workspace
+        self.executor.reset_kv_cache_gpu();
+        self.executor
+            .init_prefill_workspace(
+                s,
+                hidden_dim,
+                intermediate_dim,
+            )
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "init_prefill_workspace".to_string(),
+                reason: format!("Prefill workspace init failed: {e}"),
+            })?;
+
+        // 2. Embed all S tokens (CPU — fast, token lookup)
+        let mut embeddings = vec![0.0f32; s * hidden_dim];
+        for (i, &token_id) in tokens.iter().enumerate() {
+            let start = i * hidden_dim;
+            let end = start + hidden_dim;
+            self.model.embed_into(token_id, &mut embeddings[start..end]);
+        }
+
+        // 3. Prefill: process all S tokens through all layers (FP8 GEMM path)
+        let positions: Vec<u32> = (0..s as u32).collect();
+        self.executor
+            .prefill_all_layers_gpu(
+                &embeddings,
+                &positions,
+                num_layers,
+                hidden_dim as u32,
+                intermediate_dim as u32,
+                eps,
+            )
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "prefill_all_layers_gpu".to_string(),
+                reason: format!("Prefill failed: {e}"),
+            })?;
+
+        // 4. Download hidden_buf2[S × hidden_dim] and extract per-position logits.
+        //
+        // After prefill, hidden_buf2 has FP8-precision hidden states for all S positions.
+        // We apply output norm + LM head per position using the standard M=1 path.
+        // The precision improvement comes from layers using FP8 GEMM (prefill) instead
+        // of DP4A GEMV (sequential decode).
+        //
+        // Why per-position instead of batched: batched LM head extraction via
+        // batched_gemv_or_gemm has correctness bugs at S>2 (realizr#203).
+        // Per-position is ~S×0.1ms but only runs during PPL measurement (offline).
+        self.executor.sync_stream()
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "stream_sync".to_string(),
+                reason: format!("{e}"),
+            })?;
+
+        let hidden_size = s * hidden_dim;
+        let mut all_hidden = vec![0.0f32; hidden_size];
+        self.executor.download_hidden_buf2(&mut all_hidden)
+            .map_err(|e| RealizarError::UnsupportedOperation {
+                operation: "hidden_download".to_string(),
+                reason: format!("{e}"),
+            })?;
+
+        let mut sum_logprob: f64 = 0.0;
+        let mut count: usize = 0;
+
+        for i in 0..s - 1 {
+            let pos_hidden = &all_hidden[i * hidden_dim..(i + 1) * hidden_dim];
+            let mut logits = vec![0.0f32; vocab_size];
+            self.executor
+                .hidden_to_logits(pos_hidden, &mut logits, hidden_dim as u32, vocab_size as u32, eps)
+                .map_err(|e| RealizarError::UnsupportedOperation {
+                    operation: "hidden_to_logits".to_string(),
+                    reason: format!("{e}"),
+                })?;
+
+            // Add LM head bias if present
+            if let Some(ref bias) = self.model.lm_head_bias {
+                crate::gguf::ops::add_bias(&mut logits, bias);
+            }
+
+            let lp = logprob_of(&logits, tokens[i + 1]);
+            sum_logprob += f64::from(lp);
+            count += 1;
+        }
+
+        // Reset KV cache after measurement
+        self.executor.reset_kv_cache_gpu();
+
+        let ppl = if count > 0 {
+            (-sum_logprob / count as f64).exp()
+        } else {
+            0.0
+        };
+        Ok(ppl)
+    }
 }

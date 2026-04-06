@@ -446,16 +446,21 @@ pub async fn perplexity_handler(
     }
 
     let start = std::time::Instant::now();
-    let ppl = {
-        let mut model = cuda_model_lock.write().expect("CUDA model lock");
-        model
-            .perplexity_gpu_resident(&token_ids)
-            .map_err(|e| rerr(&state, StatusCode::INTERNAL_SERVER_ERROR, e))?
-    };
+    let mut model = cuda_model_lock.write().expect("CUDA model lock");
+
+    // realizr#203: Run BOTH paths for comparison during development
+    let ppl_sequential = model
+        .perplexity_gpu_resident(&token_ids)
+        .map_err(|e| rerr(&state, StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let ppl_batched = model.perplexity_gpu_batched(&token_ids).ok();
+
+    drop(model);
     let elapsed = start.elapsed();
 
     Ok(Json(serde_json::json!({
-        "perplexity": ppl,
+        "perplexity": ppl_batched.unwrap_or(ppl_sequential),
+        "ppl_sequential": ppl_sequential,
+        "ppl_batched": ppl_batched,
         "num_tokens": token_ids.len(),
         "elapsed_ms": elapsed.as_millis(),
         "tokens_per_sec": token_ids.len() as f64 / elapsed.as_secs_f64(),

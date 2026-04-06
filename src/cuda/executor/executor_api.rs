@@ -28,6 +28,19 @@ impl CudaExecutor {
         self.context.make_current()
     }
 
+    /// realizr#203: Download hidden_buf2 contents to host.
+    /// After prefill, this contains S × hidden_dim hidden states.
+    pub fn download_hidden_buf2(&self, dst: &mut [f32]) -> Result<(), GpuError> {
+        if let Some(ref buf) = self.workspace.hidden_buf2 {
+            let copy_len = dst.len().min(buf.len());
+            buf.copy_to_host(&mut dst[..copy_len])
+        } else {
+            Err(GpuError::InvalidLaunchConfig(
+                "hidden_buf2 not initialized".to_string(),
+            ))
+        }
+    }
+
     // ========================================================================
     // PAR-073: BrickProfiler API for per-brick timing
     // ========================================================================
